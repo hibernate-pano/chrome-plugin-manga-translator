@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 
-const CacheManager = ({ config, onClearCache }) => {
+const CacheManager = ({ config, onClearCache, onChange }) => {
   const [cacheSize, setCacheSize] = useState(0);
   const [cacheEntries, setCacheEntries] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
@@ -14,7 +14,7 @@ const CacheManager = ({ config, onClearCache }) => {
     chrome.storage.local.get(['translationCache'], (result) => {
       const cache = result.translationCache || {};
       const entries = Object.keys(cache).length;
-      
+
       // 计算缓存大小（粗略估计）
       let size = 0;
       try {
@@ -22,7 +22,7 @@ const CacheManager = ({ config, onClearCache }) => {
       } catch (e) {
         console.error('计算缓存大小时出错:', e);
       }
-      
+
       setCacheEntries(entries);
       setCacheSize(size);
       setIsLoading(false);
@@ -31,11 +31,11 @@ const CacheManager = ({ config, onClearCache }) => {
 
   const formatSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
-    
+
     const k = 1024;
     const sizes = ['Bytes', 'KB', 'MB', 'GB'];
     const i = Math.floor(Math.log(bytes) / Math.log(k));
-    
+
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   };
 
@@ -50,7 +50,7 @@ const CacheManager = ({ config, onClearCache }) => {
   return (
     <div>
       <h2 className="text-lg font-medium text-gray-900 mb-4">缓存管理</h2>
-      
+
       <div className="mb-6 grid grid-cols-2 gap-4">
         <div className="bg-white p-4 rounded border border-gray-200">
           <h3 className="text-sm font-medium text-gray-700 mb-1">缓存条目数</h3>
@@ -61,7 +61,7 @@ const CacheManager = ({ config, onClearCache }) => {
           )}
           <p className="text-xs text-gray-500 mt-1">已缓存的翻译数量</p>
         </div>
-        
+
         <div className="bg-white p-4 rounded border border-gray-200">
           <h3 className="text-sm font-medium text-gray-700 mb-1">缓存大小</h3>
           {isLoading ? (
@@ -72,7 +72,7 @@ const CacheManager = ({ config, onClearCache }) => {
           <p className="text-xs text-gray-500 mt-1">缓存占用的存储空间</p>
         </div>
       </div>
-      
+
       <div className="mb-6">
         <button
           onClick={handleClearCache}
@@ -85,7 +85,7 @@ const CacheManager = ({ config, onClearCache }) => {
           清除缓存将删除所有已保存的翻译结果，需要时会重新翻译
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="flex items-center">
           <input
@@ -106,7 +106,7 @@ const CacheManager = ({ config, onClearCache }) => {
           保存翻译结果以避免重复翻译相同内容，节省API调用
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           最大缓存条目数
@@ -129,7 +129,7 @@ const CacheManager = ({ config, onClearCache }) => {
           当缓存达到此数量时，最旧的条目将被删除
         </p>
       </div>
-      
+
       <div className="mt-6 p-4 bg-blue-50 rounded border border-blue-200">
         <h3 className="text-sm font-medium text-blue-800 mb-2">关于缓存</h3>
         <ul className="text-xs text-blue-700 list-disc list-inside">

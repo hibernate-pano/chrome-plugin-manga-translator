@@ -70,7 +70,7 @@ const OptionsApp = () => {
     const configData = JSON.stringify(config, null, 2);
     const blob = new Blob([configData], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
-    
+
     const a = document.createElement('a');
     a.href = url;
     a.download = 'manga-translator-config.json';
@@ -112,51 +112,46 @@ const OptionsApp = () => {
             <nav className="flex -mb-px">
               <button
                 onClick={() => setActiveTab('api')}
-                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-                  activeTab === 'api'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'api'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
               >
                 API设置
               </button>
               <button
                 onClick={() => setActiveTab('style')}
-                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-                  activeTab === 'style'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'style'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
               >
                 样式设置
               </button>
               <button
                 onClick={() => setActiveTab('shortcuts')}
-                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-                  activeTab === 'shortcuts'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'shortcuts'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
               >
                 快捷键
               </button>
               <button
                 onClick={() => setActiveTab('cache')}
-                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-                  activeTab === 'cache'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'cache'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
               >
                 缓存管理
               </button>
               <button
                 onClick={() => setActiveTab('advanced')}
-                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${
-                  activeTab === 'advanced'
-                    ? 'border-blue-500 text-blue-600'
-                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
-                }`}
+                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'advanced'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
               >
                 高级设置
               </button>
@@ -165,37 +160,38 @@ const OptionsApp = () => {
 
           <div className="p-6">
             {activeTab === 'api' && (
-              <ApiSettings 
-                config={config} 
-                onChange={saveConfig} 
+              <ApiSettings
+                config={config}
+                onChange={saveConfig}
               />
             )}
-            
+
             {activeTab === 'style' && (
-              <StyleSettings 
-                config={config} 
-                onChange={saveConfig} 
+              <StyleSettings
+                config={config}
+                onChange={saveConfig}
               />
             )}
-            
+
             {activeTab === 'shortcuts' && (
-              <KeyboardShortcuts 
-                shortcuts={config.shortcuts} 
-                onChange={(shortcuts) => saveConfig({ shortcuts })} 
+              <KeyboardShortcuts
+                shortcuts={config.shortcuts}
+                onChange={(shortcuts) => saveConfig({ shortcuts })}
               />
             )}
-            
+
             {activeTab === 'cache' && (
-              <CacheManager 
-                config={config} 
-                onClearCache={clearCache} 
+              <CacheManager
+                config={config}
+                onClearCache={clearCache}
+                onChange={saveConfig}
               />
             )}
-            
+
             {activeTab === 'advanced' && (
-              <AdvancedSettings 
-                settings={config.advancedSettings} 
-                onChange={(advancedSettings) => saveConfig({ advancedSettings })} 
+              <AdvancedSettings
+                settings={config.advancedSettings}
+                onChange={(advancedSettings) => saveConfig({ advancedSettings })}
               />
             )}
           </div>
@@ -219,10 +215,31 @@ const OptionsApp = () => {
               />
             </label>
           </div>
-          
+
           <div>
             <button
-              onClick={() => window.close()}
+              onClick={() => {
+                // 确保所有配置都被保存
+                chrome.storage.sync.set(config, () => {
+                  // 显示保存成功的消息
+                  const saveStatus = document.createElement('div');
+                  saveStatus.textContent = '配置已保存';
+                  saveStatus.style.position = 'fixed';
+                  saveStatus.style.bottom = '20px';
+                  saveStatus.style.right = '20px';
+                  saveStatus.style.padding = '10px 20px';
+                  saveStatus.style.backgroundColor = 'rgba(0, 128, 0, 0.8)';
+                  saveStatus.style.color = 'white';
+                  saveStatus.style.borderRadius = '5px';
+                  saveStatus.style.zIndex = '9999';
+                  document.body.appendChild(saveStatus);
+
+                  // 1秒后关闭窗口
+                  setTimeout(() => {
+                    window.close();
+                  }, 1000);
+                });
+              }}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"
             >
               保存并关闭

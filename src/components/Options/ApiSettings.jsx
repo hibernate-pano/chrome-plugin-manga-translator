@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 const ApiSettings = ({ config, onChange }) => {
   const [apiKey, setApiKey] = useState(config.apiKey || '');
@@ -10,7 +10,8 @@ const ApiSettings = ({ config, onChange }) => {
   const [useCustomModel, setUseCustomModel] = useState(config.useCustomModel || false);
   const [useCustomApiUrl, setUseCustomApiUrl] = useState(config.apiBaseUrl ? true : false);
 
-  const handleSave = () => {
+  // 创建一个保存配置的函数
+  const saveConfig = () => {
     onChange({
       apiKey,
       model: useCustomModel ? customModel : model,
@@ -21,6 +22,12 @@ const ApiSettings = ({ config, onChange }) => {
       useCustomApiUrl
     });
   };
+
+  // 当组件状态更新时保存配置
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(saveConfig, [apiKey, model, customModel, temperature, apiBaseUrl, useCustomModel, useCustomApiUrl]);
+
+  const handleSave = saveConfig;
 
   const toggleShowKey = () => {
     setShowKey(!showKey);

@@ -25,8 +25,18 @@ async function initialize() {
       ...translationState,
       enabled: config.enabled || false,
       mode: config.mode || 'manual',
-      targetLanguage: config.targetLanguage || 'zh-CN'
+      targetLanguage: config.targetLanguage || 'zh-CN',
+      // 添加自定义API相关配置
+      apiKey: config.apiKey || '',
+      apiBaseUrl: config.apiBaseUrl || 'https://api.openai.com/v1',
+      useCustomApiUrl: config.useCustomApiUrl || false,
+      model: config.model || 'gpt-3.5-turbo',
+      customModel: config.customModel || '',
+      useCustomModel: config.useCustomModel || false
     };
+
+    // 打印配置，用于调试
+    console.log('初始化加载的配置:', config);
 
     // 设置事件监听器
     setupEventListeners();
@@ -413,8 +423,18 @@ function handleMessages(message, sender, sendResponse) {
       ...translationState,
       enabled: message.config.enabled,
       mode: message.config.mode,
-      targetLanguage: message.config.targetLanguage
+      targetLanguage: message.config.targetLanguage,
+      // 添加自定义API相关配置
+      apiKey: message.config.apiKey,
+      apiBaseUrl: message.config.apiBaseUrl,
+      useCustomApiUrl: message.config.useCustomApiUrl,
+      model: message.config.model,
+      customModel: message.config.customModel,
+      useCustomModel: message.config.useCustomModel
     };
+
+    // 打印配置，用于调试
+    console.log('内容脚本收到的配置:', message.config);
 
     // 如果禁用了翻译，移除所有翻译
     if (!translationState.enabled) {
