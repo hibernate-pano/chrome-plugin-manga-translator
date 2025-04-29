@@ -24,6 +24,10 @@ function initializeDefaultSettings() {
     mode: 'manual',
     styleLevel: 50,
     model: 'gpt-3.5-turbo',
+    customModel: '',
+    useCustomModel: false,
+    apiBaseUrl: 'https://api.openai.com/v1',
+    useCustomApiUrl: false,
     temperature: 0.7,
     fontFamily: '',
     fontSize: 'auto',
@@ -45,7 +49,7 @@ function initializeDefaultSettings() {
       translationPrompt: ''
     }
   };
-  
+
   chrome.storage.sync.set(defaultSettings);
 }
 
@@ -53,10 +57,27 @@ function initializeDefaultSettings() {
 function updateSettings() {
   chrome.storage.sync.get(null, (result) => {
     if (!result) return;
-    
+
     // 检查并添加新设置项
     const updates = {};
-    
+
+    // 检查自定义API相关设置
+    if (result.customModel === undefined) {
+      updates.customModel = '';
+    }
+
+    if (result.useCustomModel === undefined) {
+      updates.useCustomModel = false;
+    }
+
+    if (result.apiBaseUrl === undefined) {
+      updates.apiBaseUrl = 'https://api.openai.com/v1';
+    }
+
+    if (result.useCustomApiUrl === undefined) {
+      updates.useCustomApiUrl = false;
+    }
+
     // 检查快捷键
     if (!result.shortcuts) {
       updates.shortcuts = {
@@ -64,7 +85,7 @@ function updateSettings() {
         translateSelected: 'Alt+S'
       };
     }
-    
+
     // 检查高级设置
     if (!result.advancedSettings) {
       updates.advancedSettings = {
@@ -81,27 +102,27 @@ function updateSettings() {
     } else {
       // 检查高级设置中的新选项
       const advancedUpdates = {};
-      
+
       if (result.advancedSettings.apiTimeout === undefined) {
         advancedUpdates.apiTimeout = 30;
       }
-      
+
       if (result.advancedSettings.maxConcurrentRequests === undefined) {
         advancedUpdates.maxConcurrentRequests = 3;
       }
-      
+
       if (result.advancedSettings.imagePreprocessing === undefined) {
         advancedUpdates.imagePreprocessing = 'none';
       }
-      
+
       if (result.advancedSettings.showOriginalText === undefined) {
         advancedUpdates.showOriginalText = false;
       }
-      
+
       if (result.advancedSettings.translationPrompt === undefined) {
         advancedUpdates.translationPrompt = '';
       }
-      
+
       if (Object.keys(advancedUpdates).length > 0) {
         updates.advancedSettings = {
           ...result.advancedSettings,
@@ -109,7 +130,7 @@ function updateSettings() {
         };
       }
     }
-    
+
     // 如果有更新，保存设置
     if (Object.keys(updates).length > 0) {
       chrome.storage.sync.set(updates);
@@ -124,7 +145,7 @@ chrome.runtime.onInstalled.addListener(() => {
     title: '翻译此图像',
     contexts: ['image']
   });
-  
+
   chrome.contextMenus.create({
     id: 'translatePage',
     title: '翻译页面上的漫画',

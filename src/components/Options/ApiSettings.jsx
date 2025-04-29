@@ -3,14 +3,22 @@ import React, { useState } from 'react';
 const ApiSettings = ({ config, onChange }) => {
   const [apiKey, setApiKey] = useState(config.apiKey || '');
   const [model, setModel] = useState(config.model || 'gpt-3.5-turbo');
+  const [customModel, setCustomModel] = useState(config.customModel || '');
   const [temperature, setTemperature] = useState(config.temperature || 0.7);
   const [showKey, setShowKey] = useState(false);
+  const [apiBaseUrl, setApiBaseUrl] = useState(config.apiBaseUrl || 'https://api.openai.com/v1');
+  const [useCustomModel, setUseCustomModel] = useState(config.useCustomModel || false);
+  const [useCustomApiUrl, setUseCustomApiUrl] = useState(config.apiBaseUrl ? true : false);
 
   const handleSave = () => {
     onChange({
       apiKey,
-      model,
-      temperature
+      model: useCustomModel ? customModel : model,
+      customModel: customModel,
+      temperature,
+      apiBaseUrl: useCustomApiUrl ? apiBaseUrl : 'https://api.openai.com/v1',
+      useCustomModel,
+      useCustomApiUrl
     });
   };
 
@@ -21,10 +29,10 @@ const ApiSettings = ({ config, onChange }) => {
   return (
     <div>
       <h2 className="text-lg font-medium text-gray-900 mb-4">API设置</h2>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
-          OpenAI API 密钥
+          API 密钥
         </label>
         <div className="flex">
           <input
@@ -32,7 +40,7 @@ const ApiSettings = ({ config, onChange }) => {
             value={apiKey}
             onChange={(e) => setApiKey(e.target.value)}
             onBlur={handleSave}
-            placeholder="输入您的OpenAI API密钥"
+            placeholder="输入您的API密钥"
             className="flex-1 px-3 py-2 border border-gray-300 rounded-l text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
@@ -47,28 +55,87 @@ const ApiSettings = ({ config, onChange }) => {
           您的API密钥仅存储在本地，不会发送到任何第三方服务器
         </p>
       </div>
-      
+
       <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          OpenAI 模型
+        <label className="flex items-center">
+          <input
+            type="checkbox"
+            checked={useCustomApiUrl}
+            onChange={(e) => {
+              setUseCustomApiUrl(e.target.checked);
+              handleSave();
+            }}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+          />
+          <span className="ml-2 text-sm text-gray-700">使用自定义API地址</span>
         </label>
-        <select
-          value={model}
-          onChange={(e) => {
-            setModel(e.target.value);
-            handleSave();
-          }}
-          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          <option value="gpt-4">GPT-4 (最高质量，较慢)</option>
-          <option value="gpt-4o">GPT-4o (高质量，较快)</option>
-          <option value="gpt-3.5-turbo">GPT-3.5 Turbo (快速，经济)</option>
-        </select>
-        <p className="text-xs text-gray-500 mt-1">
-          选择用于翻译的AI模型。更高级的模型提供更好的翻译质量，但可能更慢且更贵。
-        </p>
+
+        {useCustomApiUrl && (
+          <div className="mt-2">
+            <input
+              type="text"
+              value={apiBaseUrl}
+              onChange={(e) => setApiBaseUrl(e.target.value)}
+              onBlur={handleSave}
+              placeholder="例如: https://api.example.com/v1"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              输入兼容OpenAI API的服务地址，用于第三方API服务
+            </p>
+          </div>
+        )}
       </div>
-      
+
+      <div className="mb-4">
+        <label className="flex items-center">
+          <input
+            type="checkbox"
+            checked={useCustomModel}
+            onChange={(e) => {
+              setUseCustomModel(e.target.checked);
+              handleSave();
+            }}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+          />
+          <span className="ml-2 text-sm text-gray-700">使用自定义模型名称</span>
+        </label>
+
+        {useCustomModel ? (
+          <div className="mt-2">
+            <input
+              type="text"
+              value={customModel}
+              onChange={(e) => setCustomModel(e.target.value)}
+              onBlur={handleSave}
+              placeholder="输入自定义模型名称"
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-xs text-gray-500 mt-1">
+              输入第三方API服务支持的模型名称
+            </p>
+          </div>
+        ) : (
+          <div className="mt-2">
+            <select
+              value={model}
+              onChange={(e) => {
+                setModel(e.target.value);
+                handleSave();
+              }}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="gpt-4">GPT-4 (最高质量，较慢)</option>
+              <option value="gpt-4o">GPT-4o (高质量，较快)</option>
+              <option value="gpt-3.5-turbo">GPT-3.5 Turbo (快速，经济)</option>
+            </select>
+            <p className="text-xs text-gray-500 mt-1">
+              选择用于翻译的AI模型。更高级的模型提供更好的翻译质量，但可能更慢且更贵。
+            </p>
+          </div>
+        )}
+      </div>
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           温度: {temperature}
@@ -93,16 +160,15 @@ const ApiSettings = ({ config, onChange }) => {
           控制AI生成文本的随机性。较低的值使翻译更准确，较高的值使翻译更有创意。
         </p>
       </div>
-      
+
       <div className="mt-6 p-4 bg-blue-50 rounded border border-blue-200">
-        <h3 className="text-sm font-medium text-blue-800 mb-2">如何获取OpenAI API密钥</h3>
-        <ol className="text-xs text-blue-700 list-decimal list-inside">
-          <li>访问 <a href="https://platform.openai.com/signup" target="_blank" rel="noopener noreferrer" className="underline">OpenAI平台</a> 并创建账户</li>
-          <li>登录后，点击右上角的个人资料图标，选择"View API keys"</li>
-          <li>点击"Create new secret key"按钮</li>
-          <li>复制生成的API密钥并粘贴到上面的输入框中</li>
-          <li>确保您的OpenAI账户中有足够的余额</li>
-        </ol>
+        <h3 className="text-sm font-medium text-blue-800 mb-2">API设置说明</h3>
+        <ul className="text-xs text-blue-700 list-disc list-inside">
+          <li>默认使用OpenAI官方API，您需要<a href="https://platform.openai.com/signup" target="_blank" rel="noopener noreferrer" className="underline">注册OpenAI账户</a>并获取API密钥</li>
+          <li>如果您使用第三方API服务（如国内的API代理），请启用"自定义API地址"并填写相应的URL</li>
+          <li>某些第三方服务可能使用不同的模型名称，此时请启用"自定义模型名称"</li>
+          <li>确保您的API账户中有足够的余额或配额</li>
+        </ul>
       </div>
     </div>
   );
