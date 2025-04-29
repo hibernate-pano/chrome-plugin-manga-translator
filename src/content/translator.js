@@ -1,0 +1,128 @@
+/**
+ * 翻译模块
+ */
+import { callChatAPI, batchTranslate } from '../utils/api';
+import { generateImageHash, getCachedTranslation, cacheTranslation } from '../utils/storage';
+
+/**
+ * 翻译文本内容
+ * @param {string} text - 需要翻译的文本
+ * @param {string} targetLang - 目标语言代码
+ * @param {Object} options - 翻译选项
+ * @returns {Promise<string>} - 返回翻译后的文本
+ */
+export async function translateText(text, targetLang, options = {}) {
+  try {
+    const { apiKey, model, temperature, translationPrompt } = options;
+    
+    if (!apiKey) {
+      throw new Error('未提供API密钥');
+    }
+    
+    if (!text || text.trim() === '') {
+      return '';
+    }
+    
+    return await callChatAPI(text, targetLang, {
+      apiKey,
+      model,
+      temperature,
+      translationPrompt
+    });
+  } catch (error) {
+    console.error('翻译失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 翻译图像中的文字
+ * @param {HTMLImageElement} image - 图像元素
+ * @param {Array} textAreas - 文字区域信息数组
+ * @param {string} targetLang - 目标语言代码
+ * @param {Object} options - 翻译选项
+ * @returns {Promise<Array<string>>} - 返回翻译后的文本数组
+ */
+export async function translateImageText(image, textAreas, targetLang, options = {}) {
+  try {
+    const {
+      apiKey,
+      model,
+      temperature,
+      translationPrompt,
+      useCache = true,
+      debugMode = false
+    } = options;
+    
+    if (!apiKey) {
+      throw new Error('未提供API密钥');
+    }
+    
+    if (!textAreas || textAreas.length === 0) {
+      return [];
+    }
+    
+    // 提取所有文本
+    const texts = textAreas.map(area => area.text || '').filter(text => text.trim() !== '');
+    
+    if (texts.length === 0) {
+      return [];
+    }
+    
+    // 生成图像哈希
+    const imageBase64 = await new Promise(resolve => {
+      const canvas = document.createElement('canvas');
+      canvas.width = image.naturalWidth || image.width;
+      canvas.height = image.naturalHeight || image.height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(image, 0, 0);
+      canvas.toBlob(blob => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(reader.result.split(',')[1]);
+        reader.readAsDataURL(blob);
+      });
+    });
+    
+    const imageHash = generateImageHash(imageBase64);
+    
+    // 检查缓存
+    if (useCache) {
+      const cachedResult = await getCachedTranslation(imageHash);
+      if (cachedResult && cachedResult.translations && 
+          cachedResult.targetLang === targetLang &&
+          cachedResult.translations.length === texts.length) {
+        if (debugMode) {
+          console.log('使用缓存的翻译结果:', cachedResult.translations);
+        }
+        return cachedResult.translations;
+      }
+    }
+    
+    // 批量翻译
+    const translations = await batchTranslate(texts, targetLang, {
+      apiKey,
+      model,
+      temperature,
+      translationPrompt,
+      maxConcurrentRequests: options.maxConcurrentRequests || 3
+    });
+    
+    // 缓存结果
+    if (useCache) {
+      await cacheTranslation(imageHash, {
+        translations,
+        targetLang,
+        timestamp: Date.now()
+      });
+    }
+    
+    if (debugMode) {
+      console.log('翻译结果:', translations);
+    }
+    
+    return translations;
+  } catch (error) {
+    console.error('图像文字翻译失败:', error);
+    throw error;
+  }
+}
