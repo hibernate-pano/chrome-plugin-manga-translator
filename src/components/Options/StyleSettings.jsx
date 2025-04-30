@@ -17,9 +17,18 @@ const StyleSettings = ({ config, onChange }) => {
     }
   }, [fontFamily]);
 
+  // 当组件卸载时保存配置
+  useEffect(() => {
+    return () => {
+      console.log('StyleSettings组件卸载，保存配置');
+      handleSave();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleSave = () => {
     const newFontFamily = fontFamily === 'custom' ? customFontFamily : fontFamily;
-    
+
     onChange({
       styleLevel,
       fontFamily: newFontFamily,
@@ -52,7 +61,7 @@ const StyleSettings = ({ config, onChange }) => {
   return (
     <div>
       <h2 className="text-lg font-medium text-gray-900 mb-4">样式设置</h2>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           样式保持程度: {styleLevel}%
@@ -76,7 +85,7 @@ const StyleSettings = ({ config, onChange }) => {
           调整翻译文字的样式与原文的相似程度。较低的值优先保证文字清晰度，较高的值尽量模仿原文样式。
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           字体
@@ -108,7 +117,7 @@ const StyleSettings = ({ config, onChange }) => {
           />
         )}
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           字体大小
@@ -128,7 +137,7 @@ const StyleSettings = ({ config, onChange }) => {
           ))}
         </select>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           字体颜色
@@ -160,7 +169,7 @@ const StyleSettings = ({ config, onChange }) => {
           )}
         </div>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           背景颜色
@@ -193,7 +202,7 @@ const StyleSettings = ({ config, onChange }) => {
           )}
         </div>
       </div>
-      
+
       <div className="mt-6 p-4 bg-yellow-50 rounded border border-yellow-200">
         <h3 className="text-sm font-medium text-yellow-800 mb-2">样式提示</h3>
         <ul className="text-xs text-yellow-700 list-disc list-inside">

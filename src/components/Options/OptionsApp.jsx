@@ -4,6 +4,7 @@ import StyleSettings from './StyleSettings';
 import KeyboardShortcuts from './KeyboardShortcuts';
 import CacheManager from './CacheManager';
 import AdvancedSettings from './AdvancedSettings';
+import { printCurrentConfig, checkApiConfig } from '../../utils/debug';
 
 const OptionsApp = () => {
   const [activeTab, setActiveTab] = useState('api');
@@ -55,7 +56,32 @@ const OptionsApp = () => {
   const saveConfig = (newConfig) => {
     const updatedConfig = { ...config, ...newConfig };
     setConfig(updatedConfig);
-    chrome.storage.sync.set(updatedConfig);
+
+    // 获取当前所有配置，然后合并新配置
+    chrome.storage.sync.get(null, (result) => {
+      // 合并当前配置和存储的配置
+      const mergedConfig = { ...result, ...updatedConfig };
+
+      // 确保嵌套对象也被正确合并
+      if (newConfig.advancedSettings && result.advancedSettings) {
+        mergedConfig.advancedSettings = {
+          ...result.advancedSettings,
+          ...newConfig.advancedSettings
+        };
+      }
+
+      if (newConfig.shortcuts && result.shortcuts) {
+        mergedConfig.shortcuts = {
+          ...result.shortcuts,
+          ...newConfig.shortcuts
+        };
+      }
+
+      // 保存合并后的配置
+      chrome.storage.sync.set(mergedConfig, () => {
+        console.log('保存的配置:', mergedConfig);
+      });
+    });
   };
 
   // 清除缓存
@@ -200,6 +226,18 @@ const OptionsApp = () => {
         <div className="mt-8 flex justify-between">
           <div>
             <button
+              onClick={() => {
+                printCurrentConfig().then(() => {
+                  checkApiConfig().then(isValid => {
+                    alert(isValid ? 'API配置有效，请查看控制台获取详细信息' : 'API配置无效，请检查API密钥和设置');
+                  });
+                });
+              }}
+              className="px-4 py-2 bg-gray-500 text-white rounded hover:bg-gray-600 transition mr-2 text-sm"
+            >
+              检查配置
+            </button>
+            <button
               onClick={exportConfig}
               className="px-4 py-2 bg-gray-200 text-gray-800 rounded hover:bg-gray-300 transition mr-2"
             >
@@ -219,25 +257,48 @@ const OptionsApp = () => {
           <div>
             <button
               onClick={() => {
-                // 确保所有配置都被保存
-                chrome.storage.sync.set(config, () => {
-                  // 显示保存成功的消息
-                  const saveStatus = document.createElement('div');
-                  saveStatus.textContent = '配置已保存';
-                  saveStatus.style.position = 'fixed';
-                  saveStatus.style.bottom = '20px';
-                  saveStatus.style.right = '20px';
-                  saveStatus.style.padding = '10px 20px';
-                  saveStatus.style.backgroundColor = 'rgba(0, 128, 0, 0.8)';
-                  saveStatus.style.color = 'white';
-                  saveStatus.style.borderRadius = '5px';
-                  saveStatus.style.zIndex = '9999';
-                  document.body.appendChild(saveStatus);
+                // 获取当前所有配置，然后合并新配置
+                chrome.storage.sync.get(null, (result) => {
+                  // 合并当前配置和存储的配置
+                  const mergedConfig = { ...result, ...config };
 
-                  // 1秒后关闭窗口
-                  setTimeout(() => {
-                    window.close();
-                  }, 1000);
+                  // 确保嵌套对象也被正确合并
+                  if (result.advancedSettings && config.advancedSettings) {
+                    mergedConfig.advancedSettings = {
+                      ...result.advancedSettings,
+                      ...config.advancedSettings
+                    };
+                  }
+
+                  if (result.shortcuts && config.shortcuts) {
+                    mergedConfig.shortcuts = {
+                      ...result.shortcuts,
+                      ...config.shortcuts
+                    };
+                  }
+
+                  // 保存合并后的配置
+                  chrome.storage.sync.set(mergedConfig, () => {
+                    console.log('保存的完整配置:', mergedConfig);
+
+                    // 显示保存成功的消息
+                    const saveStatus = document.createElement('div');
+                    saveStatus.textContent = '配置已保存';
+                    saveStatus.style.position = 'fixed';
+                    saveStatus.style.bottom = '20px';
+                    saveStatus.style.right = '20px';
+                    saveStatus.style.padding = '10px 20px';
+                    saveStatus.style.backgroundColor = 'rgba(0, 128, 0, 0.8)';
+                    saveStatus.style.color = 'white';
+                    saveStatus.style.borderRadius = '5px';
+                    saveStatus.style.zIndex = '9999';
+                    document.body.appendChild(saveStatus);
+
+                    // 1秒后关闭窗口
+                    setTimeout(() => {
+                      window.close();
+                    }, 1000);
+                  });
                 });
               }}
               className="px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600 transition"

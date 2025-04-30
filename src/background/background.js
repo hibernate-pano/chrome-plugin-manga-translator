@@ -46,7 +46,8 @@ function initializeDefaultSettings() {
       maxConcurrentRequests: 3,
       imagePreprocessing: 'none',
       showOriginalText: false,
-      translationPrompt: ''
+      translationPrompt: '',
+      useCorsProxy: false
     }
   };
 
@@ -121,6 +122,10 @@ function updateSettings() {
 
       if (result.advancedSettings.translationPrompt === undefined) {
         advancedUpdates.translationPrompt = '';
+      }
+
+      if (result.advancedSettings.useCorsProxy === undefined) {
+        advancedUpdates.useCorsProxy = false;
       }
 
       if (Object.keys(advancedUpdates).length > 0) {

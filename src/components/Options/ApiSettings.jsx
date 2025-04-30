@@ -25,7 +25,20 @@ const ApiSettings = ({ config, onChange }) => {
 
   // 当组件状态更新时保存配置
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(saveConfig, [apiKey, model, customModel, temperature, apiBaseUrl, useCustomModel, useCustomApiUrl]);
+  useEffect(() => {
+    // 避免在组件初始化时触发保存
+    const timer = setTimeout(saveConfig, 300);
+    return () => clearTimeout(timer);
+  }, [apiKey, model, customModel, temperature, apiBaseUrl, useCustomModel, useCustomApiUrl]);
+
+  // 当组件卸载时保存配置
+  useEffect(() => {
+    return () => {
+      console.log('ApiSettings组件卸载，保存配置');
+      saveConfig();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleSave = saveConfig;
 

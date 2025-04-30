@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 
 const AdvancedSettings = ({ settings, onChange }) => {
   const handleChange = (key, value) => {
@@ -8,10 +8,18 @@ const AdvancedSettings = ({ settings, onChange }) => {
     });
   };
 
+  // 当组件卸载时保存配置
+  useEffect(() => {
+    return () => {
+      console.log('AdvancedSettings组件卸载，保存配置');
+      // 组件卸载时不需要额外操作，因为每次修改都会调用handleChange
+    };
+  }, []);
+
   return (
     <div>
       <h2 className="text-lg font-medium text-gray-900 mb-4">高级设置</h2>
-      
+
       <div className="mb-4">
         <label className="flex items-center">
           <input
@@ -26,7 +34,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           使用Tesseract.js进行本地文字识别，减少API调用但可能降低准确性
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="flex items-center">
           <input
@@ -41,7 +49,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           显示额外的调试信息，包括文字识别区域和API响应
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="flex items-center">
           <input
@@ -56,7 +64,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           在翻译结果下方显示原始文本，便于对比学习
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           API请求超时 (秒)
@@ -73,7 +81,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           API请求的最大等待时间，超时后将取消请求
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           最大并发请求数
@@ -90,7 +98,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           同时发送的最大API请求数，较高的值可能加快处理但增加API负载
         </p>
       </div>
-      
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           图像预处理
@@ -109,7 +117,22 @@ const AdvancedSettings = ({ settings, onChange }) => {
           在识别文字前对图像进行预处理，可能提高某些漫画的识别率
         </p>
       </div>
-      
+
+      <div className="mb-4">
+        <label className="flex items-center">
+          <input
+            type="checkbox"
+            checked={settings?.useCorsProxy || false}
+            onChange={(e) => handleChange('useCorsProxy', e.target.checked)}
+            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+          />
+          <span className="ml-2 text-sm text-gray-700">使用CORS代理服务 (实验性)</span>
+        </label>
+        <p className="text-xs text-gray-500 mt-1 ml-6">
+          使用代理服务处理跨域图像，可能解决某些网站的图像无法翻译的问题。注意：这会将图像URL发送到第三方服务。
+        </p>
+      </div>
+
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
           翻译提示词
@@ -124,7 +147,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           自定义提示词可以指导AI如何翻译，例如"保持口语化"或"使用更正式的语言"
         </p>
       </div>
-      
+
       <div className="mt-6 p-4 bg-yellow-50 rounded border border-yellow-200">
         <h3 className="text-sm font-medium text-yellow-800 mb-2">高级设置警告</h3>
         <ul className="text-xs text-yellow-700 list-disc list-inside">

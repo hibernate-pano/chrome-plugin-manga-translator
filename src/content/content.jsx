@@ -219,6 +219,16 @@ async function processPage() {
 // 翻译单个图像
 async function translateImage(image) {
   try {
+    // 尝试设置crossOrigin属性以处理跨域图像
+    try {
+      // 只对非data和非blob URL设置crossOrigin
+      if (!image.src.startsWith('data:') && !image.src.startsWith('blob:')) {
+        image.crossOrigin = 'anonymous';
+      }
+    } catch (corsError) {
+      console.warn('无法设置crossOrigin属性:', corsError);
+    }
+
     // 检查图像是否已加载
     if (!image.complete) {
       await new Promise(resolve => {
