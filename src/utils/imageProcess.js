@@ -128,64 +128,112 @@ export function imageToBase64(image, maxWidth = 1024, maxHeight = 1024, format =
         if (image.src.startsWith('data:') || image.src.startsWith('blob:')) {
           img.src = image.src;
         } else {
-          // 检查CORS代理设置
-          chrome.storage.sync.get(['advancedSettings'], (result) => {
-            const useCorsProxy = result.advancedSettings?.useCorsProxy || false;
-            const corsProxyType = result.advancedSettings?.corsProxyType || 'cors-anywhere';
-            const customCorsProxy = result.advancedSettings?.customCorsProxy || '';
+          // 使用Promise来处理异步的存储访问
+          new Promise((resolveSettings) => {
+            chrome.storage.sync.get(['advancedSettings'], (result) => {
+              resolveSettings(result.advancedSettings || {});
+            });
+          })
+            .then(advancedSettings => {
+              const useCorsProxy = advancedSettings.useCorsProxy || false;
+              const corsProxyType = advancedSettings.corsProxyType || 'corsproxy';
+              const customCorsProxy = advancedSettings.customCorsProxy || '';
 
-            if (useCorsProxy) {
-              // 对于跨域图像，尝试通过代理服务加载
-              console.log('使用CORS代理加载图像:', image.src);
+              // 定义可用的代理服务列表
+              const proxyServices = [
+                {
+                  name: 'corsproxy',
+                  url: `https://corsproxy.io/?${encodeURIComponent(image.src)}`,
+                  isDefault: true
+                },
+                {
+                  name: 'allorigins',
+                  url: `https://api.allorigins.win/raw?url=${encodeURIComponent(image.src)}`
+                },
+                {
+                  name: 'cors-anywhere',
+                  url: `https://cors-anywhere.herokuapp.com/${image.src}`
+                }
+              ];
 
-              let proxyUrl = '';
-
-              // 根据代理类型选择不同的代理服务
-              switch (corsProxyType) {
-                case 'cors-anywhere':
-                  proxyUrl = `https://cors-anywhere.herokuapp.com/${image.src}`;
-                  break;
-                case 'allorigins':
-                  proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(image.src)}`;
-                  break;
-                case 'corsproxy':
-                  proxyUrl = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
-                  break;
-                case 'custom':
-                  if (customCorsProxy) {
-                    // 替换自定义代理URL中的占位符
-                    proxyUrl = customCorsProxy.replace('{url}', encodeURIComponent(image.src));
-                  } else {
-                    proxyUrl = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
-                  }
-                  break;
-                default:
-                  proxyUrl = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
+              // 如果有自定义代理，添加到列表
+              if (corsProxyType === 'custom' && customCorsProxy) {
+                proxyServices.unshift({
+                  name: 'custom',
+                  url: customCorsProxy.replace('{url}', encodeURIComponent(image.src)),
+                  isDefault: true
+                });
               }
 
-              img.src = proxyUrl;
+              // 根据设置的代理类型，找到默认代理
+              let defaultProxy = proxyServices.find(p => p.name === corsProxyType) || proxyServices[0];
 
-              // 设置超时，如果代理加载失败，尝试其他代理
-              setTimeout(() => {
-                if (!img.complete) {
-                  console.warn('第一个代理加载超时，尝试备用代理');
-                  // 尝试另一个代理服务
-                  img.src = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
+              // 创建代理服务的尝试队列
+              let proxyQueue = [
+                ...proxyServices.filter(p => p.name === defaultProxy.name), // 首先尝试默认代理
+                ...proxyServices.filter(p => p.name !== defaultProxy.name)  // 然后尝试其他代理
+              ];
 
-                  // 如果备用代理也失败，尝试直接加载
-                  setTimeout(() => {
-                    if (!img.complete) {
-                      console.warn('备用代理加载超时，尝试直接加载');
-                      img.src = image.src;
-                    }
-                  }, 3000);
+              if (!useCorsProxy) {
+                // 如果未启用代理，直接加载原始图像
+                img.src = image.src;
+                return;
+              }
+
+              console.log('使用CORS代理加载图像:', image.src);
+              console.log('默认代理服务:', defaultProxy.name);
+
+              // 尝试加载图像的函数
+              const tryLoadWithProxy = (index = 0) => {
+                if (index >= proxyQueue.length) {
+                  // 所有代理都失败，尝试直接加载
+                  console.warn('所有代理服务都失败，尝试直接加载');
+                  img.src = image.src;
+                  return;
                 }
-              }, 3000);
-            } else {
-              // 直接加载图像
+
+                const proxy = proxyQueue[index];
+                console.log(`尝试使用代理服务 ${proxy.name}`);
+
+                // 设置加载超时
+                const timeoutId = setTimeout(() => {
+                  if (!img.complete) {
+                    console.warn(`代理 ${proxy.name} 加载超时，尝试下一个代理`);
+                    tryLoadWithProxy(index + 1);
+                  }
+                }, 5000); // 5秒超时
+
+                // 设置加载事件处理
+                const handleLoad = () => {
+                  clearTimeout(timeoutId);
+                  img.removeEventListener('load', handleLoad);
+                  img.removeEventListener('error', handleError);
+                  console.log(`代理 ${proxy.name} 加载成功`);
+                };
+
+                const handleError = () => {
+                  clearTimeout(timeoutId);
+                  img.removeEventListener('load', handleLoad);
+                  img.removeEventListener('error', handleError);
+                  console.warn(`代理 ${proxy.name} 加载失败，尝试下一个代理`);
+                  tryLoadWithProxy(index + 1);
+                };
+
+                img.addEventListener('load', handleLoad);
+                img.addEventListener('error', handleError);
+
+                // 设置代理URL
+                img.src = proxy.url;
+              };
+
+              // 开始尝试加载
+              tryLoadWithProxy();
+            })
+            .catch(error => {
+              console.error('获取CORS代理设置失败:', error);
+              // 出错时直接使用原始URL
               img.src = image.src;
-            }
-          });
+            });
         }
       } else {
         // 如果不是图像元素，直接拒绝

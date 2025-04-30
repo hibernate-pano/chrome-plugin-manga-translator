@@ -255,6 +255,9 @@ async function translateImage(image) {
       const model = useCustomModel ? config.customModel : (config.model || 'gpt-3.5-turbo');
       const apiBaseUrl = config.apiBaseUrl || 'https://api.openai.com/v1';
 
+      // 更新进度提示
+      loadingIndicator.updateProgress('detect');
+
       // 检测文字区域
       const textAreas = await detectTextAreas(image, {
         apiKey: config.apiKey,
@@ -265,9 +268,30 @@ async function translateImage(image) {
         debugMode: config.advancedSettings?.debugMode || false
       });
 
-      // 如果没有检测到文字，直接返回
+      // 如果没有检测到文字，显示提示并返回
       if (!textAreas || textAreas.length === 0) {
         console.log('未检测到文字');
+
+        // 显示友好的提示
+        const noTextError = showError(image, '未在图像中检测到文字内容');
+
+        // 添加重试按钮
+        const buttonContainer = noTextError.createButtonContainer();
+
+        // 添加重试按钮
+        const retryButton = noTextError.createButton('重新检测', '#4CAF50', () => {
+          noTextError.remove();
+          setTimeout(() => translateImage(image), 500);
+        });
+
+        // 添加高级设置按钮
+        const settingsButton = noTextError.createButton('高级设置', '#2196F3', () => {
+          chrome.runtime.openOptionsPage();
+        });
+
+        buttonContainer.appendChild(retryButton);
+        buttonContainer.appendChild(settingsButton);
+
         return;
       }
 
@@ -275,6 +299,9 @@ async function translateImage(image) {
       if (config.advancedSettings?.debugMode) {
         showDebugAreas(image, textAreas);
       }
+
+      // 更新进度提示
+      loadingIndicator.updateProgress('translate');
 
       // 翻译文字
       const translatedTexts = await translateImageText(image, textAreas, config.targetLanguage, {
@@ -287,6 +314,9 @@ async function translateImage(image) {
         maxConcurrentRequests: config.advancedSettings?.maxConcurrentRequests || 3,
         debugMode: config.advancedSettings?.debugMode || false
       });
+
+      // 更新进度提示
+      loadingIndicator.updateProgress('render');
 
       // 渲染翻译结果
       const wrapper = renderTranslation(image, textAreas, translatedTexts, {
@@ -309,128 +339,67 @@ async function translateImage(image) {
   } catch (error) {
     console.error('翻译图像失败:', error);
 
-    // 检查是否是CORS相关错误
+    // 检查错误类型并提供相应的处理方案
     let errorMessage = error.message;
+    let errorType = 'general';
+
+    // 检测CORS错误
     if (
       error.message.includes('InvalidStateError') &&
       error.message.includes('drawImage') &&
       error.message.includes('broken')
     ) {
-      // 提供更友好的CORS错误信息和解决方案
-      errorMessage = '跨域资源共享(CORS)错误: 无法访问图像数据。请尝试启用CORS代理服务。';
-
-      // 获取配置，检查是否已启用CORS代理
-      chrome.storage.sync.get(['advancedSettings'], (result) => {
-        const useCorsProxy = result.advancedSettings?.useCorsProxy || false;
-
-        if (!useCorsProxy) {
-          // 如果未启用CORS代理，添加一个按钮让用户快速启用
-          const enableProxyButton = createActionButton('启用CORS代理', '#4CAF50');
-
-          enableProxyButton.addEventListener('click', async () => {
-            // 更新配置，启用CORS代理
-            const config = await getConfig();
-            const advancedSettings = {
-              ...(config.advancedSettings || {}),
-              useCorsProxy: true,
-              corsProxyType: 'corsproxy'  // 默认使用corsproxy.io
-            };
-
-            await saveConfig({ advancedSettings });
-
-            // 关闭错误消息
-            const errorDiv = enableProxyButton.closest('.manga-translator-error');
-            if (errorDiv) {
-              errorDiv.remove();
-            }
-
-            // 重新尝试翻译
-            setTimeout(() => translateImage(image), 500);
-          });
-
-          // 创建一个打开选项页面的按钮
-          const openOptionsButton = createActionButton('高级设置', '#2196F3');
-          openOptionsButton.style.marginLeft = '10px';
-
-          openOptionsButton.addEventListener('click', () => {
-            chrome.runtime.openOptionsPage();
-          });
-
-          // 创建按钮容器，使按钮并排显示
-          const buttonContainer = document.createElement('div');
-          buttonContainer.style.display = 'flex';
-          buttonContainer.style.gap = '10px';
-          buttonContainer.style.marginTop = '10px';
-
-          buttonContainer.appendChild(enableProxyButton);
-          buttonContainer.appendChild(openOptionsButton);
-
-          // 将按钮添加到错误消息中
-          const errorDiv = showError(image, errorMessage);
-          errorDiv.appendChild(buttonContainer);
-          return;
-        } else {
-          // 如果已启用CORS代理但仍然失败，提供更多选项
-          errorMessage = '跨域资源共享(CORS)错误: 当前代理服务无法访问图像数据。请尝试更换代理服务。';
-
-          // 创建一个尝试其他代理的按钮
-          const tryOtherProxyButton = createActionButton('尝试其他代理', '#FF9800');
-
-          tryOtherProxyButton.addEventListener('click', async () => {
-            // 获取当前配置
-            const config = await getConfig();
-            const currentProxyType = config.advancedSettings?.corsProxyType || 'corsproxy';
-
-            // 选择一个不同的代理
-            let newProxyType = 'allorigins';
-            if (currentProxyType === 'allorigins') {
-              newProxyType = 'corsproxy';
-            }
-
-            // 更新配置
-            const advancedSettings = {
-              ...(config.advancedSettings || {}),
-              corsProxyType: newProxyType
-            };
-
-            await saveConfig({ advancedSettings });
-
-            // 关闭错误消息
-            const errorDiv = tryOtherProxyButton.closest('.manga-translator-error');
-            if (errorDiv) {
-              errorDiv.remove();
-            }
-
-            // 重新尝试翻译
-            setTimeout(() => translateImage(image), 500);
-          });
-
-          // 创建一个打开选项页面的按钮
-          const openOptionsButton = createActionButton('高级设置', '#2196F3');
-          openOptionsButton.style.marginLeft = '10px';
-
-          openOptionsButton.addEventListener('click', () => {
-            chrome.runtime.openOptionsPage();
-          });
-
-          // 创建按钮容器
-          const buttonContainer = document.createElement('div');
-          buttonContainer.style.display = 'flex';
-          buttonContainer.style.gap = '10px';
-          buttonContainer.style.marginTop = '10px';
-
-          buttonContainer.appendChild(tryOtherProxyButton);
-          buttonContainer.appendChild(openOptionsButton);
-
-          // 将按钮添加到错误消息中
-          const errorDiv = showError(image, errorMessage);
-          errorDiv.appendChild(buttonContainer);
-          return;
-        }
-      });
+      errorType = 'cors';
+    }
+    // 检测API错误
+    else if (error.message.includes('API错误')) {
+      errorType = 'api';
+    }
+    // 检测网络错误
+    else if (
+      error.message.includes('Failed to fetch') ||
+      error.message.includes('Network') ||
+      error.message.includes('网络')
+    ) {
+      errorType = 'network';
     }
 
-    showError(image, errorMessage);
+    // 根据错误类型处理
+    switch (errorType) {
+      case 'cors':
+        // 处理CORS错误
+        handleCorsError(image, error);
+        break;
+
+      case 'api':
+        // 处理API错误
+        handleApiError(image, error);
+        break;
+
+      case 'network':
+        // 处理网络错误
+        handleNetworkError(image, error);
+        break;
+
+      default:
+        // 处理一般错误
+        const errorDiv = showError(image, `翻译过程中发生错误: ${errorMessage}`);
+        const buttonContainer = errorDiv.createButtonContainer();
+
+        // 添加重试按钮
+        const retryButton = errorDiv.createButton('重试', '#4CAF50', () => {
+          errorDiv.remove();
+          setTimeout(() => translateImage(image), 500);
+        });
+
+        // 添加设置按钮
+        const settingsButton = errorDiv.createButton('设置', '#2196F3', () => {
+          chrome.runtime.openOptionsPage();
+        });
+
+        buttonContainer.appendChild(retryButton);
+        buttonContainer.appendChild(settingsButton);
+    }
   }
 }
 
@@ -445,6 +414,25 @@ function removeAllTranslations() {
 
 // 显示加载指示器
 function showLoadingIndicator(image) {
+  // 确保全局只有一个样式定义
+  if (!document.getElementById('manga-translator-styles')) {
+    const style = document.createElement('style');
+    style.id = 'manga-translator-styles';
+    style.textContent = `
+      @keyframes manga-translator-spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      @keyframes manga-translator-pulse {
+        0% { opacity: 0.6; }
+        50% { opacity: 1; }
+        100% { opacity: 0.6; }
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   const wrapper = document.createElement('div');
   wrapper.className = 'manga-translator-loading';
   wrapper.style.position = 'absolute';
@@ -453,37 +441,58 @@ function showLoadingIndicator(image) {
   wrapper.style.width = '100%';
   wrapper.style.height = '100%';
   wrapper.style.display = 'flex';
+  wrapper.style.flexDirection = 'column';
   wrapper.style.alignItems = 'center';
   wrapper.style.justifyContent = 'center';
-  wrapper.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
+  wrapper.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
   wrapper.style.color = 'white';
   wrapper.style.fontSize = '16px';
   wrapper.style.zIndex = '1000';
+  wrapper.style.backdropFilter = 'blur(3px)';
+  wrapper.style.transition = 'all 0.3s ease';
 
   const spinner = document.createElement('div');
   spinner.className = 'manga-translator-spinner';
   spinner.style.border = '4px solid rgba(255, 255, 255, 0.3)';
   spinner.style.borderTop = '4px solid white';
   spinner.style.borderRadius = '50%';
-  spinner.style.width = '30px';
-  spinner.style.height = '30px';
+  spinner.style.width = '40px';
+  spinner.style.height = '40px';
   spinner.style.animation = 'manga-translator-spin 1s linear infinite';
-
-  const style = document.createElement('style');
-  style.textContent = `
-    @keyframes manga-translator-spin {
-      0% { transform: rotate(0deg); }
-      100% { transform: rotate(360deg); }
-    }
-  `;
-  document.head.appendChild(style);
+  spinner.style.marginBottom = '15px';
 
   const text = document.createElement('div');
   text.textContent = '翻译中...';
-  text.style.marginLeft = '10px';
+  text.style.animation = 'manga-translator-pulse 1.5s infinite';
+  text.style.fontWeight = 'bold';
+
+  // 添加进度提示
+  const progressText = document.createElement('div');
+  progressText.textContent = '正在分析图像文字...';
+  progressText.style.fontSize = '14px';
+  progressText.style.marginTop = '10px';
+  progressText.style.opacity = '0.8';
+
+  // 公开更新进度的方法
+  wrapper.updateProgress = (stage) => {
+    switch (stage) {
+      case 'detect':
+        progressText.textContent = '正在分析图像文字...';
+        break;
+      case 'translate':
+        progressText.textContent = '正在翻译文字内容...';
+        break;
+      case 'render':
+        progressText.textContent = '正在渲染翻译结果...';
+        break;
+      default:
+        progressText.textContent = stage; // 支持自定义文本
+    }
+  };
 
   wrapper.appendChild(spinner);
   wrapper.appendChild(text);
+  wrapper.appendChild(progressText);
 
   // 设置相对定位
   const imageStyle = window.getComputedStyle(image);
@@ -498,40 +507,122 @@ function showLoadingIndicator(image) {
 
 // 显示错误信息
 function showError(image, message) {
+  // 确保全局只有一个样式定义
+  if (!document.getElementById('manga-translator-styles')) {
+    const style = document.createElement('style');
+    style.id = 'manga-translator-styles';
+    style.textContent = `
+      @keyframes manga-translator-spin {
+        0% { transform: rotate(0deg); }
+        100% { transform: rotate(360deg); }
+      }
+
+      @keyframes manga-translator-pulse {
+        0% { opacity: 0.6; }
+        50% { opacity: 1; }
+        100% { opacity: 0.6; }
+      }
+
+      @keyframes manga-translator-slide-in {
+        0% { transform: translateY(-20px); opacity: 0; }
+        100% { transform: translateY(0); opacity: 1; }
+      }
+
+      .manga-translator-error-btn {
+        padding: 8px 12px;
+        border: none;
+        border-radius: 4px;
+        color: white;
+        font-weight: bold;
+        cursor: pointer;
+        transition: all 0.2s ease;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+        margin-right: 8px;
+        font-size: 13px;
+      }
+
+      .manga-translator-error-btn:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+      }
+    `;
+    document.head.appendChild(style);
+  }
+
   const errorDiv = document.createElement('div');
   errorDiv.className = 'manga-translator-error';
   errorDiv.style.position = 'absolute';
   errorDiv.style.top = '10px';
   errorDiv.style.left = '10px';
-  errorDiv.style.padding = '10px';
-  errorDiv.style.backgroundColor = 'rgba(255, 0, 0, 0.8)';
+  errorDiv.style.right = '10px';
+  errorDiv.style.padding = '15px';
+  errorDiv.style.backgroundColor = 'rgba(220, 53, 69, 0.95)';
   errorDiv.style.color = 'white';
-  errorDiv.style.borderRadius = '5px';
+  errorDiv.style.borderRadius = '8px';
   errorDiv.style.fontSize = '14px';
   errorDiv.style.zIndex = '1000';
-  errorDiv.style.maxWidth = '80%';
+  errorDiv.style.maxWidth = '90%';
   errorDiv.style.display = 'flex';
   errorDiv.style.flexDirection = 'column';
+  errorDiv.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
+  errorDiv.style.animation = 'manga-translator-slide-in 0.3s ease-out';
+  errorDiv.style.backdropFilter = 'blur(4px)';
+  errorDiv.style.border = '1px solid rgba(255,255,255,0.2)';
+
+  // 创建标题
+  const titleDiv = document.createElement('div');
+  titleDiv.textContent = '翻译失败';
+  titleDiv.style.fontWeight = 'bold';
+  titleDiv.style.fontSize = '16px';
+  titleDiv.style.marginBottom = '8px';
+  titleDiv.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
+  titleDiv.style.paddingBottom = '8px';
+  errorDiv.appendChild(titleDiv);
 
   // 创建消息容器
   const messageDiv = document.createElement('div');
-  messageDiv.textContent = `翻译错误: ${message}`;
+  messageDiv.textContent = message;
+  messageDiv.style.marginBottom = '12px';
+  messageDiv.style.lineHeight = '1.4';
   errorDiv.appendChild(messageDiv);
 
   // 添加关闭按钮
   const closeButton = document.createElement('button');
   closeButton.textContent = '×';
   closeButton.style.position = 'absolute';
-  closeButton.style.top = '5px';
-  closeButton.style.right = '5px';
+  closeButton.style.top = '8px';
+  closeButton.style.right = '8px';
   closeButton.style.backgroundColor = 'transparent';
   closeButton.style.border = 'none';
   closeButton.style.color = 'white';
-  closeButton.style.fontSize = '16px';
+  closeButton.style.fontSize = '20px';
   closeButton.style.cursor = 'pointer';
+  closeButton.style.width = '30px';
+  closeButton.style.height = '30px';
+  closeButton.style.display = 'flex';
+  closeButton.style.alignItems = 'center';
+  closeButton.style.justifyContent = 'center';
+  closeButton.style.borderRadius = '50%';
+  closeButton.style.transition = 'background-color 0.2s';
+
+  closeButton.onmouseover = () => {
+    closeButton.style.backgroundColor = 'rgba(255,255,255,0.2)';
+  };
+
+  closeButton.onmouseout = () => {
+    closeButton.style.backgroundColor = 'transparent';
+  };
 
   closeButton.addEventListener('click', () => {
-    errorDiv.remove();
+    errorDiv.style.opacity = '0';
+    errorDiv.style.transform = 'translateY(-20px)';
+    errorDiv.style.transition = 'all 0.3s ease';
+
+    setTimeout(() => {
+      if (errorDiv.parentNode) {
+        errorDiv.remove();
+      }
+    }, 300);
   });
 
   errorDiv.appendChild(closeButton);
@@ -544,12 +635,42 @@ function showError(image, message) {
 
   image.parentNode.insertBefore(errorDiv, image.nextSibling);
 
-  // 10秒后自动消失（增加时间，让用户有足够时间阅读和操作）
+  // 创建按钮容器的辅助方法
+  errorDiv.createButtonContainer = () => {
+    const container = document.createElement('div');
+    container.style.display = 'flex';
+    container.style.flexWrap = 'wrap';
+    container.style.gap = '8px';
+    container.style.marginTop = '10px';
+    errorDiv.appendChild(container);
+    return container;
+  };
+
+  // 创建按钮的辅助方法
+  errorDiv.createButton = (text, color, onClick) => {
+    const button = document.createElement('button');
+    button.textContent = text;
+    button.className = 'manga-translator-error-btn';
+    button.style.backgroundColor = color;
+
+    button.addEventListener('click', onClick);
+    return button;
+  };
+
+  // 15秒后自动消失
   setTimeout(() => {
     if (errorDiv.parentNode) {
-      errorDiv.remove();
+      errorDiv.style.opacity = '0';
+      errorDiv.style.transform = 'translateY(-20px)';
+      errorDiv.style.transition = 'all 0.3s ease';
+
+      setTimeout(() => {
+        if (errorDiv.parentNode) {
+          errorDiv.remove();
+        }
+      }, 300);
     }
-  }, 10000);
+  }, 15000);
 
   // 返回错误div，以便可以添加更多元素
   return errorDiv;
@@ -590,29 +711,142 @@ function handleMessages(message, sender, sendResponse) {
   }
 }
 
-// 创建操作按钮
-function createActionButton(text, bgColor = '#4CAF50') {
-  const button = document.createElement('button');
-  button.textContent = text;
-  button.style.marginTop = '10px';
-  button.style.padding = '5px 10px';
-  button.style.backgroundColor = bgColor;
-  button.style.color = 'white';
-  button.style.border = 'none';
-  button.style.borderRadius = '4px';
-  button.style.cursor = 'pointer';
-  button.style.fontWeight = 'bold';
-  button.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+// 处理CORS错误
+async function handleCorsError(image, error) {
+  // 获取配置
+  const config = await getConfig();
+  const useCorsProxy = config.advancedSettings?.useCorsProxy || false;
 
-  // 添加悬停效果
-  button.onmouseover = () => {
-    button.style.opacity = '0.9';
-  };
-  button.onmouseout = () => {
-    button.style.opacity = '1';
-  };
+  if (!useCorsProxy) {
+    // 如果未启用CORS代理，显示错误并提供启用选项
+    const errorDiv = showError(image, '跨域资源共享(CORS)错误: 无法访问图像数据。需要启用CORS代理服务来解决此问题。');
+    const buttonContainer = errorDiv.createButtonContainer();
 
-  return button;
+    // 添加启用代理按钮
+    const enableButton = errorDiv.createButton('启用CORS代理', '#4CAF50', async () => {
+      // 更新配置
+      const advancedSettings = {
+        ...(config.advancedSettings || {}),
+        useCorsProxy: true,
+        corsProxyType: 'corsproxy'  // 默认使用corsproxy.io
+      };
+
+      await saveConfig({ advancedSettings });
+
+      // 关闭错误消息
+      errorDiv.remove();
+
+      // 显示成功消息
+      const successDiv = showError(image, '已启用CORS代理，正在重新尝试翻译...');
+      successDiv.style.backgroundColor = 'rgba(76, 175, 80, 0.9)';
+
+      // 3秒后自动关闭
+      setTimeout(() => {
+        if (successDiv.parentNode) {
+          successDiv.remove();
+        }
+        // 重新尝试翻译
+        translateImage(image);
+      }, 2000);
+    });
+
+    // 添加设置按钮
+    const settingsButton = errorDiv.createButton('高级设置', '#2196F3', () => {
+      chrome.runtime.openOptionsPage();
+    });
+
+    buttonContainer.appendChild(enableButton);
+    buttonContainer.appendChild(settingsButton);
+  } else {
+    // 如果已启用CORS代理但仍然失败，提供更多选项
+    const errorDiv = showError(image, '跨域资源共享(CORS)错误: 当前代理服务无法访问图像数据。请尝试更换代理服务。');
+    const buttonContainer = errorDiv.createButtonContainer();
+
+    // 获取当前代理类型
+    const currentProxyType = config.advancedSettings?.corsProxyType || 'corsproxy';
+
+    // 添加尝试其他代理按钮
+    const tryOtherButton = errorDiv.createButton('尝试其他代理', '#FF9800', async () => {
+      // 选择一个不同的代理
+      let newProxyType = 'allorigins';
+      if (currentProxyType === 'allorigins') {
+        newProxyType = 'corsproxy';
+      }
+
+      // 更新配置
+      const advancedSettings = {
+        ...(config.advancedSettings || {}),
+        corsProxyType: newProxyType
+      };
+
+      await saveConfig({ advancedSettings });
+
+      // 关闭错误消息
+      errorDiv.remove();
+
+      // 显示成功消息
+      const successDiv = showError(image, `已切换到 ${newProxyType} 代理，正在重新尝试翻译...`);
+      successDiv.style.backgroundColor = 'rgba(76, 175, 80, 0.9)';
+
+      // 2秒后自动关闭
+      setTimeout(() => {
+        if (successDiv.parentNode) {
+          successDiv.remove();
+        }
+        // 重新尝试翻译
+        translateImage(image);
+      }, 2000);
+    });
+
+    // 添加设置按钮
+    const settingsButton = errorDiv.createButton('高级设置', '#2196F3', () => {
+      chrome.runtime.openOptionsPage();
+    });
+
+    buttonContainer.appendChild(tryOtherButton);
+    buttonContainer.appendChild(settingsButton);
+  }
+}
+
+// 处理API错误
+async function handleApiError(image, error) {
+  const errorDiv = showError(image, `API调用失败: ${error.message}`);
+  const buttonContainer = errorDiv.createButtonContainer();
+
+  // 添加检查API设置按钮
+  const checkApiButton = errorDiv.createButton('检查API设置', '#2196F3', () => {
+    chrome.runtime.openOptionsPage();
+    // 可以添加一个消息，告诉选项页面打开API设置标签
+  });
+
+  // 添加重试按钮
+  const retryButton = errorDiv.createButton('重试', '#4CAF50', () => {
+    errorDiv.remove();
+    setTimeout(() => translateImage(image), 500);
+  });
+
+  buttonContainer.appendChild(checkApiButton);
+  buttonContainer.appendChild(retryButton);
+}
+
+// 处理网络错误
+function handleNetworkError(image, error) {
+  const errorDiv = showError(image, `网络连接错误: ${error.message}`);
+  const buttonContainer = errorDiv.createButtonContainer();
+
+  // 添加重试按钮
+  const retryButton = errorDiv.createButton('重试', '#4CAF50', () => {
+    errorDiv.remove();
+    setTimeout(() => translateImage(image), 1000);
+  });
+
+  // 添加设置按钮
+  const settingsButton = errorDiv.createButton('设置', '#2196F3', () => {
+    chrome.runtime.openOptionsPage();
+  });
+
+  buttonContainer.appendChild(retryButton);
+  buttonContainer.appendChild(settingsButton);
 }
 
 // 保存配置

@@ -259,10 +259,18 @@ export async function batchTranslate(texts, targetLang, options = {}) {
  * 检测API密钥是否有效
  * @param {string} apiKey - API密钥
  * @param {string} apiBaseUrl - API基础URL
- * @returns {Promise<boolean>} - 返回密钥是否有效
+ * @param {string} model - 模型名称，用于测试模型可用性
+ * @returns {Promise<Object>} - 返回验证结果对象
  */
-export async function validateApiKey(apiKey, apiBaseUrl = 'https://api.openai.com/v1') {
-  if (!apiKey) return false;
+export async function validateApiKey(apiKey, apiBaseUrl = 'https://api.openai.com/v1', model = '') {
+  if (!apiKey) {
+    return {
+      valid: false,
+      error: '未提供API密钥',
+      models: [],
+      supportsVision: false
+    };
+  }
 
   try {
     // 构建API URL
@@ -275,9 +283,127 @@ export async function validateApiKey(apiKey, apiBaseUrl = 'https://api.openai.co
       }
     });
 
-    return response.ok;
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      return {
+        valid: false,
+        error: errorData.error?.message || `API错误: ${response.status} ${response.statusText}`,
+        models: [],
+        supportsVision: false
+      };
+    }
+
+    // 获取可用模型列表
+    const data = await response.json();
+    const models = data.data || [];
+    const modelIds = models.map(m => m.id);
+
+    // 检查是否支持视觉模型
+    const supportsVision = modelIds.some(id =>
+      id.includes('vision') ||
+      id.includes('gpt-4') ||
+      id.toLowerCase().includes('qwen') ||
+      id.toLowerCase().includes('claude')
+    );
+
+    // 检查指定的模型是否可用
+    let modelAvailable = !model || modelIds.includes(model);
+
+    // 对于自定义模型，我们无法确定是否可用，假设它可用
+    if (!modelAvailable && !modelIds.includes(model) && apiBaseUrl !== 'https://api.openai.com/v1') {
+      modelAvailable = true;
+    }
+
+    return {
+      valid: true,
+      models: modelIds,
+      supportsVision,
+      modelAvailable,
+      error: modelAvailable ? null : `指定的模型 "${model}" 不可用`
+    };
   } catch (error) {
     console.error('API密钥验证失败:', error);
-    return false;
+    return {
+      valid: false,
+      error: `连接错误: ${error.message}`,
+      models: [],
+      supportsVision: false
+    };
+  }
+}
+
+/**
+ * 测试API配置是否可用于翻译
+ * @param {Object} config - API配置对象
+ * @returns {Promise<Object>} - 返回测试结果
+ */
+export async function testApiConfig(config) {
+  try {
+    const {
+      apiKey,
+      apiBaseUrl = 'https://api.openai.com/v1',
+      useCustomApiUrl = false,
+      model = 'gpt-3.5-turbo',
+      customModel = '',
+      useCustomModel = false
+    } = config;
+
+    if (!apiKey) {
+      return {
+        success: false,
+        message: '请提供API密钥'
+      };
+    }
+
+    const actualApiUrl = useCustomApiUrl ? apiBaseUrl : 'https://api.openai.com/v1';
+    const actualModel = useCustomModel ? customModel : model;
+
+    // 验证API密钥
+    const validationResult = await validateApiKey(apiKey, actualApiUrl, actualModel);
+
+    if (!validationResult.valid) {
+      return {
+        success: false,
+        message: `API密钥验证失败: ${validationResult.error}`,
+        details: validationResult
+      };
+    }
+
+    if (!validationResult.modelAvailable) {
+      return {
+        success: false,
+        message: `所选模型不可用: ${actualModel}`,
+        details: validationResult
+      };
+    }
+
+    // 测试简单翻译
+    try {
+      const testResult = await callChatAPI('Hello, this is a test.', 'zh-CN', {
+        apiKey,
+        apiBaseUrl: actualApiUrl,
+        model: actualModel,
+        temperature: 0.3
+      });
+
+      return {
+        success: true,
+        message: 'API配置有效，翻译测试成功',
+        testResult,
+        details: validationResult
+      };
+    } catch (translationError) {
+      return {
+        success: false,
+        message: `API密钥有效，但翻译测试失败: ${translationError.message}`,
+        details: validationResult
+      };
+    }
+  } catch (error) {
+    console.error('API配置测试失败:', error);
+    return {
+      success: false,
+      message: `测试过程中发生错误: ${error.message}`
+    };
   }
 }

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { testApiConfig } from '../../utils/api';
 
 const ApiSettings = ({ config, onChange }) => {
   const [apiKey, setApiKey] = useState(config.apiKey || '');
@@ -9,6 +10,8 @@ const ApiSettings = ({ config, onChange }) => {
   const [apiBaseUrl, setApiBaseUrl] = useState(config.apiBaseUrl || 'https://api.openai.com/v1');
   const [useCustomModel, setUseCustomModel] = useState(config.useCustomModel || false);
   const [useCustomApiUrl, setUseCustomApiUrl] = useState(config.useCustomApiUrl || false);
+  const [validating, setValidating] = useState(false);
+  const [validationResult, setValidationResult] = useState(null);
 
   // 当 config props 变化时更新组件状态
   useEffect(() => {
@@ -58,6 +61,56 @@ const ApiSettings = ({ config, onChange }) => {
 
   const toggleShowKey = () => {
     setShowKey(!showKey);
+  };
+
+  // 验证API配置
+  const validateApiConfig = async () => {
+    setValidating(true);
+    setValidationResult(null);
+
+    try {
+      // 构建当前配置对象
+      const currentConfig = {
+        apiKey,
+        apiBaseUrl,
+        useCustomApiUrl,
+        model,
+        customModel,
+        useCustomModel
+      };
+
+      // 测试API配置
+      const result = await testApiConfig(currentConfig);
+      setValidationResult(result);
+    } catch (error) {
+      setValidationResult({
+        success: false,
+        message: `验证过程中发生错误: ${error.message}`
+      });
+    } finally {
+      setValidating(false);
+    }
+  };
+
+  // 渲染验证结果
+  const renderValidationResult = () => {
+    if (!validationResult) return null;
+
+    const { success, message, testResult } = validationResult;
+
+    return (
+      <div className={`mt-4 p-3 rounded ${success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+        <div className={`text-sm font-medium ${success ? 'text-green-800' : 'text-red-800'}`}>
+          {success ? '✅ ' : '❌ '}{message}
+        </div>
+        {testResult && (
+          <div className="mt-2 text-xs text-gray-600">
+            <div>测试翻译结果:</div>
+            <div className="mt-1 p-2 bg-white rounded">{testResult}</div>
+          </div>
+        )}
+      </div>
+    );
   };
 
   return (
@@ -194,6 +247,26 @@ const ApiSettings = ({ config, onChange }) => {
           控制AI生成文本的随机性。较低的值使翻译更准确，较高的值使翻译更有创意。
         </p>
       </div>
+
+      <div className="mb-4">
+        <button
+          onClick={validateApiConfig}
+          disabled={validating || !apiKey}
+          className={`px-4 py-2 rounded text-white ${validating
+              ? 'bg-gray-400 cursor-not-allowed'
+              : !apiKey
+                ? 'bg-gray-300 cursor-not-allowed'
+                : 'bg-blue-500 hover:bg-blue-600'
+            }`}
+        >
+          {validating ? '验证中...' : '验证API配置'}
+        </button>
+        <p className="text-xs text-gray-500 mt-1">
+          点击验证按钮测试您的API配置是否有效
+        </p>
+      </div>
+
+      {renderValidationResult()}
 
       <div className="mt-6 p-4 bg-blue-50 rounded border border-blue-200">
         <h3 className="text-sm font-medium text-blue-800 mb-2">API设置说明</h3>
