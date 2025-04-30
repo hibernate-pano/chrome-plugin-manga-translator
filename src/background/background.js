@@ -18,16 +18,16 @@ chrome.runtime.onInstalled.addListener((details) => {
 // 初始化默认设置
 function initializeDefaultSettings() {
   const defaultSettings = {
-    apiKey: '',
+    apiKey: 'sk-bpbqulqtsmbywglsemzqantxqhmilksogyeitgcpkbvwioix',
     targetLanguage: 'zh-CN',
     enabled: false,
     mode: 'manual',
     styleLevel: 50,
     model: 'gpt-3.5-turbo',
-    customModel: '',
-    useCustomModel: false,
-    apiBaseUrl: 'https://api.openai.com/v1',
-    useCustomApiUrl: false,
+    customModel: 'Qwen/Qwen2.5-VL-32B-Instruct',
+    useCustomModel: true,
+    apiBaseUrl: 'https://api.siliconflow.cn/v1',
+    useCustomApiUrl: true,
     temperature: 0.7,
     fontFamily: '',
     fontSize: 'auto',
@@ -47,7 +47,7 @@ function initializeDefaultSettings() {
       imagePreprocessing: 'none',
       showOriginalText: false,
       translationPrompt: '',
-      useCorsProxy: false,
+      useCorsProxy: true,
       corsProxyType: 'corsproxy',
       customCorsProxy: ''
     }

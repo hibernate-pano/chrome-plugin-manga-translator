@@ -25,6 +25,54 @@ export async function callVisionAPI(imageData, options = {}) {
   // 构建API URL
   const apiUrl = `${apiBaseUrl}/chat/completions`;
 
+  // 检查是否是Qwen模型
+  const isQwenModel = model.toLowerCase().includes('qwen');
+
+  // 根据模型类型构建不同的请求体
+  let requestBody;
+
+  if (isQwenModel) {
+    // Qwen模型的请求格式
+    requestBody = {
+      model: model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image',
+              image_url: {
+                url: `data:image/jpeg;base64,${imageData}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: maxTokens
+    };
+  } else {
+    // OpenAI模型的请求格式
+    requestBody = {
+      model: model,
+      messages: [
+        {
+          role: 'user',
+          content: [
+            { type: 'text', text: prompt },
+            {
+              type: 'image_url',
+              image_url: {
+                url: `data:image/jpeg;base64,${imageData}`
+              }
+            }
+          ]
+        }
+      ],
+      max_tokens: maxTokens
+    };
+  }
+
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -32,24 +80,7 @@ export async function callVisionAPI(imageData, options = {}) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: 'user',
-            content: [
-              { type: 'text', text: prompt },
-              {
-                type: 'image_url',
-                image_url: {
-                  url: `data:image/jpeg;base64,${imageData}`
-                }
-              }
-            ]
-          }
-        ],
-        max_tokens: maxTokens
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
@@ -111,6 +142,42 @@ export async function callChatAPI(text, targetLang, options = {}) {
   // 构建API URL
   const apiUrl = `${apiBaseUrl}/chat/completions`;
 
+  // 检查是否是Qwen模型
+  const isQwenModel = model.toLowerCase().includes('qwen');
+
+  // 根据模型类型构建不同的请求体
+  let requestBody;
+
+  if (isQwenModel) {
+    // Qwen模型可能不支持或不需要system消息，将system内容合并到user消息中
+    requestBody = {
+      model: model,
+      messages: [
+        {
+          role: 'user',
+          content: `${systemPrompt}\n\n${text}`
+        }
+      ],
+      temperature: temperature
+    };
+  } else {
+    // OpenAI模型的标准格式
+    requestBody = {
+      model: model,
+      messages: [
+        {
+          role: 'system',
+          content: systemPrompt
+        },
+        {
+          role: 'user',
+          content: text
+        }
+      ],
+      temperature: temperature
+    };
+  }
+
   try {
     const response = await fetch(apiUrl, {
       method: 'POST',
@@ -118,20 +185,7 @@ export async function callChatAPI(text, targetLang, options = {}) {
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${apiKey}`
       },
-      body: JSON.stringify({
-        model: model,
-        messages: [
-          {
-            role: 'system',
-            content: systemPrompt
-          },
-          {
-            role: 'user',
-            content: text
-          }
-        ],
-        temperature: temperature
-      })
+      body: JSON.stringify(requestBody)
     });
 
     if (!response.ok) {
