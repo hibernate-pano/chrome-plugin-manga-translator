@@ -46,13 +46,19 @@ export async function detectTextAreas(image, options = {}) {
 
     // 调用Vision API
     const prompt = `
-      请分析这张漫画图像，识别其中所有的文字区域。
+      请分析这张漫画图像，识别其中所有的文字区域，特别是对话气泡、旁白框和音效文字。
 
       要求：
-      1. 返回JSON格式，包含每个文字区域的坐标(x, y, width, height)和文字内容
-      2. 只识别图像中的文字，忽略其他元素
-      3. 尽可能准确地提取每个文字气泡或文本框中的内容
-      4. 保持文字的原始顺序和分组
+      1. 返回JSON格式，包含每个文字区域的详细信息
+      2. 对于每个文字区域，提供以下信息：
+         - 坐标(x, y, width, height)：文字区域在图像中的位置和大小
+         - 文字内容(text)：区域内的完整文字
+         - 区域类型(type)：对话气泡(bubble)、旁白框(narration)、音效(sfx)或其他(other)
+         - 阅读顺序(order)：根据漫画阅读习惯（从上到下，从右到左或从左到右）分配的序号
+         - 置信度(confidence)：识别的准确度评分(0-1)
+      3. 尽可能准确地识别每个文字区域的边界，特别是对话气泡的轮廓
+      4. 保持文字的原始顺序和分组，考虑漫画的阅读流向
+      5. 如果是对话气泡，尝试识别说话者（如果图像中有明显的角色）
 
       返回格式示例：
       {
@@ -62,10 +68,25 @@ export async function detectTextAreas(image, options = {}) {
             "y": 50,
             "width": 200,
             "height": 100,
-            "text": "文字内容"
+            "text": "文字内容",
+            "type": "bubble",
+            "order": 1,
+            "confidence": 0.95,
+            "speaker": "角色名（如果能识别）"
+          },
+          {
+            "x": 300,
+            "y": 150,
+            "width": 150,
+            "height": 50,
+            "text": "旁白文字",
+            "type": "narration",
+            "order": 2,
+            "confidence": 0.9
           },
           ...
-        ]
+        ],
+        "readingDirection": "rtl" // rtl(从右到左)或ltr(从左到右)
       }
     `;
 
@@ -109,16 +130,50 @@ export async function detectTextAreas(image, options = {}) {
 
     const textAreas = result.textAreas;
 
+    // 处理和规范化文字区域数据
+    const processedTextAreas = textAreas.map(area => {
+      // 确保所有必要的字段都存在
+      return {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: area.height,
+        text: area.text || '',
+        type: area.type || 'bubble', // 默认为对话气泡
+        order: area.order || 0,
+        confidence: area.confidence || 0.8,
+        speaker: area.speaker || '',
+        // 添加额外的元数据
+        metadata: {
+          readingDirection: result.readingDirection || 'rtl', // 默认从右到左
+          isProcessed: true,
+          detectionMethod: 'vision-api'
+        }
+      };
+    });
+
+    // 按阅读顺序排序
+    processedTextAreas.sort((a, b) => a.order - b.order);
+
+    // 过滤掉低置信度的区域
+    const filteredTextAreas = processedTextAreas.filter(area =>
+      area.confidence > 0.5 && area.text.trim() !== ''
+    );
+
     // 缓存结果
     if (useCache) {
-      await cacheTranslation(imageHash, { textAreas });
+      await cacheTranslation(imageHash, {
+        textAreas: filteredTextAreas,
+        readingDirection: result.readingDirection || 'rtl'
+      });
     }
 
     if (debugMode) {
-      console.log('检测到的文字区域:', textAreas);
+      console.log('检测到的文字区域:', filteredTextAreas);
+      console.log('阅读方向:', result.readingDirection || 'rtl');
     }
 
-    return textAreas;
+    return filteredTextAreas;
   } catch (error) {
     console.error('文字区域检测失败:', error);
     throw error;

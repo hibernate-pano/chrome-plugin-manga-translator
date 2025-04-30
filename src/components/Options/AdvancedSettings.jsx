@@ -80,6 +80,24 @@ const AdvancedSettings = ({ settings, onChange }) => {
 
       <div className="mb-4">
         <label className="block text-sm font-medium text-gray-700 mb-1">
+          悬停切换模式
+        </label>
+        <select
+          value={localSettings?.hoverMode || 'hover'}
+          onChange={(e) => handleChange('hoverMode', e.target.value)}
+          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          <option value="hover">悬停切换 (鼠标悬停时显示翻译)</option>
+          <option value="click">点击切换 (点击图像切换原文/译文)</option>
+          <option value="fixed">固定显示 (始终显示翻译)</option>
+        </select>
+        <p className="text-xs text-gray-500 mt-1">
+          设置如何在原文和翻译之间切换，悬停模式更接近沉浸式体验
+        </p>
+      </div>
+
+      <div className="mb-4">
+        <label className="block text-sm font-medium text-gray-700 mb-1">
           API请求超时 (秒)
         </label>
         <input

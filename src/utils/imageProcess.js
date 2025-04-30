@@ -1,104 +1,56 @@
 /**
- * 图像处理相关工具函数
+ * 图像处理工具模块
  */
 
 /**
  * 将图像转换为Base64编码
  * @param {HTMLImageElement|HTMLCanvasElement} image - 图像元素或Canvas元素
- * @param {number} maxWidth - 最大宽度（可选，用于压缩）
- * @param {number} maxHeight - 最大高度（可选，用于压缩）
- * @param {string} format - 图像格式，默认为'jpeg'
+ * @param {number} maxWidth - 最大宽度，超过则等比例缩小
+ * @param {number} maxHeight - 最大高度，超过则等比例缩小
+ * @param {string} format - 图像格式，如'jpeg', 'png'
  * @param {number} quality - 图像质量，范围0-1，默认为0.8
  * @returns {Promise<string>} - 返回Base64编码的图像数据
  */
-export function imageToBase64(image, maxWidth = 1024, maxHeight = 1024, format = 'jpeg', quality = 0.8) {
+export async function imageToBase64(image, maxWidth = 1024, maxHeight = 1024, format = 'jpeg', quality = 0.8) {
   return new Promise((resolve, reject) => {
     try {
       // 如果输入已经是Canvas，直接使用
       if (image instanceof HTMLCanvasElement) {
         try {
-          const dataURL = image.toDataURL(`image/${format}`, quality);
-          const base64Data = dataURL.split(',')[1];
+          const base64Data = image.toDataURL(`image/${format}`, quality).split(',')[1];
           resolve(base64Data);
           return;
-        } catch (canvasError) {
-          console.warn('Canvas已被污染，尝试使用Blob方法:', canvasError);
-          // 如果Canvas已被污染，继续使用Blob方法
+        } catch (error) {
+          console.error('Canvas转Base64失败:', error);
+          // 继续尝试其他方法
         }
       }
 
-      // 创建一个新的图像元素，设置crossOrigin属性
+      // 创建Canvas
+      const canvas = document.createElement('canvas');
+      let width = image.naturalWidth || image.width;
+      let height = image.naturalHeight || image.height;
+
+      // 等比例缩放
+      if (width > maxWidth || height > maxHeight) {
+        const ratio = Math.min(maxWidth / width, maxHeight / height);
+        width = Math.floor(width * ratio);
+        height = Math.floor(height * ratio);
+      }
+
+      canvas.width = width;
+      canvas.height = height;
+
+      const ctx = canvas.getContext('2d');
+
+      // 创建一个新的图像元素，用于加载和绘制
       const img = new Image();
       img.crossOrigin = 'anonymous';
 
       img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.naturalWidth || img.width;
-        let height = img.naturalHeight || img.height;
-
-        // 调整大小以适应最大尺寸
-        if (width > maxWidth || height > maxHeight) {
-          const ratio = Math.min(maxWidth / width, maxHeight / height);
-          width = Math.floor(width * ratio);
-          height = Math.floor(height * ratio);
-        }
-
-        canvas.width = width;
-        canvas.height = height;
-
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-
         try {
-          // 尝试转换为Base64
-          const dataURL = canvas.toDataURL(`image/${format}`, quality);
-          const base64Data = dataURL.split(',')[1];
-          resolve(base64Data);
-        } catch (canvasError) {
-          console.warn('Canvas仍然被污染，使用替代方法:', canvasError);
-
-          // 使用Blob和FileReader作为替代方法
-          canvas.toBlob((blob) => {
-            if (!blob) {
-              reject(new Error('无法创建Blob'));
-              return;
-            }
-
-            const reader = new FileReader();
-            reader.onloadend = () => {
-              const base64Data = reader.result.split(',')[1];
-              resolve(base64Data);
-            };
-            reader.onerror = () => {
-              reject(new Error('FileReader读取失败'));
-            };
-            reader.readAsDataURL(blob);
-          }, `image/${format}`, quality);
-        }
-      };
-
-      img.onerror = (error) => {
-        console.error('图像加载失败:', error);
-
-        // 如果跨域加载失败，尝试直接使用原始图像
-        try {
-          const canvas = document.createElement('canvas');
-          let width = image.naturalWidth || image.width;
-          let height = image.naturalHeight || image.height;
-
-          if (width > maxWidth || height > maxHeight) {
-            const ratio = Math.min(maxWidth / width, maxHeight / height);
-            width = Math.floor(width * ratio);
-            height = Math.floor(height * ratio);
-          }
-
-          canvas.width = width;
-          canvas.height = height;
-
-          const ctx = canvas.getContext('2d');
-
           // 尝试绘制原始图像
-          ctx.drawImage(image, 0, 0, width, height);
+          ctx.drawImage(img, 0, 0, width, height);
 
           // 使用Blob和FileReader作为替代方法
           canvas.toBlob((blob) => {
@@ -134,106 +86,245 @@ export function imageToBase64(image, maxWidth = 1024, maxHeight = 1024, format =
               resolveSettings(result.advancedSettings || {});
             });
           })
-            .then(advancedSettings => {
-              const useCorsProxy = advancedSettings.useCorsProxy || false;
-              const corsProxyType = advancedSettings.corsProxyType || 'corsproxy';
-              const customCorsProxy = advancedSettings.customCorsProxy || '';
+          .then(advancedSettings => {
+            const useCorsProxy = advancedSettings.useCorsProxy || false;
+            const corsProxyType = advancedSettings.corsProxyType || 'corsproxy';
+            const customCorsProxy = advancedSettings.customCorsProxy || '';
 
-              // 定义可用的代理服务列表
-              const proxyServices = [
-                {
-                  name: 'corsproxy',
-                  url: `https://corsproxy.io/?${encodeURIComponent(image.src)}`,
-                  isDefault: true
-                },
-                {
-                  name: 'allorigins',
-                  url: `https://api.allorigins.win/raw?url=${encodeURIComponent(image.src)}`
-                },
-                {
-                  name: 'cors-anywhere',
-                  url: `https://cors-anywhere.herokuapp.com/${image.src}`
-                }
-              ];
-
-              // 如果有自定义代理，添加到列表
-              if (corsProxyType === 'custom' && customCorsProxy) {
-                proxyServices.unshift({
-                  name: 'custom',
-                  url: customCorsProxy.replace('{url}', encodeURIComponent(image.src)),
-                  isDefault: true
-                });
+            // 定义可用的代理服务列表
+            const proxyServices = [
+              {
+                name: 'corsproxy',
+                url: `https://corsproxy.io/?${encodeURIComponent(image.src)}`,
+                isDefault: true,
+                weight: 10 // 权重，用于智能排序
+              },
+              {
+                name: 'allorigins',
+                url: `https://api.allorigins.win/raw?url=${encodeURIComponent(image.src)}`,
+                weight: 8
+              },
+              {
+                name: 'cors-anywhere',
+                url: `https://cors-anywhere.herokuapp.com/${image.src}`,
+                weight: 6
+              },
+              {
+                name: 'corsanywhere',
+                url: `https://corsanywhere.herokuapp.com/${image.src}`,
+                weight: 7
+              },
+              {
+                name: 'thingproxy',
+                url: `https://thingproxy.freeboard.io/fetch/${image.src}`,
+                weight: 5
               }
-
-              // 根据设置的代理类型，找到默认代理
-              let defaultProxy = proxyServices.find(p => p.name === corsProxyType) || proxyServices[0];
-
-              // 创建代理服务的尝试队列
-              let proxyQueue = [
-                ...proxyServices.filter(p => p.name === defaultProxy.name), // 首先尝试默认代理
-                ...proxyServices.filter(p => p.name !== defaultProxy.name)  // 然后尝试其他代理
-              ];
-
+            ];
+            
+            // 如果有自定义代理，添加到列表
+            if (corsProxyType === 'custom' && customCorsProxy) {
+              proxyServices.unshift({
+                name: 'custom',
+                url: customCorsProxy.replace('{url}', encodeURIComponent(image.src)),
+                isDefault: true,
+                weight: 15
+              });
+            }
+            
+            // 检查是否有代理成功历史记录
+            const checkProxyHistory = async () => {
+              return new Promise(resolve => {
+                chrome.storage.local.get(['proxyHistory'], result => {
+                  const history = result.proxyHistory || {};
+                  resolve(history);
+                });
+              });
+            };
+            
+            // 更新代理历史记录
+            const updateProxyHistory = async (proxyName, success, responseTime) => {
+              const history = await checkProxyHistory();
+              
+              if (!history[proxyName]) {
+                history[proxyName] = {
+                  successCount: 0,
+                  failCount: 0,
+                  totalTime: 0,
+                  lastUsed: Date.now()
+                };
+              }
+              
+              if (success) {
+                history[proxyName].successCount++;
+                history[proxyName].totalTime += responseTime;
+              } else {
+                history[proxyName].failCount++;
+              }
+              
+              history[proxyName].lastUsed = Date.now();
+              
+              chrome.storage.local.set({ proxyHistory: history });
+            };
+            
+            // 智能排序代理服务
+            const sortProxyServices = async (services) => {
+              const history = await checkProxyHistory();
+              
+              return services.sort((a, b) => {
+                const aHistory = history[a.name] || { successCount: 0, failCount: 0, totalTime: 0 };
+                const bHistory = history[b.name] || { successCount: 0, failCount: 0, totalTime: 0 };
+                
+                // 计算成功率
+                const aTotal = aHistory.successCount + aHistory.failCount;
+                const bTotal = bHistory.successCount + bHistory.failCount;
+                
+                const aSuccessRate = aTotal > 0 ? aHistory.successCount / aTotal : 0;
+                const bSuccessRate = bTotal > 0 ? bHistory.successCount / bTotal : 0;
+                
+                // 计算平均响应时间
+                const aAvgTime = aHistory.successCount > 0 ? aHistory.totalTime / aHistory.successCount : 1000;
+                const bAvgTime = bHistory.successCount > 0 ? bHistory.totalTime / bHistory.successCount : 1000;
+                
+                // 计算综合得分 (成功率 * 权重 - 响应时间因子)
+                const aScore = (aSuccessRate * a.weight) - (aAvgTime / 1000);
+                const bScore = (bSuccessRate * b.weight) - (bAvgTime / 1000);
+                
+                // 如果有默认代理，优先考虑
+                if (a.isDefault && !b.isDefault) return -1;
+                if (!a.isDefault && b.isDefault) return 1;
+                
+                // 按得分排序
+                return bScore - aScore;
+              });
+            };
+            
+            // 检查图像URL是否已经缓存
+            const checkImageCache = async (imageUrl) => {
+              return new Promise(resolve => {
+                const cacheKey = `img_cache_${btoa(imageUrl).substring(0, 100)}`;
+                chrome.storage.local.get([cacheKey], result => {
+                  if (result[cacheKey] && Date.now() - result[cacheKey].timestamp < 86400000) { // 缓存24小时
+                    resolve(result[cacheKey].dataUrl);
+                  } else {
+                    resolve(null);
+                  }
+                });
+              });
+            };
+            
+            // 缓存图像数据
+            const cacheImage = (imageUrl, dataUrl) => {
+              const cacheKey = `img_cache_${btoa(imageUrl).substring(0, 100)}`;
+              chrome.storage.local.set({
+                [cacheKey]: {
+                  dataUrl,
+                  timestamp: Date.now()
+                }
+              });
+            };
+            
+            // 主函数：智能加载图像
+            const smartLoadImage = async () => {
               if (!useCorsProxy) {
                 // 如果未启用代理，直接加载原始图像
                 img.src = image.src;
                 return;
               }
-
+              
               console.log('使用CORS代理加载图像:', image.src);
-              console.log('默认代理服务:', defaultProxy.name);
-
+              
+              // 检查缓存
+              const cachedImage = await checkImageCache(image.src);
+              if (cachedImage) {
+                console.log('使用缓存的图像数据');
+                img.src = cachedImage;
+                return;
+              }
+              
+              // 智能排序代理服务
+              const sortedProxies = await sortProxyServices(proxyServices);
+              console.log('智能排序后的代理服务:', sortedProxies.map(p => p.name));
+              
               // 尝试加载图像的函数
               const tryLoadWithProxy = (index = 0) => {
-                if (index >= proxyQueue.length) {
+                if (index >= sortedProxies.length) {
                   // 所有代理都失败，尝试直接加载
                   console.warn('所有代理服务都失败，尝试直接加载');
                   img.src = image.src;
                   return;
                 }
-
-                const proxy = proxyQueue[index];
+                
+                const proxy = sortedProxies[index];
                 console.log(`尝试使用代理服务 ${proxy.name}`);
-
+                
+                const startTime = performance.now();
+                
                 // 设置加载超时
                 const timeoutId = setTimeout(() => {
                   if (!img.complete) {
                     console.warn(`代理 ${proxy.name} 加载超时，尝试下一个代理`);
+                    updateProxyHistory(proxy.name, false, 0);
                     tryLoadWithProxy(index + 1);
                   }
-                }, 5000); // 5秒超时
-
+                }, 8000); // 8秒超时
+                
                 // 设置加载事件处理
                 const handleLoad = () => {
+                  const endTime = performance.now();
+                  const responseTime = endTime - startTime;
+                  
                   clearTimeout(timeoutId);
                   img.removeEventListener('load', handleLoad);
                   img.removeEventListener('error', handleError);
-                  console.log(`代理 ${proxy.name} 加载成功`);
+                  
+                  console.log(`代理 ${proxy.name} 加载成功，响应时间: ${responseTime.toFixed(0)}ms`);
+                  
+                  // 更新代理历史
+                  updateProxyHistory(proxy.name, true, responseTime);
+                  
+                  // 缓存图像数据
+                  try {
+                    const canvas = document.createElement('canvas');
+                    canvas.width = img.naturalWidth;
+                    canvas.height = img.naturalHeight;
+                    const ctx = canvas.getContext('2d');
+                    ctx.drawImage(img, 0, 0);
+                    const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+                    cacheImage(image.src, dataUrl);
+                  } catch (e) {
+                    console.warn('缓存图像失败:', e);
+                  }
                 };
-
+                
                 const handleError = () => {
                   clearTimeout(timeoutId);
                   img.removeEventListener('load', handleLoad);
                   img.removeEventListener('error', handleError);
+                  
                   console.warn(`代理 ${proxy.name} 加载失败，尝试下一个代理`);
+                  updateProxyHistory(proxy.name, false, 0);
                   tryLoadWithProxy(index + 1);
                 };
-
+                
                 img.addEventListener('load', handleLoad);
                 img.addEventListener('error', handleError);
-
+                
                 // 设置代理URL
                 img.src = proxy.url;
               };
-
+              
               // 开始尝试加载
               tryLoadWithProxy();
-            })
-            .catch(error => {
-              console.error('获取CORS代理设置失败:', error);
-              // 出错时直接使用原始URL
-              img.src = image.src;
-            });
+            };
+            
+            // 执行智能加载
+            smartLoadImage();
+          })
+          .catch(error => {
+            console.error('获取CORS代理设置失败:', error);
+            // 出错时直接使用原始URL
+            img.src = image.src;
+          });
         }
       } else {
         // 如果不是图像元素，直接拒绝
