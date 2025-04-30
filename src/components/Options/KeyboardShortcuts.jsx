@@ -1,9 +1,22 @@
 import React, { useState, useEffect } from 'react';
 
 const KeyboardShortcuts = ({ shortcuts, onChange }) => {
-  const [toggleTranslation, setToggleTranslation] = useState(shortcuts.toggleTranslation || 'Alt+T');
-  const [translateSelected, setTranslateSelected] = useState(shortcuts.translateSelected || 'Alt+S');
+  const [toggleTranslation, setToggleTranslation] = useState(shortcuts?.toggleTranslation || 'Alt+T');
+  const [translateSelected, setTranslateSelected] = useState(shortcuts?.translateSelected || 'Alt+S');
   const [recording, setRecording] = useState(null);
+
+  // 当 props 中的 shortcuts 变化时更新内部状态
+  useEffect(() => {
+    console.log('KeyboardShortcuts 接收到新的 shortcuts:', shortcuts);
+    if (shortcuts) {
+      if (shortcuts.toggleTranslation) {
+        setToggleTranslation(shortcuts.toggleTranslation);
+      }
+      if (shortcuts.translateSelected) {
+        setTranslateSelected(shortcuts.translateSelected);
+      }
+    }
+  }, [shortcuts]);
 
   // 当组件卸载时保存配置
   useEffect(() => {

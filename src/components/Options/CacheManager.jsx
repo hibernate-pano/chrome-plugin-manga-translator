@@ -4,6 +4,15 @@ const CacheManager = ({ config, onClearCache, onChange }) => {
   const [cacheSize, setCacheSize] = useState(0);
   const [cacheEntries, setCacheEntries] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
+  const [localConfig, setLocalConfig] = useState(config || {});
+
+  // 当 config props 变化时更新组件状态
+  useEffect(() => {
+    console.log('CacheManager 接收到新的 config:', config);
+    if (config) {
+      setLocalConfig(config);
+    }
+  }, [config]);
 
   useEffect(() => {
     loadCacheInfo();
@@ -90,10 +99,10 @@ const CacheManager = ({ config, onClearCache, onChange }) => {
         <label className="flex items-center">
           <input
             type="checkbox"
-            checked={config.advancedSettings?.cacheResults !== false}
+            checked={localConfig.advancedSettings?.cacheResults !== false}
             onChange={(e) => {
               const newSettings = {
-                ...config.advancedSettings,
+                ...(localConfig.advancedSettings || {}),
                 cacheResults: e.target.checked
               };
               onChange({ advancedSettings: newSettings });
@@ -115,10 +124,10 @@ const CacheManager = ({ config, onClearCache, onChange }) => {
           type="number"
           min="10"
           max="1000"
-          value={config.advancedSettings?.maxCacheSize || 50}
+          value={localConfig.advancedSettings?.maxCacheSize || 50}
           onChange={(e) => {
             const newSettings = {
-              ...config.advancedSettings,
+              ...(localConfig.advancedSettings || {}),
               maxCacheSize: parseInt(e.target.value, 10) || 50
             };
             onChange({ advancedSettings: newSettings });

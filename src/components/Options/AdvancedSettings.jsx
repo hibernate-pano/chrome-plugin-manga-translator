@@ -1,11 +1,24 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 
 const AdvancedSettings = ({ settings, onChange }) => {
+  // 使用内部状态来跟踪设置
+  const [localSettings, setLocalSettings] = useState(settings || {});
+
+  // 当 props 中的 settings 变化时更新内部状态
+  useEffect(() => {
+    console.log('AdvancedSettings 接收到新的 settings:', settings);
+    if (settings) {
+      setLocalSettings(settings);
+    }
+  }, [settings]);
+
   const handleChange = (key, value) => {
-    onChange({
-      ...settings,
+    const updatedSettings = {
+      ...localSettings,
       [key]: value
-    });
+    };
+    setLocalSettings(updatedSettings);
+    onChange(updatedSettings);
   };
 
   // 当组件卸载时保存配置
@@ -24,7 +37,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
         <label className="flex items-center">
           <input
             type="checkbox"
-            checked={settings?.useLocalOcr || false}
+            checked={localSettings?.useLocalOcr || false}
             onChange={(e) => handleChange('useLocalOcr', e.target.checked)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
@@ -39,7 +52,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
         <label className="flex items-center">
           <input
             type="checkbox"
-            checked={settings?.debugMode || false}
+            checked={localSettings?.debugMode || false}
             onChange={(e) => handleChange('debugMode', e.target.checked)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
@@ -54,7 +67,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
         <label className="flex items-center">
           <input
             type="checkbox"
-            checked={settings?.showOriginalText || false}
+            checked={localSettings?.showOriginalText || false}
             onChange={(e) => handleChange('showOriginalText', e.target.checked)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
@@ -73,7 +86,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           type="number"
           min="5"
           max="120"
-          value={settings?.apiTimeout || 30}
+          value={localSettings?.apiTimeout || 30}
           onChange={(e) => handleChange('apiTimeout', parseInt(e.target.value, 10) || 30)}
           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
@@ -90,7 +103,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           type="number"
           min="1"
           max="10"
-          value={settings?.maxConcurrentRequests || 3}
+          value={localSettings?.maxConcurrentRequests || 3}
           onChange={(e) => handleChange('maxConcurrentRequests', parseInt(e.target.value, 10) || 3)}
           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         />
@@ -104,7 +117,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           图像预处理
         </label>
         <select
-          value={settings?.imagePreprocessing || 'none'}
+          value={localSettings?.imagePreprocessing || 'none'}
           onChange={(e) => handleChange('imagePreprocessing', e.target.value)}
           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
@@ -122,7 +135,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
         <label className="flex items-center">
           <input
             type="checkbox"
-            checked={settings?.useCorsProxy || false}
+            checked={localSettings?.useCorsProxy || false}
             onChange={(e) => handleChange('useCorsProxy', e.target.checked)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
@@ -132,13 +145,13 @@ const AdvancedSettings = ({ settings, onChange }) => {
           使用代理服务处理跨域图像，可能解决某些网站的图像无法翻译的问题。注意：这会将图像URL发送到第三方服务。
         </p>
 
-        {settings?.useCorsProxy && (
+        {localSettings?.useCorsProxy && (
           <div className="mt-2 ml-6">
             <label className="block text-sm font-medium text-gray-700 mb-1">
               CORS代理服务类型
             </label>
             <select
-              value={settings?.corsProxyType || 'corsproxy'}
+              value={localSettings?.corsProxyType || 'corsproxy'}
               onChange={(e) => handleChange('corsProxyType', e.target.value)}
               className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
@@ -148,14 +161,14 @@ const AdvancedSettings = ({ settings, onChange }) => {
               <option value="custom">自定义代理</option>
             </select>
 
-            {settings?.corsProxyType === 'custom' && (
+            {localSettings?.corsProxyType === 'custom' && (
               <div className="mt-2">
                 <label className="block text-sm font-medium text-gray-700 mb-1">
                   自定义代理URL
                 </label>
                 <input
                   type="text"
-                  value={settings?.customCorsProxy || ''}
+                  value={localSettings?.customCorsProxy || ''}
                   onChange={(e) => handleChange('customCorsProxy', e.target.value)}
                   placeholder="例如: https://your-proxy.com/?url={url}"
                   className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -174,7 +187,7 @@ const AdvancedSettings = ({ settings, onChange }) => {
           翻译提示词
         </label>
         <textarea
-          value={settings?.translationPrompt || ''}
+          value={localSettings?.translationPrompt || ''}
           onChange={(e) => handleChange('translationPrompt', e.target.value)}
           placeholder="输入自定义的翻译提示词，指导AI如何翻译"
           className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[100px]"

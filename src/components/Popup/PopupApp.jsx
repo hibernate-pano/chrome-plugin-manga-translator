@@ -20,49 +20,50 @@ const PopupApp = () => {
     // 获取所有配置项
     chrome.storage.sync.get(null, (result) => {
       if (result) {
-        // 更新配置，保留默认值
-        setConfig(prevConfig => ({
-          ...prevConfig,
-          apiKey: result.apiKey || prevConfig.apiKey,
-          targetLanguage: result.targetLanguage || prevConfig.targetLanguage,
-          enabled: result.enabled !== undefined ? result.enabled : prevConfig.enabled,
-          mode: result.mode || prevConfig.mode,
-          styleLevel: result.styleLevel !== undefined ? result.styleLevel : prevConfig.styleLevel,
-          // 添加新的配置项
-          customModel: result.customModel || '',
-          useCustomModel: result.useCustomModel || false,
-          apiBaseUrl: result.apiBaseUrl || 'https://api.openai.com/v1',
-          useCustomApiUrl: result.useCustomApiUrl || false,
-        }));
+        // 创建一个新的配置对象，保留默认值
+        const newConfig = { ...config };
+
+        // 更新配置，保留用户设置
+        if (result.apiKey !== undefined) newConfig.apiKey = result.apiKey;
+        if (result.targetLanguage !== undefined) newConfig.targetLanguage = result.targetLanguage;
+        if (result.enabled !== undefined) newConfig.enabled = result.enabled;
+        if (result.mode !== undefined) newConfig.mode = result.mode;
+        if (result.styleLevel !== undefined) newConfig.styleLevel = result.styleLevel;
+
+        // 添加新的配置项
+        if (result.customModel !== undefined) newConfig.customModel = result.customModel;
+        if (result.useCustomModel !== undefined) newConfig.useCustomModel = result.useCustomModel;
+        if (result.apiBaseUrl !== undefined) newConfig.apiBaseUrl = result.apiBaseUrl;
+        if (result.useCustomApiUrl !== undefined) newConfig.useCustomApiUrl = result.useCustomApiUrl;
+
+        // 更新状态
+        setConfig(newConfig);
 
         // 打印配置，用于调试
-        console.log('加载的配置:', result);
+        console.log('Popup页面加载的配置:', result);
+        console.log('Popup页面合并后的配置:', newConfig);
       }
     });
   }, []);
 
   // 保存配置
   const saveConfig = (newConfig) => {
+    // 更新本地状态
     const updatedConfig = { ...config, ...newConfig };
     setConfig(updatedConfig);
 
-    // 获取当前所有配置，然后合并新配置
-    chrome.storage.sync.get(null, (result) => {
-      const fullConfig = { ...result, ...updatedConfig };
+    // 只保存更改的部分，而不是整个配置
+    chrome.storage.sync.set(newConfig, () => {
+      console.log('保存的配置部分:', newConfig);
 
-      // 保存完整配置
-      chrome.storage.sync.set(fullConfig, () => {
-        console.log('保存的配置:', fullConfig);
-
-        // 通知内容脚本配置已更新
-        chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
-          if (tabs[0]?.id) {
-            chrome.tabs.sendMessage(tabs[0].id, {
-              type: 'CONFIG_UPDATED',
-              config: fullConfig
-            });
-          }
-        });
+      // 通知内容脚本配置已更新
+      chrome.tabs.query({ active: true, currentWindow: true }, (tabs) => {
+        if (tabs[0]?.id) {
+          chrome.tabs.sendMessage(tabs[0].id, {
+            type: 'CONFIG_UPDATED',
+            config: updatedConfig  // 发送完整的更新后配置
+          });
+        }
       });
     });
   };

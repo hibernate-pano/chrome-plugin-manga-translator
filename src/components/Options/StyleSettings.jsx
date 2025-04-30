@@ -1,13 +1,25 @@
 import React, { useState, useEffect } from 'react';
 
 const StyleSettings = ({ config, onChange }) => {
-  const [styleLevel, setStyleLevel] = useState(config.styleLevel || 50);
-  const [fontFamily, setFontFamily] = useState(config.fontFamily || '');
-  const [fontSize, setFontSize] = useState(config.fontSize || 'auto');
-  const [fontColor, setFontColor] = useState(config.fontColor || 'auto');
-  const [backgroundColor, setBackgroundColor] = useState(config.backgroundColor || 'auto');
+  const [styleLevel, setStyleLevel] = useState(config?.styleLevel || 50);
+  const [fontFamily, setFontFamily] = useState(config?.fontFamily || '');
+  const [fontSize, setFontSize] = useState(config?.fontSize || 'auto');
+  const [fontColor, setFontColor] = useState(config?.fontColor || 'auto');
+  const [backgroundColor, setBackgroundColor] = useState(config?.backgroundColor || 'auto');
   const [customFontFamily, setCustomFontFamily] = useState('');
   const [showCustomFont, setShowCustomFont] = useState(false);
+
+  // 当 config props 变化时更新组件状态
+  useEffect(() => {
+    console.log('StyleSettings 接收到新的 config:', config);
+    if (config) {
+      if (config.styleLevel !== undefined) setStyleLevel(config.styleLevel);
+      if (config.fontFamily !== undefined) setFontFamily(config.fontFamily);
+      if (config.fontSize !== undefined) setFontSize(config.fontSize);
+      if (config.fontColor !== undefined) setFontColor(config.fontColor);
+      if (config.backgroundColor !== undefined) setBackgroundColor(config.backgroundColor);
+    }
+  }, [config]);
 
   useEffect(() => {
     if (fontFamily === 'custom') {

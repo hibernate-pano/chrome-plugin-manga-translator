@@ -8,7 +8,21 @@ const ApiSettings = ({ config, onChange }) => {
   const [showKey, setShowKey] = useState(false);
   const [apiBaseUrl, setApiBaseUrl] = useState(config.apiBaseUrl || 'https://api.openai.com/v1');
   const [useCustomModel, setUseCustomModel] = useState(config.useCustomModel || false);
-  const [useCustomApiUrl, setUseCustomApiUrl] = useState(config.apiBaseUrl ? true : false);
+  const [useCustomApiUrl, setUseCustomApiUrl] = useState(config.useCustomApiUrl || false);
+
+  // 当 config props 变化时更新组件状态
+  useEffect(() => {
+    console.log('ApiSettings 接收到新的 config:', config);
+    if (config) {
+      if (config.apiKey !== undefined) setApiKey(config.apiKey);
+      if (config.model !== undefined) setModel(config.model);
+      if (config.customModel !== undefined) setCustomModel(config.customModel);
+      if (config.temperature !== undefined) setTemperature(config.temperature);
+      if (config.apiBaseUrl !== undefined) setApiBaseUrl(config.apiBaseUrl);
+      if (config.useCustomModel !== undefined) setUseCustomModel(config.useCustomModel);
+      if (config.useCustomApiUrl !== undefined) setUseCustomApiUrl(config.useCustomApiUrl);
+    }
+  }, [config]);
 
   // 创建一个保存配置的函数
   const saveConfig = () => {

@@ -34,52 +34,104 @@ const OptionsApp = () => {
 
   // 加载配置
   useEffect(() => {
-    chrome.storage.sync.get(null, (result) => {
-      if (result) {
-        setConfig(prev => ({
-          ...prev,
-          ...result,
-          advancedSettings: {
-            ...prev.advancedSettings,
-            ...(result.advancedSettings || {})
-          },
-          shortcuts: {
-            ...prev.shortcuts,
-            ...(result.shortcuts || {})
+    console.log('Options页面初始化，加载配置');
+
+    // 定义加载配置的函数
+    const loadConfig = () => {
+      chrome.storage.sync.get(null, (result) => {
+        if (result && Object.keys(result).length > 0) {
+          console.log('Options页面加载到配置:', result);
+
+          // 创建一个深拷贝的配置对象，避免引用问题
+          const newConfig = {
+            ...config,  // 保留默认值
+            ...result,  // 覆盖存储的值
+          };
+
+          // 确保嵌套对象正确合并
+          if (result.advancedSettings) {
+            newConfig.advancedSettings = {
+              ...config.advancedSettings,
+              ...result.advancedSettings
+            };
           }
-        }));
+
+          if (result.shortcuts) {
+            newConfig.shortcuts = {
+              ...config.shortcuts,
+              ...result.shortcuts
+            };
+          }
+
+          console.log('Options页面设置合并后的配置:', newConfig);
+          setConfig(newConfig);
+        } else {
+          console.log('Options页面没有找到配置，使用默认配置');
+        }
+      });
+    };
+
+    // 立即加载配置
+    loadConfig();
+
+    // 监听存储变化事件
+    const handleStorageChange = (_changes, area) => {
+      if (area === 'sync') {
+        console.log('检测到存储变化，重新加载配置');
+        loadConfig();
       }
-    });
+    };
+
+    // 添加存储变化监听器
+    chrome.storage.onChanged.addListener(handleStorageChange);
+
+    // 清理函数
+    return () => {
+      chrome.storage.onChanged.removeListener(handleStorageChange);
+    };
   }, []);
 
   // 保存配置
   const saveConfig = (newConfig) => {
-    const updatedConfig = { ...config, ...newConfig };
+    console.log('保存配置部分:', newConfig);
+
+    // 更新本地状态
+    const updatedConfig = { ...config };
+
+    // 处理顶级属性
+    for (const key in newConfig) {
+      if (typeof newConfig[key] !== 'object' || newConfig[key] === null) {
+        updatedConfig[key] = newConfig[key];
+      }
+    }
+
+    // 处理嵌套对象 - advancedSettings
+    if (newConfig.advancedSettings) {
+      updatedConfig.advancedSettings = {
+        ...(updatedConfig.advancedSettings || {}),
+        ...newConfig.advancedSettings
+      };
+    }
+
+    // 处理嵌套对象 - shortcuts
+    if (newConfig.shortcuts) {
+      updatedConfig.shortcuts = {
+        ...(updatedConfig.shortcuts || {}),
+        ...newConfig.shortcuts
+      };
+    }
+
+    // 更新组件状态
     setConfig(updatedConfig);
 
-    // 获取当前所有配置，然后合并新配置
-    chrome.storage.sync.get(null, (result) => {
-      // 合并当前配置和存储的配置
-      const mergedConfig = { ...result, ...updatedConfig };
+    // 保存到存储
+    chrome.storage.sync.set(newConfig, () => {
+      console.log('已保存配置部分到存储');
+      console.log('当前完整配置:', updatedConfig);
 
-      // 确保嵌套对象也被正确合并
-      if (newConfig.advancedSettings && result.advancedSettings) {
-        mergedConfig.advancedSettings = {
-          ...result.advancedSettings,
-          ...newConfig.advancedSettings
-        };
-      }
-
-      if (newConfig.shortcuts && result.shortcuts) {
-        mergedConfig.shortcuts = {
-          ...result.shortcuts,
-          ...newConfig.shortcuts
-        };
-      }
-
-      // 保存合并后的配置
-      chrome.storage.sync.set(mergedConfig, () => {
-        console.log('保存的配置:', mergedConfig);
+      // 验证保存是否成功
+      chrome.storage.sync.get(null, (result) => {
+        console.log('验证存储中的配置:', result);
       });
     });
   };
@@ -257,29 +309,44 @@ const OptionsApp = () => {
           <div>
             <button
               onClick={() => {
-                // 获取当前所有配置，然后合并新配置
-                chrome.storage.sync.get(null, (result) => {
-                  // 合并当前配置和存储的配置
-                  const mergedConfig = { ...result, ...config };
+                // 直接保存当前完整配置
+                console.log('保存并关闭，当前完整配置:', config);
 
-                  // 确保嵌套对象也被正确合并
-                  if (result.advancedSettings && config.advancedSettings) {
-                    mergedConfig.advancedSettings = {
-                      ...result.advancedSettings,
-                      ...config.advancedSettings
-                    };
-                  }
+                // 确保配置中包含所有必要的字段
+                const completeConfig = { ...config };
 
-                  if (result.shortcuts && config.shortcuts) {
-                    mergedConfig.shortcuts = {
-                      ...result.shortcuts,
-                      ...config.shortcuts
-                    };
-                  }
+                // 确保 advancedSettings 存在
+                if (!completeConfig.advancedSettings) {
+                  completeConfig.advancedSettings = {
+                    useLocalOcr: false,
+                    cacheResults: true,
+                    maxCacheSize: 50,
+                    debugMode: false,
+                    apiTimeout: 30,
+                    maxConcurrentRequests: 3,
+                    imagePreprocessing: 'none',
+                    showOriginalText: false,
+                    translationPrompt: '',
+                    useCorsProxy: true,
+                    corsProxyType: 'corsproxy',
+                    customCorsProxy: ''
+                  };
+                }
 
-                  // 保存合并后的配置
-                  chrome.storage.sync.set(mergedConfig, () => {
-                    console.log('保存的完整配置:', mergedConfig);
+                // 确保 shortcuts 存在
+                if (!completeConfig.shortcuts) {
+                  completeConfig.shortcuts = {
+                    toggleTranslation: 'Alt+T',
+                    translateSelected: 'Alt+S'
+                  };
+                }
+
+                chrome.storage.sync.set(completeConfig, () => {
+                  console.log('已保存完整配置到存储');
+
+                  // 验证保存是否成功
+                  chrome.storage.sync.get(null, (result) => {
+                    console.log('验证存储中的配置:', result);
 
                     // 显示保存成功的消息
                     const saveStatus = document.createElement('div');
