@@ -128,20 +128,57 @@ export function imageToBase64(image, maxWidth = 1024, maxHeight = 1024, format =
         if (image.src.startsWith('data:') || image.src.startsWith('blob:')) {
           img.src = image.src;
         } else {
-          // 检查是否启用了CORS代理
+          // 检查CORS代理设置
           chrome.storage.sync.get(['advancedSettings'], (result) => {
             const useCorsProxy = result.advancedSettings?.useCorsProxy || false;
+            const corsProxyType = result.advancedSettings?.corsProxyType || 'cors-anywhere';
+            const customCorsProxy = result.advancedSettings?.customCorsProxy || '';
 
             if (useCorsProxy) {
               // 对于跨域图像，尝试通过代理服务加载
               console.log('使用CORS代理加载图像:', image.src);
-              img.src = `https://cors-anywhere.herokuapp.com/${image.src}`;
 
-              // 设置超时，如果代理加载失败，尝试直接加载
+              let proxyUrl = '';
+
+              // 根据代理类型选择不同的代理服务
+              switch (corsProxyType) {
+                case 'cors-anywhere':
+                  proxyUrl = `https://cors-anywhere.herokuapp.com/${image.src}`;
+                  break;
+                case 'allorigins':
+                  proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(image.src)}`;
+                  break;
+                case 'corsproxy':
+                  proxyUrl = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
+                  break;
+                case 'custom':
+                  if (customCorsProxy) {
+                    // 替换自定义代理URL中的占位符
+                    proxyUrl = customCorsProxy.replace('{url}', encodeURIComponent(image.src));
+                  } else {
+                    proxyUrl = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
+                  }
+                  break;
+                default:
+                  proxyUrl = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
+              }
+
+              img.src = proxyUrl;
+
+              // 设置超时，如果代理加载失败，尝试其他代理
               setTimeout(() => {
                 if (!img.complete) {
-                  console.warn('代理加载超时，尝试直接加载');
-                  img.src = image.src;
+                  console.warn('第一个代理加载超时，尝试备用代理');
+                  // 尝试另一个代理服务
+                  img.src = `https://corsproxy.io/?${encodeURIComponent(image.src)}`;
+
+                  // 如果备用代理也失败，尝试直接加载
+                  setTimeout(() => {
+                    if (!img.complete) {
+                      console.warn('备用代理加载超时，尝试直接加载');
+                      img.src = image.src;
+                    }
+                  }, 3000);
                 }
               }, 3000);
             } else {

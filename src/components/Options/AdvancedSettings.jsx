@@ -126,11 +126,47 @@ const AdvancedSettings = ({ settings, onChange }) => {
             onChange={(e) => handleChange('useCorsProxy', e.target.checked)}
             className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
           />
-          <span className="ml-2 text-sm text-gray-700">使用CORS代理服务 (实验性)</span>
+          <span className="ml-2 text-sm text-gray-700">使用CORS代理服务</span>
         </label>
         <p className="text-xs text-gray-500 mt-1 ml-6">
           使用代理服务处理跨域图像，可能解决某些网站的图像无法翻译的问题。注意：这会将图像URL发送到第三方服务。
         </p>
+
+        {settings?.useCorsProxy && (
+          <div className="mt-2 ml-6">
+            <label className="block text-sm font-medium text-gray-700 mb-1">
+              CORS代理服务类型
+            </label>
+            <select
+              value={settings?.corsProxyType || 'corsproxy'}
+              onChange={(e) => handleChange('corsProxyType', e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="corsproxy">corsproxy.io (推荐)</option>
+              <option value="allorigins">allorigins.win</option>
+              <option value="cors-anywhere">cors-anywhere.herokuapp.com</option>
+              <option value="custom">自定义代理</option>
+            </select>
+
+            {settings?.corsProxyType === 'custom' && (
+              <div className="mt-2">
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  自定义代理URL
+                </label>
+                <input
+                  type="text"
+                  value={settings?.customCorsProxy || ''}
+                  onChange={(e) => handleChange('customCorsProxy', e.target.value)}
+                  placeholder="例如: https://your-proxy.com/?url={url}"
+                  className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  使用 {'{url}'} 作为图像URL的占位符。URL将会被自动编码。
+                </p>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="mb-4">

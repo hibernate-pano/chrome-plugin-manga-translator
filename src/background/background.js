@@ -47,7 +47,9 @@ function initializeDefaultSettings() {
       imagePreprocessing: 'none',
       showOriginalText: false,
       translationPrompt: '',
-      useCorsProxy: false
+      useCorsProxy: false,
+      corsProxyType: 'corsproxy',
+      customCorsProxy: ''
     }
   };
 
@@ -126,6 +128,14 @@ function updateSettings() {
 
       if (result.advancedSettings.useCorsProxy === undefined) {
         advancedUpdates.useCorsProxy = false;
+      }
+
+      if (result.advancedSettings.corsProxyType === undefined) {
+        advancedUpdates.corsProxyType = 'corsproxy';
+      }
+
+      if (result.advancedSettings.customCorsProxy === undefined) {
+        advancedUpdates.customCorsProxy = '';
       }
 
       if (Object.keys(advancedUpdates).length > 0) {

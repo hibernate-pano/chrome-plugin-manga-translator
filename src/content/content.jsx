@@ -308,7 +308,129 @@ async function translateImage(image) {
     }
   } catch (error) {
     console.error('翻译图像失败:', error);
-    showError(image, error.message);
+
+    // 检查是否是CORS相关错误
+    let errorMessage = error.message;
+    if (
+      error.message.includes('InvalidStateError') &&
+      error.message.includes('drawImage') &&
+      error.message.includes('broken')
+    ) {
+      // 提供更友好的CORS错误信息和解决方案
+      errorMessage = '跨域资源共享(CORS)错误: 无法访问图像数据。请尝试启用CORS代理服务。';
+
+      // 获取配置，检查是否已启用CORS代理
+      chrome.storage.sync.get(['advancedSettings'], (result) => {
+        const useCorsProxy = result.advancedSettings?.useCorsProxy || false;
+
+        if (!useCorsProxy) {
+          // 如果未启用CORS代理，添加一个按钮让用户快速启用
+          const enableProxyButton = createActionButton('启用CORS代理', '#4CAF50');
+
+          enableProxyButton.addEventListener('click', async () => {
+            // 更新配置，启用CORS代理
+            const config = await getConfig();
+            const advancedSettings = {
+              ...(config.advancedSettings || {}),
+              useCorsProxy: true,
+              corsProxyType: 'corsproxy'  // 默认使用corsproxy.io
+            };
+
+            await saveConfig({ advancedSettings });
+
+            // 关闭错误消息
+            const errorDiv = enableProxyButton.closest('.manga-translator-error');
+            if (errorDiv) {
+              errorDiv.remove();
+            }
+
+            // 重新尝试翻译
+            setTimeout(() => translateImage(image), 500);
+          });
+
+          // 创建一个打开选项页面的按钮
+          const openOptionsButton = createActionButton('高级设置', '#2196F3');
+          openOptionsButton.style.marginLeft = '10px';
+
+          openOptionsButton.addEventListener('click', () => {
+            chrome.runtime.openOptionsPage();
+          });
+
+          // 创建按钮容器，使按钮并排显示
+          const buttonContainer = document.createElement('div');
+          buttonContainer.style.display = 'flex';
+          buttonContainer.style.gap = '10px';
+          buttonContainer.style.marginTop = '10px';
+
+          buttonContainer.appendChild(enableProxyButton);
+          buttonContainer.appendChild(openOptionsButton);
+
+          // 将按钮添加到错误消息中
+          const errorDiv = showError(image, errorMessage);
+          errorDiv.appendChild(buttonContainer);
+          return;
+        } else {
+          // 如果已启用CORS代理但仍然失败，提供更多选项
+          errorMessage = '跨域资源共享(CORS)错误: 当前代理服务无法访问图像数据。请尝试更换代理服务。';
+
+          // 创建一个尝试其他代理的按钮
+          const tryOtherProxyButton = createActionButton('尝试其他代理', '#FF9800');
+
+          tryOtherProxyButton.addEventListener('click', async () => {
+            // 获取当前配置
+            const config = await getConfig();
+            const currentProxyType = config.advancedSettings?.corsProxyType || 'corsproxy';
+
+            // 选择一个不同的代理
+            let newProxyType = 'allorigins';
+            if (currentProxyType === 'allorigins') {
+              newProxyType = 'corsproxy';
+            }
+
+            // 更新配置
+            const advancedSettings = {
+              ...(config.advancedSettings || {}),
+              corsProxyType: newProxyType
+            };
+
+            await saveConfig({ advancedSettings });
+
+            // 关闭错误消息
+            const errorDiv = tryOtherProxyButton.closest('.manga-translator-error');
+            if (errorDiv) {
+              errorDiv.remove();
+            }
+
+            // 重新尝试翻译
+            setTimeout(() => translateImage(image), 500);
+          });
+
+          // 创建一个打开选项页面的按钮
+          const openOptionsButton = createActionButton('高级设置', '#2196F3');
+          openOptionsButton.style.marginLeft = '10px';
+
+          openOptionsButton.addEventListener('click', () => {
+            chrome.runtime.openOptionsPage();
+          });
+
+          // 创建按钮容器
+          const buttonContainer = document.createElement('div');
+          buttonContainer.style.display = 'flex';
+          buttonContainer.style.gap = '10px';
+          buttonContainer.style.marginTop = '10px';
+
+          buttonContainer.appendChild(tryOtherProxyButton);
+          buttonContainer.appendChild(openOptionsButton);
+
+          // 将按钮添加到错误消息中
+          const errorDiv = showError(image, errorMessage);
+          errorDiv.appendChild(buttonContainer);
+          return;
+        }
+      });
+    }
+
+    showError(image, errorMessage);
   }
 }
 
@@ -388,8 +510,13 @@ function showError(image, message) {
   errorDiv.style.fontSize = '14px';
   errorDiv.style.zIndex = '1000';
   errorDiv.style.maxWidth = '80%';
+  errorDiv.style.display = 'flex';
+  errorDiv.style.flexDirection = 'column';
 
-  errorDiv.textContent = `翻译错误: ${message}`;
+  // 创建消息容器
+  const messageDiv = document.createElement('div');
+  messageDiv.textContent = `翻译错误: ${message}`;
+  errorDiv.appendChild(messageDiv);
 
   // 添加关闭按钮
   const closeButton = document.createElement('button');
@@ -417,12 +544,15 @@ function showError(image, message) {
 
   image.parentNode.insertBefore(errorDiv, image.nextSibling);
 
-  // 5秒后自动消失
+  // 10秒后自动消失（增加时间，让用户有足够时间阅读和操作）
   setTimeout(() => {
     if (errorDiv.parentNode) {
       errorDiv.remove();
     }
-  }, 5000);
+  }, 10000);
+
+  // 返回错误div，以便可以添加更多元素
+  return errorDiv;
 }
 
 // 处理来自弹出窗口的消息
@@ -458,6 +588,31 @@ function handleMessages(message, sender, sendResponse) {
     sendResponse({ success: true });
     return true;
   }
+}
+
+// 创建操作按钮
+function createActionButton(text, bgColor = '#4CAF50') {
+  const button = document.createElement('button');
+  button.textContent = text;
+  button.style.marginTop = '10px';
+  button.style.padding = '5px 10px';
+  button.style.backgroundColor = bgColor;
+  button.style.color = 'white';
+  button.style.border = 'none';
+  button.style.borderRadius = '4px';
+  button.style.cursor = 'pointer';
+  button.style.fontWeight = 'bold';
+  button.style.boxShadow = '0 2px 4px rgba(0,0,0,0.2)';
+
+  // 添加悬停效果
+  button.onmouseover = () => {
+    button.style.opacity = '0.9';
+  };
+  button.onmouseout = () => {
+    button.style.opacity = '1';
+  };
+
+  return button;
 }
 
 // 保存配置
