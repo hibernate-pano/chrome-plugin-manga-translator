@@ -24,11 +24,12 @@ const ApiSettings = () => {
         const config = await getConfig();
         
         // 获取所有注册的提供者
-        const registeredProviders = ProviderFactory.getRegisteredProviders();
-        const providerList = Object.entries(registeredProviders).map(([key, Provider]) => {
-          const instance = new Provider();
+        const registeredProviderTypes = ProviderFactory.getRegisteredProviders();
+        const providerList = registeredProviderTypes.map(type => {
+          const ProviderClass = ProviderFactory.getProviderClass(type);
+          const instance = new ProviderClass();
           return {
-            id: key,
+            id: type,
             name: instance.name,
             instance
           };

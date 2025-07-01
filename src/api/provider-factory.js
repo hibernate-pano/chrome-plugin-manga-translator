@@ -32,6 +32,38 @@ export class ProviderFactory {
   }
 
   /**
+   * 获取所有注册的提供者类型
+   * @returns {Array<string>} - 提供者类型数组
+   */
+  static getRegisteredProviders() {
+    return Object.keys(this.providers);
+  }
+
+  /**
+   * 获取指定类型的提供者类
+   * @param {string} type - 提供者类型
+   * @returns {Class} - 提供者类
+   */
+  static getProviderClass(type) {
+    const ProviderClass = this.providers[type];
+    
+    if (!ProviderClass) {
+      throw new Error(`Unsupported provider type: ${type}`);
+    }
+    
+    return ProviderClass;
+  }
+
+  /**
+   * 获取指定类型的提供者类（getProviderClass的别名）
+   * @param {string} type - 提供者类型
+   * @returns {Class} - 提供者类
+   */
+  static getProvider(type) {
+    return this.getProviderClass(type);
+  }
+
+  /**
    * 获取所有支持的提供者类型
    * @returns {Array<Object>} - 提供者类型数组
    */
