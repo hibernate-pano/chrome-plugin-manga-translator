@@ -3,12 +3,14 @@
  */
 import { detectTextInImage } from '../utils/api';
 import { imageToBase64, preprocessImage } from '../utils/imageProcess';
-import { generateImageHash, getCachedTranslation, cacheTranslation, getConfig } from '../utils/storage';
+import { generateImageHash, getCachedTranslation, cacheTranslation } from '../utils/storage';
+import { getConfig } from '../utils/config-manager';
 import { initializeDefaultOCRProvider, detectWithFallback } from '../api/ocr';
 
 // OCR提供者实例缓存
 let primaryOCRProvider = null;
 let fallbackOCRProvider = null;
+let lastOCRConfig = null;
 
 /**
  * 初始化OCR提供者
@@ -16,17 +18,36 @@ let fallbackOCRProvider = null;
  * @returns {Promise<Object>} - 包含primary和fallback提供者的对象
  */
 async function initializeOCRProviders(config) {
+  const ocrSettings = config.ocrSettings || {};
+  const configJSON = JSON.stringify(ocrSettings);
+  
+  // 检查配置是否变化，如果变化则重新初始化
+  const configChanged = lastOCRConfig !== configJSON;
+  const shouldReinitialize = 
+    !primaryOCRProvider || 
+    !fallbackOCRProvider || 
+    configChanged || 
+    config.forceReinitialize;
+  
   // 如果已初始化且不需要重新初始化，直接返回
-  if (primaryOCRProvider && fallbackOCRProvider && !config.forceReinitialize) {
+  if (!shouldReinitialize) {
     return { primary: primaryOCRProvider, fallback: fallbackOCRProvider };
   }
 
+  // 如果需要重新初始化，先释放现有资源
+  if (primaryOCRProvider || fallbackOCRProvider) {
+    try {
+      await terminateOCRProviders();
+    } catch (error) {
+      console.warn('释放旧OCR资源时出错:', error);
+    }
+  }
+
   try {
-    // 获取OCR配置
-    const ocrConfig = config.ocrSettings || {};
+    console.log('初始化OCR提供者，使用配置:', ocrSettings);
     
     // 初始化主要OCR提供者（默认为Tesseract）
-    primaryOCRProvider = await initializeDefaultOCRProvider(ocrConfig);
+    primaryOCRProvider = await initializeDefaultOCRProvider(ocrSettings);
     
     // 初始化备选OCR提供者（API接口）
     fallbackOCRProvider = {
@@ -40,12 +61,23 @@ async function initializeOCRProviders(config) {
             detectionMethod: 'vision-api'
           }
         }));
+      },
+      terminate: async () => {
+        // API提供者不需要特殊的终止逻辑
+        return Promise.resolve();
       }
     };
+
+    // 保存当前配置的副本
+    lastOCRConfig = configJSON;
 
     return { primary: primaryOCRProvider, fallback: fallbackOCRProvider };
   } catch (error) {
     console.error('初始化OCR提供者失败:', error);
+    // 重置提供者变量和配置缓存，以便下次重试
+    primaryOCRProvider = null;
+    fallbackOCRProvider = null;
+    lastOCRConfig = null;
     throw error;
   }
 }
@@ -210,14 +242,54 @@ export async function extractText(image, textArea) {
  * @returns {Promise<void>}
  */
 export async function terminateOCRProviders() {
-  try {
-    if (primaryOCRProvider && typeof primaryOCRProvider.terminate === 'function') {
-      await primaryOCRProvider.terminate();
-      primaryOCRProvider = null;
-    }
-    
-    fallbackOCRProvider = null;
-  } catch (error) {
-    console.error('释放OCR提供者资源失败:', error);
+  const providers = [];
+  
+  // 收集需要终止的提供者
+  if (primaryOCRProvider && typeof primaryOCRProvider.terminate === 'function') {
+    providers.push({
+      name: primaryOCRProvider.name || 'Primary OCR',
+      terminate: () => primaryOCRProvider.terminate()
+    });
   }
+  
+  if (fallbackOCRProvider && typeof fallbackOCRProvider.terminate === 'function') {
+    providers.push({
+      name: fallbackOCRProvider.name || 'Fallback OCR',
+      terminate: () => fallbackOCRProvider.terminate()
+    });
+  }
+  
+  // 并行终止所有提供者
+  if (providers.length > 0) {
+    console.log(`释放${providers.length}个OCR提供者资源...`);
+    
+    const results = await Promise.allSettled(
+      providers.map(provider => 
+        provider.terminate().then(() => ({
+          name: provider.name,
+          success: true
+        })).catch(error => ({
+          name: provider.name,
+          success: false,
+          error
+        }))
+      )
+    );
+    
+    // 检查结果
+    const failures = results.filter(r => r.status === 'rejected' || (r.status === 'fulfilled' && !r.value.success));
+    
+    if (failures.length > 0) {
+      console.warn('部分OCR提供者资源释放失败:', failures);
+    } else {
+      console.log('所有OCR提供者资源已成功释放');
+    }
+  }
+  
+  // 重置提供者变量和配置缓存
+  primaryOCRProvider = null;
+  fallbackOCRProvider = null;
+  lastOCRConfig = null;
+  
+  return true;
 }

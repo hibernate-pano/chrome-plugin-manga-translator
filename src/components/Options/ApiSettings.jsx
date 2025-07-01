@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { getConfig, saveProviderConfig } from '../../utils/storage';
 import ProviderFactory from '../../api/providers';
+import { DEFAULT_CONFIG } from '../../utils/default-config';
 
 /**
  * API设置组件
@@ -36,11 +37,29 @@ const ApiSettings = () => {
         });
         
         setProviders(providerList);
-        setProviderType(config.providerType || 'openai');
-        setProviderConfig(config.providerConfig || {});
+        
+        // 使用默认配置填充缺失的值
+        const defaultType = DEFAULT_CONFIG.providerType;
+        const activeType = config.providerType || defaultType;
+        setProviderType(activeType);
+        
+        // 确保providerConfig包含所有提供者的默认配置
+        const mergedConfig = { ...DEFAULT_CONFIG.providerConfig };
+        
+        if (config.providerConfig) {
+          // 合并用户配置与默认配置
+          Object.keys(mergedConfig).forEach(provider => {
+            mergedConfig[provider] = {
+              ...mergedConfig[provider],
+              ...(config.providerConfig[provider] || {})
+            };
+          });
+        }
+        
+        setProviderConfig(mergedConfig);
         
         // 设置当前提供者
-        const currentProviderInstance = providerList.find(p => p.id === config.providerType)?.instance;
+        const currentProviderInstance = providerList.find(p => p.id === activeType)?.instance;
         if (currentProviderInstance) {
           setCurrentProvider(currentProviderInstance);
           setConfigSchema(currentProviderInstance.getConfigurationSchema());
@@ -62,6 +81,14 @@ const ApiSettings = () => {
     if (provider) {
       setCurrentProvider(provider.instance);
       setConfigSchema(provider.instance.getConfigurationSchema());
+      
+      // 如果当前提供者没有配置，使用默认配置
+      if (!providerConfig[providerType]) {
+        setProviderConfig(prev => ({
+          ...prev,
+          [providerType]: DEFAULT_CONFIG.providerConfig[providerType] || {}
+        }));
+      }
     }
   }, [providerType, providers]);
 
@@ -80,6 +107,20 @@ const ApiSettings = () => {
         [key]: value
       }
     }));
+  };
+
+  // 重置为默认配置
+  const resetToDefault = () => {
+    if (window.confirm('确定要重置为默认配置吗？这将覆盖当前设置。')) {
+      const defaultProviderConfig = DEFAULT_CONFIG.providerConfig[providerType];
+      if (defaultProviderConfig) {
+        setProviderConfig(prev => ({
+          ...prev,
+          [providerType]: { ...defaultProviderConfig }
+        }));
+        setValidationMessage('✅ 已重置为默认配置');
+      }
+    }
   };
 
   // 验证API配置
@@ -112,7 +153,12 @@ const ApiSettings = () => {
   // 保存配置
   const saveConfig = async () => {
     try {
-      await saveProviderConfig(providerType, providerConfig[providerType] || {});
+      // 保存提供者类型和配置
+      await chrome.storage.sync.set({
+        providerType,
+        providerConfig
+      });
+      
       setValidationMessage('✅ 配置已保存');
     } catch (error) {
       console.error('保存配置失败:', error);
@@ -331,6 +377,13 @@ const ApiSettings = () => {
           className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
         >
           保存配置
+        </button>
+        
+        <button
+          onClick={resetToDefault}
+          className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
+        >
+          重置为默认
         </button>
       </div>
     </div>

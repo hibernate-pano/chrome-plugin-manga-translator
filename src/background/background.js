@@ -2,6 +2,8 @@
  * 后台脚本
  */
 import { terminateOCRProviders } from '../content/detector';
+import { DEFAULT_CONFIG } from '../utils/default-config';
+import { initConfigManager, cleanup } from '../utils/config-manager';
 
 // 安装/更新事件
 chrome.runtime.onInstalled.addListener((details) => {
@@ -23,56 +25,25 @@ chrome.runtime.onStartup.addListener(() => {
 
 // 浏览器关闭或插件禁用时释放资源
 chrome.runtime.onSuspend.addListener(async () => {
-  console.log('插件被挂起，释放OCR资源...');
+  console.log('插件被挂起，释放资源...');
   try {
-    await terminateOCRProviders();
+    await cleanup();
   } catch (error) {
-    console.error('释放OCR资源失败:', error);
+    console.error('释放资源失败:', error);
   }
 });
 
-// 立即执行一次检查，确保配置正确
-checkAndSetDefaultConfig();
+// 初始化配置管理器
+initConfigManager().then(config => {
+  console.log('配置管理器初始化完成:', config);
+});
 
 // 初始化默认设置
 function initializeDefaultSettings() {
-  const defaultSettings = {
-    apiKey: 'sk-bpbqulqtsmbywglsemzqantxqhmilksogyeitgcpkbvwioix',
-    targetLanguage: 'zh-CN',
-    enabled: false,
-    mode: 'manual',
-    styleLevel: 50,
-    model: 'gpt-3.5-turbo',
-    customModel: 'Qwen/Qwen2.5-VL-32B-Instruct',
-    useCustomModel: true,
-    apiBaseUrl: 'https://api.siliconflow.cn/v1',
-    useCustomApiUrl: true,
-    temperature: 0.7,
-    fontFamily: '',
-    fontSize: 'auto',
-    fontColor: 'auto',
-    backgroundColor: 'auto',
-    shortcuts: {
-      toggleTranslation: 'Alt+T',
-      translateSelected: 'Alt+S'
-    },
-    advancedSettings: {
-      useLocalOcr: false,
-      cacheResults: true,
-      maxCacheSize: 50,
-      debugMode: false,
-      apiTimeout: 30,
-      maxConcurrentRequests: 3,
-      imagePreprocessing: 'none',
-      showOriginalText: false,
-      translationPrompt: '',
-      useCorsProxy: true,
-      corsProxyType: 'corsproxy',
-      customCorsProxy: ''
-    }
-  };
-
-  chrome.storage.sync.set(defaultSettings);
+  // 使用导入的默认配置
+  chrome.storage.sync.set(DEFAULT_CONFIG, () => {
+    console.log('默认配置已设置');
+  });
 }
 
 // 更新设置（保留用户设置，添加新选项）
@@ -83,78 +54,75 @@ function updateSettings() {
     // 检查并添加新设置项
     const updates = {};
 
-    // 检查自定义API相关设置
-    if (result.customModel === undefined) {
-      updates.customModel = '';
+    // 检查是否需要迁移到新的配置结构
+    if (result.apiKey && !result.providerConfig) {
+      // 检测是否使用Qwen模型
+      const usingQwen = 
+        (result.customModel && result.customModel.toLowerCase().includes('qwen')) || 
+        (result.apiBaseUrl && result.apiBaseUrl.includes('siliconflow.cn')) ||
+        (result.useCustomModel && result.useCustomApiUrl);
+      
+      // 设置提供者类型
+      updates.providerType = usingQwen ? 'qwen' : 'openai';
+      
+      // 创建提供者配置
+      updates.providerConfig = JSON.parse(JSON.stringify(DEFAULT_CONFIG.providerConfig));
+      
+      if (usingQwen) {
+        // 迁移到Qwen提供者
+        updates.providerConfig.qwen.apiKey = result.apiKey || '';
+        
+        if (result.apiBaseUrl) {
+          updates.providerConfig.qwen.apiBaseUrl = result.apiBaseUrl;
+        }
+        
+        if (result.customModel) {
+          updates.providerConfig.qwen.model = result.customModel;
+        }
+        
+        if (result.temperature !== undefined) {
+          updates.providerConfig.qwen.temperature = result.temperature;
+        }
+      } else {
+        // 迁移到OpenAI提供者
+        updates.providerConfig.openai.apiKey = result.apiKey || '';
+        
+        if (result.apiBaseUrl) {
+          updates.providerConfig.openai.apiBaseUrl = result.apiBaseUrl;
+        }
+        
+        if (result.model) {
+          updates.providerConfig.openai.chatModel = result.model;
+        }
+        
+        if (result.temperature !== undefined) {
+          updates.providerConfig.openai.temperature = result.temperature;
+        }
+      }
     }
 
-    if (result.useCustomModel === undefined) {
-      updates.useCustomModel = false;
-    }
-
-    if (result.apiBaseUrl === undefined) {
-      updates.apiBaseUrl = 'https://api.openai.com/v1';
-    }
-
-    if (result.useCustomApiUrl === undefined) {
-      updates.useCustomApiUrl = false;
+    // 检查OCR设置
+    if (!result.ocrSettings) {
+      updates.ocrSettings = DEFAULT_CONFIG.ocrSettings;
     }
 
     // 检查快捷键
     if (!result.shortcuts) {
-      updates.shortcuts = {
-        toggleTranslation: 'Alt+T',
-        translateSelected: 'Alt+S'
-      };
+      updates.shortcuts = DEFAULT_CONFIG.shortcuts;
     }
 
     // 检查高级设置
     if (!result.advancedSettings) {
-      updates.advancedSettings = {
-        useLocalOcr: false,
-        cacheResults: true,
-        maxCacheSize: 50,
-        debugMode: false,
-        apiTimeout: 30,
-        maxConcurrentRequests: 3,
-        imagePreprocessing: 'none',
-        showOriginalText: false,
-        translationPrompt: ''
-      };
+      updates.advancedSettings = DEFAULT_CONFIG.advancedSettings;
     } else {
       // 检查高级设置中的新选项
       const advancedUpdates = {};
 
-      if (result.advancedSettings.apiTimeout === undefined) {
-        advancedUpdates.apiTimeout = 30;
-      }
-
-      if (result.advancedSettings.maxConcurrentRequests === undefined) {
-        advancedUpdates.maxConcurrentRequests = 3;
-      }
-
-      if (result.advancedSettings.imagePreprocessing === undefined) {
-        advancedUpdates.imagePreprocessing = 'none';
-      }
-
-      if (result.advancedSettings.showOriginalText === undefined) {
-        advancedUpdates.showOriginalText = false;
-      }
-
-      if (result.advancedSettings.translationPrompt === undefined) {
-        advancedUpdates.translationPrompt = '';
-      }
-
-      if (result.advancedSettings.useCorsProxy === undefined) {
-        advancedUpdates.useCorsProxy = false;
-      }
-
-      if (result.advancedSettings.corsProxyType === undefined) {
-        advancedUpdates.corsProxyType = 'corsproxy';
-      }
-
-      if (result.advancedSettings.customCorsProxy === undefined) {
-        advancedUpdates.customCorsProxy = '';
+      // 遍历默认高级设置的所有键
+      for (const key in DEFAULT_CONFIG.advancedSettings) {
+        if (result.advancedSettings[key] === undefined) {
+          advancedUpdates[key] = DEFAULT_CONFIG.advancedSettings[key];
+        }
       }
 
       if (Object.keys(advancedUpdates).length > 0) {
@@ -167,7 +135,9 @@ function updateSettings() {
 
     // 如果有更新，保存设置
     if (Object.keys(updates).length > 0) {
-      chrome.storage.sync.set(updates);
+      chrome.storage.sync.set(updates, () => {
+        console.log('配置已更新:', updates);
+      });
     }
   });
 }
@@ -190,48 +160,12 @@ chrome.runtime.onInstalled.addListener(() => {
 // 检查并设置默认配置
 function checkAndSetDefaultConfig() {
   chrome.storage.sync.get(null, (result) => {
-    // 默认配置
-    const defaultSettings = {
-      apiKey: 'sk-bpbqulqtsmbywglsemzqantxqhmilksogyeitgcpkbvwioix',
-      targetLanguage: 'zh-CN',
-      enabled: false,
-      mode: 'manual',
-      styleLevel: 50,
-      model: 'gpt-3.5-turbo',
-      customModel: 'Qwen/Qwen2.5-VL-32B-Instruct',
-      useCustomModel: true,
-      apiBaseUrl: 'https://api.siliconflow.cn/v1',
-      useCustomApiUrl: true,
-      temperature: 0.7,
-      fontFamily: '',
-      fontSize: 'auto',
-      fontColor: 'auto',
-      backgroundColor: 'auto',
-      shortcuts: {
-        toggleTranslation: 'Alt+T',
-        translateSelected: 'Alt+S'
-      },
-      advancedSettings: {
-        useLocalOcr: false,
-        cacheResults: true,
-        maxCacheSize: 50,
-        debugMode: false,
-        apiTimeout: 30,
-        maxConcurrentRequests: 3,
-        imagePreprocessing: 'none',
-        showOriginalText: false,
-        translationPrompt: '',
-        useCorsProxy: true,
-        corsProxyType: 'corsproxy',
-        customCorsProxy: ''
-      }
-    };
-
     // 检查是否需要设置默认配置
     if (!result || Object.keys(result).length === 0) {
       console.log('没有找到配置，设置默认配置...');
-
-      chrome.storage.sync.set(defaultSettings, () => {
+      
+      // 使用导入的默认配置
+      chrome.storage.sync.set(DEFAULT_CONFIG, () => {
         console.log('默认配置已设置');
       });
       return;
@@ -241,35 +175,49 @@ function checkAndSetDefaultConfig() {
     const updates = {};
     let needsUpdate = false;
 
-    // 检查所有顶级属性（除了API相关的设置）
-    for (const key in defaultSettings) {
-      if (result[key] === undefined &&
-        key !== 'apiKey' &&
-        key !== 'customModel' &&
-        key !== 'apiBaseUrl' &&
-        key !== 'useCustomModel' &&
-        key !== 'useCustomApiUrl') {
-        updates[key] = defaultSettings[key];
+    // 检查顶级属性
+    for (const key in DEFAULT_CONFIG) {
+      if (result[key] === undefined && 
+          key !== 'providerConfig' && 
+          key !== 'apiKey' && 
+          key !== 'model' && 
+          key !== 'customModel' && 
+          key !== 'apiBaseUrl' && 
+          key !== 'useCustomModel' && 
+          key !== 'useCustomApiUrl') {
+        updates[key] = DEFAULT_CONFIG[key];
         needsUpdate = true;
       }
     }
 
+    // 检查提供者配置
+    if (!result.providerConfig) {
+      updates.providerConfig = DEFAULT_CONFIG.providerConfig;
+      needsUpdate = true;
+    }
+
+    // 检查OCR设置
+    if (!result.ocrSettings) {
+      updates.ocrSettings = DEFAULT_CONFIG.ocrSettings;
+      needsUpdate = true;
+    }
+
     // 检查快捷键
     if (!result.shortcuts) {
-      updates.shortcuts = defaultSettings.shortcuts;
+      updates.shortcuts = DEFAULT_CONFIG.shortcuts;
       needsUpdate = true;
     }
 
     // 检查高级设置
     if (!result.advancedSettings) {
-      updates.advancedSettings = defaultSettings.advancedSettings;
+      updates.advancedSettings = DEFAULT_CONFIG.advancedSettings;
       needsUpdate = true;
     } else {
       // 检查高级设置中的各个属性
       const advancedUpdates = {};
-      for (const key in defaultSettings.advancedSettings) {
+      for (const key in DEFAULT_CONFIG.advancedSettings) {
         if (result.advancedSettings[key] === undefined) {
-          advancedUpdates[key] = defaultSettings.advancedSettings[key];
+          advancedUpdates[key] = DEFAULT_CONFIG.advancedSettings[key];
         }
       }
 
@@ -280,16 +228,6 @@ function checkAndSetDefaultConfig() {
         };
         needsUpdate = true;
       }
-    }
-
-    // 如果用户没有设置API密钥，使用默认的API设置
-    if (!result.apiKey) {
-      updates.apiKey = defaultSettings.apiKey;
-      updates.apiBaseUrl = defaultSettings.apiBaseUrl;
-      updates.useCustomApiUrl = defaultSettings.useCustomApiUrl;
-      updates.customModel = defaultSettings.customModel;
-      updates.useCustomModel = defaultSettings.useCustomModel;
-      needsUpdate = true;
     }
 
     if (needsUpdate) {

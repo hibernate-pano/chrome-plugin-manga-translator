@@ -15,6 +15,7 @@ export class TesseractProvider extends BaseOCRProvider {
     this.name = 'Tesseract OCR';
     this.worker = null;
     this.scheduler = null;
+    this.workers = []; // 跟踪所有worker实例
     this.defaultConfig = {
       language: 'jpn', // 默认日语，适合漫画
       preprocess: true,
@@ -38,6 +39,11 @@ export class TesseractProvider extends BaseOCRProvider {
         return true;
       }
 
+      console.log(`初始化Tesseract OCR，配置: `, {
+        language: this.config.language,
+        workerCount: this.config.workerCount
+      });
+
       // 根据配置的worker数量创建调度器
       const workerCount = this.config.workerCount || 1;
       
@@ -48,16 +54,54 @@ export class TesseractProvider extends BaseOCRProvider {
         for (let i = 0; i < workerCount; i++) {
           const worker = await this._createWorker();
           this.scheduler.addWorker(worker);
+          this.workers.push(worker);
+          
+          // 注册worker资源，确保正确清理
+          this.registerResource(worker, async (w) => {
+            try {
+              await w.terminate();
+              return true;
+            } catch (err) {
+              console.error('终止Tesseract worker失败:', err);
+              return false;
+            }
+          });
         }
+        
+        // 注册scheduler资源
+        this.registerResource(this.scheduler, async (s) => {
+          try {
+            await s.terminate();
+            return true;
+          } catch (err) {
+            console.error('终止Tesseract scheduler失败:', err);
+            return false;
+          }
+        });
       } else {
         // 单线程模式
         this.worker = await this._createWorker();
+        this.workers.push(this.worker);
+        
+        // 注册worker资源
+        this.registerResource(this.worker, async (w) => {
+          try {
+            await w.terminate();
+            return true;
+          } catch (err) {
+            console.error('终止Tesseract worker失败:', err);
+            return false;
+          }
+        });
       }
 
       this.initialized = true;
+      console.log(`Tesseract OCR初始化完成，使用语言: ${this.config.language}`);
       return true;
     } catch (error) {
       console.error('Tesseract初始化失败:', error);
+      // 清理可能部分创建的资源
+      await this.terminate().catch(err => console.error('清理失败的Tesseract资源时出错:', err));
       throw error;
     }
   }
@@ -118,7 +162,7 @@ export class TesseractProvider extends BaseOCRProvider {
       return this._formatResult(result);
     } catch (error) {
       console.error('Tesseract文字检测失败:', error);
-      throw error;
+      throw this.normalizeError(error, 'detectText');
     }
   }
 
@@ -189,21 +233,26 @@ export class TesseractProvider extends BaseOCRProvider {
 
   /**
    * 释放资源
-   * @returns {Promise<void>}
+   * @returns {Promise<boolean>} - 是否成功释放资源
    */
   async terminate() {
+    console.log('释放Tesseract OCR资源...');
+    
     try {
-      if (this.scheduler) {
-        await this.scheduler.terminate();
-        this.scheduler = null;
-      } else if (this.worker) {
-        await this.worker.terminate();
-        this.worker = null;
-      }
+      // 使用父类的terminate方法清理所有注册的资源
+      const result = await super.terminate();
       
+      // 重置实例变量
+      this.worker = null;
+      this.scheduler = null;
+      this.workers = [];
       this.initialized = false;
+      
+      console.log('Tesseract OCR资源已释放');
+      return result;
     } catch (error) {
       console.error('Tesseract资源释放失败:', error);
+      return false;
     }
   }
 
@@ -252,22 +301,11 @@ export class TesseractProvider extends BaseOCRProvider {
       workerCount: {
         type: 'number',
         required: false,
-        label: '工作线程数',
+        label: 'Worker数量',
         min: 1,
         max: 4,
-        default: 1
-      },
-      psm: {
-        type: 'number',
-        required: false,
-        label: '页面分割模式',
-        options: [
-          { value: PSM.AUTO, label: '自动' },
-          { value: PSM.SINGLE_BLOCK, label: '单个文本块' },
-          { value: PSM.SINGLE_WORD, label: '单个词' },
-          { value: PSM.SINGLE_LINE, label: '单行文本' }
-        ],
-        default: PSM.AUTO
+        default: 1,
+        description: '增加可提高处理速度，但会占用更多内存'
       }
     };
   }

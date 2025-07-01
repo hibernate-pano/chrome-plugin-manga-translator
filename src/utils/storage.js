@@ -1,6 +1,8 @@
 /**
  * 存储相关工具函数
  */
+import { getConfig, setConfig } from './config-manager';
+import { DEFAULT_CONFIG } from './default-config';
 
 /**
  * 保存用户配置
@@ -8,470 +10,140 @@
  * @returns {Promise<void>}
  */
 export async function saveConfig(config) {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.sync.set(config, () => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve();
-        }
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
+  return setConfig(config);
 }
 
 /**
- * 获取用户配置
+ * 获取用户配置（为了向后兼容）
  * @returns {Promise<Object>} - 返回用户配置对象
  */
-export async function getConfig() {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.sync.get(null, (result) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
-
-        // 默认配置
-        const defaultConfig = {
-          // API提供者配置
-          providerType: 'openai', // 默认使用OpenAI
-          providerConfig: {
-            openai: {
-              apiKey: '',
-              apiBaseUrl: 'https://api.openai.com/v1',
-              visionModel: 'gpt-4-vision-preview',
-              chatModel: 'gpt-3.5-turbo',
-              temperature: 0.3,
-              maxTokens: 1000
-            },
-            deepseek: {
-              apiKey: '',
-              apiBaseUrl: 'https://api.deepseek.com/v1',
-              visionModel: 'deepseek-vl',
-              chatModel: 'deepseek-chat',
-              temperature: 0.3,
-              maxTokens: 1000
-            },
-            claude: {
-              apiKey: '',
-              apiBaseUrl: 'https://api.anthropic.com',
-              model: 'claude-3-opus-20240229',
-              temperature: 0.3,
-              maxTokens: 1000
-            },
-            qwen: {
-              apiKey: '',
-              apiBaseUrl: 'https://api.siliconflow.cn/v1',
-              model: 'Qwen/Qwen2.5-VL-32B-Instruct',
-              temperature: 0.3,
-              maxTokens: 1000
-            }
-          },
-          
-          // OCR提供者配置
-          ocrSettings: {
-            preferredMethod: 'auto', // 'auto', 'tesseract', 'api'
-            tesseract: {
-              language: 'jpn', // 默认日语，适合漫画
-              preprocess: true,
-              workerCount: 1
-            }
-          },
-          
-          // 常规配置
-          targetLanguage: 'zh-CN',
-          enabled: false,
-          mode: 'manual',
-          styleLevel: 50,
-          
-          // 样式配置
-          fontFamily: '',
-          fontSize: 'auto',
-          fontColor: 'auto',
-          backgroundColor: 'auto',
-          
-          // 快捷键配置
-          shortcuts: {
-            toggleTranslation: 'Alt+T',
-            translateSelected: 'Alt+S'
-          },
-          
-          // 高级设置
-          advancedSettings: {
-            useLocalOcr: false,
-            cacheResults: true,
-            maxCacheSize: 50,
-            debugMode: false,
-            apiTimeout: 30,
-            maxConcurrentRequests: 3,
-            imagePreprocessing: 'none',
-            showOriginalText: false,
-            translationPrompt: '',
-            useCorsProxy: true,
-            corsProxyType: 'corsproxy',
-            customCorsProxy: '',
-            renderType: 'overlay' // 'overlay'或'canvas'
-          }
-        };
-
-        // 如果没有配置，设置默认配置
-        if (!result || Object.keys(result).length === 0) {
-          console.log('没有找到配置，设置默认配置');
-
-          // 保存默认配置
-          chrome.storage.sync.set(defaultConfig, () => {
-            console.log('默认配置已设置');
-          });
-
-          resolve(defaultConfig);
-          return;
-        }
-
-        // 合并默认配置和用户配置，确保所有必要的字段都存在
-        const mergedConfig = { ...defaultConfig };
-
-        // 检查是否使用Qwen模型（通过SiliconFlow API）
-        const usingQwen = 
-          (result.customModel && result.customModel.toLowerCase().includes('qwen')) || 
-          (result.apiBaseUrl && result.apiBaseUrl.includes('siliconflow.cn')) ||
-          (result.useCustomModel && result.useCustomApiUrl);
-        
-        // 如果使用Qwen，设置提供者类型为qwen
-        if (usingQwen && !result.providerType) {
-          mergedConfig.providerType = 'qwen';
-          console.log('检测到使用Qwen模型，设置提供者类型为qwen');
-        } else if (result.providerType) {
-          mergedConfig.providerType = result.providerType;
-        }
-
-        // 合并提供者配置
-        if (result.providerConfig) {
-          mergedConfig.providerConfig = {
-            ...defaultConfig.providerConfig,
-            ...result.providerConfig
-          };
-          
-          // 确保每个提供者都有完整的配置
-          for (const provider in defaultConfig.providerConfig) {
-            if (!mergedConfig.providerConfig[provider]) {
-              mergedConfig.providerConfig[provider] = defaultConfig.providerConfig[provider];
-            } else {
-              mergedConfig.providerConfig[provider] = {
-                ...defaultConfig.providerConfig[provider],
-                ...mergedConfig.providerConfig[provider]
-              };
-            }
-          }
-        }
-
-        // 合并OCR设置
-        if (result.ocrSettings) {
-          mergedConfig.ocrSettings = {
-            ...defaultConfig.ocrSettings,
-            ...result.ocrSettings
-          };
-          
-          // 确保tesseract配置完整
-          if (result.ocrSettings.tesseract) {
-            mergedConfig.ocrSettings.tesseract = {
-              ...defaultConfig.ocrSettings.tesseract,
-              ...result.ocrSettings.tesseract
-            };
-          }
-        }
-
-        // 处理旧配置迁移到新的提供者架构
-        if (result.apiKey) {
-          // 判断应该迁移到哪个提供者
-          if (usingQwen) {
-            // 迁移到Qwen提供者
-            if (!mergedConfig.providerConfig.qwen) {
-              mergedConfig.providerConfig.qwen = {};
-            }
-            
-            mergedConfig.providerConfig.qwen.apiKey = result.apiKey;
-            
-            if (result.apiBaseUrl) {
-              mergedConfig.providerConfig.qwen.apiBaseUrl = result.apiBaseUrl;
-            }
-            
-            if (result.customModel) {
-              mergedConfig.providerConfig.qwen.model = result.customModel;
-            }
-            
-            if (result.temperature !== undefined) {
-              mergedConfig.providerConfig.qwen.temperature = result.temperature;
-            }
-          } else {
-            // 迁移到OpenAI提供者（默认行为）
-            if (!mergedConfig.providerConfig.openai) {
-              mergedConfig.providerConfig.openai = {};
-            }
-            
-            mergedConfig.providerConfig.openai.apiKey = result.apiKey;
-            
-            if (result.apiBaseUrl) {
-              mergedConfig.providerConfig.openai.apiBaseUrl = result.apiBaseUrl;
-            }
-            
-            if (result.model) {
-              mergedConfig.providerConfig.openai.chatModel = result.model;
-            }
-            
-            if (result.temperature !== undefined) {
-              mergedConfig.providerConfig.openai.temperature = result.temperature;
-            }
-          }
-        }
-
-        // 迁移useLocalOcr旧设置到新的OCR设置
-        if (result.advancedSettings && result.advancedSettings.useLocalOcr !== undefined) {
-          mergedConfig.ocrSettings.preferredMethod = result.advancedSettings.useLocalOcr ? 'tesseract' : 'api';
-        }
-
-        // 合并其他配置
-        if (result.targetLanguage) mergedConfig.targetLanguage = result.targetLanguage;
-        if (result.enabled !== undefined) mergedConfig.enabled = result.enabled;
-        if (result.mode) mergedConfig.mode = result.mode;
-        if (result.styleLevel !== undefined) mergedConfig.styleLevel = result.styleLevel;
-        if (result.fontFamily) mergedConfig.fontFamily = result.fontFamily;
-        if (result.fontSize) mergedConfig.fontSize = result.fontSize;
-        if (result.fontColor) mergedConfig.fontColor = result.fontColor;
-        if (result.backgroundColor) mergedConfig.backgroundColor = result.backgroundColor;
-
-        // 合并快捷键设置
-        if (result.shortcuts) {
-          mergedConfig.shortcuts = {
-            ...mergedConfig.shortcuts,
-            ...result.shortcuts
-          };
-        }
-
-        // 合并高级设置
-        if (result.advancedSettings) {
-          mergedConfig.advancedSettings = {
-            ...mergedConfig.advancedSettings,
-            ...result.advancedSettings
-          };
-        }
-
-        // 检查是否有缺失的配置项，如果有则更新
-        const updates = {};
-        let needsUpdate = false;
-
-        // 检查所有顶级属性
-        for (const key in defaultConfig) {
-          if (result[key] === undefined && 
-              key !== 'providerConfig' && 
-              key !== 'ocrSettings' &&
-              key !== 'apiKey' && 
-              key !== 'model' && 
-              key !== 'apiBaseUrl') {
-            updates[key] = defaultConfig[key];
-            needsUpdate = true;
-          }
-        }
-
-        // 检查嵌套对象
-        if (!result.shortcuts) {
-          updates.shortcuts = defaultConfig.shortcuts;
-          needsUpdate = true;
-        }
-
-        if (!result.advancedSettings) {
-          updates.advancedSettings = defaultConfig.advancedSettings;
-          needsUpdate = true;
-        } else {
-          // 检查高级设置中的各个属性
-          const advancedUpdates = {};
-          for (const key in defaultConfig.advancedSettings) {
-            if (result.advancedSettings[key] === undefined) {
-              advancedUpdates[key] = defaultConfig.advancedSettings[key];
-            }
-          }
-
-          if (Object.keys(advancedUpdates).length > 0) {
-            updates.advancedSettings = {
-              ...result.advancedSettings,
-              ...advancedUpdates
-            };
-            needsUpdate = true;
-          }
-        }
-
-        // 检查提供者配置
-        if (!result.providerConfig || !result.providerType) {
-          // 如果是使用Qwen，设置提供者类型为qwen
-          if (usingQwen) {
-            updates.providerType = 'qwen';
-          } else {
-            updates.providerType = defaultConfig.providerType;
-          }
-          updates.providerConfig = mergedConfig.providerConfig;
-          needsUpdate = true;
-        }
-
-        // 如果有需要更新的配置，保存更新
-        if (needsUpdate) {
-          chrome.storage.sync.set(updates, () => {
-            console.log('已更新缺失的配置项');
-          });
-        }
-
-        resolve(mergedConfig);
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
-}
+export { getConfig };
 
 /**
- * 获取当前激活的API提供者配置
- * @returns {Promise<Object>} - 返回提供者配置对象
+ * 获取活跃的提供者配置
+ * @returns {Promise<Object>} 活跃的提供者配置
  */
 export async function getActiveProviderConfig() {
   const config = await getConfig();
-  const providerType = config.providerType;
-  const providerConfig = config.providerConfig[providerType] || {};
-  
-  return {
-    type: providerType,
-    config: providerConfig
-  };
+  const providerType = config.providerType || 'openai';
+  return config.providerConfig?.[providerType] || {};
 }
 
 /**
- * 保存API提供者配置
- * @param {string} providerType - 提供者类型
- * @param {Object} providerConfig - 提供者配置
+ * 保存提供者配置
+ * @param {string} providerType 提供者类型
+ * @param {Object} providerConfig 提供者配置
  * @returns {Promise<void>}
  */
 export async function saveProviderConfig(providerType, providerConfig) {
-  const config = await getConfig();
-  
-  // 更新提供者类型
-  config.providerType = providerType;
-  
-  // 更新提供者配置
-  if (!config.providerConfig) {
-    config.providerConfig = {};
-  }
-  
-  config.providerConfig[providerType] = {
-    ...config.providerConfig[providerType],
-    ...providerConfig
-  };
-  
-  return saveConfig({
+  await setConfig({
     providerType,
-    providerConfig: config.providerConfig
+    providerConfig: {
+      [providerType]: providerConfig
+    }
   });
 }
 
 /**
- * 生成图像的哈希值（用于缓存键）
- * @param {string} imageData - Base64编码的图像数据
- * @returns {string} - 返回哈希值
+ * 为图像生成唯一哈希值
+ * @param {string} imageData - 图像数据（Base64或URL）
+ * @returns {string} - 哈希值
  */
 export function generateImageHash(imageData) {
-  // 简单的哈希函数，实际应用中可以使用更复杂的算法
+  // 简单的哈希函数，适用于缓存目的
   let hash = 0;
-  const sample = imageData.substring(0, 10000); // 只使用前10000个字符以提高性能
-
+  
+  // 如果是URL，只使用URL的最后部分
+  if (imageData.startsWith('http')) {
+    const urlParts = imageData.split('/');
+    imageData = urlParts[urlParts.length - 1];
+  }
+  
+  // 只使用前10000个字符，避免处理太大的数据
+  const sample = imageData.substring(0, 10000);
+  
   for (let i = 0; i < sample.length; i++) {
     const char = sample.charCodeAt(i);
     hash = ((hash << 5) - hash) + char;
     hash = hash & hash; // 转换为32位整数
   }
-
-  return hash.toString(16);
+  
+  return Math.abs(hash).toString(16);
 }
 
 /**
  * 缓存翻译结果
  * @param {string} imageHash - 图像哈希值
- * @param {Object} data - 缓存数据
+ * @param {Object} data - 翻译数据
  * @returns {Promise<void>}
  */
 export async function cacheTranslation(imageHash, data) {
-  return new Promise((resolve, reject) => {
-    try {
-      // 先获取现有缓存
-      chrome.storage.local.get(['translationCache'], (result) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
-
-        const cache = result.translationCache || {};
-        const config = {};
-
-        // 获取最大缓存大小
-        chrome.storage.sync.get(['advancedSettings'], (configResult) => {
-          const maxCacheSize = configResult.advancedSettings?.maxCacheSize || 50;
-
-          // 如果缓存已满，删除最旧的条目
-          const keys = Object.keys(cache);
-          if (keys.length >= maxCacheSize) {
-            // 按时间戳排序
-            keys.sort((a, b) => (cache[a].timestamp || 0) - (cache[b].timestamp || 0));
-
-            // 删除最旧的条目，直到缓存大小低于限制
-            while (keys.length >= maxCacheSize) {
-              const oldestKey = keys.shift();
-              delete cache[oldestKey];
-            }
-          }
-
-          // 添加新缓存条目
-          cache[imageHash] = {
-            ...data,
-            timestamp: Date.now()
-          };
-
-          // 保存更新后的缓存
-          chrome.storage.local.set({ translationCache: cache }, () => {
-            if (chrome.runtime.lastError) {
-              reject(chrome.runtime.lastError);
-            } else {
-              resolve();
-            }
-          });
-        });
+  const config = await getConfig();
+  
+  // 检查是否启用缓存
+  if (!config.advancedSettings?.cacheResults) {
+    return;
+  }
+  
+  try {
+    // 获取现有缓存
+    const result = await chrome.storage.local.get('translationCache');
+    let cache = result.translationCache || {};
+    
+    // 添加新条目
+    cache[imageHash] = {
+      data,
+      timestamp: Date.now()
+    };
+    
+    // 获取缓存大小限制
+    const maxCacheSize = config.advancedSettings?.maxCacheSize || 50;
+    
+    // 如果缓存条目超过限制，删除最旧的条目
+    const keys = Object.keys(cache);
+    if (keys.length > maxCacheSize) {
+      // 按时间戳排序
+      keys.sort((a, b) => cache[a].timestamp - cache[b].timestamp);
+      
+      // 删除最旧的条目直到满足大小限制
+      const keysToRemove = keys.slice(0, keys.length - maxCacheSize);
+      keysToRemove.forEach(key => {
+        delete cache[key];
       });
-    } catch (error) {
-      reject(error);
     }
-  });
+    
+    // 保存更新后的缓存
+    await chrome.storage.local.set({ translationCache: cache });
+  } catch (error) {
+    console.error('缓存翻译结果失败:', error);
+  }
 }
 
 /**
  * 获取缓存的翻译结果
  * @param {string} imageHash - 图像哈希值
- * @returns {Promise<Object|null>} - 返回缓存数据或null
+ * @returns {Promise<Object|null>} - 缓存的翻译数据，如果不存在则为null
  */
 export async function getCachedTranslation(imageHash) {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.local.get(['translationCache'], (result) => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-          return;
-        }
-
-        const cache = result.translationCache || {};
-        resolve(cache[imageHash] || null);
-      });
-    } catch (error) {
-      reject(error);
+  const config = await getConfig();
+  
+  // 检查是否启用缓存
+  if (!config.advancedSettings?.cacheResults) {
+    return null;
+  }
+  
+  try {
+    const result = await chrome.storage.local.get('translationCache');
+    const cache = result.translationCache || {};
+    
+    if (cache[imageHash]) {
+      return cache[imageHash].data;
     }
-  });
+  } catch (error) {
+    console.error('获取缓存翻译结果失败:', error);
+  }
+  
+  return null;
 }
 
 /**
@@ -479,17 +151,11 @@ export async function getCachedTranslation(imageHash) {
  * @returns {Promise<void>}
  */
 export async function clearTranslationCache() {
-  return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.local.set({ translationCache: {} }, () => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve();
-        }
-      });
-    } catch (error) {
-      reject(error);
-    }
-  });
+  try {
+    await chrome.storage.local.remove('translationCache');
+    console.log('翻译缓存已清除');
+  } catch (error) {
+    console.error('清除翻译缓存失败:', error);
+    throw error;
+  }
 }

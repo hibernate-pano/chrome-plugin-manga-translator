@@ -11,6 +11,7 @@ export class BaseOCRProvider {
     this.config = config;
     this.name = 'BaseOCRProvider';
     this.initialized = false;
+    this.resources = new Set(); // 跟踪需要清理的资源
   }
 
   /**
@@ -18,7 +19,18 @@ export class BaseOCRProvider {
    * @returns {Promise<boolean>} - 初始化是否成功
    */
   async initialize() {
-    throw new Error('Method not implemented');
+    if (this.initialized) {
+      return true;
+    }
+    
+    try {
+      // 子类应该覆盖此方法实现具体初始化逻辑
+      this.initialized = true;
+      return true;
+    } catch (error) {
+      console.error(`初始化${this.name}失败:`, error);
+      throw error;
+    }
   }
 
   /**
@@ -28,7 +40,17 @@ export class BaseOCRProvider {
    * @returns {Promise<Array>} - 文字区域数组，每个区域包含坐标和文字内容
    */
   async detectText(imageData, options = {}) {
-    throw new Error('Method not implemented');
+    if (!this.initialized) {
+      await this.initialize();
+    }
+    
+    try {
+      // 子类应该覆盖此方法实现具体OCR逻辑
+      throw new Error('Method not implemented');
+    } catch (error) {
+      console.error(`${this.name}文字检测失败:`, error);
+      throw this.normalizeError(error, 'detectText');
+    }
   }
 
   /**
@@ -38,7 +60,14 @@ export class BaseOCRProvider {
    * @returns {Promise<string|Blob>} - 预处理后的图像数据
    */
   async preprocessImage(imageData, options = {}) {
-    throw new Error('Method not implemented');
+    try {
+      // 默认实现：不做任何处理，直接返回原始图像
+      return imageData;
+    } catch (error) {
+      console.error(`${this.name}图像预处理失败:`, error);
+      // 预处理失败时，返回原始图像
+      return imageData;
+    }
   }
 
   /**
@@ -48,17 +77,73 @@ export class BaseOCRProvider {
   getConfigSchema() {
     // 返回基础配置字段
     return {
-      language: { type: 'string', required: true, label: '识别语言' },
-      preprocess: { type: 'boolean', required: false, label: '启用图像预处理' }
+      language: { 
+        type: 'string', 
+        required: true, 
+        label: '识别语言',
+        description: '指定OCR识别的目标语言'
+      },
+      preprocess: { 
+        type: 'boolean', 
+        required: false, 
+        label: '启用图像预处理',
+        description: '预处理图像以提高OCR准确率'
+      }
     };
   }
 
   /**
+   * 注册需要在终止时清理的资源
+   * @param {Object} resource - 需要清理的资源
+   * @param {Function} cleanupFn - 清理函数
+   */
+  registerResource(resource, cleanupFn) {
+    if (resource && typeof cleanupFn === 'function') {
+      this.resources.add({ resource, cleanup: cleanupFn });
+    }
+  }
+  
+  /**
+   * 取消注册资源
+   * @param {Object} resource - 要取消注册的资源
+   */
+  unregisterResource(resource) {
+    for (const entry of this.resources) {
+      if (entry.resource === resource) {
+        this.resources.delete(entry);
+        break;
+      }
+    }
+  }
+
+  /**
    * 释放资源
-   * @returns {Promise<void>}
+   * @returns {Promise<boolean>} - 是否成功释放资源
    */
   async terminate() {
-    throw new Error('Method not implemented');
+    try {
+      // 清理所有注册的资源
+      const cleanupPromises = Array.from(this.resources).map(({ resource, cleanup }) => {
+        try {
+          return Promise.resolve(cleanup(resource));
+        } catch (error) {
+          console.error(`清理${this.name}资源失败:`, error);
+          return Promise.resolve();
+        }
+      });
+      
+      await Promise.all(cleanupPromises);
+      
+      // 清空资源集合
+      this.resources.clear();
+      this.initialized = false;
+      
+      console.log(`${this.name}提供者已终止，资源已释放`);
+      return true;
+    } catch (error) {
+      console.error(`终止${this.name}提供者失败:`, error);
+      return false;
+    }
   }
 
   /**
@@ -66,6 +151,34 @@ export class BaseOCRProvider {
    * @returns {Promise<Array<Object>>} - 语言对象数组，包含code和name字段
    */
   async getSupportedLanguages() {
-    throw new Error('Method not implemented');
+    return [
+      { code: 'jpn', name: '日语' },
+      { code: 'eng', name: '英语' },
+      { code: 'chi_sim', name: '简体中文' },
+      { code: 'chi_tra', name: '繁体中文' },
+      { code: 'kor', name: '韩语' }
+    ];
+  }
+  
+  /**
+   * 标准化错误，确保一致的错误格式
+   * @param {Error} error - 原始错误
+   * @param {string} operation - 产生错误的操作
+   * @returns {Error} - 标准化的错误
+   */
+  normalizeError(error, operation = 'unknown') {
+    // 如果错误已经是标准格式，直接返回
+    if (error.providerName && error.operation) {
+      return error;
+    }
+    
+    // 创建标准化错误
+    const normalizedError = new Error(error.message || `${this.name}操作失败`);
+    normalizedError.originalError = error;
+    normalizedError.providerName = this.name;
+    normalizedError.operation = operation;
+    normalizedError.timestamp = Date.now();
+    
+    return normalizedError;
   }
 } 
