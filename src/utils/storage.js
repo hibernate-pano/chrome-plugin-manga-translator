@@ -63,6 +63,13 @@ export async function getConfig() {
               model: 'claude-3-opus-20240229',
               temperature: 0.3,
               maxTokens: 1000
+            },
+            qwen: {
+              apiKey: '',
+              apiBaseUrl: 'https://api.siliconflow.cn/v1',
+              model: 'Qwen/Qwen2.5-VL-32B-Instruct',
+              temperature: 0.3,
+              maxTokens: 1000
             }
           },
           
@@ -104,11 +111,11 @@ export async function getConfig() {
 
         // 如果没有配置，设置默认配置
         if (!result || Object.keys(result).length === 0) {
-          console.log('没有找到配置，使用默认配置');
+          console.log('没有找到配置，设置默认配置');
 
           // 保存默认配置
           chrome.storage.sync.set(defaultConfig, () => {
-            console.log('已设置默认配置');
+            console.log('默认配置已设置');
           });
 
           resolve(defaultConfig);
@@ -118,8 +125,17 @@ export async function getConfig() {
         // 合并默认配置和用户配置，确保所有必要的字段都存在
         const mergedConfig = { ...defaultConfig };
 
-        // 处理提供者类型
-        if (result.providerType) {
+        // 检查是否使用Qwen模型（通过SiliconFlow API）
+        const usingQwen = 
+          (result.customModel && result.customModel.toLowerCase().includes('qwen')) || 
+          (result.apiBaseUrl && result.apiBaseUrl.includes('siliconflow.cn')) ||
+          (result.useCustomModel && result.useCustomApiUrl);
+        
+        // 如果使用Qwen，设置提供者类型为qwen
+        if (usingQwen && !result.providerType) {
+          mergedConfig.providerType = 'qwen';
+          console.log('检测到使用Qwen模型，设置提供者类型为qwen');
+        } else if (result.providerType) {
           mergedConfig.providerType = result.providerType;
         }
 
@@ -143,25 +159,47 @@ export async function getConfig() {
           }
         }
 
-        // 兼容旧配置
-        if (result.apiKey && !result.providerConfig?.openai?.apiKey) {
-          // 将旧的API配置转移到新的提供者配置中
-          if (!mergedConfig.providerConfig.openai) {
-            mergedConfig.providerConfig.openai = {};
-          }
-          
-          mergedConfig.providerConfig.openai.apiKey = result.apiKey;
-          
-          if (result.apiBaseUrl) {
-            mergedConfig.providerConfig.openai.apiBaseUrl = result.apiBaseUrl;
-          }
-          
-          if (result.model) {
-            mergedConfig.providerConfig.openai.chatModel = result.model;
-          }
-          
-          if (result.temperature !== undefined) {
-            mergedConfig.providerConfig.openai.temperature = result.temperature;
+        // 处理旧配置迁移到新的提供者架构
+        if (result.apiKey) {
+          // 判断应该迁移到哪个提供者
+          if (usingQwen) {
+            // 迁移到Qwen提供者
+            if (!mergedConfig.providerConfig.qwen) {
+              mergedConfig.providerConfig.qwen = {};
+            }
+            
+            mergedConfig.providerConfig.qwen.apiKey = result.apiKey;
+            
+            if (result.apiBaseUrl) {
+              mergedConfig.providerConfig.qwen.apiBaseUrl = result.apiBaseUrl;
+            }
+            
+            if (result.customModel) {
+              mergedConfig.providerConfig.qwen.model = result.customModel;
+            }
+            
+            if (result.temperature !== undefined) {
+              mergedConfig.providerConfig.qwen.temperature = result.temperature;
+            }
+          } else {
+            // 迁移到OpenAI提供者（默认行为）
+            if (!mergedConfig.providerConfig.openai) {
+              mergedConfig.providerConfig.openai = {};
+            }
+            
+            mergedConfig.providerConfig.openai.apiKey = result.apiKey;
+            
+            if (result.apiBaseUrl) {
+              mergedConfig.providerConfig.openai.apiBaseUrl = result.apiBaseUrl;
+            }
+            
+            if (result.model) {
+              mergedConfig.providerConfig.openai.chatModel = result.model;
+            }
+            
+            if (result.temperature !== undefined) {
+              mergedConfig.providerConfig.openai.temperature = result.temperature;
+            }
           }
         }
 
@@ -236,8 +274,13 @@ export async function getConfig() {
 
         // 检查提供者配置
         if (!result.providerConfig || !result.providerType) {
-          updates.providerType = defaultConfig.providerType;
-          updates.providerConfig = defaultConfig.providerConfig;
+          // 如果是使用Qwen，设置提供者类型为qwen
+          if (usingQwen) {
+            updates.providerType = 'qwen';
+          } else {
+            updates.providerType = defaultConfig.providerType;
+          }
+          updates.providerConfig = mergedConfig.providerConfig;
           needsUpdate = true;
         }
 
