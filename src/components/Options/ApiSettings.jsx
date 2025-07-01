@@ -154,12 +154,13 @@ const ApiSettings = () => {
   const saveConfig = async () => {
     try {
       // 保存提供者类型和配置
-      await chrome.storage.sync.set({
-        providerType,
-        providerConfig
-      });
+      const result = await saveProviderConfig(providerType, providerConfig[providerType] || {});
       
-      setValidationMessage('✅ 配置已保存');
+      if (result.success) {
+        setValidationMessage('✅ 配置已保存');
+      } else {
+        setValidationMessage(`❌ 保存失败: ${result.message}`);
+      }
     } catch (error) {
       console.error('保存配置失败:', error);
       setValidationMessage(`❌ 保存失败: ${error.message}`);

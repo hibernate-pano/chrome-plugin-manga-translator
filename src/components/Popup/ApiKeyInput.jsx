@@ -4,6 +4,7 @@ const ApiKeyInput = ({ apiKey, onChange, providerType }) => {
   const [value, setValue] = useState(apiKey);
   const [showKey, setShowKey] = useState(false);
   const [isValid, setIsValid] = useState(null);
+  const [errorMessage, setErrorMessage] = useState('');
 
   // 当 apiKey 属性更新时，更新内部状态
   useEffect(() => {
@@ -16,28 +17,81 @@ const ApiKeyInput = ({ apiKey, onChange, providerType }) => {
       validateApiKey(apiKey);
     } else {
       setIsValid(null);
+      setErrorMessage('');
     }
-  }, [apiKey]);
+  }, [apiKey, providerType]);
 
   // 验证API密钥格式
   const validateApiKey = (key) => {
     if (!key || key.trim() === '') {
       setIsValid(null);
+      setErrorMessage('');
       return;
     }
     
-    // 根据不同提供者的密钥格式进行基本验证
+    // 根据不同提供者的密钥格式进行特定验证
     let valid = false;
+    let message = '';
     
-    if (key.startsWith('sk-') && key.length > 20) {
-      // OpenAI或类似格式
-      valid = true;
-    } else if (key.length >= 20) {
-      // 其他提供者可能有不同格式，但通常较长
-      valid = true;
+    switch (providerType) {
+      case 'openai':
+        // OpenAI密钥通常以sk-开头
+        if (!key.startsWith('sk-')) {
+          valid = false;
+          message = 'OpenAI API密钥应以"sk-"开头';
+        } else if (key.length < 30) {
+          valid = false;
+          message = 'OpenAI API密钥长度不足';
+        } else {
+          valid = true;
+        }
+        break;
+        
+      case 'claude':
+        // Claude密钥通常以sk-ant-开头
+        if (!key.startsWith('sk-ant-')) {
+          valid = false;
+          message = 'Claude API密钥应以"sk-ant-"开头';
+        } else if (key.length < 30) {
+          valid = false;
+          message = 'Claude API密钥长度不足';
+        } else {
+          valid = true;
+        }
+        break;
+        
+      case 'deepseek':
+        // DeepSeek密钥没有特定格式，但应该有足够长度
+        if (key.length < 20) {
+          valid = false;
+          message = 'API密钥长度不足';
+        } else {
+          valid = true;
+        }
+        break;
+        
+      case 'qwen':
+        // Qwen密钥没有特定格式，但应该有足够长度
+        if (key.length < 20) {
+          valid = false;
+          message = 'API密钥长度不足';
+        } else {
+          valid = true;
+        }
+        break;
+        
+      default:
+        // 通用验证：确保密钥有足够长度
+        if (key.length < 20) {
+          valid = false;
+          message = 'API密钥长度不足';
+        } else {
+          valid = true;
+        }
     }
     
     setIsValid(valid);
+    setErrorMessage(message);
   };
 
   const handleChange = (e) => {
@@ -99,7 +153,7 @@ const ApiKeyInput = ({ apiKey, onChange, providerType }) => {
       </div>
       {isValid === false && (
         <p className="text-xs text-red-500 mt-1">
-          密钥格式可能不正确，请检查
+          {errorMessage || '密钥格式可能不正确，请检查'}
         </p>
       )}
       <p className="text-xs text-gray-500 mt-1">

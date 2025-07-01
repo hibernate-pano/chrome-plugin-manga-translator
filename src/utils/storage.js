@@ -7,10 +7,16 @@ import { DEFAULT_CONFIG } from './default-config';
 /**
  * 保存用户配置
  * @param {Object} config - 用户配置对象
- * @returns {Promise<void>}
+ * @returns {Promise<{success: boolean, message: string}>} - 保存结果
  */
 export async function saveConfig(config) {
-  return setConfig(config);
+  const result = await setConfig(config);
+  
+  if (!result.success) {
+    console.error('保存配置失败:', result.message);
+  }
+  
+  return result;
 }
 
 /**
