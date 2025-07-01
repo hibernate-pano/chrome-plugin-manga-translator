@@ -1,6 +1,7 @@
 /**
  * 后台脚本
  */
+import { terminateOCRProviders } from '../content/detector';
 
 // 安装/更新事件
 chrome.runtime.onInstalled.addListener((details) => {
@@ -18,6 +19,16 @@ chrome.runtime.onInstalled.addListener((details) => {
 // 在浏览器启动时检查并设置默认配置
 chrome.runtime.onStartup.addListener(() => {
   checkAndSetDefaultConfig();
+});
+
+// 浏览器关闭或插件禁用时释放资源
+chrome.runtime.onSuspend.addListener(async () => {
+  console.log('插件被挂起，释放OCR资源...');
+  try {
+    await terminateOCRProviders();
+  } catch (error) {
+    console.error('释放OCR资源失败:', error);
+  }
 });
 
 // 立即执行一次检查，确保配置正确

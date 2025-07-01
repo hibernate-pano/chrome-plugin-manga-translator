@@ -4,6 +4,7 @@ import StyleSettings from './StyleSettings';
 import KeyboardShortcuts from './KeyboardShortcuts';
 import CacheManager from './CacheManager';
 import AdvancedSettings from './AdvancedSettings';
+import OCRSettings from './OCRSettings';
 import { printCurrentConfig, checkApiConfig } from '../../utils/debug';
 
 const OptionsApp = () => {
@@ -19,6 +20,16 @@ const OptionsApp = () => {
         chatModel: 'gpt-3.5-turbo',
         temperature: 0.3,
         maxTokens: 1000
+      }
+    },
+    
+    // OCR提供者配置
+    ocrSettings: {
+      preferredMethod: 'auto',
+      tesseract: {
+        language: 'jpn',
+        preprocess: true,
+        workerCount: 1
       }
     },
     
@@ -97,6 +108,22 @@ const OptionsApp = () => {
               }
             }
           }
+          
+          // 更新OCR设置
+          if (result.ocrSettings) {
+            newConfig.ocrSettings = {
+              ...config.ocrSettings,
+              ...result.ocrSettings
+            };
+            
+            // 确保tesseract配置完整
+            if (result.ocrSettings.tesseract) {
+              newConfig.ocrSettings.tesseract = {
+                ...config.ocrSettings.tesseract,
+                ...result.ocrSettings.tesseract
+              };
+            }
+          }
 
           // 兼容旧配置
           if (result.apiKey && !result.providerConfig?.openai?.apiKey) {
@@ -117,6 +144,11 @@ const OptionsApp = () => {
             if (result.temperature !== undefined) {
               newConfig.providerConfig.openai.temperature = result.temperature;
             }
+          }
+          
+          // 迁移useLocalOcr旧设置到新的OCR设置
+          if (result.advancedSettings && result.advancedSettings.useLocalOcr !== undefined && !result.ocrSettings) {
+            newConfig.ocrSettings.preferredMethod = result.advancedSettings.useLocalOcr ? 'tesseract' : 'api';
           }
 
           // 更新其他配置
@@ -196,6 +228,22 @@ const OptionsApp = () => {
         ...(updatedConfig.providerConfig || {}),
         ...newConfig.providerConfig
       };
+    }
+    
+    // 处理OCR设置
+    if (newConfig.ocrSettings) {
+      updatedConfig.ocrSettings = {
+        ...(updatedConfig.ocrSettings || {}),
+        ...newConfig.ocrSettings
+      };
+      
+      // 处理嵌套的tesseract配置
+      if (newConfig.ocrSettings.tesseract) {
+        updatedConfig.ocrSettings.tesseract = {
+          ...(updatedConfig.ocrSettings.tesseract || {}),
+          ...newConfig.ocrSettings.tesseract
+        };
+      }
     }
 
     // 处理嵌套对象 - advancedSettings
@@ -318,6 +366,15 @@ const OptionsApp = () => {
                 缓存管理
               </button>
               <button
+                onClick={() => setActiveTab('ocr')}
+                className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'ocr'
+                  ? 'border-blue-500 text-blue-600'
+                  : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }`}
+              >
+                OCR设置
+              </button>
+              <button
                 onClick={() => setActiveTab('advanced')}
                 className={`py-4 px-6 text-center border-b-2 font-medium text-sm ${activeTab === 'advanced'
                   ? 'border-blue-500 text-blue-600'
@@ -365,6 +422,13 @@ const OptionsApp = () => {
                 onClearCache={clearCache}
                 config={{ advancedSettings: config.advancedSettings }}
                 onChange={(advancedSettings) => saveConfig({ advancedSettings })}
+              />
+            )}
+
+            {activeTab === 'ocr' && (
+              <OCRSettings
+                config={{ ocrSettings: config.ocrSettings }}
+                onChange={(ocrSettings) => saveConfig({ ocrSettings })}
               />
             )}
 

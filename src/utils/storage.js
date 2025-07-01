@@ -73,6 +73,16 @@ export async function getConfig() {
             }
           },
           
+          // OCR提供者配置
+          ocrSettings: {
+            preferredMethod: 'auto', // 'auto', 'tesseract', 'api'
+            tesseract: {
+              language: 'jpn', // 默认日语，适合漫画
+              preprocess: true,
+              workerCount: 1
+            }
+          },
+          
           // 常规配置
           targetLanguage: 'zh-CN',
           enabled: false,
@@ -159,6 +169,22 @@ export async function getConfig() {
           }
         }
 
+        // 合并OCR设置
+        if (result.ocrSettings) {
+          mergedConfig.ocrSettings = {
+            ...defaultConfig.ocrSettings,
+            ...result.ocrSettings
+          };
+          
+          // 确保tesseract配置完整
+          if (result.ocrSettings.tesseract) {
+            mergedConfig.ocrSettings.tesseract = {
+              ...defaultConfig.ocrSettings.tesseract,
+              ...result.ocrSettings.tesseract
+            };
+          }
+        }
+
         // 处理旧配置迁移到新的提供者架构
         if (result.apiKey) {
           // 判断应该迁移到哪个提供者
@@ -203,6 +229,11 @@ export async function getConfig() {
           }
         }
 
+        // 迁移useLocalOcr旧设置到新的OCR设置
+        if (result.advancedSettings && result.advancedSettings.useLocalOcr !== undefined) {
+          mergedConfig.ocrSettings.preferredMethod = result.advancedSettings.useLocalOcr ? 'tesseract' : 'api';
+        }
+
         // 合并其他配置
         if (result.targetLanguage) mergedConfig.targetLanguage = result.targetLanguage;
         if (result.enabled !== undefined) mergedConfig.enabled = result.enabled;
@@ -237,6 +268,7 @@ export async function getConfig() {
         for (const key in defaultConfig) {
           if (result[key] === undefined && 
               key !== 'providerConfig' && 
+              key !== 'ocrSettings' &&
               key !== 'apiKey' && 
               key !== 'model' && 
               key !== 'apiBaseUrl') {

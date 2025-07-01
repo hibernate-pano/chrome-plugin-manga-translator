@@ -4,6 +4,51 @@
 import { detectTextInImage } from '../utils/api';
 import { imageToBase64, preprocessImage } from '../utils/imageProcess';
 import { generateImageHash, getCachedTranslation, cacheTranslation, getConfig } from '../utils/storage';
+import { initializeDefaultOCRProvider, detectWithFallback } from '../api/ocr';
+
+// OCR提供者实例缓存
+let primaryOCRProvider = null;
+let fallbackOCRProvider = null;
+
+/**
+ * 初始化OCR提供者
+ * @param {Object} config - 配置对象
+ * @returns {Promise<Object>} - 包含primary和fallback提供者的对象
+ */
+async function initializeOCRProviders(config) {
+  // 如果已初始化且不需要重新初始化，直接返回
+  if (primaryOCRProvider && fallbackOCRProvider && !config.forceReinitialize) {
+    return { primary: primaryOCRProvider, fallback: fallbackOCRProvider };
+  }
+
+  try {
+    // 获取OCR配置
+    const ocrConfig = config.ocrSettings || {};
+    
+    // 初始化主要OCR提供者（默认为Tesseract）
+    primaryOCRProvider = await initializeDefaultOCRProvider(ocrConfig);
+    
+    // 初始化备选OCR提供者（API接口）
+    fallbackOCRProvider = {
+      name: 'API OCR',
+      async detectText(imageData) {
+        const textAreas = await detectTextInImage(imageData);
+        return textAreas.map(area => ({
+          ...area,
+          metadata: {
+            ...area.metadata,
+            detectionMethod: 'vision-api'
+          }
+        }));
+      }
+    };
+
+    return { primary: primaryOCRProvider, fallback: fallbackOCRProvider };
+  } catch (error) {
+    console.error('初始化OCR提供者失败:', error);
+    throw error;
+  }
+}
 
 /**
  * 检测图像中的文字区域
@@ -16,12 +61,14 @@ export async function detectTextAreas(image, options = {}) {
     // 获取当前配置
     const config = await getConfig();
     const {
-      advancedSettings = {}
+      advancedSettings = {},
+      ocrSettings = {}
     } = config;
 
     const {
       useCache = advancedSettings.cacheResults !== false,
-      debugMode = advancedSettings.debugMode || false
+      debugMode = advancedSettings.debugMode || false,
+      preferredOCRMethod = ocrSettings.preferredMethod || 'auto'
     } = options;
 
     // 预处理图像
@@ -45,8 +92,24 @@ export async function detectTextAreas(image, options = {}) {
       }
     }
 
-    // 调用API检测文字
-    const textAreas = await detectTextInImage(imageData);
+    // 初始化OCR提供者
+    const { primary, fallback } = await initializeOCRProviders({
+      ocrSettings,
+      forceReinitialize: false
+    });
+
+    // 根据配置选择OCR方法
+    let textAreas;
+    if (preferredOCRMethod === 'auto') {
+      // 自动模式：先尝试主要方法，失败后回退到备选方法
+      textAreas = await detectWithFallback(imageData, primary, fallback, options);
+    } else if (preferredOCRMethod === 'tesseract') {
+      // 只使用Tesseract
+      textAreas = await primary.detectText(imageData, options);
+    } else {
+      // 只使用API
+      textAreas = await fallback.detectText(imageData, options);
+    }
 
     // 处理和规范化文字区域数据
     const processedTextAreas = textAreas.map(area => {
@@ -63,9 +126,9 @@ export async function detectTextAreas(image, options = {}) {
         speaker: area.speaker || '',
         // 添加额外的元数据
         metadata: {
-          readingDirection: area.readingDirection || 'rtl', // 默认从右到左
+          readingDirection: area.metadata?.readingDirection || 'rtl', // 默认从右到左
           isProcessed: true,
-          detectionMethod: 'vision-api'
+          detectionMethod: area.metadata?.detectionMethod || 'unknown'
         }
       };
     });
@@ -120,9 +183,19 @@ export async function extractText(image, textArea) {
   const ctx = canvas.getContext('2d');
   ctx.drawImage(image, x, y, width, height, 0, 0, width, height);
 
-  // 使用detectTextInImage API提取文字
+  // 获取当前配置
+  const config = await getConfig();
+  const { ocrSettings = {} } = config;
+
+  // 初始化OCR提供者
+  const { primary, fallback } = await initializeOCRProviders({
+    ocrSettings,
+    forceReinitialize: false
+  });
+
+  // 使用回退策略提取文字
   const imageData = await imageToBase64(canvas);
-  const textAreas = await detectTextInImage(imageData);
+  const textAreas = await detectWithFallback(imageData, primary, fallback);
   
   // 返回提取的文字
   if (textAreas && textAreas.length > 0) {
@@ -130,4 +203,21 @@ export async function extractText(image, textArea) {
   }
   
   return '';
+}
+
+/**
+ * 释放OCR提供者资源
+ * @returns {Promise<void>}
+ */
+export async function terminateOCRProviders() {
+  try {
+    if (primaryOCRProvider && typeof primaryOCRProvider.terminate === 'function') {
+      await primaryOCRProvider.terminate();
+      primaryOCRProvider = null;
+    }
+    
+    fallbackOCRProvider = null;
+  } catch (error) {
+    console.error('释放OCR提供者资源失败:', error);
+  }
 }

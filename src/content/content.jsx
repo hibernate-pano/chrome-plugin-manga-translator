@@ -1,7 +1,7 @@
 /**
  * 内容脚本入口
  */
-import { detectTextAreas } from './detector';
+import { detectTextAreas, terminateOCRProviders } from './detector';
 import { translateImageText } from './translator';
 import { renderTranslation, removeTranslation, showDebugAreas } from './renderer';
 import { getConfig } from '../utils/storage';
@@ -43,9 +43,22 @@ async function initialize() {
     // 监听来自弹出窗口的消息
     chrome.runtime.onMessage.addListener(handleMessages);
 
+    // 页面卸载时释放资源
+    window.addEventListener('beforeunload', cleanup);
+
     console.log('漫画翻译助手已初始化');
   } catch (error) {
     console.error('初始化失败:', error);
+  }
+}
+
+// 清理资源
+async function cleanup() {
+  try {
+    console.log('释放OCR资源...');
+    await terminateOCRProviders();
+  } catch (error) {
+    console.error('释放OCR资源失败:', error);
   }
 }
 
