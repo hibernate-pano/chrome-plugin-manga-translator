@@ -1,8 +1,8 @@
 /**
  * 翻译模块
  */
-import { callChatAPI, batchTranslate } from '../utils/api';
-import { generateImageHash, getCachedTranslation, cacheTranslation } from '../utils/storage';
+import { translateText as apiTranslateText } from '../utils/api';
+import { generateImageHash, getCachedTranslation, cacheTranslation, getConfig } from '../utils/storage';
 import { imageToBase64 } from '../utils/imageProcess';
 
 /**
@@ -14,22 +14,12 @@ import { imageToBase64 } from '../utils/imageProcess';
  */
 export async function translateText(text, targetLang, options = {}) {
   try {
-    const { apiKey, model, temperature, translationPrompt } = options;
-
-    if (!apiKey) {
-      throw new Error('未提供API密钥');
-    }
-
     if (!text || text.trim() === '') {
       return '';
     }
 
-    return await callChatAPI(text, targetLang, {
-      apiKey,
-      model,
-      temperature,
-      translationPrompt
-    });
+    // 使用API工具模块进行翻译
+    return await apiTranslateText(text, targetLang);
   } catch (error) {
     console.error('翻译失败:', error);
     throw error;
@@ -46,18 +36,16 @@ export async function translateText(text, targetLang, options = {}) {
  */
 export async function translateImageText(image, textAreas, targetLang, options = {}) {
   try {
+    // 获取当前配置
+    const config = await getConfig();
     const {
-      apiKey,
-      model,
-      temperature,
-      translationPrompt,
-      useCache = true,
-      debugMode = false
-    } = options;
+      advancedSettings = {}
+    } = config;
 
-    if (!apiKey) {
-      throw new Error('未提供API密钥');
-    }
+    const {
+      useCache = advancedSettings.cacheResults !== false,
+      debugMode = advancedSettings.debugMode || false
+    } = options;
 
     if (!textAreas || textAreas.length === 0) {
       return [];
@@ -71,7 +59,6 @@ export async function translateImageText(image, textAreas, targetLang, options =
     }
 
     // 生成图像哈希
-    // 使用改进的imageToBase64函数，它能处理跨域图像
     const imageBase64 = await imageToBase64(image);
     const imageHash = generateImageHash(imageBase64);
 
@@ -89,13 +76,7 @@ export async function translateImageText(image, textAreas, targetLang, options =
     }
 
     // 批量翻译
-    const translations = await batchTranslate(texts, targetLang, {
-      apiKey,
-      model,
-      temperature,
-      translationPrompt,
-      maxConcurrentRequests: options.maxConcurrentRequests || 3
-    });
+    const translations = await apiTranslateText(texts, targetLang);
 
     // 缓存结果
     if (useCache) {

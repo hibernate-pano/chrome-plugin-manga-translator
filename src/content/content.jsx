@@ -5,6 +5,7 @@ import { detectTextAreas } from './detector';
 import { translateImageText } from './translator';
 import { renderTranslation, removeTranslation, showDebugAreas } from './renderer';
 import { getConfig } from '../utils/storage';
+import { initializeProvider } from '../utils/api';
 
 // 存储翻译状态
 let translationState = {
@@ -25,18 +26,11 @@ async function initialize() {
       ...translationState,
       enabled: config.enabled || false,
       mode: config.mode || 'manual',
-      targetLanguage: config.targetLanguage || 'zh-CN',
-      // 添加自定义API相关配置
-      apiKey: config.apiKey || '',
-      apiBaseUrl: config.apiBaseUrl || 'https://api.openai.com/v1',
-      useCustomApiUrl: config.useCustomApiUrl || false,
-      model: config.model || 'gpt-3.5-turbo',
-      customModel: config.customModel || '',
-      useCustomModel: config.useCustomModel || false
+      targetLanguage: config.targetLanguage || 'zh-CN'
     };
 
-    // 打印配置，用于调试
-    console.log('初始化加载的配置:', config);
+    // 初始化API提供者
+    await initializeProvider();
 
     // 设置事件监听器
     setupEventListeners();
@@ -240,629 +234,331 @@ async function translateImage(image) {
     // 获取配置
     const config = await getConfig();
 
-    // 检查API密钥
-    if (!config.apiKey) {
-      console.error('未配置API密钥');
-      return;
-    }
-
     // 显示加载指示器
     const loadingIndicator = showLoadingIndicator(image);
 
-    try {
-      // 获取API模型和URL
-      const useCustomModel = config.useCustomModel || false;
-      const model = useCustomModel ? config.customModel : (config.model || 'gpt-3.5-turbo');
-      const apiBaseUrl = config.apiBaseUrl || 'https://api.openai.com/v1';
+    // 获取目标语言
+    const targetLanguage = translationState.targetLanguage || config.targetLanguage;
 
-      // 更新进度提示
-      loadingIndicator.updateProgress('detect');
+    // 检测文字区域
+    const textAreas = await detectTextAreas(image);
 
-      // 检测文字区域
-      const textAreas = await detectTextAreas(image, {
-        apiKey: config.apiKey,
-        apiBaseUrl: apiBaseUrl,
-        model: model,
-        useCache: config.advancedSettings?.cacheResults !== false,
-        imagePreprocessing: config.advancedSettings?.imagePreprocessing || 'none',
-        debugMode: config.advancedSettings?.debugMode || false
-      });
-
-      // 如果没有检测到文字，显示提示并返回
-      if (!textAreas || textAreas.length === 0) {
-        console.log('未检测到文字');
-
-        // 显示友好的提示
-        const noTextError = showError(image, '未在图像中检测到文字内容');
-
-        // 添加重试按钮
-        const buttonContainer = noTextError.createButtonContainer();
-
-        // 添加重试按钮
-        const retryButton = noTextError.createButton('重新检测', '#4CAF50', () => {
-          noTextError.remove();
-          setTimeout(() => translateImage(image), 500);
-        });
-
-        // 添加高级设置按钮
-        const settingsButton = noTextError.createButton('高级设置', '#2196F3', () => {
-          chrome.runtime.openOptionsPage();
-        });
-
-        buttonContainer.appendChild(retryButton);
-        buttonContainer.appendChild(settingsButton);
-
-        return;
-      }
-
-      // 在调试模式下显示文字区域
-      if (config.advancedSettings?.debugMode) {
-        showDebugAreas(image, textAreas);
-      }
-
-      // 更新进度提示
-      loadingIndicator.updateProgress('translate');
-
-      // 翻译文字
-      const translatedTexts = await translateImageText(image, textAreas, config.targetLanguage, {
-        apiKey: config.apiKey,
-        apiBaseUrl: apiBaseUrl,
-        model: model,
-        temperature: config.temperature || 0.7,
-        translationPrompt: config.advancedSettings?.translationPrompt || '',
-        useCache: config.advancedSettings?.cacheResults !== false,
-        maxConcurrentRequests: config.advancedSettings?.maxConcurrentRequests || 3,
-        debugMode: config.advancedSettings?.debugMode || false
-      });
-
-      // 更新进度提示
-      loadingIndicator.updateProgress('render');
-
-      // 渲染翻译结果
-      const wrapper = renderTranslation(image, textAreas, translatedTexts, {
-        styleLevel: config.styleLevel || 50,
-        fontFamily: config.fontFamily || '',
-        fontSize: config.fontSize || 'auto',
-        fontColor: config.fontColor || 'auto',
-        backgroundColor: config.backgroundColor || 'auto',
-        showOriginalText: config.advancedSettings?.showOriginalText || false
-      });
-
-      // 保存翻译状态
-      translationState.translatedImages.set(image, wrapper);
-    } finally {
-      // 移除加载指示器
-      if (loadingIndicator) {
-        loadingIndicator.remove();
-      }
+    // 没有检测到文字区域
+    if (!textAreas || textAreas.length === 0) {
+      removeLoadingIndicator(loadingIndicator);
+      showError(image, '未检测到文字区域');
+      return;
     }
+
+    // 如果开启了调试模式，显示检测到的区域
+    if (config.advancedSettings?.debugMode) {
+      showDebugAreas(image, textAreas);
+    }
+
+    // 翻译文本
+    const translatedTexts = await translateImageText(image, textAreas, targetLanguage);
+
+    // 渲染翻译
+    const styleOptions = {
+      styleLevel: config.styleLevel || 50,
+      fontFamily: config.fontFamily || '',
+      fontSize: config.fontSize || 'auto',
+      fontColor: config.fontColor || 'auto',
+      backgroundColor: config.backgroundColor || 'auto',
+      showOriginalText: config.advancedSettings?.showOriginalText || false,
+      renderType: config.advancedSettings?.renderType || 'overlay'
+    };
+
+    // 渲染翻译
+    renderTranslation(image, textAreas, translatedTexts, styleOptions);
+
+    // 记录已翻译的图像
+    translationState.translatedImages.set(image, {
+      textAreas,
+      translatedTexts,
+      targetLanguage
+    });
+
+    // 移除加载指示器
+    removeLoadingIndicator(loadingIndicator);
   } catch (error) {
     console.error('翻译图像失败:', error);
-
-    // 检查错误类型并提供相应的处理方案
-    let errorMessage = error.message;
-    let errorType = 'general';
-
-    // 检测CORS错误
-    if (
-      error.message.includes('InvalidStateError') &&
-      error.message.includes('drawImage') &&
-      error.message.includes('broken')
-    ) {
-      errorType = 'cors';
-    }
-    // 检测API错误
-    else if (error.message.includes('API错误')) {
-      errorType = 'api';
-    }
-    // 检测网络错误
-    else if (
-      error.message.includes('Failed to fetch') ||
-      error.message.includes('Network') ||
-      error.message.includes('网络')
-    ) {
-      errorType = 'network';
-    }
-
-    // 根据错误类型处理
-    switch (errorType) {
-      case 'cors':
-        // 处理CORS错误
-        handleCorsError(image, error);
-        break;
-
-      case 'api':
-        // 处理API错误
-        handleApiError(image, error);
-        break;
-
-      case 'network':
-        // 处理网络错误
-        handleNetworkError(image, error);
-        break;
-
-      default:
-        // 处理一般错误
-        const errorDiv = showError(image, `翻译过程中发生错误: ${errorMessage}`);
-        const buttonContainer = errorDiv.createButtonContainer();
-
-        // 添加重试按钮
-        const retryButton = errorDiv.createButton('重试', '#4CAF50', () => {
-          errorDiv.remove();
-          setTimeout(() => translateImage(image), 500);
-        });
-
-        // 添加设置按钮
-        const settingsButton = errorDiv.createButton('设置', '#2196F3', () => {
-          chrome.runtime.openOptionsPage();
-        });
-
-        buttonContainer.appendChild(retryButton);
-        buttonContainer.appendChild(settingsButton);
+    
+    // 处理特定类型的错误
+    if (error.name === 'CrossOriginError' || error.message.includes('cross-origin')) {
+      await handleCorsError(image, error);
+    } else if (error.message.includes('API') || error.status) {
+      await handleApiError(image, error);
+    } else if (error.name === 'NetworkError' || error.message.includes('network')) {
+      handleNetworkError(image, error);
+    } else {
+      // 通用错误处理
+      const loadingIndicator = document.querySelector(`.manga-translator-loading[data-image-id="${image.dataset.translatorId}"]`);
+      if (loadingIndicator) {
+        removeLoadingIndicator(loadingIndicator);
+      }
+      showError(image, `翻译失败: ${error.message}`);
     }
   }
 }
 
 // 移除所有翻译
 function removeAllTranslations() {
-  translationState.translatedImages.forEach((wrapper, image) => {
-    removeTranslation(wrapper);
+  const wrappers = document.querySelectorAll('.manga-translator-wrapper');
+  wrappers.forEach(wrapper => {
+    wrapper.remove();
   });
-
   translationState.translatedImages.clear();
 }
 
 // 显示加载指示器
 function showLoadingIndicator(image) {
-  // 确保全局只有一个样式定义
-  if (!document.getElementById('manga-translator-styles')) {
-    const style = document.createElement('style');
-    style.id = 'manga-translator-styles';
-    style.textContent = `
-      @keyframes manga-translator-spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-
-      @keyframes manga-translator-pulse {
-        0% { opacity: 0.6; }
-        50% { opacity: 1; }
-        100% { opacity: 0.6; }
-      }
-    `;
-    document.head.appendChild(style);
+  // 为图像分配一个唯一ID
+  if (!image.dataset.translatorId) {
+    image.dataset.translatorId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
   }
 
+  // 创建加载指示器
   const wrapper = document.createElement('div');
   wrapper.className = 'manga-translator-loading';
+  wrapper.dataset.imageId = image.dataset.translatorId;
   wrapper.style.position = 'absolute';
   wrapper.style.top = '0';
   wrapper.style.left = '0';
   wrapper.style.width = '100%';
   wrapper.style.height = '100%';
   wrapper.style.display = 'flex';
-  wrapper.style.flexDirection = 'column';
-  wrapper.style.alignItems = 'center';
   wrapper.style.justifyContent = 'center';
-  wrapper.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
+  wrapper.style.alignItems = 'center';
+  wrapper.style.backgroundColor = 'rgba(0, 0, 0, 0.5)';
   wrapper.style.color = 'white';
   wrapper.style.fontSize = '16px';
-  wrapper.style.zIndex = '1000';
-  wrapper.style.backdropFilter = 'blur(3px)';
-  wrapper.style.transition = 'all 0.3s ease';
+  wrapper.style.zIndex = '9999';
 
-  const spinner = document.createElement('div');
-  spinner.className = 'manga-translator-spinner';
-  spinner.style.border = '4px solid rgba(255, 255, 255, 0.3)';
-  spinner.style.borderTop = '4px solid white';
-  spinner.style.borderRadius = '50%';
-  spinner.style.width = '40px';
-  spinner.style.height = '40px';
-  spinner.style.animation = 'manga-translator-spin 1s linear infinite';
-  spinner.style.marginBottom = '15px';
+  // 创建动画
+  const loadingText = document.createElement('div');
+  loadingText.textContent = '翻译中...';
+  loadingText.style.padding = '10px 20px';
+  loadingText.style.borderRadius = '5px';
+  loadingText.style.backgroundColor = 'rgba(0, 0, 0, 0.7)';
 
-  const text = document.createElement('div');
-  text.textContent = '翻译中...';
-  text.style.animation = 'manga-translator-pulse 1.5s infinite';
-  text.style.fontWeight = 'bold';
+  wrapper.appendChild(loadingText);
 
-  // 添加进度提示
-  const progressText = document.createElement('div');
-  progressText.textContent = '正在分析图像文字...';
-  progressText.style.fontSize = '14px';
-  progressText.style.marginTop = '10px';
-  progressText.style.opacity = '0.8';
+  // 放置加载指示器
+  const rect = image.getBoundingClientRect();
+  const container = document.createElement('div');
+  container.style.position = 'relative';
+  container.style.width = `${image.width}px`;
+  container.style.height = `${image.height}px`;
+  container.style.display = 'inline-block';
 
-  // 公开更新进度的方法
-  wrapper.updateProgress = (stage) => {
-    switch (stage) {
-      case 'detect':
-        progressText.textContent = '正在分析图像文字...';
-        break;
-      case 'translate':
-        progressText.textContent = '正在翻译文字内容...';
-        break;
-      case 'render':
-        progressText.textContent = '正在渲染翻译结果...';
-        break;
-      default:
-        progressText.textContent = stage; // 支持自定义文本
-    }
-  };
-
-  wrapper.appendChild(spinner);
-  wrapper.appendChild(text);
-  wrapper.appendChild(progressText);
-
-  // 设置相对定位
-  const imageStyle = window.getComputedStyle(image);
-  if (imageStyle.position === 'static') {
-    image.style.position = 'relative';
-  }
-
-  image.parentNode.insertBefore(wrapper, image.nextSibling);
+  // 替换图像
+  image.parentNode.insertBefore(container, image);
+  container.appendChild(image);
+  container.appendChild(wrapper);
 
   return wrapper;
 }
 
-// 显示错误信息
-function showError(image, message) {
-  // 确保全局只有一个样式定义
-  if (!document.getElementById('manga-translator-styles')) {
-    const style = document.createElement('style');
-    style.id = 'manga-translator-styles';
-    style.textContent = `
-      @keyframes manga-translator-spin {
-        0% { transform: rotate(0deg); }
-        100% { transform: rotate(360deg); }
-      }
-
-      @keyframes manga-translator-pulse {
-        0% { opacity: 0.6; }
-        50% { opacity: 1; }
-        100% { opacity: 0.6; }
-      }
-
-      @keyframes manga-translator-slide-in {
-        0% { transform: translateY(-20px); opacity: 0; }
-        100% { transform: translateY(0); opacity: 1; }
-      }
-
-      .manga-translator-error-btn {
-        padding: 8px 12px;
-        border: none;
-        border-radius: 4px;
-        color: white;
-        font-weight: bold;
-        cursor: pointer;
-        transition: all 0.2s ease;
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        margin-right: 8px;
-        font-size: 13px;
-      }
-
-      .manga-translator-error-btn:hover {
-        transform: translateY(-2px);
-        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-      }
-    `;
-    document.head.appendChild(style);
+// 移除加载指示器
+function removeLoadingIndicator(loadingIndicator) {
+  if (loadingIndicator && loadingIndicator.parentNode) {
+    loadingIndicator.remove();
   }
-
-  const errorDiv = document.createElement('div');
-  errorDiv.className = 'manga-translator-error';
-  errorDiv.style.position = 'absolute';
-  errorDiv.style.top = '10px';
-  errorDiv.style.left = '10px';
-  errorDiv.style.right = '10px';
-  errorDiv.style.padding = '15px';
-  errorDiv.style.backgroundColor = 'rgba(220, 53, 69, 0.95)';
-  errorDiv.style.color = 'white';
-  errorDiv.style.borderRadius = '8px';
-  errorDiv.style.fontSize = '14px';
-  errorDiv.style.zIndex = '1000';
-  errorDiv.style.maxWidth = '90%';
-  errorDiv.style.display = 'flex';
-  errorDiv.style.flexDirection = 'column';
-  errorDiv.style.boxShadow = '0 4px 15px rgba(0,0,0,0.3)';
-  errorDiv.style.animation = 'manga-translator-slide-in 0.3s ease-out';
-  errorDiv.style.backdropFilter = 'blur(4px)';
-  errorDiv.style.border = '1px solid rgba(255,255,255,0.2)';
-
-  // 创建标题
-  const titleDiv = document.createElement('div');
-  titleDiv.textContent = '翻译失败';
-  titleDiv.style.fontWeight = 'bold';
-  titleDiv.style.fontSize = '16px';
-  titleDiv.style.marginBottom = '8px';
-  titleDiv.style.borderBottom = '1px solid rgba(255,255,255,0.3)';
-  titleDiv.style.paddingBottom = '8px';
-  errorDiv.appendChild(titleDiv);
-
-  // 创建消息容器
-  const messageDiv = document.createElement('div');
-  messageDiv.textContent = message;
-  messageDiv.style.marginBottom = '12px';
-  messageDiv.style.lineHeight = '1.4';
-  errorDiv.appendChild(messageDiv);
-
-  // 添加关闭按钮
-  const closeButton = document.createElement('button');
-  closeButton.textContent = '×';
-  closeButton.style.position = 'absolute';
-  closeButton.style.top = '8px';
-  closeButton.style.right = '8px';
-  closeButton.style.backgroundColor = 'transparent';
-  closeButton.style.border = 'none';
-  closeButton.style.color = 'white';
-  closeButton.style.fontSize = '20px';
-  closeButton.style.cursor = 'pointer';
-  closeButton.style.width = '30px';
-  closeButton.style.height = '30px';
-  closeButton.style.display = 'flex';
-  closeButton.style.alignItems = 'center';
-  closeButton.style.justifyContent = 'center';
-  closeButton.style.borderRadius = '50%';
-  closeButton.style.transition = 'background-color 0.2s';
-
-  closeButton.onmouseover = () => {
-    closeButton.style.backgroundColor = 'rgba(255,255,255,0.2)';
-  };
-
-  closeButton.onmouseout = () => {
-    closeButton.style.backgroundColor = 'transparent';
-  };
-
-  closeButton.addEventListener('click', () => {
-    errorDiv.style.opacity = '0';
-    errorDiv.style.transform = 'translateY(-20px)';
-    errorDiv.style.transition = 'all 0.3s ease';
-
-    setTimeout(() => {
-      if (errorDiv.parentNode) {
-        errorDiv.remove();
-      }
-    }, 300);
-  });
-
-  errorDiv.appendChild(closeButton);
-
-  // 设置相对定位
-  const imageStyle = window.getComputedStyle(image);
-  if (imageStyle.position === 'static') {
-    image.style.position = 'relative';
-  }
-
-  image.parentNode.insertBefore(errorDiv, image.nextSibling);
-
-  // 创建按钮容器的辅助方法
-  errorDiv.createButtonContainer = () => {
-    const container = document.createElement('div');
-    container.style.display = 'flex';
-    container.style.flexWrap = 'wrap';
-    container.style.gap = '8px';
-    container.style.marginTop = '10px';
-    errorDiv.appendChild(container);
-    return container;
-  };
-
-  // 创建按钮的辅助方法
-  errorDiv.createButton = (text, color, onClick) => {
-    const button = document.createElement('button');
-    button.textContent = text;
-    button.className = 'manga-translator-error-btn';
-    button.style.backgroundColor = color;
-
-    button.addEventListener('click', onClick);
-    return button;
-  };
-
-  // 15秒后自动消失
-  setTimeout(() => {
-    if (errorDiv.parentNode) {
-      errorDiv.style.opacity = '0';
-      errorDiv.style.transform = 'translateY(-20px)';
-      errorDiv.style.transition = 'all 0.3s ease';
-
-      setTimeout(() => {
-        if (errorDiv.parentNode) {
-          errorDiv.remove();
-        }
-      }, 300);
-    }
-  }, 15000);
-
-  // 返回错误div，以便可以添加更多元素
-  return errorDiv;
 }
 
-// 处理来自弹出窗口的消息
+// 显示错误信息
+function showError(image, message) {
+  // 创建错误提示
+  const errorElement = document.createElement('div');
+  errorElement.className = 'manga-translator-error';
+  errorElement.style.position = 'absolute';
+  errorElement.style.top = '10px';
+  errorElement.style.left = '10px';
+  errorElement.style.padding = '5px 10px';
+  errorElement.style.backgroundColor = 'rgba(255, 0, 0, 0.7)';
+  errorElement.style.color = 'white';
+  errorElement.style.borderRadius = '3px';
+  errorElement.style.fontSize = '12px';
+  errorElement.style.maxWidth = 'calc(100% - 20px)';
+  errorElement.style.zIndex = '9999';
+  errorElement.textContent = message;
+
+  // 添加到图像容器
+  const container = image.parentNode;
+  if (container && container.style.position === 'relative') {
+    container.appendChild(errorElement);
+
+    // 自动隐藏错误信息
+    setTimeout(() => {
+      if (errorElement.parentNode) {
+        errorElement.remove();
+      }
+    }, 5000);
+  }
+}
+
+// 处理消息
 function handleMessages(message, sender, sendResponse) {
-  if (message.type === 'CONFIG_UPDATED') {
-    // 更新翻译状态
-    translationState = {
-      ...translationState,
-      enabled: message.config.enabled,
-      mode: message.config.mode,
-      targetLanguage: message.config.targetLanguage,
-      // 添加自定义API相关配置
-      apiKey: message.config.apiKey,
-      apiBaseUrl: message.config.apiBaseUrl,
-      useCustomApiUrl: message.config.useCustomApiUrl,
-      model: message.config.model,
-      customModel: message.config.customModel,
-      useCustomModel: message.config.useCustomModel
-    };
-
-    // 打印配置，用于调试
-    console.log('内容脚本收到的配置:', message.config);
-
-    // 如果禁用了翻译，移除所有翻译
-    if (!translationState.enabled) {
-      removeAllTranslations();
+  if (message.action === 'getState') {
+    sendResponse({
+      enabled: translationState.enabled,
+      mode: translationState.mode,
+      targetLanguage: translationState.targetLanguage
+    });
+  } else if (message.action === 'setState') {
+    // 更新状态
+    if (message.state.enabled !== undefined) {
+      translationState.enabled = message.state.enabled;
     }
-    // 如果启用了自动模式，开始处理页面
-    else if (translationState.mode === 'auto') {
-      processPage();
+
+    if (message.state.mode !== undefined) {
+      translationState.mode = message.state.mode;
+    }
+
+    if (message.state.targetLanguage !== undefined) {
+      translationState.targetLanguage = message.state.targetLanguage;
+    }
+
+    // 保存配置
+    saveConfig({
+      enabled: translationState.enabled,
+      mode: translationState.mode,
+      targetLanguage: translationState.targetLanguage
+    });
+
+    // 处理启用/禁用状态变化
+    if (message.state.enabled !== undefined) {
+      if (message.state.enabled && translationState.mode === 'auto') {
+        processPage();
+      } else if (!message.state.enabled) {
+        removeAllTranslations();
+      }
     }
 
     sendResponse({ success: true });
-    return true;
+  } else if (message.action === 'translate') {
+    processPage();
+    sendResponse({ success: true });
+  } else if (message.action === 'clear') {
+    removeAllTranslations();
+    sendResponse({ success: true });
   }
 }
 
-// 处理CORS错误
+// 处理跨域错误
 async function handleCorsError(image, error) {
+  console.warn('跨域错误，尝试使用代理:', error);
+
   // 获取配置
   const config = await getConfig();
-  const useCorsProxy = config.advancedSettings?.useCorsProxy || false;
+  
+  if (!config.advancedSettings?.useCorsProxy) {
+    showError(image, '跨域资源访问受限，请在高级设置中启用CORS代理');
+    return;
+  }
 
-  if (!useCorsProxy) {
-    // 如果未启用CORS代理，显示错误并提供启用选项
-    const errorDiv = showError(image, '跨域资源共享(CORS)错误: 无法访问图像数据。需要启用CORS代理服务来解决此问题。');
-    const buttonContainer = errorDiv.createButtonContainer();
+  // 确定代理类型
+  const proxyType = config.advancedSettings?.corsProxyType || 'corsproxy';
+  const customProxy = config.advancedSettings?.customCorsProxy || '';
 
-    // 添加启用代理按钮
-    const enableButton = errorDiv.createButton('启用CORS代理', '#4CAF50', async () => {
-      // 更新配置
-      const advancedSettings = {
-        ...(config.advancedSettings || {}),
-        useCorsProxy: true,
-        corsProxyType: 'corsproxy'  // 默认使用corsproxy.io
-      };
+  // 构建代理URL
+  let proxyUrl = '';
+  const originalUrl = image.src;
 
-      await saveConfig({ advancedSettings });
-
-      // 关闭错误消息
-      errorDiv.remove();
-
-      // 显示成功消息
-      const successDiv = showError(image, '已启用CORS代理，正在重新尝试翻译...');
-      successDiv.style.backgroundColor = 'rgba(76, 175, 80, 0.9)';
-
-      // 3秒后自动关闭
-      setTimeout(() => {
-        if (successDiv.parentNode) {
-          successDiv.remove();
-        }
-        // 重新尝试翻译
-        translateImage(image);
-      }, 2000);
-    });
-
-    // 添加设置按钮
-    const settingsButton = errorDiv.createButton('高级设置', '#2196F3', () => {
-      chrome.runtime.openOptionsPage();
-    });
-
-    buttonContainer.appendChild(enableButton);
-    buttonContainer.appendChild(settingsButton);
+  if (proxyType === 'custom' && customProxy) {
+    // 使用自定义代理
+    proxyUrl = customProxy.replace('{url}', encodeURIComponent(originalUrl));
+  } else if (proxyType === 'corsproxy') {
+    // 使用corsproxy.io
+    proxyUrl = `https://corsproxy.io/?${encodeURIComponent(originalUrl)}`;
+  } else if (proxyType === 'allorigins') {
+    // 使用allorigins
+    proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(originalUrl)}`;
   } else {
-    // 如果已启用CORS代理但仍然失败，提供更多选项
-    const errorDiv = showError(image, '跨域资源共享(CORS)错误: 当前代理服务无法访问图像数据。请尝试更换代理服务。');
-    const buttonContainer = errorDiv.createButtonContainer();
+    showError(image, '无效的CORS代理配置');
+    return;
+  }
 
-    // 获取当前代理类型
-    const currentProxyType = config.advancedSettings?.corsProxyType || 'corsproxy';
-
-    // 添加尝试其他代理按钮
-    const tryOtherButton = errorDiv.createButton('尝试其他代理', '#FF9800', async () => {
-      // 选择一个不同的代理
-      let newProxyType = 'allorigins';
-      if (currentProxyType === 'allorigins') {
-        newProxyType = 'corsproxy';
-      }
-
-      // 更新配置
-      const advancedSettings = {
-        ...(config.advancedSettings || {}),
-        corsProxyType: newProxyType
-      };
-
-      await saveConfig({ advancedSettings });
-
-      // 关闭错误消息
-      errorDiv.remove();
-
-      // 显示成功消息
-      const successDiv = showError(image, `已切换到 ${newProxyType} 代理，正在重新尝试翻译...`);
-      successDiv.style.backgroundColor = 'rgba(76, 175, 80, 0.9)';
-
-      // 2秒后自动关闭
-      setTimeout(() => {
-        if (successDiv.parentNode) {
-          successDiv.remove();
-        }
-        // 重新尝试翻译
-        translateImage(image);
-      }, 2000);
+  try {
+    // 创建一个新的图像并通过代理加载
+    const proxyImage = new Image();
+    proxyImage.crossOrigin = 'anonymous';
+    
+    // 复制原始图像的属性
+    proxyImage.width = image.width;
+    proxyImage.height = image.height;
+    proxyImage.alt = image.alt;
+    proxyImage.title = image.title;
+    proxyImage.className = image.className;
+    
+    // 设置代理URL
+    proxyImage.src = proxyUrl;
+    
+    // 等待图像加载
+    await new Promise((resolve, reject) => {
+      proxyImage.onload = resolve;
+      proxyImage.onerror = () => reject(new Error('通过代理加载图像失败'));
+      
+      // 设置超时
+      setTimeout(() => reject(new Error('代理请求超时')), 10000);
     });
-
-    // 添加设置按钮
-    const settingsButton = errorDiv.createButton('高级设置', '#2196F3', () => {
-      chrome.runtime.openOptionsPage();
-    });
-
-    buttonContainer.appendChild(tryOtherButton);
-    buttonContainer.appendChild(settingsButton);
+    
+    // 替换原始图像
+    image.parentNode.replaceChild(proxyImage, image);
+    
+    // 翻译新图像
+    await translateImage(proxyImage);
+  } catch (proxyError) {
+    console.error('使用代理加载图像失败:', proxyError);
+    showError(image, `使用代理加载图像失败: ${proxyError.message}`);
   }
 }
 
 // 处理API错误
 async function handleApiError(image, error) {
-  const errorDiv = showError(image, `API调用失败: ${error.message}`);
-  const buttonContainer = errorDiv.createButtonContainer();
-
-  // 添加检查API设置按钮
-  const checkApiButton = errorDiv.createButton('检查API设置', '#2196F3', () => {
-    chrome.runtime.openOptionsPage();
-    // 可以添加一个消息，告诉选项页面打开API设置标签
-  });
-
-  // 添加重试按钮
-  const retryButton = errorDiv.createButton('重试', '#4CAF50', () => {
-    errorDiv.remove();
-    setTimeout(() => translateImage(image), 500);
-  });
-
-  buttonContainer.appendChild(checkApiButton);
-  buttonContainer.appendChild(retryButton);
+  console.error('API错误:', error);
+  
+  const errorMessage = error.message || '未知API错误';
+  const statusCode = error.status || '';
+  
+  let userFriendlyMessage = `API错误${statusCode ? ` (${statusCode})` : ''}: ${errorMessage}`;
+  
+  if (errorMessage.includes('API key')) {
+    userFriendlyMessage = 'API密钥无效或已过期，请在设置中更新';
+  } else if (errorMessage.includes('rate limit')) {
+    userFriendlyMessage = 'API请求频率超限，请稍后再试';
+  }
+  
+  showError(image, userFriendlyMessage);
 }
 
 // 处理网络错误
 function handleNetworkError(image, error) {
-  const errorDiv = showError(image, `网络连接错误: ${error.message}`);
-  const buttonContainer = errorDiv.createButtonContainer();
-
-  // 添加重试按钮
-  const retryButton = errorDiv.createButton('重试', '#4CAF50', () => {
-    errorDiv.remove();
-    setTimeout(() => translateImage(image), 1000);
-  });
-
-  // 添加设置按钮
-  const settingsButton = errorDiv.createButton('设置', '#2196F3', () => {
-    chrome.runtime.openOptionsPage();
-  });
-
-  buttonContainer.appendChild(retryButton);
-  buttonContainer.appendChild(settingsButton);
+  console.error('网络错误:', error);
+  
+  const errorMessage = error.message || '未知网络错误';
+  let userFriendlyMessage = `网络错误: ${errorMessage}`;
+  
+  if (errorMessage.includes('timeout')) {
+    userFriendlyMessage = '网络请求超时，请检查网络连接';
+  } else if (errorMessage.includes('offline')) {
+    userFriendlyMessage = '当前处于离线状态，请连接网络后重试';
+  }
+  
+  showError(image, userFriendlyMessage);
 }
 
 // 保存配置
 async function saveConfig(config) {
   return new Promise((resolve, reject) => {
-    try {
-      chrome.storage.sync.set(config, () => {
-        if (chrome.runtime.lastError) {
-          reject(chrome.runtime.lastError);
-        } else {
-          resolve();
-        }
-      });
-    } catch (error) {
-      reject(error);
-    }
+    chrome.storage.sync.set(config, () => {
+      if (chrome.runtime.lastError) {
+        reject(chrome.runtime.lastError);
+      } else {
+        resolve();
+      }
+    });
   });
 }
 

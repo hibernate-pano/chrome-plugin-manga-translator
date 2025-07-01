@@ -407,3 +407,172 @@ export async function testApiConfig(config) {
     };
   }
 }
+
+/**
+ * API工具模块
+ * 提供内容脚本与API提供者之间的通信接口
+ */
+
+import ProviderFactory from '../api/providers';
+import { getActiveProviderConfig, getConfig } from './storage';
+import { APIErrorHandler } from './error-handler';
+
+/**
+ * 初始化API提供者
+ * @returns {Promise<Object>} - 返回初始化后的提供者实例
+ */
+export async function initializeProvider() {
+  try {
+    // 获取当前激活的提供者配置
+    const { type, config } = await getActiveProviderConfig();
+    
+    // 创建提供者实例
+    const provider = ProviderFactory.createProvider(type, config);
+    
+    // 初始化提供者
+    await provider.initialize();
+    
+    return provider;
+  } catch (error) {
+    console.error('初始化API提供者失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 检测图像中的文字区域
+ * @param {string} imageData - Base64编码的图像数据
+ * @returns {Promise<Array>} - 返回检测到的文字区域数组
+ */
+export async function detectTextInImage(imageData) {
+  try {
+    // 获取提供者
+    const provider = await initializeProvider();
+    
+    // 获取当前配置
+    const config = await getConfig();
+    
+    // 创建检测选项
+    const options = {
+      retryOptions: {
+        maxRetries: 3,
+        delayMs: 1000
+      },
+      timeout: config.advancedSettings.apiTimeout * 1000 || 30000,
+      preprocessingType: config.advancedSettings.imagePreprocessing || 'none'
+    };
+    
+    // 如果启用了本地OCR，则使用本地OCR
+    if (config.advancedSettings.useLocalOcr) {
+      // 本地OCR实现（未完成）
+      console.log('本地OCR尚未实现');
+      // return await detectTextLocally(imageData, options);
+    }
+    
+    // 使用提供者检测文字
+    const textAreas = await provider.detectText(imageData, options);
+    
+    return textAreas;
+  } catch (error) {
+    console.error('检测图像中的文字失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 翻译文本
+ * @param {string|Array<string>} text - 要翻译的文本或文本数组
+ * @param {string} targetLang - 目标语言代码
+ * @returns {Promise<string|Array<string>>} - 返回翻译结果
+ */
+export async function translateText(text, targetLang) {
+  try {
+    // 获取提供者
+    const provider = await initializeProvider();
+    
+    // 获取当前配置
+    const config = await getConfig();
+    
+    // 创建翻译选项
+    const options = {
+      retryOptions: {
+        maxRetries: 3,
+        delayMs: 1000
+      },
+      timeout: config.advancedSettings.apiTimeout * 1000 || 30000,
+      translationPrompt: config.advancedSettings.translationPrompt || '',
+      batchSize: 5 // 批量翻译的文本数量
+    };
+    
+    // 使用提供者翻译文本
+    const translatedText = await provider.translateText(text, targetLang, options);
+    
+    return translatedText;
+  } catch (error) {
+    console.error('翻译文本失败:', error);
+    throw error;
+  }
+}
+
+/**
+ * 验证API提供者配置
+ * @param {string} providerType - 提供者类型
+ * @param {Object} providerConfig - 提供者配置
+ * @returns {Promise<Object>} - 返回验证结果
+ */
+export async function validateProviderConfig(providerType, providerConfig) {
+  try {
+    const provider = ProviderFactory.createProvider(providerType, providerConfig);
+    return await provider.validateConfig();
+  } catch (error) {
+    console.error('验证API提供者配置失败:', error);
+    return { isValid: false, message: `验证失败: ${error.message}` };
+  }
+}
+
+/**
+ * 获取可用的API提供者列表
+ * @returns {Array<Object>} - 返回提供者对象数组
+ */
+export function getAvailableProviders() {
+  return ProviderFactory.getRegisteredProviders().map(type => {
+    const providerClass = ProviderFactory.getProviderClass(type);
+    const instance = new providerClass();
+    
+    return {
+      type,
+      name: instance.name,
+      features: instance.supportedFeatures,
+      schema: instance.getConfigurationSchema()
+    };
+  });
+}
+
+/**
+ * 获取提供者支持的语言列表
+ * @param {string} providerType - 提供者类型
+ * @returns {Promise<Array<Object>>} - 返回语言对象数组
+ */
+export async function getSupportedLanguages(providerType = null) {
+  try {
+    let type = providerType;
+    
+    if (!type) {
+      const config = await getActiveProviderConfig();
+      type = config.type;
+    }
+    
+    const provider = ProviderFactory.createProvider(type);
+    return provider.getSupportedLanguages();
+  } catch (error) {
+    console.error('获取支持的语言列表失败:', error);
+    // 返回默认语言列表
+    return [
+      { code: 'zh-CN', name: '简体中文' },
+      { code: 'zh-TW', name: '繁体中文' },
+      { code: 'en', name: '英语' },
+      { code: 'ja', name: '日语' },
+      { code: 'ko', name: '韩语' }
+    ];
+  }
+}

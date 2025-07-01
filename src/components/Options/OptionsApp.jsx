@@ -9,26 +9,52 @@ import { printCurrentConfig, checkApiConfig } from '../../utils/debug';
 const OptionsApp = () => {
   const [activeTab, setActiveTab] = useState('api');
   const [config, setConfig] = useState({
-    apiKey: '',
-    model: 'gpt-3.5-turbo',
-    temperature: 0.7,
+    // API提供者配置
+    providerType: 'openai',
+    providerConfig: {
+      openai: {
+        apiKey: '',
+        apiBaseUrl: 'https://api.openai.com/v1',
+        visionModel: 'gpt-4-vision-preview',
+        chatModel: 'gpt-3.5-turbo',
+        temperature: 0.3,
+        maxTokens: 1000
+      }
+    },
+    
+    // 常规配置
     targetLanguage: 'zh-CN',
     enabled: false,
     mode: 'manual',
     styleLevel: 50,
+    
+    // 样式配置
     fontFamily: '',
     fontSize: 'auto',
     fontColor: 'auto',
     backgroundColor: 'auto',
+    
+    // 快捷键配置
     shortcuts: {
       toggleTranslation: 'Alt+T',
       translateSelected: 'Alt+S',
     },
+    
+    // 高级设置
     advancedSettings: {
       useLocalOcr: false,
       cacheResults: true,
       maxCacheSize: 50,
       debugMode: false,
+      apiTimeout: 30,
+      maxConcurrentRequests: 3,
+      imagePreprocessing: 'none',
+      showOriginalText: false,
+      translationPrompt: '',
+      useCorsProxy: true,
+      corsProxyType: 'corsproxy',
+      customCorsProxy: '',
+      renderType: 'overlay'
     }
   });
 
@@ -45,8 +71,63 @@ const OptionsApp = () => {
           // 创建一个深拷贝的配置对象，避免引用问题
           const newConfig = {
             ...config,  // 保留默认值
-            ...result,  // 覆盖存储的值
           };
+
+          // 更新提供者类型
+          if (result.providerType) {
+            newConfig.providerType = result.providerType;
+          }
+
+          // 更新提供者配置
+          if (result.providerConfig) {
+            newConfig.providerConfig = {
+              ...config.providerConfig,
+              ...result.providerConfig
+            };
+            
+            // 确保每个提供者都有完整的配置
+            for (const provider in config.providerConfig) {
+              if (!newConfig.providerConfig[provider]) {
+                newConfig.providerConfig[provider] = config.providerConfig[provider];
+              } else {
+                newConfig.providerConfig[provider] = {
+                  ...config.providerConfig[provider],
+                  ...newConfig.providerConfig[provider]
+                };
+              }
+            }
+          }
+
+          // 兼容旧配置
+          if (result.apiKey && !result.providerConfig?.openai?.apiKey) {
+            if (!newConfig.providerConfig.openai) {
+              newConfig.providerConfig.openai = {};
+            }
+            
+            newConfig.providerConfig.openai.apiKey = result.apiKey;
+            
+            if (result.apiBaseUrl) {
+              newConfig.providerConfig.openai.apiBaseUrl = result.apiBaseUrl;
+            }
+            
+            if (result.model) {
+              newConfig.providerConfig.openai.chatModel = result.model;
+            }
+            
+            if (result.temperature !== undefined) {
+              newConfig.providerConfig.openai.temperature = result.temperature;
+            }
+          }
+
+          // 更新其他配置
+          if (result.targetLanguage) newConfig.targetLanguage = result.targetLanguage;
+          if (result.enabled !== undefined) newConfig.enabled = result.enabled;
+          if (result.mode) newConfig.mode = result.mode;
+          if (result.styleLevel !== undefined) newConfig.styleLevel = result.styleLevel;
+          if (result.fontFamily) newConfig.fontFamily = result.fontFamily;
+          if (result.fontSize) newConfig.fontSize = result.fontSize;
+          if (result.fontColor) newConfig.fontColor = result.fontColor;
+          if (result.backgroundColor) newConfig.backgroundColor = result.backgroundColor;
 
           // 确保嵌套对象正确合并
           if (result.advancedSettings) {
@@ -105,6 +186,18 @@ const OptionsApp = () => {
       }
     }
 
+    // 处理提供者配置
+    if (newConfig.providerType) {
+      updatedConfig.providerType = newConfig.providerType;
+    }
+    
+    if (newConfig.providerConfig) {
+      updatedConfig.providerConfig = {
+        ...(updatedConfig.providerConfig || {}),
+        ...newConfig.providerConfig
+      };
+    }
+
     // 处理嵌套对象 - advancedSettings
     if (newConfig.advancedSettings) {
       updatedConfig.advancedSettings = {
@@ -138,7 +231,7 @@ const OptionsApp = () => {
 
   // 清除缓存
   const clearCache = () => {
-    chrome.storage.local.remove(['translationCache'], () => {
+    chrome.storage.local.set({ translationCache: {} }, () => {
       alert('翻译缓存已清除');
     });
   };
@@ -239,36 +332,45 @@ const OptionsApp = () => {
           <div className="p-6">
             {activeTab === 'api' && (
               <ApiSettings
-                config={config}
+                config={{
+                  providerType: config.providerType,
+                  providerConfig: config.providerConfig
+                }}
                 onChange={saveConfig}
               />
             )}
 
             {activeTab === 'style' && (
               <StyleSettings
-                config={config}
+                config={{
+                  styleLevel: config.styleLevel,
+                  fontFamily: config.fontFamily,
+                  fontSize: config.fontSize,
+                  fontColor: config.fontColor,
+                  backgroundColor: config.backgroundColor
+                }}
                 onChange={saveConfig}
               />
             )}
 
             {activeTab === 'shortcuts' && (
               <KeyboardShortcuts
-                shortcuts={config.shortcuts}
+                config={{ shortcuts: config.shortcuts }}
                 onChange={(shortcuts) => saveConfig({ shortcuts })}
               />
             )}
 
             {activeTab === 'cache' && (
               <CacheManager
-                config={config}
                 onClearCache={clearCache}
-                onChange={saveConfig}
+                config={{ advancedSettings: config.advancedSettings }}
+                onChange={(advancedSettings) => saveConfig({ advancedSettings })}
               />
             )}
 
             {activeTab === 'advanced' && (
               <AdvancedSettings
-                settings={config.advancedSettings}
+                config={{ advancedSettings: config.advancedSettings }}
                 onChange={(advancedSettings) => saveConfig({ advancedSettings })}
               />
             )}
@@ -329,7 +431,8 @@ const OptionsApp = () => {
                     translationPrompt: '',
                     useCorsProxy: true,
                     corsProxyType: 'corsproxy',
-                    customCorsProxy: ''
+                    customCorsProxy: '',
+                    renderType: 'overlay'
                   };
                 }
 

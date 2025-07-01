@@ -38,25 +38,38 @@ export async function getConfig() {
 
         // 默认配置
         const defaultConfig = {
-          apiKey: 'sk-bpbqulqtsmbywglsemzqantxqhmilksogyeitgcpkbvwioix',
+          // API提供者配置
+          providerType: 'openai', // 默认使用OpenAI
+          providerConfig: {
+            openai: {
+              apiKey: '',
+              apiBaseUrl: 'https://api.openai.com/v1',
+              visionModel: 'gpt-4-vision-preview',
+              chatModel: 'gpt-3.5-turbo',
+              temperature: 0.3,
+              maxTokens: 1000
+            }
+          },
+          
+          // 常规配置
           targetLanguage: 'zh-CN',
           enabled: false,
           mode: 'manual',
           styleLevel: 50,
-          model: 'gpt-3.5-turbo',
-          customModel: 'Qwen/Qwen2.5-VL-32B-Instruct',
-          useCustomModel: true,
-          apiBaseUrl: 'https://api.siliconflow.cn/v1',
-          useCustomApiUrl: true,
-          temperature: 0.7,
+          
+          // 样式配置
           fontFamily: '',
           fontSize: 'auto',
           fontColor: 'auto',
           backgroundColor: 'auto',
+          
+          // 快捷键配置
           shortcuts: {
             toggleTranslation: 'Alt+T',
             translateSelected: 'Alt+S'
           },
+          
+          // 高级设置
           advancedSettings: {
             useLocalOcr: false,
             cacheResults: true,
@@ -69,7 +82,8 @@ export async function getConfig() {
             translationPrompt: '',
             useCorsProxy: true,
             corsProxyType: 'corsproxy',
-            customCorsProxy: ''
+            customCorsProxy: '',
+            renderType: 'overlay' // 'overlay'或'canvas'
           }
         };
 
@@ -89,29 +103,50 @@ export async function getConfig() {
         // 合并默认配置和用户配置，确保所有必要的字段都存在
         const mergedConfig = { ...defaultConfig };
 
-        // 只有当用户没有设置API密钥时，才使用默认的API密钥
-        if (result.apiKey) {
-          mergedConfig.apiKey = result.apiKey;
+        // 处理提供者类型
+        if (result.providerType) {
+          mergedConfig.providerType = result.providerType;
+        }
 
-          // 如果用户设置了自己的API密钥，尊重用户的API设置
-          if (result.useCustomApiUrl !== undefined) {
-            mergedConfig.useCustomApiUrl = result.useCustomApiUrl;
+        // 合并提供者配置
+        if (result.providerConfig) {
+          mergedConfig.providerConfig = {
+            ...defaultConfig.providerConfig,
+            ...result.providerConfig
+          };
+          
+          // 确保每个提供者都有完整的配置
+          for (const provider in defaultConfig.providerConfig) {
+            if (!mergedConfig.providerConfig[provider]) {
+              mergedConfig.providerConfig[provider] = defaultConfig.providerConfig[provider];
+            } else {
+              mergedConfig.providerConfig[provider] = {
+                ...defaultConfig.providerConfig[provider],
+                ...mergedConfig.providerConfig[provider]
+              };
+            }
           }
+        }
 
+        // 兼容旧配置
+        if (result.apiKey && !result.providerConfig?.openai?.apiKey) {
+          // 将旧的API配置转移到新的提供者配置中
+          if (!mergedConfig.providerConfig.openai) {
+            mergedConfig.providerConfig.openai = {};
+          }
+          
+          mergedConfig.providerConfig.openai.apiKey = result.apiKey;
+          
           if (result.apiBaseUrl) {
-            mergedConfig.apiBaseUrl = result.apiBaseUrl;
+            mergedConfig.providerConfig.openai.apiBaseUrl = result.apiBaseUrl;
           }
-
-          if (result.useCustomModel !== undefined) {
-            mergedConfig.useCustomModel = result.useCustomModel;
-          }
-
-          if (result.customModel) {
-            mergedConfig.customModel = result.customModel;
-          }
-
+          
           if (result.model) {
-            mergedConfig.model = result.model;
+            mergedConfig.providerConfig.openai.chatModel = result.model;
+          }
+          
+          if (result.temperature !== undefined) {
+            mergedConfig.providerConfig.openai.temperature = result.temperature;
           }
         }
 
@@ -120,7 +155,6 @@ export async function getConfig() {
         if (result.enabled !== undefined) mergedConfig.enabled = result.enabled;
         if (result.mode) mergedConfig.mode = result.mode;
         if (result.styleLevel !== undefined) mergedConfig.styleLevel = result.styleLevel;
-        if (result.temperature !== undefined) mergedConfig.temperature = result.temperature;
         if (result.fontFamily) mergedConfig.fontFamily = result.fontFamily;
         if (result.fontSize) mergedConfig.fontSize = result.fontSize;
         if (result.fontColor) mergedConfig.fontColor = result.fontColor;
@@ -148,7 +182,11 @@ export async function getConfig() {
 
         // 检查所有顶级属性
         for (const key in defaultConfig) {
-          if (result[key] === undefined && key !== 'apiKey' && key !== 'customModel' && key !== 'apiBaseUrl') {
+          if (result[key] === undefined && 
+              key !== 'providerConfig' && 
+              key !== 'apiKey' && 
+              key !== 'model' && 
+              key !== 'apiBaseUrl') {
             updates[key] = defaultConfig[key];
             needsUpdate = true;
           }
@@ -181,6 +219,13 @@ export async function getConfig() {
           }
         }
 
+        // 检查提供者配置
+        if (!result.providerConfig || !result.providerType) {
+          updates.providerType = defaultConfig.providerType;
+          updates.providerConfig = defaultConfig.providerConfig;
+          needsUpdate = true;
+        }
+
         // 如果有需要更新的配置，保存更新
         if (needsUpdate) {
           chrome.storage.sync.set(updates, () => {
@@ -193,6 +238,49 @@ export async function getConfig() {
     } catch (error) {
       reject(error);
     }
+  });
+}
+
+/**
+ * 获取当前激活的API提供者配置
+ * @returns {Promise<Object>} - 返回提供者配置对象
+ */
+export async function getActiveProviderConfig() {
+  const config = await getConfig();
+  const providerType = config.providerType;
+  const providerConfig = config.providerConfig[providerType] || {};
+  
+  return {
+    type: providerType,
+    config: providerConfig
+  };
+}
+
+/**
+ * 保存API提供者配置
+ * @param {string} providerType - 提供者类型
+ * @param {Object} providerConfig - 提供者配置
+ * @returns {Promise<void>}
+ */
+export async function saveProviderConfig(providerType, providerConfig) {
+  const config = await getConfig();
+  
+  // 更新提供者类型
+  config.providerType = providerType;
+  
+  // 更新提供者配置
+  if (!config.providerConfig) {
+    config.providerConfig = {};
+  }
+  
+  config.providerConfig[providerType] = {
+    ...config.providerConfig[providerType],
+    ...providerConfig
+  };
+  
+  return saveConfig({
+    providerType,
+    providerConfig: config.providerConfig
   });
 }
 
@@ -251,7 +339,7 @@ export async function cacheTranslation(imageHash, data) {
             }
           }
 
-          // 添加新条目
+          // 添加新缓存条目
           cache[imageHash] = {
             ...data,
             timestamp: Date.now()
@@ -297,13 +385,13 @@ export async function getCachedTranslation(imageHash) {
 }
 
 /**
- * 清除所有翻译缓存
+ * 清除翻译缓存
  * @returns {Promise<void>}
  */
 export async function clearTranslationCache() {
   return new Promise((resolve, reject) => {
     try {
-      chrome.storage.local.remove(['translationCache'], () => {
+      chrome.storage.local.set({ translationCache: {} }, () => {
         if (chrome.runtime.lastError) {
           reject(chrome.runtime.lastError);
         } else {

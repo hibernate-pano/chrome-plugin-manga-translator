@@ -1,66 +1,86 @@
 import React, { useState, useEffect } from 'react';
-import { testApiConfig } from '../../utils/api';
+import { validateProviderConfig, getAvailableProviders } from '../../utils/api';
 
 const ApiSettings = ({ config, onChange }) => {
-  const [apiKey, setApiKey] = useState(config.apiKey || '');
-  const [model, setModel] = useState(config.model || 'gpt-3.5-turbo');
-  const [customModel, setCustomModel] = useState(config.customModel || '');
-  const [temperature, setTemperature] = useState(config.temperature || 0.7);
-  const [showKey, setShowKey] = useState(false);
-  const [apiBaseUrl, setApiBaseUrl] = useState(config.apiBaseUrl || 'https://api.openai.com/v1');
-  const [useCustomModel, setUseCustomModel] = useState(config.useCustomModel || false);
-  const [useCustomApiUrl, setUseCustomApiUrl] = useState(config.useCustomApiUrl || false);
+  const [providerType, setProviderType] = useState(config.providerType || 'openai');
+  const [providerConfig, setProviderConfig] = useState(config.providerConfig || {});
+  const [availableProviders, setAvailableProviders] = useState([]);
+  const [showApiKey, setShowApiKey] = useState(false);
   const [validating, setValidating] = useState(false);
   const [validationResult, setValidationResult] = useState(null);
+  const [currentSchema, setCurrentSchema] = useState({});
+
+  // 加载可用的API提供者
+  useEffect(() => {
+    const providers = getAvailableProviders();
+    setAvailableProviders(providers);
+    
+    // 设置当前提供者的配置模式
+    if (providers.length > 0) {
+      const currentProvider = providers.find(p => p.type === providerType) || providers[0];
+      setCurrentSchema(currentProvider.schema);
+    }
+  }, [providerType]);
 
   // 当 config props 变化时更新组件状态
   useEffect(() => {
-    console.log('ApiSettings 接收到新的 config:', config);
     if (config) {
-      if (config.apiKey !== undefined) setApiKey(config.apiKey);
-      if (config.model !== undefined) setModel(config.model);
-      if (config.customModel !== undefined) setCustomModel(config.customModel);
-      if (config.temperature !== undefined) setTemperature(config.temperature);
-      if (config.apiBaseUrl !== undefined) setApiBaseUrl(config.apiBaseUrl);
-      if (config.useCustomModel !== undefined) setUseCustomModel(config.useCustomModel);
-      if (config.useCustomApiUrl !== undefined) setUseCustomApiUrl(config.useCustomApiUrl);
+      if (config.providerType !== undefined) {
+        setProviderType(config.providerType);
+      }
+      
+      if (config.providerConfig !== undefined) {
+        setProviderConfig(config.providerConfig);
+      }
     }
   }, [config]);
 
-  // 创建一个保存配置的函数
+  // 保存配置
   const saveConfig = () => {
     onChange({
-      apiKey,
-      model: useCustomModel ? customModel : model,
-      customModel: customModel,
-      temperature,
-      apiBaseUrl: useCustomApiUrl ? apiBaseUrl : 'https://api.openai.com/v1',
-      useCustomModel,
-      useCustomApiUrl
+      providerType,
+      providerConfig
     });
   };
 
   // 当组件状态更新时保存配置
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => {
     // 避免在组件初始化时触发保存
     const timer = setTimeout(saveConfig, 300);
     return () => clearTimeout(timer);
-  }, [apiKey, model, customModel, temperature, apiBaseUrl, useCustomModel, useCustomApiUrl]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [providerType, providerConfig]);
 
-  // 当组件卸载时保存配置
-  useEffect(() => {
-    return () => {
-      console.log('ApiSettings组件卸载，保存配置');
-      saveConfig();
+  // 处理提供者类型变更
+  const handleProviderTypeChange = (e) => {
+    const newType = e.target.value;
+    setProviderType(newType);
+    
+    // 更新配置模式
+    const provider = availableProviders.find(p => p.type === newType);
+    if (provider) {
+      setCurrentSchema(provider.schema);
+    }
+    
+    // 如果没有该提供者的配置，创建默认配置
+    if (!providerConfig[newType]) {
+      const newProviderConfig = { ...providerConfig };
+      newProviderConfig[newType] = {};
+      setProviderConfig(newProviderConfig);
+    }
+  };
+
+  // 处理配置项变更
+  const handleConfigChange = (key, value) => {
+    const newConfig = { 
+      ...providerConfig,
+      [providerType]: {
+        ...providerConfig[providerType],
+        [key]: value
+      }
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSave = saveConfig;
-
-  const toggleShowKey = () => {
-    setShowKey(!showKey);
+    
+    setProviderConfig(newConfig);
   };
 
   // 验证API配置
@@ -69,22 +89,15 @@ const ApiSettings = ({ config, onChange }) => {
     setValidationResult(null);
 
     try {
-      // 构建当前配置对象
-      const currentConfig = {
-        apiKey,
-        apiBaseUrl,
-        useCustomApiUrl,
-        model,
-        customModel,
-        useCustomModel
-      };
-
-      // 测试API配置
-      const result = await testApiConfig(currentConfig);
+      // 获取当前提供者配置
+      const currentConfig = providerConfig[providerType] || {};
+      
+      // 验证配置
+      const result = await validateProviderConfig(providerType, currentConfig);
       setValidationResult(result);
     } catch (error) {
       setValidationResult({
-        success: false,
+        isValid: false,
         message: `验证过程中发生错误: ${error.message}`
       });
     } finally {
@@ -96,186 +109,185 @@ const ApiSettings = ({ config, onChange }) => {
   const renderValidationResult = () => {
     if (!validationResult) return null;
 
-    const { success, message, testResult } = validationResult;
+    const { isValid, message } = validationResult;
 
     return (
-      <div className={`mt-4 p-3 rounded ${success ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
-        <div className={`text-sm font-medium ${success ? 'text-green-800' : 'text-red-800'}`}>
-          {success ? '✅ ' : '❌ '}{message}
+      <div className={`mt-4 p-3 rounded ${isValid ? 'bg-green-50 border border-green-200' : 'bg-red-50 border border-red-200'}`}>
+        <div className={`text-sm font-medium ${isValid ? 'text-green-800' : 'text-red-800'}`}>
+          {isValid ? '✅ ' : '❌ '}{message}
         </div>
-        {testResult && (
-          <div className="mt-2 text-xs text-gray-600">
-            <div>测试翻译结果:</div>
-            <div className="mt-1 p-2 bg-white rounded">{testResult}</div>
-          </div>
-        )}
       </div>
     );
+  };
+
+  // 渲染配置字段
+  const renderConfigField = (key, fieldSchema) => {
+    const value = providerConfig[providerType]?.[key] || fieldSchema.default || '';
+    const fieldId = `provider-${providerType}-${key}`;
+    
+    switch (fieldSchema.type) {
+      case 'string':
+        return (
+          <div className="mb-4" key={key}>
+            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700 mb-1">
+              {fieldSchema.label}
+              {fieldSchema.required && <span className="text-red-500 ml-1">*</span>}
+            </label>
+            <input
+              id={fieldId}
+              type={key.toLowerCase().includes('key') && !showApiKey ? 'password' : 'text'}
+              value={value}
+              onChange={(e) => handleConfigChange(key, e.target.value)}
+              placeholder={fieldSchema.placeholder || `输入${fieldSchema.label}`}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required={fieldSchema.required}
+            />
+            {fieldSchema.description && (
+              <p className="text-xs text-gray-500 mt-1">{fieldSchema.description}</p>
+            )}
+          </div>
+        );
+        
+      case 'select':
+        return (
+          <div className="mb-4" key={key}>
+            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700 mb-1">
+              {fieldSchema.label}
+              {fieldSchema.required && <span className="text-red-500 ml-1">*</span>}
+            </label>
+            <select
+              id={fieldId}
+              value={value}
+              onChange={(e) => handleConfigChange(key, e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required={fieldSchema.required}
+            >
+              {fieldSchema.options.map(option => (
+                <option key={option.value} value={option.value}>
+                  {option.label}
+                </option>
+              ))}
+            </select>
+            {fieldSchema.description && (
+              <p className="text-xs text-gray-500 mt-1">{fieldSchema.description}</p>
+            )}
+          </div>
+        );
+        
+      case 'number':
+        return (
+          <div className="mb-4" key={key}>
+            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700 mb-1">
+              {fieldSchema.label}
+              {fieldSchema.required && <span className="text-red-500 ml-1">*</span>}
+            </label>
+            <input
+              id={fieldId}
+              type="number"
+              value={value}
+              onChange={(e) => handleConfigChange(key, parseInt(e.target.value))}
+              min={fieldSchema.min}
+              max={fieldSchema.max}
+              step={fieldSchema.step || 1}
+              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              required={fieldSchema.required}
+            />
+            {fieldSchema.description && (
+              <p className="text-xs text-gray-500 mt-1">{fieldSchema.description}</p>
+            )}
+          </div>
+        );
+        
+      case 'range':
+        return (
+          <div className="mb-4" key={key}>
+            <label htmlFor={fieldId} className="block text-sm font-medium text-gray-700 mb-1">
+              {fieldSchema.label}: {value}
+              {fieldSchema.required && <span className="text-red-500 ml-1">*</span>}
+            </label>
+            <input
+              id={fieldId}
+              type="range"
+              value={value}
+              onChange={(e) => handleConfigChange(key, parseFloat(e.target.value))}
+              min={fieldSchema.min}
+              max={fieldSchema.max}
+              step={fieldSchema.step || 0.1}
+              className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
+              required={fieldSchema.required}
+            />
+            <div className="flex justify-between text-xs text-gray-500 mt-1">
+              <span>{fieldSchema.min}</span>
+              <span>{fieldSchema.max}</span>
+            </div>
+            {fieldSchema.description && (
+              <p className="text-xs text-gray-500 mt-1">{fieldSchema.description}</p>
+            )}
+          </div>
+        );
+        
+      default:
+        return null;
+    }
   };
 
   return (
     <div>
       <h2 className="text-lg font-medium text-gray-900 mb-4">API设置</h2>
-
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          API 密钥
+      
+      <div className="mb-6">
+        <label htmlFor="provider-type" className="block text-sm font-medium text-gray-700 mb-1">
+          API提供者
         </label>
-        <div className="flex">
-          <input
-            type={showKey ? "text" : "password"}
-            value={apiKey}
-            onChange={(e) => setApiKey(e.target.value)}
-            onBlur={handleSave}
-            placeholder="输入您的API密钥"
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-l text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-          <button
-            onClick={toggleShowKey}
-            className="px-3 py-2 bg-gray-200 rounded-r border border-gray-300 border-l-0"
-            title={showKey ? "隐藏密钥" : "显示密钥"}
-          >
-            {showKey ? "👁️" : "👁️‍🗨️"}
-          </button>
-        </div>
+        <select
+          id="provider-type"
+          value={providerType}
+          onChange={handleProviderTypeChange}
+          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+        >
+          {availableProviders.map(provider => (
+            <option key={provider.type} value={provider.type}>
+              {provider.name}
+            </option>
+          ))}
+        </select>
         <p className="text-xs text-gray-500 mt-1">
-          您的API密钥仅存储在本地，不会发送到任何第三方服务器
+          选择您要使用的AI服务提供者。不同提供者可能支持不同的功能和语言。
         </p>
       </div>
-
-      <div className="mb-4">
-        <label className="flex items-center">
-          <input
-            type="checkbox"
-            checked={useCustomApiUrl}
-            onChange={(e) => {
-              setUseCustomApiUrl(e.target.checked);
-              handleSave();
-            }}
-            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-          />
-          <span className="ml-2 text-sm text-gray-700">使用自定义API地址</span>
-        </label>
-
-        {useCustomApiUrl && (
-          <div className="mt-2">
-            <input
-              type="text"
-              value={apiBaseUrl}
-              onChange={(e) => setApiBaseUrl(e.target.value)}
-              onBlur={handleSave}
-              placeholder="例如: https://api.example.com/v1"
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              输入兼容OpenAI API的服务地址，用于第三方API服务
-            </p>
-          </div>
-        )}
-      </div>
-
-      <div className="mb-4">
-        <label className="flex items-center">
-          <input
-            type="checkbox"
-            checked={useCustomModel}
-            onChange={(e) => {
-              setUseCustomModel(e.target.checked);
-              handleSave();
-            }}
-            className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
-          />
-          <span className="ml-2 text-sm text-gray-700">使用自定义模型名称</span>
-        </label>
-
-        {useCustomModel ? (
-          <div className="mt-2">
-            <input
-              type="text"
-              value={customModel}
-              onChange={(e) => setCustomModel(e.target.value)}
-              onBlur={handleSave}
-              placeholder="输入自定义模型名称"
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              输入第三方API服务支持的模型名称
-            </p>
-          </div>
-        ) : (
-          <div className="mt-2">
-            <select
-              value={model}
-              onChange={(e) => {
-                setModel(e.target.value);
-                handleSave();
-              }}
-              className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+      
+      {/* 提供者特定配置 */}
+      <div className="mb-6 border-t border-gray-200 pt-4">
+        <h3 className="text-md font-medium text-gray-800 mb-3">提供者配置</h3>
+        
+        {Object.keys(currentSchema).map(key => renderConfigField(key, currentSchema[key]))}
+        
+        {/* API密钥显示切换 */}
+        {Object.keys(currentSchema).some(key => key.toLowerCase().includes('key')) && (
+          <div className="mb-4">
+            <button
+              type="button"
+              onClick={() => setShowApiKey(!showApiKey)}
+              className="text-sm text-blue-600 hover:text-blue-800"
             >
-              <option value="gpt-4">GPT-4 (最高质量，较慢)</option>
-              <option value="gpt-4o">GPT-4o (高质量，较快)</option>
-              <option value="gpt-3.5-turbo">GPT-3.5 Turbo (快速，经济)</option>
-            </select>
-            <p className="text-xs text-gray-500 mt-1">
-              选择用于翻译的AI模型。更高级的模型提供更好的翻译质量，但可能更慢且更贵。
-            </p>
+              {showApiKey ? '隐藏密钥' : '显示密钥'}
+            </button>
           </div>
         )}
       </div>
-
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          温度: {temperature}
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="1"
-          step="0.1"
-          value={temperature}
-          onChange={(e) => {
-            setTemperature(parseFloat(e.target.value));
-            handleSave();
-          }}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-        />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>更准确</span>
-          <span>更有创意</span>
-        </div>
-        <p className="text-xs text-gray-500 mt-1">
-          控制AI生成文本的随机性。较低的值使翻译更准确，较高的值使翻译更有创意。
-        </p>
-      </div>
-
-      <div className="mb-4">
+      
+      {/* 验证按钮 */}
+      <div className="mt-6">
         <button
+          type="button"
           onClick={validateApiConfig}
-          disabled={validating || !apiKey}
-          className={`px-4 py-2 rounded text-white ${validating
-              ? 'bg-gray-400 cursor-not-allowed'
-              : !apiKey
-                ? 'bg-gray-300 cursor-not-allowed'
-                : 'bg-blue-500 hover:bg-blue-600'
-            }`}
+          disabled={validating}
+          className="px-4 py-2 bg-blue-600 text-white rounded hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50"
         >
           {validating ? '验证中...' : '验证API配置'}
         </button>
-        <p className="text-xs text-gray-500 mt-1">
-          点击验证按钮测试您的API配置是否有效
-        </p>
-      </div>
-
-      {renderValidationResult()}
-
-      <div className="mt-6 p-4 bg-blue-50 rounded border border-blue-200">
-        <h3 className="text-sm font-medium text-blue-800 mb-2">API设置说明</h3>
-        <ul className="text-xs text-blue-700 list-disc list-inside">
-          <li>默认使用OpenAI官方API，您需要<a href="https://platform.openai.com/signup" target="_blank" rel="noopener noreferrer" className="underline">注册OpenAI账户</a>并获取API密钥</li>
-          <li>如果您使用第三方API服务（如国内的API代理），请启用"自定义API地址"并填写相应的URL</li>
-          <li>某些第三方服务可能使用不同的模型名称，此时请启用"自定义模型名称"</li>
-          <li>确保您的API账户中有足够的余额或配额</li>
-        </ul>
+        
+        {renderValidationResult()}
       </div>
     </div>
   );
