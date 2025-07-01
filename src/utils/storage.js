@@ -48,6 +48,21 @@ export async function getConfig() {
               chatModel: 'gpt-3.5-turbo',
               temperature: 0.3,
               maxTokens: 1000
+            },
+            deepseek: {
+              apiKey: '',
+              apiBaseUrl: 'https://api.deepseek.com/v1',
+              visionModel: 'deepseek-vl',
+              chatModel: 'deepseek-chat',
+              temperature: 0.3,
+              maxTokens: 1000
+            },
+            claude: {
+              apiKey: '',
+              apiBaseUrl: 'https://api.anthropic.com',
+              model: 'claude-3-opus-20240229',
+              temperature: 0.3,
+              maxTokens: 1000
             }
           },
           
