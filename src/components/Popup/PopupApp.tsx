@@ -1,9 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { Settings, CheckCircle } from 'lucide-react';
+import { Settings, CheckCircle, History } from 'lucide-react';
 import { ThemeToggleSimple } from '@/components/ui/theme-toggle';
+import { Navigation, QuickActions, popupNavigationItems } from '@/components/ui/navigation';
+import { LayoutContainer, LayoutStack, LayoutSection } from '@/components/ui/layout';
+import { AnimatedContainer, StaggeredContainer } from '@/components/ui/animated-container';
 import { useTranslationStore } from '@/stores/translation';
 import { useConfigStore } from '@/stores/config';
 import { initializeDataMigration } from '@/utils/data-migration';
@@ -19,6 +21,7 @@ import FirstTimeGuide from './FirstTimeGuide';
 const PopupApp: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showFirstTimeGuide, setShowFirstTimeGuide] = useState(false);
+  const [activeTab, setActiveTab] = useState('main');
 
   // Zustand stores
   const {
@@ -102,108 +105,134 @@ const PopupApp: React.FC = () => {
     }
   };
 
+  // 快速操作配置
+  const quickActions = [
+    {
+      id: 'check',
+      label: '检查配置',
+      icon: <CheckCircle className="w-4 h-4" />,
+      onClick: checkConfiguration,
+      variant: 'outline' as const,
+    },
+    {
+      id: 'settings',
+      label: '高级设置',
+      icon: <Settings className="w-4 h-4" />,
+      onClick: openOptionsPage,
+      variant: 'outline' as const,
+    },
+  ];
+
   // 加载状态
   if (isLoading) {
     return (
-      <div className="w-80 p-6 flex justify-center items-center">
-        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
-      </div>
+      <LayoutContainer maxWidth="sm" className="h-64 flex items-center justify-center">
+        <AnimatedContainer direction="fade">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+        </AnimatedContainer>
+      </LayoutContainer>
     );
   }
 
   return (
-    <div className="w-80 bg-background">
-      <Card className="border-0 shadow-none">
-        <CardHeader className="pb-4">
-          <CardTitle className="text-center text-primary">
-            漫画翻译助手
-          </CardTitle>
+    <LayoutContainer maxWidth="sm" className="w-80 min-h-96">
+      <Card className="border-0 shadow-lg">
+        <CardHeader className="pb-3">
+          <AnimatedContainer direction="down">
+            <CardTitle className="text-center text-lg font-semibold text-primary">
+              漫画翻译助手
+            </CardTitle>
+          </AnimatedContainer>
         </CardHeader>
 
-        <CardContent className="space-y-4">
+        <CardContent>
           {showFirstTimeGuide ? (
-            <FirstTimeGuide onContinue={openOptionsPage} />
+            <AnimatedContainer direction="up">
+              <FirstTimeGuide onContinue={openOptionsPage} />
+            </AnimatedContainer>
           ) : (
-            <>
-              {/* API密钥输入 */}
-              <div>
-                <ApiKeyInput
-                  apiKey={getCurrentApiKey()}
-                  onChange={handleApiKeyChange}
-                  providerType={providerType}
-                />
-              </div>
+            <LayoutStack spacing="md">
+              {/* 导航标签 */}
+              <Navigation
+                items={popupNavigationItems}
+                activeItem={activeTab}
+                onItemClick={setActiveTab}
+                variant="pills"
+                orientation="horizontal"
+              />
+
+              {/* 主要内容区域 */}
+              {activeTab === 'main' && (
+                <StaggeredContainer staggerDelay={0.1}>
+                  <LayoutSection variant="minimal">
+                    <ApiKeyInput
+                      apiKey={getCurrentApiKey()}
+                      onChange={handleApiKeyChange}
+                      providerType={providerType}
+                    />
+                  </LayoutSection>
+
+                  <LayoutSection variant="minimal">
+                    <TranslationToggle
+                      enabled={enabled}
+                      onChange={setEnabled}
+                    />
+                  </LayoutSection>
+
+                  <LayoutSection variant="minimal">
+                    <LanguageSelector
+                      language={targetLanguage}
+                      onChange={setTargetLanguage}
+                    />
+                  </LayoutSection>
+
+                  <LayoutSection variant="minimal">
+                    <ModeSelector
+                      mode={mode}
+                      onChange={setMode}
+                    />
+                  </LayoutSection>
+
+                  <LayoutSection variant="minimal">
+                    <StyleSlider
+                      value={styleLevel}
+                      onChange={setStyleLevel}
+                    />
+                  </LayoutSection>
+
+                  <Separator />
+
+                  <LayoutSection variant="minimal">
+                    <ThemeToggleSimple />
+                  </LayoutSection>
+                </StaggeredContainer>
+              )}
+
+              {activeTab === 'history' && (
+                <AnimatedContainer direction="up">
+                  <LayoutSection
+                    title="翻译历史"
+                    description="查看最近的翻译记录"
+                    variant="minimal"
+                  >
+                    <div className="text-center text-muted-foreground py-8">
+                      <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                      <p>暂无翻译历史</p>
+                      <p className="text-sm mt-2">开始翻译后，历史记录将显示在这里</p>
+                    </div>
+                  </LayoutSection>
+                </AnimatedContainer>
+              )}
 
               <Separator />
 
-              {/* 翻译开关 */}
-              <div>
-                <TranslationToggle
-                  enabled={enabled}
-                  onChange={setEnabled}
-                />
-              </div>
-
-              {/* 目标语言选择 */}
-              <div>
-                <LanguageSelector
-                  language={targetLanguage}
-                  onChange={setTargetLanguage}
-                />
-              </div>
-
-              {/* 翻译模式选择 */}
-              <div>
-                <ModeSelector
-                  mode={mode}
-                  onChange={setMode}
-                />
-              </div>
-
-              {/* 样式保持程度 */}
-              <div>
-                <StyleSlider
-                  value={styleLevel}
-                  onChange={setStyleLevel}
-                />
-              </div>
-
-              <Separator />
-
-              {/* 主题切换 */}
-              <div>
-                <ThemeToggleSimple />
-              </div>
-
-              <Separator />
-
-              {/* 操作按钮 */}
-              <div className="flex justify-between gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={checkConfiguration}
-                  className="flex-1"
-                >
-                  <CheckCircle className="w-4 h-4 mr-2" />
-                  检查配置
-                </Button>
-
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={openOptionsPage}
-                  className="flex-1"
-                >
-                  <Settings className="w-4 h-4 mr-2" />
-                  高级设置
-                </Button>
-              </div>
-            </>
+              {/* 快速操作 */}
+              <QuickActions actions={quickActions} className="justify-center" />
+            </LayoutStack>
           )}
         </CardContent>
       </Card>
-    </div>
+    </LayoutContainer>
   );
 };
 
