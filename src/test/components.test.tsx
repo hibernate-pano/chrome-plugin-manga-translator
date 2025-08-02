@@ -5,6 +5,7 @@ import LanguageSelector from '../components/Popup/LanguageSelector';
 import StyleSlider from '../components/Popup/StyleSlider';
 import ModeSelector from '../components/Popup/ModeSelector';
 import ApiKeyInput from '../components/Popup/ApiKeyInput';
+import FirstTimeGuide from '../components/Popup/FirstTimeGuide';
 
 describe('重构后的组件测试', () => {
   describe('TranslationToggle', () => {
@@ -78,6 +79,28 @@ describe('重构后的组件测试', () => {
 
       // 等待异步验证完成
       await screen.findByText('✓ 密钥格式正确');
+    });
+  });
+
+  describe('FirstTimeGuide', () => {
+    it('应该正确渲染首次使用引导', () => {
+      const mockOnContinue = vi.fn();
+      render(<FirstTimeGuide onContinue={mockOnContinue} />);
+
+      expect(screen.getByText('欢迎使用漫画翻译助手!')).toBeInTheDocument();
+      expect(screen.getByText('使用前需要设置API密钥以激活翻译功能。')).toBeInTheDocument();
+      expect(screen.getByText('OpenAI (GPT)')).toBeInTheDocument();
+      expect(screen.getByText('前往设置API密钥')).toBeInTheDocument();
+    });
+
+    it('应该响应继续按钮点击', () => {
+      const mockOnContinue = vi.fn();
+      render(<FirstTimeGuide onContinue={mockOnContinue} />);
+
+      const continueButton = screen.getByText('前往设置API密钥');
+      fireEvent.click(continueButton);
+
+      expect(mockOnContinue).toHaveBeenCalledTimes(1);
     });
   });
 });
