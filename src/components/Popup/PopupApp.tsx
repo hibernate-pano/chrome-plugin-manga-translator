@@ -3,6 +3,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { Settings, CheckCircle } from 'lucide-react';
+import { ThemeToggleSimple } from '@/components/ui/theme-toggle';
 import { useTranslationStore } from '@/stores/translation';
 import { useConfigStore } from '@/stores/config';
 import { initializeDataMigration } from '@/utils/data-migration';
@@ -165,6 +166,13 @@ const PopupApp: React.FC = () => {
                   value={styleLevel}
                   onChange={setStyleLevel}
                 />
+              </div>
+
+              <Separator />
+
+              {/* 主题切换 */}
+              <div>
+                <ThemeToggleSimple />
               </div>
 
               <Separator />

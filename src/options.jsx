@@ -1,10 +1,13 @@
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import OptionsApp from './components/Options/OptionsApp'
+import { ThemeProvider } from './components/theme-provider'
 import './index.css'
 
 ReactDOM.createRoot(document.getElementById('app')).render(
   <React.StrictMode>
-    <OptionsApp />
+    <ThemeProvider defaultTheme="system" storageKey="manga-translator-theme">
+      <OptionsApp />
+    </ThemeProvider>
   </React.StrictMode>,
 )
