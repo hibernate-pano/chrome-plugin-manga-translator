@@ -355,7 +355,7 @@ export class CacheWarmupManager {
     const pattern = this.accessPatterns.get(context.action);
     if (pattern && pattern.length >= 2) {
       // 简单的序列预测
-      const lastAccess = pattern[pattern.length - 1];
+      const lastAccess = pattern[pattern.length - 1]!;
       const timeDiff = Date.now() - lastAccess;
 
       if (timeDiff < 60000) { // 1分钟内

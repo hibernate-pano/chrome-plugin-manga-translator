@@ -22,7 +22,7 @@ export class UnifiedCacheManager {
       cleanupInterval: 10 * 60 * 1000, // 10分钟清理间隔
     });
 
-    this.strategyManager = new CacheStrategyManager();
+    this.strategyManager = new CacheStrategyManager(this.intelligentCache);
     this.initializeOfflineSupport();
   }
 
@@ -84,12 +84,12 @@ export class UnifiedCacheManager {
 
       // 4. 记录性能指标
       const duration = performance.now() - startTime;
-      performanceMonitor.recordCacheOperation('set', operation, duration, true);
+      // performanceMonitor.recordCacheOperation('set', operation, duration, true);
 
       console.debug(`统一缓存设置成功: ${key} (${operation}), 耗时: ${duration.toFixed(2)}ms`);
     } catch (error) {
       const duration = performance.now() - startTime;
-      performanceMonitor.recordCacheOperation('set', operation, duration, false);
+      // performanceMonitor.recordCacheOperation('set', operation, duration, false);
       console.error('统一缓存设置失败:', error);
       throw error;
     }
@@ -115,7 +115,7 @@ export class UnifiedCacheManager {
       if (result !== null) {
         this.recordCacheHit(key, 'memory');
         const duration = performance.now() - startTime;
-        performanceMonitor.recordCacheOperation('get', operation, duration, true);
+        // performanceMonitor.recordCacheOperation('get', operation, duration, true);
         return result;
       }
 
@@ -138,7 +138,7 @@ export class UnifiedCacheManager {
         this.intelligentCache.set(key, result);
         this.recordCacheHit(key, 'persistent');
         const duration = performance.now() - startTime;
-        performanceMonitor.recordCacheOperation('get', operation, duration, true);
+        // performanceMonitor.recordCacheOperation('get', operation, duration, true);
         return result;
       }
 
@@ -148,7 +148,7 @@ export class UnifiedCacheManager {
         if (offlineItem && offlineItem.operation === operation) {
           this.recordCacheHit(key, 'offline');
           const duration = performance.now() - startTime;
-          performanceMonitor.recordCacheOperation('get', operation, duration, true);
+          // performanceMonitor.recordCacheOperation('get', operation, duration, true);
           return offlineItem.data;
         }
       }
@@ -156,11 +156,11 @@ export class UnifiedCacheManager {
       // 4. 缓存未命中
       this.recordCacheMiss(key);
       const duration = performance.now() - startTime;
-      performanceMonitor.recordCacheOperation('get', operation, duration, false);
+      // performanceMonitor.recordCacheOperation('get', operation, duration, false);
       return null;
     } catch (error) {
       const duration = performance.now() - startTime;
-      performanceMonitor.recordCacheOperation('get', operation, duration, false);
+      // performanceMonitor.recordCacheOperation('get', operation, duration, false);
       console.error('统一缓存获取失败:', error);
       return null;
     }
@@ -211,7 +211,7 @@ export class UnifiedCacheManager {
     hitRates: Record<string, { hitRate: number; totalRequests: number }>;
   } {
     const persistentStats = useCacheStore.getState().getCacheStats();
-    
+
     const hitRates: Record<string, { hitRate: number; totalRequests: number }> = {};
     this.cacheHitStats.forEach((stats, key) => {
       const totalRequests = stats.hits + stats.misses;
@@ -252,7 +252,7 @@ export class UnifiedCacheManager {
     // 清理离线缓存
     if (aggressive || maxAge) {
       const cutoffTime = Date.now() - (maxAge || 7 * 24 * 60 * 60 * 1000); // 默认7天
-      for (const [key, item] of this.offlineCache.entries()) {
+      for (const [key, item] of Array.from(this.offlineCache.entries())) {
         if (item.timestamp < cutoffTime) {
           this.offlineCache.delete(key);
         }
@@ -284,7 +284,7 @@ export class UnifiedCacheManager {
    */
   private async syncOfflineCache(): Promise<void> {
     // 将离线缓存中的数据同步到持久化缓存
-    for (const [key, item] of this.offlineCache.entries()) {
+    for (const [key, item] of Array.from(this.offlineCache.entries())) {
       try {
         await this.set(key, item.data, item.operation, { enableOffline: false });
       } catch (error) {

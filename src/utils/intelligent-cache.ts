@@ -52,8 +52,8 @@ export class IntelligentCache {
    * 设置缓存项
    */
   set<T>(
-    key: string, 
-    data: T, 
+    key: string,
+    data: T,
     options: {
       ttl?: number;
       priority?: number;
@@ -120,7 +120,7 @@ export class IntelligentCache {
    */
   get<T>(key: string): T | null {
     const item = this.cache.get(key);
-    
+
     if (!item) {
       performanceMonitor.recordCacheMiss();
       return null;
@@ -144,7 +144,7 @@ export class IntelligentCache {
 
     // 解压缩数据（如果需要）
     try {
-      return this.isCompressed(item.data) ? 
+      return this.isCompressed(item.data) ?
         JSON.parse(this.decompressData(item.data)) : item.data;
     } catch (error) {
       console.error('缓存数据解压失败:', error);
@@ -188,8 +188,8 @@ export class IntelligentCache {
    */
   clearByTags(tags: string[]): number {
     let cleared = 0;
-    
-    for (const [key, item] of this.cache.entries()) {
+
+    for (const [key, item] of Array.from(this.cache.entries())) {
       if (item.tags.some(tag => tags.includes(tag))) {
         this.delete(key);
         cleared++;
@@ -221,7 +221,7 @@ export class IntelligentCache {
   } {
     const items = Array.from(this.cache.entries());
     const totalAccess = items.reduce((sum, [, item]) => sum + item.accessCount, 0);
-    
+
     // 获取访问最频繁的键
     const topKeys = items
       .sort((a, b) => b[1].accessCount - a[1].accessCount)
@@ -246,7 +246,7 @@ export class IntelligentCache {
    */
   predictAndPreload(currentKey: string, preloadFunction: (key: string) => Promise<any>): void {
     const history = this.accessHistory.get(currentKey) || [];
-    
+
     // 简单的预测算法：基于访问模式预测下一个可能访问的键
     if (history.length >= 2) {
       const pattern = this.findAccessPattern(history);
@@ -274,16 +274,16 @@ export class IntelligentCache {
   /**
    * 智能清理缓存
    */
-  private cleanup(requiredSpace: number = 0): void {
+  public cleanup(requiredSpace: number = 0): void {
     const items = Array.from(this.cache.entries());
-    
+
     // 计算每个项的清理优先级分数（越低越优先清理）
     const scoredItems = items.map(([key, item]) => {
       const age = Date.now() - item.timestamp;
       const timeSinceAccess = Date.now() - item.lastAccessed;
-      
+
       // 综合评分：考虑优先级、访问频率、时间因素
-      const score = 
+      const score =
         item.priority * 1000 + // 优先级权重
         item.accessCount * 100 + // 访问频率权重
         Math.max(0, this.config.defaultTTL - age) / 1000 + // 剩余TTL权重
@@ -300,7 +300,7 @@ export class IntelligentCache {
 
     for (const { key } of scoredItems) {
       if (freedSpace >= targetSpace) break;
-      
+
       const item = this.cache.get(key);
       if (item) {
         freedSpace += item.size;
@@ -324,12 +324,12 @@ export class IntelligentCache {
   private recordAccess(key: string): void {
     const history = this.accessHistory.get(key) || [];
     history.push(Date.now());
-    
+
     // 只保留最近的访问记录
     if (history.length > 10) {
       history.shift();
     }
-    
+
     this.accessHistory.set(key, history);
   }
 

@@ -31,7 +31,7 @@ export class TranslationCacheStrategy implements CacheStrategy {
   name = 'translation';
   description = '翻译结果缓存策略';
 
-  shouldCache(key: string, data: any, context: CacheContext): boolean {
+  shouldCache(_key: string, _data: any, context: CacheContext): boolean {
     // 总是缓存翻译结果，除非数据过大
     if (context.dataSize > 1024 * 1024) { // 1MB
       return false;
@@ -50,7 +50,7 @@ export class TranslationCacheStrategy implements CacheStrategy {
     return true;
   }
 
-  getTTL(key: string, data: any, context: CacheContext): number {
+  getTTL(_key: string, _data: any, context: CacheContext): number {
     const baseTTL = 24 * 60 * 60 * 1000; // 24小时
 
     // 根据访问频率调整TTL
@@ -65,7 +65,7 @@ export class TranslationCacheStrategy implements CacheStrategy {
     return baseTTL;
   }
 
-  getPriority(key: string, data: any, context: CacheContext): number {
+  getPriority(_key: string, _data: any, context: CacheContext): number {
     let priority = 1;
 
     // 根据访问频率调整优先级
@@ -81,7 +81,7 @@ export class TranslationCacheStrategy implements CacheStrategy {
     return Math.min(priority, 10);
   }
 
-  getTags(key: string, data: any, context: CacheContext): string[] {
+  getTags(_key: string, _data: any, context: CacheContext): string[] {
     const tags = ['translation'];
 
     // 根据数据大小添加标签
@@ -109,21 +109,21 @@ export class OCRCacheStrategy implements CacheStrategy {
   name = 'ocr';
   description = 'OCR结果缓存策略';
 
-  shouldCache(key: string, data: any, context: CacheContext): boolean {
+  shouldCache(_key: string, _data: any, context: CacheContext): boolean {
     // OCR结果通常比较稳定，积极缓存
     if (context.dataSize > 5 * 1024 * 1024) { // 5MB
       return false;
     }
 
     // 如果检测到的文本区域很多，优先缓存
-    if (Array.isArray(data) && data.length > 10) {
+    if (Array.isArray(_data) && _data.length > 10) {
       return true;
     }
 
     return true;
   }
 
-  getTTL(key: string, data: any, context: CacheContext): number {
+  getTTL(_key: string, _data: any, context: CacheContext): number {
     const baseTTL = 7 * 24 * 60 * 60 * 1000; // 7天
 
     // OCR结果相对稳定，可以缓存更长时间
@@ -134,7 +134,7 @@ export class OCRCacheStrategy implements CacheStrategy {
     return baseTTL;
   }
 
-  getPriority(key: string, data: any, context: CacheContext): number {
+  getPriority(_key: string, data: any, context: CacheContext): number {
     let priority = 2; // OCR比翻译优先级稍高
 
     // 根据检测到的文本区域数量调整优先级
@@ -148,7 +148,7 @@ export class OCRCacheStrategy implements CacheStrategy {
     return Math.min(priority, 10);
   }
 
-  getTags(key: string, data: any, context: CacheContext): string[] {
+  getTags(_key: string, data: any, context: CacheContext): string[] {
     const tags = ['ocr'];
 
     // 根据检测结果添加标签
@@ -303,8 +303,8 @@ export class CacheStrategyManager {
     targetSize?: number;
   } = {}): void {
     const {
-      maxAge = 7 * 24 * 60 * 60 * 1000, // 7天
-      minPriority = 1,
+      maxAge: _maxAge = 7 * 24 * 60 * 60 * 1000, // 7天
+      minPriority: _minPriority = 1,
       excludeTags = ['config', 'persistent'],
       targetSize = 50 * 1024 * 1024, // 50MB
     } = options;
@@ -318,7 +318,6 @@ export class CacheStrategyManager {
     }
 
     // 清理过期和低优先级的缓存
-    const _now = Date.now();
     let cleanedCount = 0;
 
     // 这里需要扩展IntelligentCache以支持按条件清理

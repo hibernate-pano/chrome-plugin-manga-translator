@@ -4,8 +4,8 @@
  */
 
 import { useConfigStore } from '@/stores/config';
-import { useTranslationStore, type TranslationHistoryItem } from '@/stores/translation';
-import { useCacheStore } from '@/stores/cache';
+import { useTranslationStore, type TranslationHistoryItem } from '../stores/translation';
+import { useCacheStore } from '../stores/cache';
 
 // 版本信息
 export const DATA_VERSION = '0.2.0';
@@ -141,7 +141,7 @@ export class DataMigration {
   private async migrateConfig(): Promise<void> {
     try {
       const syncData = await chrome.storage.sync.get(null);
-      const v01Config = syncData as V01Config;
+      const v01Config = syncData as unknown as V01Config;
 
       if (!this.hasV01ConfigData(v01Config)) {
         console.log('没有找到v0.1配置数据');
@@ -214,8 +214,8 @@ export class DataMigration {
       const translationStore = useTranslationStore.getState();
 
       // 迁移翻译状态
-      if (localData.translationState) {
-        const state = localData.translationState as V01TranslationState;
+      if (localData['translationState']) {
+        const state = localData['translationState'] as V01TranslationState;
 
         if (state.enabled !== undefined) {
           translationStore.setEnabled(state.enabled);
@@ -229,8 +229,8 @@ export class DataMigration {
       }
 
       // 迁移翻译历史
-      if (localData.translationHistory && Array.isArray(localData.translationHistory)) {
-        localData.translationHistory.forEach((item: any) => {
+      if (localData['translationHistory'] && Array.isArray(localData['translationHistory'])) {
+        localData['translationHistory'].forEach((item: any) => {
           const normalizedItem = this.normalizeHistoryItem(item);
           if (normalizedItem) {
             translationStore.addToHistory(normalizedItem);
@@ -239,8 +239,8 @@ export class DataMigration {
       }
 
       // 迁移已翻译图像映射
-      if (localData.translatedImages) {
-        const images = localData.translatedImages;
+      if (localData['translatedImages']) {
+        const images = localData['translatedImages'];
 
         if (images instanceof Map) {
           images.forEach((value: any, key: string) => {

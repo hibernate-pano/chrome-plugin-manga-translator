@@ -138,7 +138,7 @@ export class OfflineManager {
   } {
     const items = Array.from(this.offlineQueue.values());
     const unsyncedItems = items.filter(item => !item.synced);
-    
+
     const itemsByType = items.reduce((acc, item) => {
       acc[item.type] = (acc[item.type] || 0) + 1;
       return acc;
@@ -167,7 +167,7 @@ export class OfflineManager {
     const { olderThan, type, syncedOnly = false } = options;
     const cutoffTime = olderThan ? Date.now() - olderThan : 0;
 
-    for (const [id, item] of this.offlineQueue.entries()) {
+    for (const [id, item] of Array.from(this.offlineQueue.entries())) {
       let shouldDelete = false;
 
       if (syncedOnly && !item.synced) {
@@ -343,7 +343,7 @@ export class OfflineManager {
    */
   private cleanupSyncedItems(): void {
     const cutoffTime = Date.now() - 24 * 60 * 60 * 1000; // 24小时前
-    
+
     for (const [id, item] of this.offlineQueue.entries()) {
       if (item.synced && item.timestamp < cutoffTime) {
         this.offlineQueue.delete(id);
@@ -377,7 +377,7 @@ export class OfflineManager {
   private async preloadUserConfig(): Promise<void> {
     // 预加载关键配置数据
     const configKeys = ['providerType', 'translationSettings', 'uiSettings'];
-    
+
     for (const key of configKeys) {
       await this.addOfflineData(`config:${key}`, 'config', {
         key,

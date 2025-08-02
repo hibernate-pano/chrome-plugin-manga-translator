@@ -219,7 +219,7 @@ export class AppInitialization {
   /**
    * 处理标签页更新
    */
-  private handleTabUpdated = (tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
+  private handleTabUpdated = (_tabId: number, changeInfo: chrome.tabs.TabChangeInfo, tab: chrome.tabs.Tab) => {
     // 只在页面完全加载后处理
     if (changeInfo.status === 'complete' && tab.url) {
       console.log('标签页加载完成:', tab.url);

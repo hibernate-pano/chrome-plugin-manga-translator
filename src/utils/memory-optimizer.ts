@@ -34,7 +34,7 @@ class MemoryOptimizer {
   private config: MemoryMonitorConfig;
   private memoryHistory: MemoryStats[] = [];
   private monitoringInterval?: number;
-  private weakRefs: Set<WeakRef<any>> = new Set();
+  private weakRefs: Set<any> = new Set();
   private cleanupCallbacks: Set<() => void> = new Set();
 
   constructor(config: Partial<MemoryMonitorConfig> = {}) {
@@ -133,7 +133,7 @@ class MemoryOptimizer {
   /**
    * 执行常规清理
    */
-  private performRoutineCleanup(): void {
+  public performRoutineCleanup(): void {
     console.log('执行常规内存清理...');
 
     // 清理弱引用
@@ -196,8 +196,8 @@ class MemoryOptimizer {
   /**
    * 注册对象的弱引用
    */
-  registerWeakRef<T extends object>(obj: T): WeakRef<T> {
-    const ref = new WeakRef(obj);
+  registerWeakRef<T extends object>(obj: T): any {
+    const ref = new (globalThis as any).WeakRef(obj);
     this.weakRefs.add(ref);
     return ref;
   }

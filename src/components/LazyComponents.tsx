@@ -4,8 +4,13 @@
  */
 
 import React, { Suspense, lazy } from 'react';
-import { Skeleton } from '@/components/ui/skeleton';
-import { performanceMetricsCollector } from '@/utils/performance-metrics';
+// import { Skeleton } from './ui/skeleton';
+
+// 简单的骨架屏组件
+const Skeleton = ({ className = '' }: { className?: string }) => (
+  <div className={`animate-pulse bg-gray-200 rounded ${className}`} />
+);
+import { performanceMetricsCollector } from '../utils/performance-metrics';
 
 /**
  * 懒加载包装器
@@ -48,11 +53,11 @@ function PerformanceTracker({ children, componentName }: PerformanceTrackerProps
   React.useEffect(() => {
     if (componentName) {
       const startTime = performance.now();
-      
+
       return () => {
         const endTime = performance.now();
         const loadTime = endTime - startTime;
-        
+
         performanceMetricsCollector.recordUIMetric(
           'component_load_time',
           loadTime,
@@ -63,6 +68,8 @@ function PerformanceTracker({ children, componentName }: PerformanceTrackerProps
         );
       };
     }
+    // 确保所有代码路径都有返回值
+    return undefined;
   }, [componentName]);
 
   return <>{children}</>;
@@ -71,73 +78,65 @@ function PerformanceTracker({ children, componentName }: PerformanceTrackerProps
 /**
  * 懒加载的设置面板
  */
-export const LazySettingsPanel = lazy(() => 
-  import('@/components/SettingsPanel').then(module => ({
-    default: module.SettingsPanel
-  }))
-);
+// export const LazySettingsPanel = lazy(() =>
+//   import('@/components/SettingsPanel').then(module => ({
+//     default: module.SettingsPanel
+//   }))
+// );
 
 /**
  * 懒加载的翻译历史
  */
-export const LazyTranslationHistory = lazy(() => 
-  import('@/components/TranslationHistory').then(module => ({
-    default: module.TranslationHistory
-  }))
-);
+// export const LazyTranslationHistory = lazy(() =>
+//   import('@/components/TranslationHistory').then(module => ({
+//     default: module.TranslationHistory
+//   }))
+// );
 
 /**
  * 懒加载的性能监控面板
  */
-export const LazyPerformanceMonitor = lazy(() => 
-  import('@/components/PerformanceMonitor').then(module => ({
-    default: module.PerformanceMonitorPanel
-  }))
-);
+// export const LazyPerformanceMonitor = lazy(() =>
+//   import('@/components/PerformanceMonitor').then(module => ({
+//     default: module.PerformanceMonitorPanel
+//   }))
+// );
 
 /**
  * 懒加载的API配置
  */
-export const LazyAPIConfiguration = lazy(() => 
-  import('@/components/APIConfiguration').then(module => ({
-    default: module.APIConfiguration
-  }))
-);
+// export const LazyAPIConfiguration = lazy(() =>
+//   import('@/components/APIConfiguration').then(module => ({
+//     default: module.APIConfiguration
+//   }))
+// );
 
 /**
  * 懒加载的主题设置
  */
-export const LazyThemeSettings = lazy(() => 
-  import('@/components/ThemeSettings').then(module => ({
-    default: module.ThemeSettings
-  }))
+export const LazyThemeSettings = lazy(() =>
+  import('@/components/ThemeSettings')
 );
 
 /**
  * 懒加载的缓存管理
  */
-export const LazyCacheManager = lazy(() => 
-  import('@/components/CacheManager').then(module => ({
-    default: module.CacheManager
-  }))
+export const LazyCacheManager = lazy(() =>
+  import('@/components/CacheManager')
 );
 
 /**
  * 懒加载的数据导入导出
  */
-export const LazyDataImportExport = lazy(() => 
-  import('@/components/DataImportExport').then(module => ({
-    default: module.DataImportExport
-  }))
+export const LazyDataImportExport = lazy(() =>
+  import('@/components/DataImportExport')
 );
 
 /**
  * 懒加载的高级设置
  */
-export const LazyAdvancedSettings = lazy(() => 
-  import('@/components/AdvancedSettings').then(module => ({
-    default: module.AdvancedSettings
-  }))
+export const LazyAdvancedSettings = lazy(() =>
+  import('@/components/AdvancedSettings')
 );
 
 /**
@@ -259,7 +258,7 @@ export class LazyErrorBoundary extends React.Component<
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('懒加载组件错误:', error, errorInfo);
-    
+
     // 记录错误指标
     performanceMetricsCollector.recordMetric({
       name: 'lazy_load_error',
@@ -281,7 +280,7 @@ export class LazyErrorBoundary extends React.Component<
       return this.props.fallback || (
         <div className="p-4 text-center">
           <p className="text-red-500">组件加载失败</p>
-          <button 
+          <button
             onClick={() => this.setState({ hasError: false })}
             className="mt-2 px-4 py-2 bg-blue-500 text-white rounded hover:bg-blue-600"
           >
