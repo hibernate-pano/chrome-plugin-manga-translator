@@ -1,5 +1,10 @@
-import { AIProvider } from './base-provider';
-import { ProviderFactory } from './provider-factory';
+import { AIProvider, TranslationRequest } from './base-provider.d';
+import { ProviderFactory, ProviderType } from './provider-factory.d';
+
+// 扩展接口以支持文字检测
+interface ExtendedAIProvider extends AIProvider {
+  detectText?(imageData: string, options?: any): Promise<any>;
+}
 // import { APIErrorHandler } from '../utils/error-handler';
 import { useConfigStore } from '../stores/config';
 import { useCacheStore } from '../stores/cache';
@@ -10,7 +15,7 @@ import { useCacheStore } from '../stores/cache';
  */
 export class APIManager {
   private static instance: APIManager;
-  private currentProvider: AIProvider | null = null;
+  private currentProvider: ExtendedAIProvider | null = null;
   private requestQueue: Map<string, Promise<any>> = new Map();
   private requestCache: Map<string, { data: any; timestamp: number }> = new Map();
   private batchQueue: Array<{ id: string; request: any; resolve: Function; reject: Function }> = [];
@@ -44,7 +49,7 @@ export class APIManager {
 
       // 创建提供者实例
       this.currentProvider = ProviderFactory.createProvider(
-        providerType,
+        providerType as ProviderType,
         providerConfig[providerType]
       );
 
@@ -61,7 +66,7 @@ export class APIManager {
   /**
    * 切换API提供者
    */
-  async switchProvider(providerType: string, config: any): Promise<void> {
+  async switchProvider(providerType: ProviderType, config: any): Promise<void> {
     try {
       // 终止当前提供者
       if (this.currentProvider) {
@@ -203,11 +208,38 @@ export class APIManager {
 
     // 如果只有一个文本，直接翻译
     if (texts.length === 1) {
-      return [await this.currentProvider!.translateText(texts[0], targetLang, options)];
+      const request: TranslationRequest = {
+        text: texts[0],
+        targetLanguage: targetLang,
+        ...options
+      };
+      const response = await this.currentProvider!.translateText(request);
+      return [response.translatedText];
     }
 
     // 批量翻译
-    return await this.currentProvider!.translateText(texts, targetLang, options);
+    if (this.currentProvider!.translateBatch) {
+      const requests: TranslationRequest[] = texts.map(text => ({
+        text,
+        targetLanguage: targetLang,
+        ...options
+      }));
+      const responses = await this.currentProvider!.translateBatch(requests);
+      return responses.map(response => response.translatedText);
+    } else {
+      // 如果不支持批量翻译，逐个翻译
+      const results: string[] = [];
+      for (const text of texts) {
+        const request: TranslationRequest = {
+          text,
+          targetLanguage: targetLang,
+          ...options
+        };
+        const response = await this.currentProvider!.translateText(request);
+        results.push(response.translatedText);
+      }
+      return results;
+    }
   }
 
   /**
@@ -220,7 +252,11 @@ export class APIManager {
 
     for (let attempt = 0; attempt < maxRetries; attempt++) {
       try {
-        return await this.currentProvider!.detectText(imageData, options);
+        if (this.currentProvider!.detectText) {
+          return await this.currentProvider!.detectText(imageData, options);
+        } else {
+          throw new Error('当前提供者不支持文字检测功能');
+        }
       } catch (error) {
         lastError = error as Error;
         if (attempt < maxRetries - 1) {

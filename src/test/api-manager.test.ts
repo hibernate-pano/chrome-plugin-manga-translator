@@ -94,7 +94,7 @@ describe('API管理器测试', () => {
       const newProvider = { ...mockProvider, name: 'NewProvider' };
       vi.mocked(ProviderFactory.createProvider).mockReturnValue(newProvider);
 
-      await apiManager.switchProvider('newProvider', { apiKey: 'new-key' });
+      await apiManager.switchProvider('openai' as any, { apiKey: 'new-key' });
 
       expect(mockProvider.terminate).toHaveBeenCalled();
       expect(ProviderFactory.createProvider).toHaveBeenCalledWith(
@@ -265,7 +265,7 @@ describe('API管理器测试', () => {
       const imageData = 'same-image-data';
 
       // 模拟慢速API调用
-      let resolveDetection: (value: any) => void;
+      let resolveDetection: (value: any) => void = () => { };
       const detectionPromise = new Promise(resolve => {
         resolveDetection = resolve;
       });

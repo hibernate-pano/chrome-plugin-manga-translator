@@ -1,13 +1,18 @@
 import React, { useState, useEffect } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Separator } from '@/components/ui/separator';
 import { ThemeToggle } from '@/components/ui/theme-toggle';
 import { Navigation, optionsNavigationItems } from '@/components/ui/navigation';
-import { LayoutContainer, LayoutHeader, LayoutSection, LayoutStack } from '@/components/ui/layout';
-import { AnimatedContainer } from '@/components/ui/animated-container';
+import {
+  LayoutSection,
+  LayoutContainer,
+  ResponsiveSidebarLayout,
+  Breadcrumb,
+} from '@/components/ui/layout';
+import { PageTransition, FloatingElement, AnimatedContainer } from '@/components/ui/animated-container';
 import { useConfigStore } from '@/stores/config';
-import { Save, RotateCcw, CheckCircle } from 'lucide-react';
+import { Save, RotateCcw } from 'lucide-react';
+import { QueryProvider } from '@/components/providers/QueryProvider';
 
 // 导入现有的设置组件 (暂时注释掉，避免类型错误)
 // import ApiSettings from './ApiSettings';
@@ -24,6 +29,22 @@ const OptionsApp: React.FC = () => {
 
   // Zustand stores
   const configStore = useConfigStore();
+
+  // 获取标签标题的辅助函数
+  const getTabTitle = (tabId: string) => {
+    const item = optionsNavigationItems.find(item => {
+      if (item.id === tabId) return true;
+      return item.children?.some(child => child.id === tabId);
+    });
+
+    if (item) {
+      if (item.id === tabId) return item.label;
+      const child = item.children?.find(child => child.id === tabId);
+      return child?.label || item.label;
+    }
+
+    return '未知设置';
+  };
 
   // 初始化应用
   useEffect(() => {
@@ -57,58 +78,9 @@ const OptionsApp: React.FC = () => {
     }
   };
 
-  // 重置配置
-  const resetConfiguration = async () => {
-    if (confirm('确定要重置所有配置吗？此操作不可撤销。')) {
-      try {
-        // 这里可以添加重置逻辑
-        console.log('重置配置');
-        setHasUnsavedChanges(false);
-        alert('配置已重置！');
-      } catch (error) {
-        console.error('重置配置失败:', error);
-        alert('重置配置失败，请重试');
-      }
-    }
-  };
 
-  // 检查配置
-  const checkConfiguration = async () => {
-    try {
-      // 这里可以添加配置检查逻辑
-      console.log('检查配置');
-      alert('配置检查完成！所有设置正常。');
-    } catch (error) {
-      console.error('配置检查失败:', error);
-      alert('配置检查失败，请查看控制台获取详细信息');
-    }
-  };
 
-  // 快速操作配置
-  const quickActions = [
-    {
-      id: 'save',
-      label: '保存配置',
-      icon: <Save className="w-4 h-4" />,
-      onClick: saveConfiguration,
-      variant: 'default' as const,
-      disabled: !hasUnsavedChanges,
-    },
-    {
-      id: 'check',
-      label: '检查配置',
-      icon: <CheckCircle className="w-4 h-4" />,
-      onClick: checkConfiguration,
-      variant: 'outline' as const,
-    },
-    {
-      id: 'reset',
-      label: '重置配置',
-      icon: <RotateCcw className="w-4 h-4" />,
-      onClick: resetConfiguration,
-      variant: 'destructive' as const,
-    },
-  ];
+
 
   if (isLoading) {
     return (
@@ -120,42 +92,66 @@ const OptionsApp: React.FC = () => {
     );
   }
 
+  // 面包屑导航数据
+  const breadcrumbItems = [
+    { label: '设置' },
+    { label: getTabTitle(activeTab) },
+  ];
+
+  // 侧边栏内容
+  const sidebarContent = (
+    <div className="p-4">
+      <div className="mb-6">
+        <h2 className="text-lg font-semibold mb-2">设置分类</h2>
+        <p className="text-sm text-muted-foreground">
+          选择要配置的设置类别
+        </p>
+      </div>
+
+      <Navigation
+        items={optionsNavigationItems}
+        activeItem={activeTab}
+        onItemClick={setActiveTab}
+        orientation="vertical"
+        variant="sidebar"
+        showTooltips={true}
+        collapsible={true}
+        defaultCollapsed={false}
+      />
+    </div>
+  );
+
   return (
-    <LayoutContainer maxWidth="full" className="min-h-screen py-8">
-      <LayoutStack spacing="lg">
-        {/* 页面头部 */}
-        <LayoutHeader
-          title="漫画翻译助手 - 设置"
-          subtitle="配置翻译参数、API设置和个性化选项"
-          actions={<ThemeToggle />}
-        />
+    <QueryProvider>
+      <ResponsiveSidebarLayout
+        sidebar={sidebarContent}
+        sidebarWidth="md"
+        collapsible={true}
+        defaultCollapsed={false}
+        className="min-h-screen"
+      >
+        <div className="flex flex-col h-full">
+          {/* 页面头部 */}
+          <div className="border-b bg-card/50 backdrop-blur-sm sticky top-0 z-10">
+            <div className="p-6">
+              <div className="flex items-center justify-between mb-4">
+                <div>
+                  <h1 className="text-2xl font-bold tracking-tight">漫画翻译助手</h1>
+                  <p className="text-muted-foreground">配置翻译参数、API设置和个性化选项</p>
+                </div>
+                <FloatingElement intensity="subtle">
+                  <ThemeToggle />
+                </FloatingElement>
+              </div>
 
-        <Separator />
-
-        {/* 主要内容区域 */}
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6">
-          {/* 侧边导航 */}
-          <div className="lg:col-span-1">
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">设置分类</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Navigation
-                  items={optionsNavigationItems}
-                  activeItem={activeTab}
-                  onItemClick={setActiveTab}
-                  orientation="vertical"
-                  variant="default"
-                />
-              </CardContent>
-            </Card>
+              <Breadcrumb items={breadcrumbItems} />
+            </div>
           </div>
 
           {/* 设置内容 */}
-          <div className="lg:col-span-3">
-            <AnimatedContainer key={activeTab} direction="up">
-              <Card>
+          <div className="flex-1 p-6">
+            <PageTransition key={activeTab}>
+              <Card className="h-full">
                 <CardContent className="p-6">
                   {activeTab === 'api' && (
                     <LayoutSection
@@ -170,6 +166,20 @@ const OptionsApp: React.FC = () => {
                         <div className="p-4 border rounded-lg bg-muted/50">
                           <p className="text-sm">当前提供商: {configStore.providerType}</p>
                         </div>
+                      </div>
+                    </LayoutSection>
+                  )}
+
+                  {(activeTab === 'api-openai' || activeTab === 'api-deepseek' || activeTab === 'api-claude') && (
+                    <LayoutSection
+                      title={`${getTabTitle(activeTab)}配置`}
+                      description={`配置${getTabTitle(activeTab)}的API参数`}
+                      variant="minimal"
+                    >
+                      <div className="space-y-4">
+                        <p className="text-muted-foreground">
+                          {getTabTitle(activeTab)}配置组件正在重构中...
+                        </p>
                       </div>
                     </LayoutSection>
                   )}
@@ -229,15 +239,17 @@ const OptionsApp: React.FC = () => {
                         <p className="text-muted-foreground">
                           缓存管理组件正在重构中...
                         </p>
-                        <Button
-                          variant="outline"
-                          onClick={() => {
-                            // 清除缓存的逻辑
-                            console.log('清除缓存');
-                          }}
-                        >
-                          清除所有缓存
-                        </Button>
+                        <FloatingElement intensity="subtle">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              // 清除缓存的逻辑
+                              console.log('清除缓存');
+                            }}
+                          >
+                            清除所有缓存
+                          </Button>
+                        </FloatingElement>
                       </div>
                     </LayoutSection>
                   )}
@@ -257,38 +269,47 @@ const OptionsApp: React.FC = () => {
                   )}
                 </CardContent>
               </Card>
-            </AnimatedContainer>
+            </PageTransition>
+          </div>
+
+          {/* 底部操作栏 */}
+          <div className="border-t bg-card/50 backdrop-blur-sm p-6">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                {hasUnsavedChanges && (
+                  <span className="text-orange-600">● 有未保存的更改</span>
+                )}
+              </div>
+
+              <div className="flex items-center gap-2">
+                <FloatingElement intensity="subtle">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      // 重置逻辑
+                      console.log('重置设置');
+                    }}
+                  >
+                    <RotateCcw className="w-4 h-4 mr-2" />
+                    重置
+                  </Button>
+                </FloatingElement>
+                <FloatingElement intensity="subtle">
+                  <Button
+                    size="sm"
+                    onClick={saveConfiguration}
+                  >
+                    <Save className="w-4 h-4 mr-2" />
+                    保存设置
+                  </Button>
+                </FloatingElement>
+              </div>
+            </div>
           </div>
         </div>
-
-        <Separator />
-
-        {/* 底部操作栏 */}
-        <div className="flex justify-between items-center">
-          <div className="text-sm text-muted-foreground">
-            {hasUnsavedChanges && (
-              <span className="text-orange-600">● 有未保存的更改</span>
-            )}
-          </div>
-
-          <div className="flex gap-2">
-            {quickActions.map((action) => (
-              <Button
-                key={action.id}
-                variant={action.variant}
-                size="sm"
-                onClick={action.onClick}
-                disabled={action.disabled}
-                className="flex items-center gap-2"
-              >
-                {action.icon}
-                {action.label}
-              </Button>
-            ))}
-          </div>
-        </div>
-      </LayoutStack>
-    </LayoutContainer>
+      </ResponsiveSidebarLayout>
+    </QueryProvider>
   );
 };
 

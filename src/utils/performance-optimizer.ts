@@ -6,7 +6,7 @@
 import { performanceMonitor } from './performance-monitor';
 import { IntelligentCache } from './intelligent-cache';
 import { CacheStrategyManager } from './cache-strategy';
-import { apiManager } from '../api/api-manager';
+// import { apiManager } from '../api/api-manager';
 
 export interface OptimizationConfig {
   // 缓存优化配置

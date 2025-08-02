@@ -5,10 +5,11 @@ import { Settings, CheckCircle, History } from 'lucide-react';
 import { ThemeToggleSimple } from '@/components/ui/theme-toggle';
 import { Navigation, QuickActions, popupNavigationItems } from '@/components/ui/navigation';
 import { LayoutContainer, LayoutStack, LayoutSection } from '@/components/ui/layout';
-import { AnimatedContainer, StaggeredContainer } from '@/components/ui/animated-container';
+import { AnimatedContainer, StaggeredContainer, FloatingElement } from '@/components/ui/animated-container';
 import { useTranslationStore } from '@/stores/translation';
 import { useConfigStore } from '@/stores/config';
 import { initializeDataMigration } from '@/utils/data-migration';
+import { QueryProvider } from '@/components/providers/QueryProvider';
 
 // 导入重构后的组件
 import ApiKeyInput from './ApiKeyInput';
@@ -135,104 +136,118 @@ const PopupApp: React.FC = () => {
   }
 
   return (
-    <LayoutContainer maxWidth="sm" className="w-80 min-h-96">
-      <Card className="border-0 shadow-lg">
-        <CardHeader className="pb-3">
-          <AnimatedContainer direction="down">
-            <CardTitle className="text-center text-lg font-semibold text-primary">
-              漫画翻译助手
-            </CardTitle>
-          </AnimatedContainer>
-        </CardHeader>
-
-        <CardContent>
-          {showFirstTimeGuide ? (
-            <AnimatedContainer direction="up">
-              <FirstTimeGuide onContinue={openOptionsPage} />
+    <QueryProvider>
+      <LayoutContainer maxWidth="sm" className="w-80 min-h-96">
+        <Card className="border-0 shadow-lg">
+          <CardHeader className="pb-3">
+            <AnimatedContainer direction="down">
+              <CardTitle className="text-center text-lg font-semibold text-primary">
+                漫画翻译助手
+              </CardTitle>
             </AnimatedContainer>
-          ) : (
-            <LayoutStack spacing="md">
-              {/* 导航标签 */}
-              <Navigation
-                items={popupNavigationItems}
-                activeItem={activeTab}
-                onItemClick={setActiveTab}
-                variant="pills"
-                orientation="horizontal"
-              />
+          </CardHeader>
 
-              {/* 主要内容区域 */}
-              {activeTab === 'main' && (
-                <StaggeredContainer staggerDelay={0.1}>
-                  <LayoutSection variant="minimal">
-                    <ApiKeyInput
-                      apiKey={getCurrentApiKey()}
-                      onChange={handleApiKeyChange}
-                      providerType={providerType}
-                    />
-                  </LayoutSection>
+          <CardContent>
+            {showFirstTimeGuide ? (
+              <AnimatedContainer direction="up">
+                <FirstTimeGuide onContinue={openOptionsPage} />
+              </AnimatedContainer>
+            ) : (
+              <LayoutStack spacing="md">
+                {/* 导航标签 */}
+                <Navigation
+                  items={popupNavigationItems}
+                  activeItem={activeTab}
+                  onItemClick={setActiveTab}
+                  variant="pills"
+                  orientation="horizontal"
+                />
 
-                  <LayoutSection variant="minimal">
-                    <TranslationToggle
-                      enabled={enabled}
-                      onChange={setEnabled}
-                    />
-                  </LayoutSection>
+                {/* 主要内容区域 */}
+                {activeTab === 'main' && (
+                  <StaggeredContainer staggerDelay={0.1}>
+                    <FloatingElement intensity="subtle">
+                      <LayoutSection variant="minimal">
+                        <ApiKeyInput
+                          apiKey={getCurrentApiKey()}
+                          onChange={handleApiKeyChange}
+                          providerType={providerType}
+                        />
+                      </LayoutSection>
+                    </FloatingElement>
 
-                  <LayoutSection variant="minimal">
-                    <LanguageSelector
-                      language={targetLanguage}
-                      onChange={setTargetLanguage}
-                    />
-                  </LayoutSection>
+                    <FloatingElement intensity="subtle">
+                      <LayoutSection variant="minimal">
+                        <TranslationToggle
+                          enabled={enabled}
+                          onChange={setEnabled}
+                        />
+                      </LayoutSection>
+                    </FloatingElement>
 
-                  <LayoutSection variant="minimal">
-                    <ModeSelector
-                      mode={mode}
-                      onChange={setMode}
-                    />
-                  </LayoutSection>
+                    <FloatingElement intensity="subtle">
+                      <LayoutSection variant="minimal">
+                        <LanguageSelector
+                          language={targetLanguage}
+                          onChange={setTargetLanguage}
+                        />
+                      </LayoutSection>
+                    </FloatingElement>
 
-                  <LayoutSection variant="minimal">
-                    <StyleSlider
-                      value={styleLevel}
-                      onChange={setStyleLevel}
-                    />
-                  </LayoutSection>
+                    <FloatingElement intensity="subtle">
+                      <LayoutSection variant="minimal">
+                        <ModeSelector
+                          mode={mode}
+                          onChange={setMode}
+                        />
+                      </LayoutSection>
+                    </FloatingElement>
 
-                  <Separator />
+                    <FloatingElement intensity="subtle">
+                      <LayoutSection variant="minimal">
+                        <StyleSlider
+                          value={styleLevel}
+                          onChange={setStyleLevel}
+                        />
+                      </LayoutSection>
+                    </FloatingElement>
 
-                  <LayoutSection variant="minimal">
-                    <ThemeToggleSimple />
-                  </LayoutSection>
-                </StaggeredContainer>
-              )}
+                    <Separator />
 
-              {activeTab === 'history' && (
-                <AnimatedContainer direction="up">
-                  <LayoutSection
-                    title="翻译历史"
-                    description="查看最近的翻译记录"
-                    variant="minimal"
-                  >
-                    <div className="text-center text-muted-foreground py-8">
-                      <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
-                      <p>暂无翻译历史</p>
-                      <p className="text-sm mt-2">开始翻译后，历史记录将显示在这里</p>
-                    </div>
-                  </LayoutSection>
-                </AnimatedContainer>
-              )}
+                    <FloatingElement intensity="subtle">
+                      <LayoutSection variant="minimal">
+                        <ThemeToggleSimple />
+                      </LayoutSection>
+                    </FloatingElement>
+                  </StaggeredContainer>
+                )}
 
-              <Separator />
+                {activeTab === 'history' && (
+                  <AnimatedContainer direction="up">
+                    <LayoutSection
+                      title="翻译历史"
+                      description="查看最近的翻译记录"
+                      variant="minimal"
+                    >
+                      <div className="text-center text-muted-foreground py-8">
+                        <History className="w-12 h-12 mx-auto mb-4 opacity-50" />
+                        <p>暂无翻译历史</p>
+                        <p className="text-sm mt-2">开始翻译后，历史记录将显示在这里</p>
+                      </div>
+                    </LayoutSection>
+                  </AnimatedContainer>
+                )}
 
-              {/* 快速操作 */}
-              <QuickActions actions={quickActions} className="justify-center" />
-            </LayoutStack>
-          )}
-        </CardContent>
-      </Card>
-    </LayoutContainer>
+                <Separator />
+
+                {/* 快速操作 */}
+                <QuickActions actions={quickActions} className="justify-center" />
+              </LayoutStack>
+            )}
+          </CardContent>
+        </Card>
+      </LayoutContainer>
+    </QueryProvider>
   );
 };
 
