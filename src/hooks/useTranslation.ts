@@ -4,6 +4,7 @@ import { APIManager } from '@/api/api-manager';
 import { unifiedCacheManager } from '../utils/unified-cache-manager';
 import { cacheWarmupManager } from '../utils/cache-warmup';
 import { offlineManager } from '../utils/offline-manager';
+import { usePerformanceRecorder } from './usePerformanceMonitoring';
 
 /**
  * 翻译请求参数
@@ -38,22 +39,87 @@ export interface TranslationResult {
  * 单文本翻译查询钩子
  */
 export function useTranslateText(params: TranslationParams, enabled = true) {
+  const { recordTranslationMetric } = usePerformanceRecorder();
+
   return useQuery({
     queryKey: queryKeys.translation.text(params.text, params.targetLang),
     queryFn: async (): Promise<TranslationResult> => {
-      const apiManager = APIManager.getInstance();
-      const results = await apiManager.translateText([params.text], params.targetLang, {
-        sourceLanguage: params.sourceLanguage,
-        context: params.context,
-      });
+      const startTime = performance.now();
+      const cacheKey = `translation:${params.text}:${params.targetLang}`;
 
-      // 确保结果是数组格式
-      const resultArray = Array.isArray(results) ? results : [results];
+      try {
+        // 记录用户行为用于缓存预热
+        cacheWarmupManager.recordUserBehavior('translate', {
+          text: params.text,
+          language: params.targetLang
+        });
 
-      return {
-        translatedText: resultArray[0] || '',
-        sourceLanguage: params.sourceLanguage,
-      };
+        // 检查缓存
+        const cachedResult = await unifiedCacheManager.get(cacheKey, 'translation');
+
+        if (cachedResult) {
+          const duration = performance.now() - startTime;
+          recordTranslationMetric('translation_cache_hit', duration, {
+            sourceLanguage: params.sourceLanguage || 'auto',
+            targetLanguage: params.targetLang,
+            textLength: params.text.length,
+            provider: 'cache',
+            cacheHit: true,
+          });
+
+          return cachedResult as TranslationResult;
+        }
+
+        // API调用
+        const apiManager = APIManager.getInstance();
+        const results = await apiManager.translateText([params.text], params.targetLang, {
+          sourceLanguage: params.sourceLanguage,
+          context: params.context,
+        });
+
+        // 确保结果是数组格式
+        const resultArray = Array.isArray(results) ? results : [results];
+        const result = {
+          translatedText: resultArray[0] || '',
+          sourceLanguage: params.sourceLanguage,
+        };
+
+        // 缓存结果
+        await unifiedCacheManager.set(cacheKey, result, 'translation', {
+          enableOffline: true,
+          priority: 3
+        });
+
+        // 记录性能指标
+        const duration = performance.now() - startTime;
+        recordTranslationMetric('translation_api_call', duration, {
+          sourceLanguage: params.sourceLanguage || 'auto',
+          targetLanguage: params.targetLang,
+          textLength: params.text.length,
+          provider: 'api',
+          cacheHit: false,
+        });
+
+        return result;
+      } catch (error) {
+        // 记录错误性能指标
+        const duration = performance.now() - startTime;
+        recordTranslationMetric('translation_error', duration, {
+          sourceLanguage: params.sourceLanguage || 'auto',
+          targetLanguage: params.targetLang,
+          textLength: params.text.length,
+          provider: 'api',
+          cacheHit: false,
+        });
+
+        // 尝试离线数据
+        const offlineData = offlineManager.getOfflineData(cacheKey);
+        if (offlineData && offlineData.data) {
+          return offlineData.data as unknown as TranslationResult;
+        }
+
+        throw error;
+      }
     },
     enabled: enabled && !!params.text && !!params.targetLang,
     ...queryOptions.standard,

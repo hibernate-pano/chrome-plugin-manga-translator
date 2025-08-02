@@ -44,37 +44,54 @@ export const queryKeys = {
   // 翻译相关
   translation: {
     all: ['translation'] as const,
-    text: (text: string, targetLang: string) => 
+    text: (text: string, targetLang: string) =>
       [...queryKeys.translation.all, 'text', text, targetLang] as const,
-    batch: (texts: string[], targetLang: string) => 
+    batch: (texts: string[], targetLang: string) =>
       [...queryKeys.translation.all, 'batch', texts, targetLang] as const,
     history: () => [...queryKeys.translation.all, 'history'] as const,
   },
-  
+
   // OCR相关
   ocr: {
     all: ['ocr'] as const,
-    detect: (imageHash: string) => 
+    detect: (imageHash: string) =>
       [...queryKeys.ocr.all, 'detect', imageHash] as const,
-    extract: (imageHash: string, area: any) => 
+    extract: (imageHash: string, area: any) =>
       [...queryKeys.ocr.all, 'extract', imageHash, area] as const,
   },
-  
+
   // 配置相关
   config: {
     all: ['config'] as const,
-    provider: (providerType: string) => 
+    provider: (providerType: string) =>
       [...queryKeys.config.all, 'provider', providerType] as const,
-    validation: (providerType: string, config: any) => 
+    validation: (providerType: string, config: any) =>
       [...queryKeys.config.all, 'validation', providerType, config] as const,
   },
-  
+
   // 缓存相关
   cache: {
     all: ['cache'] as const,
     stats: () => [...queryKeys.cache.all, 'stats'] as const,
-    entries: (type?: string) => 
+    entries: (type?: string) =>
       [...queryKeys.cache.all, 'entries', type] as const,
+    intelligent: () => [...queryKeys.cache.all, 'intelligent'] as const,
+    offline: (type?: string) => [...queryKeys.cache.all, 'offline', type] as const,
+    networkStatus: () => [...queryKeys.cache.all, 'networkStatus'] as const,
+    performance: () => [...queryKeys.cache.all, 'performance'] as const,
+    config: () => [...queryKeys.cache.all, 'config'] as const,
+    health: () => [...queryKeys.cache.all, 'health'] as const,
+  },
+
+  // 性能监控相关
+  performance: {
+    all: ['performance'] as const,
+    stats: (category?: string, timeRange?: { start: number; end: number }) =>
+      [...queryKeys.performance.all, 'stats', category, timeRange] as const,
+    recent: (count?: number, category?: string) =>
+      [...queryKeys.performance.all, 'recent', count, category] as const,
+    thresholds: () => [...queryKeys.performance.all, 'thresholds'] as const,
+    alerts: () => [...queryKeys.performance.all, 'alerts'] as const,
   },
 } as const;
 
@@ -87,19 +104,19 @@ export const queryOptions = {
     staleTime: 30 * 1000, // 30秒
     gcTime: 2 * 60 * 1000, // 2分钟
   },
-  
+
   // 标准查询（默认）
   standard: {
     staleTime: 5 * 60 * 1000, // 5分钟
     gcTime: 10 * 60 * 1000, // 10分钟
   },
-  
+
   // 长期缓存（用于配置等不常变化的数据）
   longTerm: {
     staleTime: 30 * 60 * 1000, // 30分钟
     gcTime: 60 * 60 * 1000, // 1小时
   },
-  
+
   // 实时查询（用于需要实时更新的数据）
   realTime: {
     staleTime: 0,
@@ -119,14 +136,14 @@ export const queryErrorHandler = {
     console.error('Query error:', error);
     // 可以在这里添加错误上报逻辑
   },
-  
+
   /**
    * 静默错误处理（不显示错误信息）
    */
   silent: (error: Error) => {
     console.debug('Query error (silent):', error);
   },
-  
+
   /**
    * 用户友好的错误处理
    */
