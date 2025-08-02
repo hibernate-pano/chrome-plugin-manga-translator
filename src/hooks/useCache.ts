@@ -18,7 +18,7 @@ export interface CacheStats {
     entries: number;
     size: number;
   };
-  configCache: {
+  imageCache: {
     entries: number;
     size: number;
   };
@@ -54,15 +54,15 @@ export function useCacheStats() {
       const imageEntries = Object.keys(state.imageCache || {});
 
       const totalEntries = translationEntries.length + ocrEntries.length + imageEntries.length;
-      const totalHits = state.stats?.hits || 0;
-      const totalMisses = state.stats?.misses || 0;
-      const totalRequests = totalHits + totalMisses;
+
+      // 使用缓存存储的统计方法
+      const cacheStats = state.getCacheStats();
 
       return {
         totalEntries,
-        totalSize: state.stats?.totalSize || 0,
-        hitRate: totalRequests > 0 ? (totalHits / totalRequests) * 100 : 0,
-        missRate: totalRequests > 0 ? (totalMisses / totalRequests) * 100 : 0,
+        totalSize: cacheStats.totalSize,
+        hitRate: 0, // 暂时设为0，可以后续实现
+        missRate: 0, // 暂时设为0，可以后续实现
         translationCache: {
           entries: translationEntries.length,
           size: translationEntries.reduce((size, key) => {
@@ -113,8 +113,8 @@ export function useCacheEntries(type?: string) {
             timestamp: value.timestamp || Date.now(),
             size: JSON.stringify(value).length,
             type: 'translation',
-            hits: value.hits || 0,
-            lastAccessed: value.lastAccessed || Date.now(),
+            hits: 0, // CacheItem没有hits属性，设为默认值
+            lastAccessed: value.timestamp || Date.now(),
           });
         });
       }
@@ -128,8 +128,8 @@ export function useCacheEntries(type?: string) {
             timestamp: value.timestamp || Date.now(),
             size: JSON.stringify(value).length,
             type: 'ocr',
-            hits: value.hits || 0,
-            lastAccessed: value.lastAccessed || Date.now(),
+            hits: 0, // CacheItem没有hits属性，设为默认值
+            lastAccessed: value.timestamp || Date.now(),
           });
         });
       }
@@ -143,8 +143,8 @@ export function useCacheEntries(type?: string) {
             timestamp: value.timestamp || Date.now(),
             size: JSON.stringify(value).length,
             type: 'image' as const,
-            hits: value.hits || 0,
-            lastAccessed: value.lastAccessed || Date.now(),
+            hits: 0, // CacheItem没有hits属性，设为默认值
+            lastAccessed: value.timestamp || Date.now(),
           });
         });
       }
@@ -173,7 +173,7 @@ export function useCacheClearMutation() {
       const { type = 'all', olderThan, maxEntries } = options;
 
       if (type === 'all') {
-        cacheStore.clearAll();
+        cacheStore.clearAllCache();
       } else if (type === 'translation') {
         cacheStore.clearTranslationCache();
       } else if (type === 'ocr') {
@@ -209,10 +209,9 @@ export function useCacheClearMutation() {
         });
       }
 
-      if (data.type === 'all' || data.type === 'config') {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.config.all,
-        });
+      if (data.type === 'all' || data.type === 'image') {
+        // 图像缓存清理后可能需要重新获取相关数据
+        // 这里可以添加特定的失效逻辑
       }
     },
     throwOnError: false,
@@ -232,14 +231,10 @@ export function useCacheOptimizeMutation() {
       targetSize?: number; // 目标缓存大小（字节）
       maxAge?: number; // 最大缓存时间（毫秒）
     }) => {
-      const { strategy = 'lru', targetSize, maxAge } = options;
+      const { strategy = 'lru' } = options;
 
-      // 执行缓存优化
-      cacheStore.optimize({
-        strategy,
-        targetSize,
-        maxAge,
-      });
+      // 执行缓存优化（清理过期缓存）
+      cacheStore.cleanExpiredCache();
 
       return { strategy, optimized: true };
     },

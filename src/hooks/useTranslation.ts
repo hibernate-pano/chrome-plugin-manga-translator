@@ -1,6 +1,9 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { queryKeys, queryOptions, queryErrorHandler } from './query-client';
+import { queryKeys, queryOptions } from './query-client';
 import { APIManager } from '@/api/api-manager';
+import { unifiedCacheManager } from '../utils/unified-cache-manager';
+import { cacheWarmupManager } from '../utils/cache-warmup';
+import { offlineManager } from '../utils/offline-manager';
 
 /**
  * 翻译请求参数
@@ -88,6 +91,29 @@ export function useTranslateMutation() {
 
   return useMutation({
     mutationFn: async (params: TranslationParams): Promise<TranslationResult> => {
+      const cacheKey = `translation:${params.text}:${params.targetLang}`;
+
+      // 记录用户行为
+      cacheWarmupManager.recordUserBehavior('translate', {
+        text: params.text,
+        language: params.targetLang,
+      });
+
+      // 检查离线模式
+      if (!offlineManager.isNetworkOnline()) {
+        const offlineData = await unifiedCacheManager.get<TranslationResult>(
+          cacheKey,
+          'translation',
+          { fallbackToOffline: true }
+        );
+
+        if (offlineData) {
+          return offlineData;
+        }
+
+        throw new Error('网络不可用且无缓存数据');
+      }
+
       const apiManager = APIManager.getInstance();
       const results = await apiManager.translateText([params.text], params.targetLang, {
         sourceLanguage: params.sourceLanguage,
@@ -97,10 +123,25 @@ export function useTranslateMutation() {
       // 确保结果是数组格式
       const resultArray = Array.isArray(results) ? results : [results];
 
-      return {
+      const result: TranslationResult = {
         translatedText: resultArray[0] || '',
         sourceLanguage: params.sourceLanguage,
       };
+
+      // 使用智能缓存存储结果
+      await unifiedCacheManager.set(cacheKey, result, 'translation', {
+        enableOffline: true,
+        priority: 3,
+      });
+
+      // 触发预测性预加载
+      cacheWarmupManager.predictAndPreload({
+        action: 'translate',
+        text: params.text,
+        language: params.targetLang,
+      });
+
+      return result;
     },
     onSuccess: (data, variables) => {
       // 更新查询缓存
@@ -126,6 +167,39 @@ export function useBatchTranslateMutation() {
 
   return useMutation({
     mutationFn: async (params: BatchTranslationParams): Promise<string[]> => {
+      // 记录批量翻译行为
+      cacheWarmupManager.recordUserBehavior('batchTranslate', {
+        language: params.targetLang,
+      });
+
+      // 检查离线模式
+      if (!offlineManager.isNetworkOnline()) {
+        const cachedResults: string[] = [];
+        let allCached = true;
+
+        for (const text of params.texts) {
+          const cacheKey = `translation:${text}:${params.targetLang}`;
+          const cached = await unifiedCacheManager.get<TranslationResult>(
+            cacheKey,
+            'translation',
+            { fallbackToOffline: true }
+          );
+
+          if (cached) {
+            cachedResults.push(cached.translatedText);
+          } else {
+            allCached = false;
+            break;
+          }
+        }
+
+        if (allCached) {
+          return cachedResults;
+        }
+
+        throw new Error('网络不可用且部分文本无缓存数据');
+      }
+
       const apiManager = APIManager.getInstance();
       const results = await apiManager.translateText(params.texts, params.targetLang, {
         sourceLanguage: params.sourceLanguage,
@@ -133,7 +207,25 @@ export function useBatchTranslateMutation() {
       });
 
       // 确保结果是数组格式
-      return Array.isArray(results) ? results : [results];
+      const resultArray = Array.isArray(results) ? results : [results];
+
+      // 缓存每个翻译结果
+      for (let i = 0; i < params.texts.length; i++) {
+        if (resultArray[i]) {
+          const cacheKey = `translation:${params.texts[i]}:${params.targetLang}`;
+          const result: TranslationResult = {
+            translatedText: resultArray[i] || '',
+            sourceLanguage: params.sourceLanguage,
+          };
+
+          await unifiedCacheManager.set(cacheKey, result, 'translation', {
+            enableOffline: true,
+            priority: 2, // 批量翻译优先级稍低
+          });
+        }
+      }
+
+      return resultArray;
     },
     onSuccess: (data, variables) => {
       // 更新查询缓存

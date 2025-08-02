@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { queryKeys, queryOptions, queryErrorHandler } from './query-client';
+import { queryKeys, queryOptions } from './query-client';
 import { useConfigStore } from '@/stores/config';
 import { APIManager } from '@/api/api-manager';
 
@@ -68,7 +68,7 @@ export function useConfigMutation() {
 
       return newConfig;
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       // 使所有配置相关的查询失效
       queryClient.invalidateQueries({
         queryKey: queryKeys.config.all,
@@ -113,7 +113,7 @@ export function useProviderSwitchMutation() {
 
       return { providerType, config };
     },
-    onSuccess: (data) => {
+    onSuccess: () => {
       // 使所有相关查询失效
       queryClient.invalidateQueries({
         queryKey: queryKeys.config.all,
@@ -163,16 +163,20 @@ export function useConfigExport() {
 
   return {
     exportConfig: () => {
-      const config = configStore.getState();
+      const config = configStore;
       const exportData = {
         version: '0.2.0',
         timestamp: new Date().toISOString(),
         config: {
           providerType: config.providerType,
           providerConfig: config.providerConfig,
-          translationSettings: config.translationSettings,
           ocrSettings: config.ocrSettings,
-          uiSettings: config.uiSettings,
+          styleLevel: config.styleLevel,
+          fontFamily: config.fontFamily,
+          fontSize: config.fontSize,
+          fontColor: config.fontColor,
+          backgroundColor: config.backgroundColor,
+          shortcuts: config.shortcuts,
           advancedSettings: config.advancedSettings,
         },
       };

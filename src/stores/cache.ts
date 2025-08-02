@@ -22,19 +22,19 @@ export interface CacheActions {
   getTranslationCache: (key: string) => any | null;
   removeTranslationCache: (key: string) => void;
   clearTranslationCache: () => void;
-  
+
   // 图像缓存
   setImageCache: (key: string, data: any, ttl?: number) => void;
   getImageCache: (key: string) => any | null;
   removeImageCache: (key: string) => void;
   clearImageCache: () => void;
-  
+
   // OCR缓存
   setOCRCache: (key: string, data: any, ttl?: number) => void;
   getOCRCache: (key: string) => any | null;
   removeOCRCache: (key: string) => void;
   clearOCRCache: () => void;
-  
+
   // 通用缓存操作
   clearAllCache: () => void;
   cleanExpiredCache: () => void;
@@ -212,8 +212,7 @@ export const useCacheStore = create<CacheState & CacheActions>()(
 
       cleanExpiredCache: () =>
         set((state) => {
-          const now = Date.now();
-          
+
           const cleanCache = (cache: Record<string, CacheItem>) => {
             const cleaned: Record<string, CacheItem> = {};
             Object.entries(cache).forEach(([key, item]) => {
@@ -237,7 +236,7 @@ export const useCacheStore = create<CacheState & CacheActions>()(
           translationCount: Object.keys(state.translationCache).length,
           imageCount: Object.keys(state.imageCache).length,
           ocrCount: Object.keys(state.ocrCache).length,
-          totalSize: 
+          totalSize:
             Object.keys(state.translationCache).length +
             Object.keys(state.imageCache).length +
             Object.keys(state.ocrCache).length,

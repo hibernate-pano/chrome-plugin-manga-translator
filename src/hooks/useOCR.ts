@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { queryKeys, queryOptions, queryErrorHandler } from './query-client';
+import { queryKeys, queryOptions } from './query-client';
 import { APIManager } from '@/api/api-manager';
 
 /**
@@ -181,7 +181,7 @@ export function useOCRCache() {
 
     // 预热缓存（预加载常用的OCR结果）
     warmupCache: async (imageHashes: string[]) => {
-      const promises = imageHashes.map(hash => {
+      const promises = imageHashes.map(_hash => {
         // 这里可以实现预热逻辑
         // 暂时只是标记为预热
         return Promise.resolve();

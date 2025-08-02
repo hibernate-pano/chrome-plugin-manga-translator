@@ -4,11 +4,11 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 // API提供者配置接口
 export interface ProviderConfig {
   apiKey: string;
-  apiBaseUrl: string;
-  visionModel: string;
-  chatModel: string;
-  temperature: number;
-  maxTokens: number;
+  apiBaseUrl?: string;
+  visionModel?: string;
+  chatModel?: string;
+  temperature?: number;
+  maxTokens?: number;
 }
 
 // OCR设置接口
@@ -43,20 +43,20 @@ export interface ConfigState {
   // API提供者配置
   providerType: string;
   providerConfig: Record<string, ProviderConfig>;
-  
+
   // OCR设置
   ocrSettings: OCRSettings;
-  
+
   // 样式配置
   styleLevel: number;
   fontFamily: string;
   fontSize: string;
   fontColor: string;
   backgroundColor: string;
-  
+
   // 快捷键配置
   shortcuts: Record<string, string>;
-  
+
   // 高级设置
   advancedSettings: AdvancedSettings;
 }
@@ -67,27 +67,27 @@ export interface ConfigActions {
   setProviderType: (providerType: string) => void;
   updateProviderConfig: (providerType: string, config: Partial<ProviderConfig>) => void;
   setProviderApiKey: (providerType: string, apiKey: string) => void;
-  
+
   // OCR设置操作
   updateOCRSettings: (settings: Partial<OCRSettings>) => void;
-  
+
   // 样式配置操作
   setStyleLevel: (level: number) => void;
   setFontFamily: (fontFamily: string) => void;
   setFontSize: (fontSize: string) => void;
   setFontColor: (fontColor: string) => void;
   setBackgroundColor: (backgroundColor: string) => void;
-  
+
   // 快捷键操作
   updateShortcuts: (shortcuts: Partial<Record<string, string>>) => void;
-  
+
   // 高级设置操作
   updateAdvancedSettings: (settings: Partial<AdvancedSettings>) => void;
-  
+
   // 批量更新
   updateConfig: (config: Partial<ConfigState>) => void;
   resetToDefaults: () => void;
-  
+
   // 获取活跃提供者配置
   getActiveProviderConfig: () => ProviderConfig;
 }
@@ -207,28 +207,37 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
 
       // API提供者操作
       setProviderType: (providerType) => set({ providerType }),
-      
+
       updateProviderConfig: (providerType, config) =>
-        set((state) => ({
-          providerConfig: {
-            ...state.providerConfig,
-            [providerType]: {
-              ...state.providerConfig[providerType],
-              ...config,
+        set((state) => {
+          const currentConfig = state.providerConfig[providerType] || {};
+          const updatedConfig = { ...currentConfig, ...config };
+
+          // 确保apiKey存在
+          if (!updatedConfig.apiKey) {
+            updatedConfig.apiKey = '';
+          }
+
+          return {
+            providerConfig: {
+              ...state.providerConfig,
+              [providerType]: updatedConfig as ProviderConfig,
             },
-          },
-        })),
+          };
+        }),
 
       setProviderApiKey: (providerType, apiKey) =>
-        set((state) => ({
-          providerConfig: {
-            ...state.providerConfig,
-            [providerType]: {
-              ...state.providerConfig[providerType],
-              apiKey,
+        set((state) => {
+          const currentConfig = state.providerConfig[providerType] || {};
+          const updatedConfig = { ...currentConfig, apiKey };
+
+          return {
+            providerConfig: {
+              ...state.providerConfig,
+              [providerType]: updatedConfig as ProviderConfig,
             },
-          },
-        })),
+          };
+        }),
 
       // OCR设置操作
       updateOCRSettings: (settings) =>
@@ -252,9 +261,15 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
 
       // 快捷键操作
       updateShortcuts: (shortcuts) =>
-        set((state) => ({
-          shortcuts: { ...state.shortcuts, ...shortcuts },
-        })),
+        set((state) => {
+          const updatedShortcuts: Record<string, string> = {};
+          Object.entries({ ...state.shortcuts, ...shortcuts }).forEach(([key, value]) => {
+            if (value !== undefined) {
+              updatedShortcuts[key] = value;
+            }
+          });
+          return { shortcuts: updatedShortcuts };
+        }),
 
       // 高级设置操作
       updateAdvancedSettings: (settings) =>
@@ -264,13 +279,25 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
 
       // 批量更新
       updateConfig: (config) => set((state) => ({ ...state, ...config })),
-      
+
       resetToDefaults: () => set(DEFAULT_CONFIG),
 
       // 获取活跃提供者配置
       getActiveProviderConfig: () => {
         const state = get();
-        return state.providerConfig[state.providerType] || state.providerConfig.openai;
+        const config = state.providerConfig[state.providerType] || state.providerConfig['openai'];
+        if (!config) {
+          // 返回默认配置
+          return {
+            apiKey: '',
+            apiBaseUrl: '',
+            visionModel: '',
+            chatModel: '',
+            temperature: 0.7,
+            maxTokens: 1000,
+          };
+        }
+        return config;
       },
     }),
     {

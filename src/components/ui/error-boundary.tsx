@@ -43,9 +43,9 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     const info: ErrorInfo = {
-      componentStack: errorInfo.componentStack,
+      componentStack: errorInfo.componentStack || '',
       errorBoundary: this.constructor.name,
     };
 
@@ -70,10 +70,10 @@ export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoun
     });
   };
 
-  render() {
+  override render() {
     if (this.state.hasError && this.state.error && this.state.errorInfo) {
       const FallbackComponent = this.props.fallback || DefaultErrorFallback;
-      
+
       return (
         <div className={this.props.className}>
           <FallbackComponent
