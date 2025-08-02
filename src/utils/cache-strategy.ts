@@ -1,4 +1,4 @@
-import { IntelligentCache, CacheItem } from './intelligent-cache';
+import { IntelligentCache } from './intelligent-cache';
 import { performanceMonitor } from './performance-monitor';
 
 /**
@@ -176,22 +176,22 @@ export class ConfigCacheStrategy implements CacheStrategy {
   name = 'config';
   description = '配置数据缓存策略';
 
-  shouldCache(key: string, data: any, context: CacheContext): boolean {
+  shouldCache(_key: string, _data: any, _context: CacheContext): boolean {
     // 配置数据总是缓存
     return true;
   }
 
-  getTTL(key: string, data: any, context: CacheContext): number {
+  getTTL(_key: string, _data: any, _context: CacheContext): number {
     // 配置数据缓存30天
     return 30 * 24 * 60 * 60 * 1000;
   }
 
-  getPriority(key: string, data: any, context: CacheContext): number {
+  getPriority(_key: string, _data: any, _context: CacheContext): number {
     // 配置数据最高优先级
     return 10;
   }
 
-  getTags(key: string, data: any, context: CacheContext): string[] {
+  getTags(_key: string, _data: any, _context: CacheContext): string[] {
     return ['config', 'persistent'];
   }
 }
@@ -240,7 +240,7 @@ export class CacheStrategyManager {
     // 获取策略
     const strategyName = options.forceStrategy || operation;
     const strategy = this.strategies.get(strategyName);
-    
+
     if (!strategy) {
       console.warn(`未找到缓存策略: ${strategyName}`);
       return;
@@ -285,7 +285,7 @@ export class CacheStrategyManager {
    */
   smartGet<T>(key: string): T | null {
     const result = this.cache.get<T>(key);
-    
+
     if (result !== null) {
       this.recordAccess(key);
     }
@@ -311,14 +311,14 @@ export class CacheStrategyManager {
 
     // 获取当前缓存统计
     const stats = this.cache.getStats();
-    
+
     if (stats.size <= targetSize) {
       console.debug('缓存大小在目标范围内，无需清理');
       return;
     }
 
     // 清理过期和低优先级的缓存
-    const now = Date.now();
+    const _now = Date.now();
     let cleanedCount = 0;
 
     // 这里需要扩展IntelligentCache以支持按条件清理
@@ -393,9 +393,9 @@ export class CacheStrategyManager {
   private getSystemLoad(): number {
     // 简化的系统负载计算
     const metrics = performanceMonitor.getMetrics();
-    const errorRate = metrics.apiCalls.total > 0 ? 
+    const errorRate = metrics.apiCalls.total > 0 ?
       metrics.apiCalls.failed / metrics.apiCalls.total : 0;
-    
+
     return Math.min(errorRate * 2 + (metrics.apiCalls.averageResponseTime / 10000), 1);
   }
 

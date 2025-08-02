@@ -1,4 +1,4 @@
-import React from 'react';
+// import React from 'react';
 
 const languages = [
   { code: 'zh-CN', name: '简体中文' },

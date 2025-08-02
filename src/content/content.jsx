@@ -139,7 +139,7 @@ async function handleImageClick(e) {
   }
 
   // 检查是否点击了图像
-  let target = e.target;
+  const target = e.target;
   if (target.nodeName !== 'IMG') {
     return;
   }
@@ -328,7 +328,7 @@ function removeAllTranslations() {
 function showLoadingIndicator(image) {
   // 为图像分配一个唯一ID
   if (!image.dataset.translatorId) {
-    image.dataset.translatorId = Date.now() + '-' + Math.random().toString(36).substring(2, 9);
+    image.dataset.translatorId = `${Date.now()  }-${  Math.random().toString(36).substring(2, 9)}`;
   }
 
   // 创建加载指示器

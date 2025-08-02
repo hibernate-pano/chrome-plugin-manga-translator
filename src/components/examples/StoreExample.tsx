@@ -49,7 +49,7 @@ export const StoreExample: React.FC = () => {
       imageUrl: 'https://example.com/test-image.jpg',
       originalText: 'テスト',
       translatedText: '测试',
-      targetLanguage: targetLanguage,
+      targetLanguage,
     });
   };
 

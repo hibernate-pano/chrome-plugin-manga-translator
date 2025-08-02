@@ -232,7 +232,7 @@ export class APIErrorHandler {
       errorInfo.data = error.data;
     }
     
-    console.error(`[${timestamp}] ${context ? context + ': ' : ''}${error.message}`, errorInfo);
+    console.error(`[${timestamp}] ${context ? `${context  }: ` : ''}${error.message}`, errorInfo);
     
     return errorInfo;
   }

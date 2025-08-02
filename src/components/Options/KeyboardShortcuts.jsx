@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 
 const KeyboardShortcuts = ({ shortcuts, onChange }) => {
   const [toggleTranslation, setToggleTranslation] = useState(shortcuts?.toggleTranslation || 'Alt+T');

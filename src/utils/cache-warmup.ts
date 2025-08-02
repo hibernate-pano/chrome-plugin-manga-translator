@@ -1,7 +1,7 @@
 import { unifiedCacheManager } from './unified-cache-manager';
-import { offlineManager } from './offline-manager';
+// import { offlineManager } from './offline-manager';
 import { APIManager } from '../api/api-manager';
-import { useCacheStore } from '../stores/cache';
+// import { useCacheStore } from '../stores/cache';
 
 /**
  * 预热配置接口
@@ -103,7 +103,7 @@ export class CacheWarmupManager {
 
     try {
       const predictions = await this.generatePredictions(currentContext, mode);
-      
+
       for (const prediction of predictions) {
         await this.preloadPredictedItem(prediction);
       }
@@ -238,7 +238,7 @@ export class CacheWarmupManager {
     for (let i = 0; i < promises.length; i += batchSize) {
       const batch = promises.slice(i, i + batchSize);
       await Promise.all(batch);
-      
+
       // 添加小延迟避免API限制
       await new Promise(resolve => setTimeout(resolve, 100));
     }
@@ -287,7 +287,7 @@ export class CacheWarmupManager {
    */
   private async preloadTranslation(text: string, targetLang: string, priority: number): Promise<void> {
     const cacheKey = `translation:${text}:${targetLang}`;
-    
+
     try {
       // 检查是否已经缓存
       const cached = await unifiedCacheManager.get(cacheKey, 'translation');
@@ -357,7 +357,7 @@ export class CacheWarmupManager {
       // 简单的序列预测
       const lastAccess = pattern[pattern.length - 1];
       const timeDiff = Date.now() - lastAccess;
-      
+
       if (timeDiff < 60000) { // 1分钟内
         predictions.push({
           type: 'translation',
@@ -374,7 +374,7 @@ export class CacheWarmupManager {
   /**
    * 基于频率的预测
    */
-  private generateFrequencyPredictions(context: any): Array<{ type: string; key: string; data: any; priority: number }> {
+  private generateFrequencyPredictions(_context: any): Array<{ type: string; key: string; data: any; priority: number }> {
     // 基于使用频率预测
     return [];
   }
@@ -382,7 +382,7 @@ export class CacheWarmupManager {
   /**
    * 基于时间的预测
    */
-  private generateTimePredictions(context: any): Array<{ type: string; key: string; data: any; priority: number }> {
+  private generateTimePredictions(_context: any): Array<{ type: string; key: string; data: any; priority: number }> {
     // 基于时间模式预测
     return [];
   }
@@ -390,7 +390,7 @@ export class CacheWarmupManager {
   /**
    * 基于用户行为的预测
    */
-  private generateUserPredictions(context: any): Array<{ type: string; key: string; data: any; priority: number }> {
+  private generateUserPredictions(_context: any): Array<{ type: string; key: string; data: any; priority: number }> {
     // 基于用户历史行为预测
     return [];
   }
@@ -414,15 +414,15 @@ export class CacheWarmupManager {
   /**
    * 更新访问模式
    */
-  private updateAccessPatterns(action: string, context: any): void {
+  private updateAccessPatterns(action: string, _context: any): void {
     const timestamps = this.accessPatterns.get(action) || [];
     timestamps.push(Date.now());
-    
+
     // 保持最近100次访问记录
     if (timestamps.length > 100) {
       timestamps.splice(0, timestamps.length - 100);
     }
-    
+
     this.accessPatterns.set(action, timestamps);
   }
 
@@ -441,7 +441,7 @@ export class CacheWarmupManager {
    */
   private getFrequentLanguages(): string[] {
     const langCount = new Map<string, number>();
-    
+
     this.userBehaviorHistory.forEach(record => {
       if (record.context.language) {
         const count = langCount.get(record.context.language) || 0;

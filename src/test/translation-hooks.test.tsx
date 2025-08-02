@@ -98,7 +98,7 @@ describe('翻译钩子测试', () => {
   });
 
   const wrapper = ({ children }: { children: React.ReactNode }) => (
-    <QueryClientProvider client= { queryClient } > { children } </QueryClientProvider>
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
   );
 
 describe('useTranslateText', () => {
@@ -429,5 +429,4 @@ describe('集成测试', () => {
     expect(translateResult.current.data?.translatedText).toBe('完整流程测试');
     expect(performanceMetricsCollector.recordTranslationMetric).toHaveBeenCalled();
   });
-});
 });

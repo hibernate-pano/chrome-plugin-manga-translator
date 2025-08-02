@@ -296,7 +296,7 @@ export class IntelligentCache {
     scoredItems.sort((a, b) => a.score - b.score);
 
     let freedSpace = 0;
-    let targetSpace = requiredSpace || this.config.maxSize * 0.2; // 清理20%空间
+    const targetSpace = requiredSpace || this.config.maxSize * 0.2; // 清理20%空间
 
     for (const { key } of scoredItems) {
       if (freedSpace >= targetSpace) break;

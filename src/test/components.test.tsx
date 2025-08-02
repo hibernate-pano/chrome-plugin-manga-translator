@@ -74,7 +74,7 @@ describe('重构后的组件测试', () => {
 
     it('应该显示有效密钥状态', async () => {
       const mockOnChange = vi.fn();
-      const validKey = 'sk-' + 'x'.repeat(40);
+      const validKey = `sk-${  'x'.repeat(40)}`;
       render(<ApiKeyInput apiKey={validKey} onChange={mockOnChange} providerType="openai" />);
 
       // 等待异步验证完成

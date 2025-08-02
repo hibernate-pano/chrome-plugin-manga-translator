@@ -94,7 +94,7 @@ export async function cacheTranslation(imageHash, data) {
   try {
     // 获取现有缓存
     const result = await chrome.storage.local.get('translationCache');
-    let cache = result.translationCache || {};
+    const cache = result.translationCache || {};
     
     // 添加新条目
     cache[imageHash] = {

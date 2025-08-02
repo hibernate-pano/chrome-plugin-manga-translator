@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 
 const AdvancedSettings = ({ settings, onChange }) => {
   // 使用内部状态来跟踪设置

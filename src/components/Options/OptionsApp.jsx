@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import ApiSettings from './ApiSettings';
 import StyleSettings from './StyleSettings';
 import KeyboardShortcuts from './KeyboardShortcuts';
@@ -311,7 +311,7 @@ const OptionsApp = () => {
         saveConfig(importedConfig);
         alert('配置导入成功');
       } catch (error) {
-        alert('配置导入失败: ' + error.message);
+        alert(`配置导入失败: ${  error.message}`);
       }
     };
     reader.readAsText(file);

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { getConfig, saveProviderConfig } from '../../utils/storage';
 import ProviderFactory from '../../api/providers';
 import { DEFAULT_CONFIG } from '../../utils/default-config';

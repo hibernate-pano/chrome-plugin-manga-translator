@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import ApiKeyInput from './ApiKeyInput';
 import LanguageSelector from './LanguageSelector';
 import TranslationToggle from './TranslationToggle';

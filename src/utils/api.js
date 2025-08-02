@@ -34,7 +34,7 @@ export async function callVisionAPI(imageData, options = {}) {
   if (isQwenModel) {
     // Qwen模型的请求格式
     requestBody = {
-      model: model,
+      model,
       messages: [
         {
           role: 'user',
@@ -54,7 +54,7 @@ export async function callVisionAPI(imageData, options = {}) {
   } else {
     // OpenAI模型的请求格式
     requestBody = {
-      model: model,
+      model,
       messages: [
         {
           role: 'user',
@@ -151,19 +151,19 @@ export async function callChatAPI(text, targetLang, options = {}) {
   if (isQwenModel) {
     // Qwen模型可能不支持或不需要system消息，将system内容合并到user消息中
     requestBody = {
-      model: model,
+      model,
       messages: [
         {
           role: 'user',
           content: `${systemPrompt}\n\n${text}`
         }
       ],
-      temperature: temperature
+      temperature
     };
   } else {
     // OpenAI模型的标准格式
     requestBody = {
-      model: model,
+      model,
       messages: [
         {
           role: 'system',
@@ -174,7 +174,7 @@ export async function callChatAPI(text, targetLang, options = {}) {
           content: text
         }
       ],
-      temperature: temperature
+      temperature
     };
   }
 
