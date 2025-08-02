@@ -9,8 +9,6 @@ import {
   usePerformanceStats,
   useRecentMetrics,
   usePerformanceAlerts,
-  usePerformanceThresholds,
-  usePerformanceRecorder,
   usePerformanceTimer,
   usePerformanceExport,
   useRealTimePerformanceMonitoring
@@ -54,10 +52,8 @@ export function PerformanceMonitoringDemo() {
   );
   const { data: recentMetrics } = useRecentMetrics(50, selectedCategory || undefined);
   const { data: alerts } = usePerformanceAlerts();
-  const { thresholds } = usePerformanceThresholds();
 
   // 功能钩子
-  const { recordMetric } = usePerformanceRecorder();
   const { startTimer, endTimer, measureAsync } = usePerformanceTimer();
   const exportMutation = usePerformanceExport();
   useRealTimePerformanceMonitoring();
