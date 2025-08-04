@@ -47,8 +47,6 @@ export default defineConfig({
         manualChunks: {
           // 将React相关库分离到单独的chunk
           'react-vendor': ['react', 'react-dom'],
-          // 将UI组件库分离
-          'ui-vendor': ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-select'],
           // 将查询库分离
           'query-vendor': ['@tanstack/react-query'],
           // 将状态管理分离
