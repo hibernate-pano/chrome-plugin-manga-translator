@@ -176,7 +176,7 @@ class MemoryOptimizer {
    * 清理弱引用
    */
   private cleanupWeakRefs(): void {
-    const toDelete: WeakRef<any>[] = [];
+    const toDelete: any[] = [];
 
     this.weakRefs.forEach(ref => {
       if (ref.deref() === undefined) {

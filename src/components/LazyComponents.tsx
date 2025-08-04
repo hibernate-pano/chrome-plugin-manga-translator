@@ -256,7 +256,7 @@ export class LazyErrorBoundary extends React.Component<
     return { hasError: true, error };
   }
 
-  componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+  override componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
     console.error('懒加载组件错误:', error, errorInfo);
 
     // 记录错误指标
@@ -275,7 +275,7 @@ export class LazyErrorBoundary extends React.Component<
     this.props.onError?.(error);
   }
 
-  render() {
+  override render() {
     if (this.state.hasError) {
       return this.props.fallback || (
         <div className="p-4 text-center">

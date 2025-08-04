@@ -342,7 +342,7 @@ export function PerformanceMonitorProvider({
   const { recordMetric } = usePerformanceRecorder();
 
   useEffect(() => {
-    if (!enableGlobalMonitoring) return;
+    if (!enableGlobalMonitoring) return undefined;
 
     // 监控页面加载性能
     const handleLoad = () => {
@@ -397,7 +397,7 @@ export function PerformanceMonitorProvider({
 
   // 错误边界监控
   useEffect(() => {
-    if (!enableErrorBoundaryMonitoring) return;
+    if (!enableErrorBoundaryMonitoring) return undefined;
 
     const handleError = (event: ErrorEvent) => {
       recordMetric(

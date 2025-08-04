@@ -3,7 +3,7 @@
  */
 
 import React from 'react';
-import { OptionsApp } from '@/components/Options/OptionsApp';
+import OptionsApp from '@/components/Options/OptionsApp';
 
 export const Options: React.FC = () => {
   return <OptionsApp />;

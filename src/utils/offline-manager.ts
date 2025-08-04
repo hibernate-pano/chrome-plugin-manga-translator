@@ -242,8 +242,8 @@ export class OfflineManager {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         const result = await chrome.storage.local.get('offlineQueue');
-        if (result.offlineQueue) {
-          const items = JSON.parse(result.offlineQueue);
+        if (result['offlineQueue']) {
+          const items = JSON.parse(result['offlineQueue']);
           this.offlineQueue = new Map(items);
           console.debug(`加载离线队列: ${this.offlineQueue.size} 项`);
         }

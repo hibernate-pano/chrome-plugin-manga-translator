@@ -462,8 +462,8 @@ export class CacheWarmupManager {
     try {
       if (typeof chrome !== 'undefined' && chrome.storage) {
         const result = await chrome.storage.local.get('accessPatterns');
-        if (result.accessPatterns) {
-          const patterns = JSON.parse(result.accessPatterns);
+        if (result['accessPatterns']) {
+          const patterns = JSON.parse(result['accessPatterns']);
           this.accessPatterns = new Map(patterns);
         }
       }

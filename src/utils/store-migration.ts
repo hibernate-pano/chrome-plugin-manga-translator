@@ -49,56 +49,56 @@ export class StoreMigration {
   private async migrateConfig(): Promise<void> {
     try {
       // 从Chrome Storage获取旧配置
-      const result = await chrome.storage.sync.get(null);
-      
+      const result = await chrome.storage.sync.get(null) as any;
+
       if (Object.keys(result).length === 0) {
         console.log('没有找到旧配置数据');
         return;
       }
 
       const configStore = useConfigStore.getState();
-      
+
       // 迁移API提供者配置
-      if (result.providerType) {
-        configStore.setProviderType(result.providerType);
+      if (result['providerType']) {
+        configStore.setProviderType(result['providerType']);
       }
 
-      if (result.providerConfig) {
-        Object.entries(result.providerConfig).forEach(([provider, config]) => {
+      if (result['providerConfig']) {
+        Object.entries(result['providerConfig']).forEach(([provider, config]) => {
           configStore.updateProviderConfig(provider, config as any);
         });
       }
 
       // 迁移OCR设置
-      if (result.ocrSettings) {
-        configStore.updateOCRSettings(result.ocrSettings);
+      if (result['ocrSettings']) {
+        configStore.updateOCRSettings(result['ocrSettings']);
       }
 
       // 迁移样式配置
-      if (result.styleLevel !== undefined) {
-        configStore.setStyleLevel(result.styleLevel);
+      if (result['styleLevel'] !== undefined) {
+        configStore.setStyleLevel(result['styleLevel']);
       }
-      if (result.fontFamily) {
-        configStore.setFontFamily(result.fontFamily);
+      if (result['fontFamily']) {
+        configStore.setFontFamily(result['fontFamily']);
       }
-      if (result.fontSize) {
-        configStore.setFontSize(result.fontSize);
+      if (result['fontSize']) {
+        configStore.setFontSize(result['fontSize']);
       }
-      if (result.fontColor) {
-        configStore.setFontColor(result.fontColor);
+      if (result['fontColor']) {
+        configStore.setFontColor(result['fontColor']);
       }
-      if (result.backgroundColor) {
-        configStore.setBackgroundColor(result.backgroundColor);
+      if (result['backgroundColor']) {
+        configStore.setBackgroundColor(result['backgroundColor']);
       }
 
       // 迁移快捷键
-      if (result.shortcuts) {
-        configStore.updateShortcuts(result.shortcuts);
+      if (result['shortcuts']) {
+        configStore.updateShortcuts(result['shortcuts']);
       }
 
       // 迁移高级设置
-      if (result.advancedSettings) {
-        configStore.updateAdvancedSettings(result.advancedSettings);
+      if (result['advancedSettings']) {
+        configStore.updateAdvancedSettings(result['advancedSettings']);
       }
 
       console.log('配置数据迁移完成');
@@ -116,13 +116,13 @@ export class StoreMigration {
         'translationState',
         'translationHistory',
         'translatedImages'
-      ]);
+      ]) as any;
 
       const translationStore = useTranslationStore.getState();
 
       // 迁移基本翻译状态
-      if (result.translationState) {
-        const state = result.translationState;
+      if (result['translationState']) {
+        const state = result['translationState'];
         if (state.enabled !== undefined) {
           translationStore.setEnabled(state.enabled);
         }
@@ -135,28 +135,30 @@ export class StoreMigration {
       }
 
       // 迁移翻译历史
-      if (result.translationHistory && Array.isArray(result.translationHistory)) {
-        result.translationHistory.forEach((item: any) => {
+      if (result['translationHistory'] && Array.isArray(result['translationHistory'])) {
+        result['translationHistory'].forEach((item: any) => {
           translationStore.addToHistory({
             imageUrl: item.imageUrl || '',
             originalText: item.originalText || '',
             translatedText: item.translatedText || '',
+            sourceLanguage: item.sourceLanguage || 'ja',
             targetLanguage: item.targetLanguage || 'zh-CN',
+            provider: item.provider || 'openai',
             imageHash: item.imageHash,
           });
         });
       }
 
       // 迁移已翻译图像映射
-      if (result.translatedImages) {
-        if (result.translatedImages instanceof Map) {
+      if (result['translatedImages']) {
+        if (result['translatedImages'] instanceof Map) {
           // 如果是Map格式
-          result.translatedImages.forEach((value: any, key: string) => {
+          result['translatedImages'].forEach((value: any, key: string) => {
             translationStore.addTranslatedImage(key, value);
           });
-        } else if (typeof result.translatedImages === 'object') {
+        } else if (typeof result['translatedImages'] === 'object') {
           // 如果是普通对象格式
-          Object.entries(result.translatedImages).forEach(([key, value]) => {
+          Object.entries(result['translatedImages']).forEach(([key, value]) => {
             translationStore.addTranslatedImage(key, value as any);
           });
         }
@@ -177,13 +179,13 @@ export class StoreMigration {
         'translationCache',
         'imageCache',
         'ocrCache'
-      ]);
+      ]) as any;
 
       const cacheStore = useCacheStore.getState();
 
       // 迁移翻译缓存
-      if (result.translationCache) {
-        Object.entries(result.translationCache).forEach(([key, value]: [string, any]) => {
+      if (result['translationCache']) {
+        Object.entries(result['translationCache']).forEach(([key, value]: [string, any]) => {
           if (value && value.data) {
             // 保留原有的时间戳信息
             const ttl = value.expiresAt ? value.expiresAt - Date.now() : undefined;
@@ -195,8 +197,8 @@ export class StoreMigration {
       }
 
       // 迁移图像缓存
-      if (result.imageCache) {
-        Object.entries(result.imageCache).forEach(([key, value]: [string, any]) => {
+      if (result['imageCache']) {
+        Object.entries(result['imageCache']).forEach(([key, value]: [string, any]) => {
           if (value && value.data) {
             const ttl = value.expiresAt ? value.expiresAt - Date.now() : undefined;
             if (!ttl || ttl > 0) {
@@ -207,8 +209,8 @@ export class StoreMigration {
       }
 
       // 迁移OCR缓存
-      if (result.ocrCache) {
-        Object.entries(result.ocrCache).forEach(([key, value]: [string, any]) => {
+      if (result['ocrCache']) {
+        Object.entries(result['ocrCache']).forEach(([key, value]: [string, any]) => {
           if (value && value.data) {
             const ttl = value.expiresAt ? value.expiresAt - Date.now() : undefined;
             if (!ttl || ttl > 0) {
@@ -235,7 +237,7 @@ export class StoreMigration {
         'fontFamily', 'fontSize', 'fontColor', 'backgroundColor',
         'shortcuts', 'advancedSettings'
       ];
-      
+
       // 清理旧的local存储数据
       const localKeys = [
         'translationState', 'translationHistory', 'translatedImages',
@@ -259,8 +261,8 @@ export class StoreMigration {
   async needsMigration(): Promise<boolean> {
     try {
       const [syncResult, localResult] = await Promise.all([
-        chrome.storage.sync.get(null),
-        chrome.storage.local.get(['translationState', 'translationHistory'])
+        chrome.storage.sync.get(null) as unknown as Promise<any>,
+        chrome.storage.local.get(['translationState', 'translationHistory']) as unknown as Promise<any>
       ]);
 
       // 如果存在旧格式的数据，则需要迁移
@@ -277,7 +279,7 @@ export class StoreMigration {
  */
 export async function initializeStoreMigration(): Promise<void> {
   const migration = StoreMigration.getInstance();
-  
+
   if (await migration.needsMigration()) {
     await migration.migrate();
   }

@@ -406,7 +406,9 @@ export class DataMigration {
       imageUrl: item.imageUrl || '',
       originalText: item.originalText || '',
       translatedText: item.translatedText || '',
+      sourceLanguage: item.sourceLanguage || 'ja',
       targetLanguage: item.targetLanguage || 'zh-CN',
+      provider: item.provider || 'openai',
       imageHash: item.imageHash,
     };
   }

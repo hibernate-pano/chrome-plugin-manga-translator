@@ -63,14 +63,14 @@ export const FocusTrap: React.FC<FocusTrapProps> = ({
   const lastFocusableRef = React.useRef<HTMLElement | null>(null);
 
   React.useEffect(() => {
-    if (!active || !containerRef.current) return;
+    if (!active || !containerRef.current) return undefined;
 
     const container = containerRef.current;
     const focusableElements = container.querySelectorAll(
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
     );
 
-    if (focusableElements.length === 0) return;
+    if (focusableElements.length === 0) return undefined;
 
     firstFocusableRef.current = focusableElements[0] as HTMLElement;
     lastFocusableRef.current = focusableElements[focusableElements.length - 1] as HTMLElement;

@@ -170,7 +170,7 @@ export class PerformanceBenchmark {
     const value = data.value || data;
 
     // 测试写入
-    strategyManager.smartSet(key, value, 'test');
+    strategyManager.smartSet(key, value, 'translation');
     performanceMonitor.recordCacheHit();
 
     // 测试读取
@@ -187,18 +187,18 @@ export class PerformanceBenchmark {
    */
   private async testAPIOperation(data: any): Promise<void> {
     const startTime = performance.now();
+    performanceMonitor.startAPIRequest('test-request', 'translation');
 
     try {
       // 模拟API调用
       await new Promise(resolve => setTimeout(resolve, Math.random() * 100));
 
       const endTime = performance.now();
-      performanceMonitor.recordAPICall('test', endTime - startTime, true);
+      performanceMonitor.endAPIRequest('test-request', 'translation');
 
     } catch (error) {
       const endTime = performance.now();
-      performanceMonitor.recordAPICall('test', endTime - startTime, false);
-      performanceMonitor.recordError('API_ERROR', String(error));
+      performanceMonitor.recordAPIFailure('test-request', error as Error);
     }
   }
 

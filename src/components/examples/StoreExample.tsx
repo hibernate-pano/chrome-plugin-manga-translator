@@ -49,13 +49,15 @@ export const StoreExample: React.FC = () => {
       imageUrl: 'https://example.com/test-image.jpg',
       originalText: 'テスト',
       translatedText: '测试',
+      sourceLanguage: 'ja',
       targetLanguage,
+      provider: 'openai',
     });
   };
 
   const handleTestTranslation = async () => {
     setProcessing(true);
-    
+
     // 模拟翻译过程
     setTimeout(() => {
       handleAddTestHistory();
@@ -66,7 +68,7 @@ export const StoreExample: React.FC = () => {
   return (
     <div className="p-6 space-y-6">
       <h1 className="text-2xl font-bold">Zustand Store 示例</h1>
-      
+
       {/* 翻译状态控制 */}
       <Card>
         <CardHeader>
@@ -80,7 +82,7 @@ export const StoreExample: React.FC = () => {
             />
             <label>启用翻译</label>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <label>模式:</label>
             <Button
@@ -96,7 +98,7 @@ export const StoreExample: React.FC = () => {
               自动
             </Button>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <label>目标语言:</label>
             <Input
@@ -106,7 +108,7 @@ export const StoreExample: React.FC = () => {
               className="w-32"
             />
           </div>
-          
+
           <div className="flex space-x-2">
             <Button
               onClick={handleTestTranslation}
@@ -144,7 +146,7 @@ export const StoreExample: React.FC = () => {
               <option value="openrouter">OpenRouter</option>
             </select>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <label>样式级别:</label>
             <input
@@ -157,17 +159,17 @@ export const StoreExample: React.FC = () => {
             />
             <span>{styleLevel}</span>
           </div>
-          
+
           <div className="flex items-center space-x-2">
             <Switch
               checked={advancedSettings.debugMode}
-              onCheckedChange={(checked) => 
+              onCheckedChange={(checked) =>
                 updateAdvancedSettings({ debugMode: checked })
               }
             />
             <label>调试模式</label>
           </div>
-          
+
           <div className="text-sm text-gray-600">
             <p>当前API配置: {activeProviderConfig.visionModel}</p>
             <p>API密钥: {activeProviderConfig.apiKey ? '已设置' : '未设置'}</p>
@@ -195,7 +197,7 @@ export const StoreExample: React.FC = () => {
               清空缓存
             </Button>
           </div>
-          
+
           <div className="text-sm text-gray-600">
             <p>缓存统计:</p>
             <ul className="list-disc list-inside ml-4">
@@ -205,7 +207,7 @@ export const StoreExample: React.FC = () => {
               <li>总计: {cacheStats.totalSize} 项</li>
             </ul>
           </div>
-          
+
           {history.length > 0 && (
             <div>
               <h4 className="font-medium mb-2">最近翻译历史:</h4>

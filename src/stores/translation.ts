@@ -7,7 +7,10 @@ export interface TranslationHistoryItem {
   imageUrl: string;
   originalText: string;
   translatedText: string;
+  sourceLanguage: string;
   targetLanguage: string;
+  provider: string;
+  confidence?: number;
   timestamp: number;
   imageHash?: string;
 }

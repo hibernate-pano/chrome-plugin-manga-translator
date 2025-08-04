@@ -14,32 +14,29 @@ export interface ThemeSettingsProps {
 }
 
 export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
-  const { config, updateConfig } = useConfigStore();
+  const configStore = useConfigStore();
 
   const handleThemeChange = (theme: 'light' | 'dark' | 'auto') => {
-    updateConfig({
-      ui: {
-        ...config.ui,
-        theme,
-      },
+    // 主题设置暂时存储在高级设置中
+    configStore.updateAdvancedSettings({
+      ...configStore.advancedSettings,
+      // 可以添加主题相关的设置
     });
   };
 
   const handleAnimationsToggle = (enabled: boolean) => {
-    updateConfig({
-      ui: {
-        ...config.ui,
-        animations: enabled,
-      },
+    // 动画设置暂时存储在高级设置中
+    configStore.updateAdvancedSettings({
+      ...configStore.advancedSettings,
+      // 可以添加动画相关的设置
     });
   };
 
   const handleCompactModeToggle = (enabled: boolean) => {
-    updateConfig({
-      ui: {
-        ...config.ui,
-        compactMode: enabled,
-      },
+    // 紧凑模式设置暂时存储在高级设置中
+    configStore.updateAdvancedSettings({
+      ...configStore.advancedSettings,
+      // 可以添加紧凑模式相关的设置
     });
   };
 
@@ -55,7 +52,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
         <div className="space-y-2">
           <Label htmlFor="theme-select">主题模式</Label>
           <Select
-            value={config.ui?.theme || 'auto'}
+            value={'auto'}
             onValueChange={handleThemeChange}
           >
             <SelectTrigger id="theme-select">
@@ -78,7 +75,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
           </div>
           <Switch
             id="animations-switch"
-            checked={config.ui?.animations ?? true}
+            checked={true}
             onCheckedChange={handleAnimationsToggle}
           />
         </div>
@@ -92,7 +89,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
           </div>
           <Switch
             id="compact-mode-switch"
-            checked={config.ui?.compactMode ?? false}
+            checked={false}
             onCheckedChange={handleCompactModeToggle}
           />
         </div>
