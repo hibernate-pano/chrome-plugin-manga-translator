@@ -1,276 +1,351 @@
 import React from 'react';
-import { cn } from '../../lib/utils';
+import { cn } from '@/lib/utils';
 
-export interface LoadingSpinnerProps {
+// ==================== 基础加载组件 ====================
+
+/**
+ * 基础加载组件
+ */
+interface LoadingProps {
   size?: 'sm' | 'md' | 'lg';
+  color?: 'primary' | 'secondary' | 'white';
   className?: string;
 }
 
-export const LoadingSpinner: React.FC<LoadingSpinnerProps> = ({ 
+export const Loading: React.FC<LoadingProps> = ({ 
   size = 'md', 
+  color = 'primary',
   className 
 }) => {
   const sizeClasses = {
-    sm: 'h-4 w-4',
-    md: 'h-6 w-6',
-    lg: 'h-8 w-8',
+    sm: 'w-4 h-4',
+    md: 'w-6 h-6',
+    lg: 'w-8 h-8',
   };
+
+  const colorClasses = {
+    primary: 'text-blue-600',
+    secondary: 'text-gray-600',
+    white: 'text-white',
+  };
+
+  return (
+    <div className={cn('animate-spin', sizeClasses[size], colorClasses[color], className)}>
+      <svg
+        className="w-full h-full"
+        fill="none"
+        viewBox="0 0 24 24"
+      >
+        <circle
+          className="opacity-25"
+          cx="12"
+          cy="12"
+          r="10"
+          stroke="currentColor"
+          strokeWidth="4"
+        />
+        <path
+          className="opacity-75"
+          fill="currentColor"
+          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+        />
+      </svg>
+    </div>
+  );
+};
+
+// ==================== 骨架屏组件 ====================
+
+/**
+ * 骨架屏组件
+ */
+interface SkeletonProps {
+  className?: string;
+  width?: string | number;
+  height?: string | number;
+  rounded?: boolean;
+}
+
+export const Skeleton: React.FC<SkeletonProps> = ({
+  className,
+  width,
+  height,
+  rounded = false,
+}) => {
+  const style: React.CSSProperties = {};
+  
+  if (width) {
+    style.width = typeof width === 'number' ? `${width}px` : width;
+  }
+  
+  if (height) {
+    style.height = typeof height === 'number' ? `${height}px` : height;
+  }
 
   return (
     <div
       className={cn(
-        'animate-spin rounded-full border-2 border-gray-300 border-t-blue-600',
-        sizeClasses[size],
+        'animate-pulse bg-gray-200 dark:bg-gray-700',
+        rounded && 'rounded',
         className
       )}
+      style={style}
     />
   );
 };
 
-export interface LoadingDotsProps {
-  className?: string;
-}
-
-export const LoadingDots: React.FC<LoadingDotsProps> = ({ className }) => {
-  return (
-    <div className={cn('flex space-x-1', className)}>
-      <div className="h-2 w-2 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.3s]"></div>
-      <div className="h-2 w-2 bg-blue-600 rounded-full animate-bounce [animation-delay:-0.15s]"></div>
-      <div className="h-2 w-2 bg-blue-600 rounded-full animate-bounce"></div>
-    </div>
-  );
-};
-
-export interface LoadingBarProps {
-  progress?: number;
-  className?: string;
-  showPercentage?: boolean;
-}
-
-export const LoadingBar: React.FC<LoadingBarProps> = ({ 
-  progress, 
-  className,
-  showPercentage = false 
-}) => {
-  return (
-    <div className={cn('w-full', className)}>
-      <div className="flex justify-between items-center mb-1">
-        <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-          加载中...
-        </span>
-        {showPercentage && progress !== undefined && (
-          <span className="text-sm text-gray-500 dark:text-gray-400">
-            {Math.round(progress)}%
-          </span>
-        )}
-      </div>
-      <div className="w-full bg-gray-200 rounded-full h-2 dark:bg-gray-700">
-        <div
-          className="bg-blue-600 h-2 rounded-full transition-all duration-300 ease-out"
-          style={{
-            width: progress !== undefined ? `${progress}%` : '0%',
-          }}
-        />
-      </div>
-    </div>
-  );
-};
-
-export interface LoadingSkeletonProps {
-  className?: string;
+/**
+ * 文本骨架屏
+ */
+interface TextSkeletonProps {
   lines?: number;
-  avatar?: boolean;
-}
-
-export const LoadingSkeleton: React.FC<LoadingSkeletonProps> = ({ 
-  className,
-  lines = 3,
-  avatar = false 
-}) => {
-  return (
-    <div className={cn('animate-pulse', className)}>
-      {avatar && (
-        <div className="flex items-center space-x-4 mb-4">
-          <div className="rounded-full bg-gray-300 h-10 w-10"></div>
-          <div className="flex-1 space-y-2">
-            <div className="h-4 bg-gray-300 rounded w-3/4"></div>
-            <div className="h-3 bg-gray-300 rounded w-1/2"></div>
-          </div>
-        </div>
-      )}
-      <div className="space-y-3">
-        {Array.from({ length: lines }).map((_, index) => (
-          <div
-            key={index}
-            className={cn(
-              'h-4 bg-gray-300 rounded',
-              index === lines - 1 ? 'w-2/3' : 'w-full'
-            )}
-          />
-        ))}
-      </div>
-    </div>
-  );
-};
-
-export interface LoadingOverlayProps {
-  isLoading: boolean;
-  children: React.ReactNode;
-  loadingText?: string;
   className?: string;
 }
 
-export const LoadingOverlay: React.FC<LoadingOverlayProps> = ({
-  isLoading,
-  children,
-  loadingText = '加载中...',
-  className,
-}) => {
-  return (
-    <div className={cn('relative', className)}>
-      {children}
-      {isLoading && (
-        <div className="absolute inset-0 bg-white/80 dark:bg-gray-900/80 flex items-center justify-center z-50">
-          <div className="flex flex-col items-center space-y-4">
-            <LoadingSpinner size="lg" />
-            <p className="text-sm text-gray-600 dark:text-gray-400">
-              {loadingText}
-            </p>
-          </div>
-        </div>
-      )}
-    </div>
-  );
-};
-
-export interface LoadingButtonProps {
-  isLoading: boolean;
-  children: React.ReactNode;
-  loadingText?: string;
-  disabled?: boolean;
-  className?: string;
-  onClick?: () => void;
-}
-
-export const LoadingButton: React.FC<LoadingButtonProps> = ({
-  isLoading,
-  children,
-  loadingText = '加载中...',
-  disabled,
-  className,
-  onClick,
-}) => {
-  return (
-    <button
-      className={cn(
-        'inline-flex items-center justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed transition-colors',
-        className
-      )}
-      disabled={disabled || isLoading}
-      onClick={onClick}
-    >
-      {isLoading ? (
-        <>
-          <LoadingSpinner size="sm" className="mr-2" />
-          {loadingText}
-        </>
-      ) : (
-        children
-      )}
-    </button>
-  );
-};
-
-export interface LoadingCardProps {
-  title?: string;
-  description?: string;
-  className?: string;
-}
-
-export const LoadingCard: React.FC<LoadingCardProps> = ({
-  title = '加载中',
-  description = '请稍候...',
-  className,
-}) => {
-  return (
-    <div className={cn(
-      'bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 border border-gray-200 dark:border-gray-700',
-      className
-    )}>
-      <div className="flex items-center space-x-4">
-        <LoadingSpinner size="lg" />
-        <div>
-          <h3 className="text-lg font-medium text-gray-900 dark:text-white">
-            {title}
-          </h3>
-          <p className="text-sm text-gray-500 dark:text-gray-400">
-            {description}
-          </p>
-        </div>
-      </div>
-    </div>
-  );
-};
-
-export interface LoadingListProps {
-  items?: number;
-  className?: string;
-}
-
-export const LoadingList: React.FC<LoadingListProps> = ({ 
-  items = 5, 
+export const TextSkeleton: React.FC<TextSkeletonProps> = ({ 
+  lines = 1, 
   className 
 }) => {
   return (
-    <div className={cn('space-y-3', className)}>
-      {Array.from({ length: items }).map((_, index) => (
-        <div
+    <div className={cn('space-y-2', className)}>
+      {Array.from({ length: lines }).map((_, index) => (
+        <Skeleton
           key={index}
-          className="flex items-center space-x-4 p-4 bg-white dark:bg-gray-800 rounded-lg border border-gray-200 dark:border-gray-700"
-        >
-          <div className="animate-pulse flex space-x-4 flex-1">
-            <div className="rounded-full bg-gray-300 h-10 w-10"></div>
-            <div className="flex-1 space-y-2">
-              <div className="h-4 bg-gray-300 rounded w-3/4"></div>
-              <div className="h-3 bg-gray-300 rounded w-1/2"></div>
-            </div>
-          </div>
-        </div>
+          height={16}
+          className={cn(
+            'w-full',
+            index === lines - 1 ? 'w-3/4' : 'w-full'
+          )}
+        />
       ))}
     </div>
   );
 };
 
-// 加载状态管理 Hook
-export const useLoadingState = (initialState = false) => {
-  const [isLoading, setIsLoading] = React.useState(initialState);
-  const [error, setError] = React.useState<string | null>(null);
+/**
+ * 卡片骨架屏
+ */
+interface CardSkeletonProps {
+  className?: string;
+  showImage?: boolean;
+  showTitle?: boolean;
+  showContent?: boolean;
+}
 
-  const startLoading = React.useCallback(() => {
-    setIsLoading(true);
-    setError(null);
-  }, []);
-
-  const stopLoading = React.useCallback(() => {
-    setIsLoading(false);
-  }, []);
-
-  const setLoadingError = React.useCallback((errorMessage: string) => {
-    setIsLoading(false);
-    setError(errorMessage);
-  }, []);
-
-  const reset = React.useCallback(() => {
-    setIsLoading(false);
-    setError(null);
-  }, []);
-
-  return {
-    isLoading,
-    error,
-    startLoading,
-    stopLoading,
-    setLoadingError,
-    reset,
-  };
+export const CardSkeleton: React.FC<CardSkeletonProps> = ({
+  className,
+  showImage = true,
+  showTitle = true,
+  showContent = true,
+}) => {
+  return (
+    <div className={cn('p-4 border rounded-lg', className)}>
+      {showImage && (
+        <Skeleton
+          height={200}
+          className="w-full mb-4 rounded"
+        />
+      )}
+      {showTitle && (
+        <Skeleton
+          height={24}
+          className="w-3/4 mb-2"
+        />
+      )}
+      {showContent && (
+        <TextSkeleton lines={3} />
+      )}
+    </div>
+  );
 };
+
+// ==================== 进度条组件 ====================
+
+/**
+ * 进度条组件
+ */
+interface ProgressProps {
+  value: number;
+  max?: number;
+  size?: 'sm' | 'md' | 'lg';
+  color?: 'primary' | 'success' | 'warning' | 'error';
+  showLabel?: boolean;
+  className?: string;
+}
+
+export const Progress: React.FC<ProgressProps> = ({
+  value,
+  max = 100,
+  size = 'md',
+  color = 'primary',
+  showLabel = false,
+  className,
+}) => {
+  const percentage = Math.min(Math.max((value / max) * 100, 0), 100);
+
+  const sizeClasses = {
+    sm: 'h-1',
+    md: 'h-2',
+    lg: 'h-3',
+  };
+
+  const colorClasses = {
+    primary: 'bg-blue-600',
+    success: 'bg-green-600',
+    warning: 'bg-yellow-600',
+    error: 'bg-red-600',
+  };
+
+  return (
+    <div className={cn('w-full', className)}>
+      <div className={cn('bg-gray-200 rounded-full overflow-hidden', sizeClasses[size])}>
+        <div
+          className={cn('transition-all duration-300 ease-out', colorClasses[color])}
+          style={{ width: `${percentage}%` }}
+        />
+      </div>
+      {showLabel && (
+        <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+          {Math.round(percentage)}%
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ==================== 加载状态容器 ====================
+
+/**
+ * 加载状态容器
+ */
+interface LoadingContainerProps {
+  loading: boolean;
+  children: React.ReactNode;
+  fallback?: React.ReactNode;
+  className?: string;
+}
+
+export const LoadingContainer: React.FC<LoadingContainerProps> = ({
+  loading,
+  children,
+  fallback,
+  className,
+}) => {
+  if (loading) {
+    return (
+      <div className={cn('flex items-center justify-center p-4', className)}>
+        {fallback || <Loading size="lg" />}
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
+
+// ==================== 翻译进度组件 ====================
+
+/**
+ * 翻译进度组件
+ */
+interface TranslationProgressProps {
+  current: number;
+  total: number;
+  status: 'preparing' | 'ocr' | 'translating' | 'rendering' | 'complete';
+  onCancel?: () => void;
+  className?: string;
+}
+
+export const TranslationProgress: React.FC<TranslationProgressProps> = ({
+  current,
+  total,
+  status,
+  onCancel,
+  className,
+}) => {
+  const percentage = total > 0 ? (current / total) * 100 : 0;
+
+  const statusMessages = {
+    preparing: '准备中...',
+    ocr: '识别文字中...',
+    translating: '翻译中...',
+    rendering: '渲染中...',
+    complete: '完成',
+  };
+
+  const statusColors = {
+    preparing: 'primary',
+    ocr: 'warning',
+    translating: 'success',
+    rendering: 'primary',
+    complete: 'success',
+  } as const;
+
+  return (
+    <div className={cn('p-4 bg-white rounded-lg shadow-lg', className)}>
+      <div className="flex items-center justify-between mb-2">
+        <span className="text-sm font-medium text-gray-700">
+          {statusMessages[status]}
+        </span>
+        <span className="text-sm text-gray-500">
+          {current} / {total}
+        </span>
+      </div>
+      
+      <Progress
+        value={current}
+        max={total}
+        color={statusColors[status]}
+        size="md"
+        className="mb-3"
+      />
+      
+      <div className="flex items-center justify-between">
+        <span className="text-xs text-gray-500">
+          {Math.round(percentage)}% 完成
+        </span>
+        
+        {onCancel && status !== 'complete' && (
+          <button
+            onClick={onCancel}
+            className="text-xs text-red-600 hover:text-red-700"
+          >
+            取消
+          </button>
+        )}
+      </div>
+    </div>
+  );
+};
+
+// ==================== 全局加载遮罩 ====================
+
+/**
+ * 全局加载遮罩
+ */
+interface GlobalLoadingProps {
+  visible: boolean;
+  message?: string;
+  className?: string;
+}
+
+export const GlobalLoading: React.FC<GlobalLoadingProps> = ({
+  visible,
+  message = '加载中...',
+  className,
+}) => {
+  if (!visible) return null;
+
+  return (
+    <div className={cn(
+      'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50',
+      className
+    )}>
+      <div className="bg-white rounded-lg p-6 flex flex-col items-center">
+        <Loading size="lg" className="mb-4" />
+        <p className="text-gray-600">{message}</p>
+      </div>
+    </div>
+  );
+};
+
+// 所有组件已经在上面导出，这里不需要重复导出

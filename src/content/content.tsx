@@ -94,7 +94,7 @@ function handleKeydown(event: KeyboardEvent) {
 }
 
 // 处理消息
-function handleMessages(request: any, sender: any, sendResponse: (response: any) => void) {
+function handleMessages(request: any, _sender: any, sendResponse: (response: any) => void) {
   switch (request.action) {
     case 'toggle':
       toggleTranslation();

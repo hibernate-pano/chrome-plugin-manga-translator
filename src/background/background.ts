@@ -64,7 +64,7 @@ function checkAndSetDefaultConfig() {
 }
 
 // 处理来自内容脚本和弹出窗口的消息
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+chrome.runtime.onMessage.addListener((request, _sender, sendResponse) => {
   console.log('收到消息:', request);
 
   switch (request.action) {

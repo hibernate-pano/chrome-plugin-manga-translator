@@ -219,7 +219,7 @@ class MemoryOptimizer {
    */
   getLatestStats(): MemoryStats | null {
     return this.memoryHistory.length > 0
-      ? this.memoryHistory[this.memoryHistory.length - 1]
+      ? this.memoryHistory[this.memoryHistory.length - 1] || null
       : null;
   }
 
@@ -254,7 +254,11 @@ class MemoryOptimizer {
 
     const firstRecent = recent[0];
     const lastRecent = recent[recent.length - 1];
-    const recentChange = lastRecent.percentage - firstRecent.percentage;
+    let recentChange = 0;
+    
+    if (firstRecent && lastRecent) {
+      recentChange = lastRecent.percentage - firstRecent.percentage;
+    }
 
     let trend: 'increasing' | 'decreasing' | 'stable' = 'stable';
     if (Math.abs(recentChange) > 5) {

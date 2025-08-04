@@ -16,7 +16,7 @@ export interface ThemeSettingsProps {
 export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
   const configStore = useConfigStore();
 
-  const handleThemeChange = (theme: 'light' | 'dark' | 'auto') => {
+  const handleThemeChange = (_theme: 'light' | 'dark' | 'auto') => {
     // 主题设置暂时存储在高级设置中
     configStore.updateAdvancedSettings({
       ...configStore.advancedSettings,
@@ -24,7 +24,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
     });
   };
 
-  const handleAnimationsToggle = (enabled: boolean) => {
+  const handleAnimationsToggle = (_enabled: boolean) => {
     // 动画设置暂时存储在高级设置中
     configStore.updateAdvancedSettings({
       ...configStore.advancedSettings,
@@ -32,7 +32,7 @@ export const ThemeSettings: React.FC<ThemeSettingsProps> = ({ className }) => {
     });
   };
 
-  const handleCompactModeToggle = (enabled: boolean) => {
+  const handleCompactModeToggle = (_enabled: boolean) => {
     // 紧凑模式设置暂时存储在高级设置中
     configStore.updateAdvancedSettings({
       ...configStore.advancedSettings,
