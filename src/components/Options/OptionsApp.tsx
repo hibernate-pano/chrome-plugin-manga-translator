@@ -14,6 +14,9 @@ import { useConfigStore } from '@/stores/config';
 import { Save, RotateCcw } from 'lucide-react';
 import { QueryProvider } from '@/components/providers/QueryProvider';
 
+// 导入历史记录组件
+import { HistoryManager } from '../History/HistoryManager';
+
 // 导入现有的设置组件 (暂时注释掉，避免类型错误)
 // import ApiSettings from './ApiSettings';
 // import StyleSettings from './StyleSettings';
@@ -254,6 +257,10 @@ const OptionsApp: React.FC = () => {
                     </LayoutSection>
                   )}
 
+                  {activeTab === 'history' && (
+                    <HistoryManager />
+                  )}
+                  
                   {activeTab === 'advanced' && (
                     <LayoutSection
                       title="高级设置"

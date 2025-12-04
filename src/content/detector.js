@@ -13,6 +13,78 @@ let fallbackOCRProvider = null;
 let lastOCRConfig = null;
 
 /**
+ * 智能选择最优预处理方法
+ * 根据图像特征自动选择最适合的预处理方法以提高OCR准确率
+ * @param {HTMLImageElement} image - 图像元素
+ * @returns {string} - 推荐的预处理方法
+ */
+function selectOptimalPreprocessing(image) {
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth || image.width;
+    canvas.height = image.naturalHeight || image.height;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return 'standard';
+    
+    ctx.drawImage(image, 0, 0);
+    const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+    const data = imageData.data;
+
+    // 采样分析图像质量（每10个像素采样一次以提高性能）
+    const samples = [];
+    for (let i = 0; i < data.length; i += 40) {
+      const r = data[i];
+      const g = data[i + 1];
+      const b = data[i + 2];
+      const brightness = (r + g + b) / 3;
+      samples.push(brightness);
+    }
+
+    if (samples.length === 0) return 'standard';
+
+    // 计算平均亮度
+    const avgBrightness = samples.reduce((sum, val) => sum + val, 0) / samples.length;
+    
+    // 计算对比度（标准差）
+    const variance = samples.reduce((sum, val) => {
+      const diff = val - avgBrightness;
+      return sum + diff * diff;
+    }, 0) / samples.length;
+    const contrast = Math.sqrt(variance);
+
+    // 估算噪声水平
+    let noiseSum = 0;
+    const noiseSamples = Math.min(100, samples.length);
+    for (let i = 0; i < noiseSamples - 1; i++) {
+      noiseSum += Math.abs(samples[i] - samples[i + 1]);
+    }
+    const noiseLevel = noiseSum / (noiseSamples - 1);
+
+    // 根据图像特征选择预处理方法
+    if (contrast < 30 || noiseLevel > 15) {
+      // 低质量图像：使用强化预处理
+      return 'enhance';
+    } else if (contrast > 50 && avgBrightness > 200) {
+      // 漫画图像：使用适配预处理
+      return 'adaptive';
+    } else if (contrast < 40) {
+      // 需要增强对比度
+      return 'enhance';
+    } else if (noiseLevel > 10) {
+      // 需要降噪
+      return 'denoise';
+    } else {
+      // 质量较好，轻度预处理或不需要预处理
+      return 'none';
+    }
+  } catch (error) {
+    // 预处理选择失败时，使用标准预处理
+    return 'standard';
+  }
+}
+
+/**
  * 初始化OCR提供者
  * @param {Object} config - 配置对象
  * @returns {Promise<Object>} - 包含primary和fallback提供者的对象
@@ -103,8 +175,14 @@ export async function detectTextAreas(image, options = {}) {
       preferredOCRMethod = ocrSettings.preferredMethod || 'auto'
     } = options;
 
-    // 预处理图像
-    const imagePreprocessing = advancedSettings.imagePreprocessing || 'none';
+    // 预处理图像（支持智能预处理选择）
+    let imagePreprocessing = advancedSettings.imagePreprocessing || 'none';
+    
+    // 如果设置为'auto'，则使用智能选择
+    if (imagePreprocessing === 'auto') {
+      imagePreprocessing = selectOptimalPreprocessing(image);
+    }
+    
     const processedImage = await preprocessImage(image, imagePreprocessing);
 
     // 转换为Base64

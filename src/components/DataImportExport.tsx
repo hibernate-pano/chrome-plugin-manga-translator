@@ -98,7 +98,7 @@ export const DataImportExport: React.FC<DataImportExportProps> = ({ className })
       alert('数据导入成功！');
     } catch (error) {
       console.error('导入失败:', error);
-      alert('导入失败：' + (error as Error).message);
+      alert(`导入失败：${  (error as Error).message}`);
     } finally {
       setIsImporting(false);
     }

@@ -170,11 +170,11 @@ export class PerformanceBenchmark {
     const value = data.value || data;
 
     // 测试写入
-    strategyManager.smartSet(key, value, 'translation');
+    await strategyManager.smartSet(key, value, 'translation');
     performanceMonitor.recordCacheHit();
 
     // 测试读取
-    const retrieved = strategyManager.smartGet(key);
+    const retrieved = await strategyManager.smartGet(key);
     if (retrieved) {
       performanceMonitor.recordCacheHit();
     } else {

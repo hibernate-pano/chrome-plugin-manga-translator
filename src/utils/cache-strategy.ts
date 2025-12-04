@@ -283,8 +283,8 @@ export class CacheStrategyManager {
   /**
    * 智能缓存获取
    */
-  smartGet<T>(key: string): T | null {
-    const result = this.cache.get<T>(key);
+  async smartGet<T>(key: string): Promise<T | null> {
+    const result = await this.cache.get<T>(key);
 
     if (result !== null) {
       this.recordAccess(key);
@@ -296,12 +296,12 @@ export class CacheStrategyManager {
   /**
    * 根据策略清理缓存
    */
-  strategicCleanup(options: {
+  async strategicCleanup(options: {
     maxAge?: number;
     minPriority?: number;
     excludeTags?: string[];
     targetSize?: number;
-  } = {}): void {
+  } = {}): Promise<void> {
     const {
       maxAge: _maxAge = 7 * 24 * 60 * 60 * 1000, // 7天
       minPriority: _minPriority = 1,
@@ -310,7 +310,7 @@ export class CacheStrategyManager {
     } = options;
 
     // 获取当前缓存统计
-    const stats = this.cache.getStats();
+    const stats = await this.cache.getStats();
 
     if (stats.size <= targetSize) {
       console.debug('缓存大小在目标范围内，无需清理');
@@ -325,7 +325,7 @@ export class CacheStrategyManager {
     const tagsToClean = ['cold', 'large'];
     for (const tag of tagsToClean) {
       if (!excludeTags.includes(tag)) {
-        const cleared = this.cache.clearByTags([tag]);
+        const cleared = await this.cache.clearByTags([tag]);
         cleanedCount += cleared;
       }
     }
@@ -336,11 +336,11 @@ export class CacheStrategyManager {
   /**
    * 获取缓存策略报告
    */
-  getStrategyReport(): {
+  async getStrategyReport(): Promise<{
     strategies: Array<{ name: string; description: string }>;
     accessFrequency: Array<{ key: string; frequency: number }>;
     recommendations: string[];
-  } {
+  }> {
     const strategies = Array.from(this.strategies.values()).map(s => ({
       name: s.name,
       description: s.description,
@@ -351,7 +351,7 @@ export class CacheStrategyManager {
       .slice(0, 20)
       .map(([key, frequency]) => ({ key, frequency }));
 
-    const recommendations = this.generateRecommendations();
+    const recommendations = await this.generateRecommendations();
 
     return {
       strategies,
@@ -401,9 +401,9 @@ export class CacheStrategyManager {
   /**
    * 生成优化建议
    */
-  private generateRecommendations(): string[] {
+  private async generateRecommendations(): Promise<string[]> {
     const recommendations: string[] = [];
-    const stats = this.cache.getStats();
+    const stats = await this.cache.getStats();
 
     if (stats.hitRate < 0.5) {
       recommendations.push('缓存命中率较低，建议调整缓存策略或增加TTL');

@@ -51,7 +51,7 @@ export class IntelligentCache {
   /**
    * 设置缓存项
    */
-  set<T>(
+  async set<T>(
     key: string,
     data: T,
     options: {
@@ -60,7 +60,7 @@ export class IntelligentCache {
       tags?: string[];
       compress?: boolean;
     } = {}
-  ): void {
+  ): Promise<void> {
     const {
       ttl = this.config.defaultTTL,
       priority = 1,
@@ -118,7 +118,7 @@ export class IntelligentCache {
   /**
    * 获取缓存项
    */
-  get<T>(key: string): T | null {
+  async get<T>(key: string): Promise<T | null> {
     const item = this.cache.get(key);
 
     if (!item) {
@@ -128,7 +128,7 @@ export class IntelligentCache {
 
     // 检查TTL
     if (this.isExpired(item)) {
-      this.delete(key);
+      await this.delete(key);
       performanceMonitor.recordCacheMiss();
       return null;
     }
@@ -144,11 +144,15 @@ export class IntelligentCache {
 
     // 解压缩数据（如果需要）
     try {
-      return this.isCompressed(item.data) ?
-        JSON.parse(this.decompressData(item.data)) : item.data;
+      if (this.isCompressed(item.data)) {
+        const decompressed = this.decompressData(item.data);
+        return JSON.parse(decompressed) as T;
+      }
+      // 如果不是压缩数据，直接返回
+      return item.data as T;
     } catch (error) {
-      console.error('缓存数据解压失败:', error);
-      this.delete(key);
+      console.error('缓存数据处理失败:', error);
+      await this.delete(key);
       return null;
     }
   }
@@ -156,7 +160,7 @@ export class IntelligentCache {
   /**
    * 删除缓存项
    */
-  delete(key: string): boolean {
+  async delete(key: string): Promise<boolean> {
     const item = this.cache.get(key);
     if (!item) return false;
 
@@ -171,12 +175,12 @@ export class IntelligentCache {
   /**
    * 检查缓存项是否存在且未过期
    */
-  has(key: string): boolean {
+  async has(key: string): Promise<boolean> {
     const item = this.cache.get(key);
     if (!item) return false;
 
     if (this.isExpired(item)) {
-      this.delete(key);
+      await this.delete(key);
       return false;
     }
 
@@ -186,12 +190,12 @@ export class IntelligentCache {
   /**
    * 根据标签清理缓存
    */
-  clearByTags(tags: string[]): number {
+  async clearByTags(tags: string[]): Promise<number> {
     let cleared = 0;
 
     for (const [key, item] of Array.from(this.cache.entries())) {
       if (item.tags.some(tag => tags.includes(tag))) {
-        this.delete(key);
+        await this.delete(key);
         cleared++;
       }
     }
@@ -202,7 +206,7 @@ export class IntelligentCache {
   /**
    * 清空所有缓存
    */
-  clear(): void {
+  async clear(): Promise<void> {
     this.cache.clear();
     this.accessHistory.clear();
     this.currentSize = 0;
@@ -212,13 +216,14 @@ export class IntelligentCache {
   /**
    * 获取缓存统计信息
    */
-  getStats(): {
+  async getStats(): Promise<{
     size: number;
     itemCount: number;
     hitRate: number;
     averageItemSize: number;
     topKeys: Array<{ key: string; accessCount: number; size: number }>;
-  } {
+    totalItems?: number;
+  }> {
     const items = Array.from(this.cache.entries());
     const totalAccess = items.reduce((sum, [, item]) => sum + item.accessCount, 0);
 
@@ -235,6 +240,7 @@ export class IntelligentCache {
     return {
       size: this.currentSize,
       itemCount: this.cache.size,
+      totalItems: this.cache.size, // 兼容测试用例
       hitRate: performanceMonitor.getMetrics().cache.hitRate,
       averageItemSize: this.cache.size > 0 ? this.currentSize / this.cache.size : 0,
       topKeys,
@@ -244,7 +250,7 @@ export class IntelligentCache {
   /**
    * 预测性预加载
    */
-  predictAndPreload(currentKey: string, preloadFunction: (key: string) => Promise<any>): void {
+  async predictAndPreload(currentKey: string, preloadFunction: (key: string) => Promise<any>): Promise<void> {
     const history = this.accessHistory.get(currentKey) || [];
 
     // 简单的预测算法：基于访问模式预测下一个可能访问的键
@@ -274,20 +280,33 @@ export class IntelligentCache {
   /**
    * 智能清理缓存
    */
-  public cleanup(requiredSpace: number = 0): void {
+  public async cleanup(requiredSpace: number = 0): Promise<void> {
     const items = Array.from(this.cache.entries());
 
     // 计算每个项的清理优先级分数（越低越优先清理）
     const scoredItems = items.map(([key, item]) => {
-      const age = Date.now() - item.timestamp;
-      const timeSinceAccess = Date.now() - item.lastAccessed;
-
-      // 综合评分：考虑优先级、访问频率、时间因素
-      const score =
+      const now = Date.now();
+      const age = now - item.timestamp;
+      const timeSinceAccess = now - item.lastAccessed;
+      const remainingTTL = Math.max(0, this.config.defaultTTL - age);
+      const hoursSinceLastAccess = Math.max(0, 24 - (timeSinceAccess / (1000 * 60 * 60)));
+      
+      // 计算访问频率（最近24小时内的访问次数）
+      const accessHistory = this.accessHistory.get(key) || [];
+      const last24hAccessCount = accessHistory.filter(timestamp => now - timestamp < 24 * 60 * 60 * 1000).length;
+      
+      // 更智能的评分算法：
+      // 1. 优先级权重：直接影响清理顺序
+      // 2. 访问频率权重：最近24小时的访问次数
+      // 3. 剩余TTL权重：剩余有效期越长越重要
+      // 4. 最近访问权重：最近访问的项更重要
+      // 5. 大小权重：优先清理大文件以快速释放空间
+      const score = 
         item.priority * 1000 + // 优先级权重
-        item.accessCount * 100 + // 访问频率权重
-        Math.max(0, this.config.defaultTTL - age) / 1000 + // 剩余TTL权重
-        Math.max(0, 3600000 - timeSinceAccess) / 1000; // 最近访问权重
+        last24hAccessCount * 200 + // 最近访问频率权重（更高权重）
+        remainingTTL / 1000 + // 剩余TTL权重
+        hoursSinceLastAccess * 50 + // 最近访问权重
+        (1 / Math.max(1, item.size)) * 100000; // 大小权重（越小越优先保留）
 
       return { key, item, score };
     });
@@ -296,26 +315,32 @@ export class IntelligentCache {
     scoredItems.sort((a, b) => a.score - b.score);
 
     let freedSpace = 0;
-    const targetSpace = requiredSpace || this.config.maxSize * 0.2; // 清理20%空间
+    const targetSpace = requiredSpace || this.config.maxSize * 0.25; // 清理25%空间，更积极的清理策略
 
-    for (const { key } of scoredItems) {
+    // 跟踪清理的项
+    const cleanedItems = [];
+    
+    for (const { key, item } of scoredItems) {
       if (freedSpace >= targetSpace) break;
 
-      const item = this.cache.get(key);
-      if (item) {
-        freedSpace += item.size;
-        this.delete(key);
-      }
+      freedSpace += item.size;
+      this.delete(key);
+      cleanedItems.push({ key, size: item.size, score: scoredItems.find(s => s.key === key)?.score });
     }
 
-    console.log(`缓存清理完成，释放空间: ${freedSpace} 字节`);
+    if (cleanedItems.length > 0) {
+      console.log(`缓存清理完成，释放空间: ${freedSpace} 字节，清理了 ${cleanedItems.length} 项`);
+      // 更新缓存大小
+      performanceMonitor.updateCacheSize(this.currentSize);
+    }
   }
 
   /**
    * 检查项是否过期
    */
   private isExpired(item: CacheItem): boolean {
-    return Date.now() - item.timestamp > this.config.defaultTTL;
+    const now = Date.now();
+    return now - item.timestamp > this.config.defaultTTL;
   }
 
   /**
@@ -373,6 +398,27 @@ export class IntelligentCache {
   }
 
   /**
+   * 批量设置缓存项
+   */
+  async setMany<T>(items: Array<{ key: string; value: T; options?: any }>): Promise<void> {
+    for (const item of items) {
+      await this.set(item.key, item.value, item.options);
+    }
+  }
+
+  /**
+   * 批量获取缓存项
+   */
+  async getMany<T>(keys: string[]): Promise<Array<T | null>> {
+    const results: Array<T | null> = [];
+    for (const key of keys) {
+      const result = await this.get<T>(key);
+      results.push(result);
+    }
+    return results;
+  }
+
+  /**
    * 启动清理定时器
    */
   private startCleanupTimer(): void {
@@ -384,11 +430,11 @@ export class IntelligentCache {
   /**
    * 停止清理定时器
    */
-  destroy(): void {
+  async destroy(): Promise<void> {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
-    this.clear();
+    await this.clear();
   }
 }

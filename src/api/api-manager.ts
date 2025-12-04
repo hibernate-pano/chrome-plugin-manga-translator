@@ -1,5 +1,5 @@
 import { AIProvider, TranslationRequest } from './base-provider.d';
-import { ProviderFactory, ProviderType } from './provider-factory.d';
+import { ProviderFactory, ProviderType } from './provider-factory.js';
 
 // 扩展接口以支持文字检测
 interface ExtendedAIProvider extends AIProvider {
@@ -44,6 +44,7 @@ enum LogLevel {
 
 import { useConfigStore } from '../stores/config';
 import { useCacheStore } from '../stores/cache';
+import { useHistoryStore } from '../stores/history';
 
 /**
  * API管理器 - 统一管理所有API调用
@@ -57,19 +58,19 @@ export class APIManager {
   private batchQueue: Array<{ id: string; request: any; resolve: Function; reject: Function }> = [];
   private batchTimer: NodeJS.Timeout | null = null;
   
-  // 配置常量
+  // 配置常量（可以从配置中读取）
   private readonly BATCH_DELAY = 100; // 100ms批处理延迟
   private readonly MAX_BATCH_SIZE = 10; // 最大批处理大小
-  private readonly MAX_RETRIES = 3; // 最大重试次数
+  private maxRetries = 3; // 最大重试次数（可从配置读取）
   private readonly BASE_RETRY_DELAY = 1000; // 基础重试延迟
   private readonly MAX_RETRY_DELAY = 5000; // 最大重试延迟
-  private readonly REQUEST_TIMEOUT = 30000; // 请求超时时间（ms）
+  private requestTimeout = 30000; // 请求超时时间（ms，可从配置读取）
   
   // 限流相关
   private requestCount = 0;
   private lastRequestTime = 0;
   private readonly RATE_LIMIT_WINDOW = 60000; // 限流窗口（ms）
-  private readonly MAX_REQUESTS_PER_WINDOW = 60; // 每个窗口最大请求数
+  private maxRequestsPerWindow = 60; // 每个窗口最大请求数（可从配置读取）
   
   // 监控相关
   private requestStats = {
@@ -122,10 +123,25 @@ export class APIManager {
     this.log(LogLevel.INFO, '初始化API管理器');
     try {
       const configStore = useConfigStore.getState();
-      const { providerType, providerConfig } = configStore;
+      const { providerType, providerConfig, advancedSettings } = configStore;
 
       if (!providerType || !providerConfig[providerType]) {
         throw new Error('未配置API提供者');
+      }
+
+      // 从配置中读取API设置
+      if (advancedSettings) {
+        if (advancedSettings.apiTimeout) {
+          this.requestTimeout = advancedSettings.apiTimeout * 1000; // 转换为毫秒
+        }
+        
+        // 读取并发请求限制（用于限流）
+        if (advancedSettings.maxConcurrentRequests) {
+          this.maxRequestsPerWindow = advancedSettings.maxConcurrentRequests * 20; // 转换为每分钟请求数
+        }
+        
+        // 可以根据需要添加重试次数配置
+        // this.maxRetries = advancedSettings.maxRetries || 3;
       }
 
       // 创建提供者实例
@@ -137,7 +153,10 @@ export class APIManager {
       // 初始化提供者
       await this.currentProvider.initialize();
 
-      this.log(LogLevel.INFO, `API管理器已初始化，当前提供者: ${providerType}`);
+      this.log(LogLevel.INFO, `API管理器已初始化，当前提供者: ${providerType}`, {
+        timeout: this.requestTimeout,
+        maxRetries: this.maxRetries
+      });
     } catch (error) {
       this.log(LogLevel.ERROR, 'API管理器初始化失败', error);
       throw error;
@@ -276,6 +295,21 @@ export class APIManager {
           options
         });
         cacheStore.setTranslationCache(cacheKey, translatedText);
+        
+        // 添加到翻译历史记录
+        const originalText = uncachedTexts[i];
+        if (originalText) {
+          const historyStore = useHistoryStore.getState();
+          historyStore.addHistoryItem({
+            originalText: originalText as string,
+            translatedText,
+            sourceLanguage: options.sourceLanguage || 'auto',
+            targetLanguage: targetLang,
+            provider: this.currentProvider!.name,
+            isBatch: isArray,
+            context: options.context,
+          });
+        }
       }
     }
 
@@ -381,7 +415,7 @@ export class APIManager {
     this.requestStats.total++;
     
     let lastError: APIError | undefined;
-    const maxRetries = this.MAX_RETRIES;
+    const maxRetries = this.maxRetries;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
       try {
@@ -395,8 +429,8 @@ export class APIManager {
         // 检查限流
         await this.checkRateLimit();
         
-        // 执行请求并添加超时
-        const result = await this.withTimeout(requestFn, this.REQUEST_TIMEOUT, `${operation}请求超时`);
+        // 执行请求并添加超时（使用配置的超时时间）
+        const result = await this.withTimeout(requestFn, this.requestTimeout, `${operation}请求超时`);
         
         this.log(LogLevel.DEBUG, `API请求成功`, {
           operation,
@@ -508,20 +542,34 @@ export class APIManager {
     timeout: number,
     timeoutMessage: string
   ): Promise<T> {
+    let timeoutId: NodeJS.Timeout | null = null;
+    
     // 创建超时Promise
     const timeoutPromise = new Promise<never>((_, reject) => {
-      const timer = setTimeout(() => {
+      timeoutId = setTimeout(() => {
         const error = new Error(timeoutMessage);
         error.name = 'TimeoutError';
         reject(error);
       }, timeout);
-      
-      // 清理定时器
-      fn().finally(() => clearTimeout(timer));
     });
     
-    // 使用Promise.race实现超时
-    return Promise.race([fn(), timeoutPromise]) as Promise<T>;
+    try {
+      // 使用Promise.race实现超时
+      const result = await Promise.race([fn(), timeoutPromise]);
+      
+      // 如果请求成功，清理超时定时器
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      
+      return result;
+    } catch (error) {
+      // 如果发生错误，清理超时定时器
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+      }
+      throw error;
+    }
   }
 
   /**
@@ -538,7 +586,7 @@ export class APIManager {
     }
     
     // 如果超过最大请求数，等待
-    if (this.requestCount >= this.MAX_REQUESTS_PER_WINDOW) {
+    if (this.requestCount >= this.maxRequestsPerWindow) {
       const waitTime = this.RATE_LIMIT_WINDOW - (now - this.lastRequestTime);
       this.log(LogLevel.WARN, '达到限流限制，等待后重试', { waitTime });
       await new Promise(resolve => setTimeout(resolve, waitTime));

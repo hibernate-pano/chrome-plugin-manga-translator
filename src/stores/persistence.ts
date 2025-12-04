@@ -177,7 +177,7 @@ export class MigrationManager {
 
   migrate(data: any, fromVersion: string, toVersion: string): any {
     let currentData = data;
-    let currentVersion = fromVersion;
+    const currentVersion = fromVersion;
 
     // 获取所有需要执行的迁移
     const migrationsToRun = this.getMigrationsToRun(fromVersion, toVersion);

@@ -4,8 +4,8 @@
 
 // 导入必要的模块
 import { APIManager } from '../api/api-manager';
-import { imageToBase64 } from '../utils/imageProcess';
-import { renderTranslation, removeTranslation } from './renderer';
+import { renderTranslation } from './renderer';
+import { detectTextAreas } from './detector';
 
 // 翻译状态接口
 interface TranslationState {
@@ -60,6 +60,15 @@ async function initialize() {
 
 // 获取配置
 async function getConfig(): Promise<any> {
+  return new Promise((resolve) => {
+    chrome.storage.sync.get(null, (config) => {
+      resolve(config);
+    });
+  });
+}
+
+// 获取完整配置（从Chrome Storage）
+async function getFullConfig(): Promise<any> {
   return new Promise((resolve) => {
     chrome.storage.sync.get(null, (config) => {
       resolve(config);
@@ -146,42 +155,59 @@ let batchProcessingState = {
   totalImages: 0,
   processedImages: 0,
   cancelled: false,
-  progressElement: null as HTMLElement | null
+  progressElement: null as HTMLElement | null,
+  startTime: 0
 };
 
 // 处理页面（自动模式）
 async function processPage() {
-  if (batchProcessingState.isProcessing) {
+  // 如果已经在处理中且未暂停，则直接返回
+  if (batchProcessingState.isProcessing && !batchProcessingState.isPaused && batchProcessingState.totalImages > 0) {
     return;
   }
   
   // 获取所有候选图像
-  const images = Array.from(document.querySelectorAll('img'))
-    .filter(img => isImageCandidate(img));
-  
-  if (images.length === 0) {
-    console.log('未找到符合条件的图像');
-    return;
+  let images;
+  if (batchProcessingState.totalImages === 0) {
+    // 首次调用，初始化图像列表
+    images = Array.from(document.querySelectorAll('img'))
+      .filter(img => isImageCandidate(img));
+    
+    if (images.length === 0) {
+      console.log('未找到符合条件的图像');
+      showNotification('未找到符合条件的图像', 'info');
+      return;
+    }
+    
+    // 初始化批量处理状态
+    batchProcessingState = {
+      isProcessing: true,
+      isPaused: false,
+      currentImageIndex: 0,
+      totalImages: images.length,
+      processedImages: 0,
+      cancelled: false,
+      progressElement: createProgressElement(),
+      startTime: Date.now()
+    };
+    
+    // 显示进度条
+    document.body.appendChild(batchProcessingState.progressElement!);
+    
+    // 显示开始通知
+    showNotification(`开始处理 ${images.length} 张图像`, 'info');
+  } else {
+    // 继续处理，使用之前的图像列表
+    images = Array.from(document.querySelectorAll('img'))
+      .filter(img => isImageCandidate(img));
   }
-  
-  // 初始化批量处理状态
-  batchProcessingState = {
-    isProcessing: true,
-    isPaused: false,
-    currentImageIndex: 0,
-    totalImages: images.length,
-    processedImages: 0,
-    cancelled: false,
-    progressElement: createProgressElement()
-  };
-  
-  // 显示进度条
-  document.body.appendChild(batchProcessingState.progressElement!);
   
   try {
     // 分批处理图像，每批处理5张，避免同时处理太多图像
     const batchSize = 5;
-    for (let i = 0; i < images.length; i += batchSize) {
+    const startIndex = batchProcessingState.currentImageIndex;
+    
+    for (let i = startIndex; i < images.length; i += batchSize) {
       if (batchProcessingState.cancelled) {
         break;
       }
@@ -193,28 +219,45 @@ async function processPage() {
       
       // 处理当前批次
       const batch = images.slice(i, i + batchSize);
-      const batchPromises = batch.map(img => processImage(img));
       
-      // 等待当前批次完成
-      await Promise.all(batchPromises);
+      // 使用Promise.allSettled处理，允许单个图像处理失败
+      const batchResults = await Promise.allSettled(
+        batch.map(img => processImage(img).catch(error => {
+          console.error(`处理图像失败: ${img.src}`, error);
+          return null;
+        }))
+      );
+      
+      // 统计成功处理的图像数量
+      const successfulCount = batchResults.filter(result => result.status === 'fulfilled').length;
       
       // 更新进度
-      batchProcessingState.processedImages += batch.length;
+      batchProcessingState.processedImages += successfulCount;
       batchProcessingState.currentImageIndex += batch.length;
-      updateProgress();
+      updateProgress(images);
+      
+      // 显示批次完成通知
+      showNotification(`已完成批次 ${Math.ceil((i + batch.length) / batchSize)} / ${Math.ceil(images.length / batchSize)}`, 'info');
     }
     
     if (!batchProcessingState.cancelled) {
-      showNotification(`已成功完成 ${batchProcessingState.processedImages} 张图像的翻译`, 'success');
+      const totalTime = (Date.now() - batchProcessingState.startTime!) / 1000;
+      const speed = batchProcessingState.processedImages / totalTime;
+      showNotification(
+        `已成功完成 ${batchProcessingState.processedImages} / ${batchProcessingState.totalImages} 张图像的翻译，平均速度: ${speed.toFixed(2)} 张/秒`, 
+        'success'
+      );
     }
   } catch (error) {
     console.error('批量处理失败:', error);
     showNotification('批量处理失败，请重试', 'error');
   } finally {
     // 清理
-    batchProcessingState.isProcessing = false;
-    if (batchProcessingState.progressElement && batchProcessingState.progressElement.parentNode) {
-      batchProcessingState.progressElement.parentNode.removeChild(batchProcessingState.progressElement);
+    if (!batchProcessingState.isPaused || batchProcessingState.cancelled) {
+      batchProcessingState.isProcessing = false;
+      if (batchProcessingState.progressElement && batchProcessingState.progressElement.parentNode) {
+        batchProcessingState.progressElement.parentNode.removeChild(batchProcessingState.progressElement);
+      }
     }
   }
 }
@@ -377,24 +420,58 @@ function createProgressElement(): HTMLElement {
 }
 
 // 更新进度条
-function updateProgress() {
+function updateProgress(images?: HTMLImageElement[]) {
   if (!batchProcessingState.progressElement) {
     return;
   }
   
   const progress = (batchProcessingState.processedImages / batchProcessingState.totalImages) * 100;
   
+  // 计算统计信息
+  const currentTime = Date.now();
+  const elapsedTime = currentTime - batchProcessingState.startTime;
+  const speed = elapsedTime > 0 ? batchProcessingState.processedImages / (elapsedTime / 1000) : 0;
+  const remainingImages = batchProcessingState.totalImages - batchProcessingState.processedImages;
+  const estimatedRemainingTime = speed > 0 ? Math.ceil(remainingImages / speed) : 0;
+  
+  // 格式化剩余时间
+  const formatTime = (seconds: number) => {
+    if (seconds < 60) return `${seconds}秒`;
+    const minutes = Math.floor(seconds / 60);
+    const remainingSeconds = seconds % 60;
+    return `${minutes}分${remainingSeconds}秒`;
+  };
+  
   // 更新进度条
   const progressFill = batchProcessingState.progressElement.querySelector('.manga-translator-progress-fill') as HTMLElement;
   if (progressFill) {
     progressFill.style.width = `${progress}%`;
+    
+    // 根据进度更新颜色
+    let progressColor = '#007bff';
+    if (progress < 30) progressColor = '#007bff';
+    else if (progress < 70) progressColor = '#28a745';
+    else progressColor = '#ffc107';
+    
+    progressFill.style.backgroundColor = progressColor;
   }
   
   // 更新进度文本
   const progressText = batchProcessingState.progressElement.querySelector('.manga-translator-progress-text');
   if (progressText) {
     const status = batchProcessingState.isPaused ? '（已暂停）' : '';
-    progressText.textContent = `${batchProcessingState.processedImages} / ${batchProcessingState.totalImages} 张图像 ${status}`;
+    const remainingTimeStr = estimatedRemainingTime > 0 ? `，预计剩余 ${formatTime(estimatedRemainingTime)}` : '';
+    const speedStr = speed > 0 ? `，速度：${speed.toFixed(1)} 张/秒` : '';
+    
+    progressText.textContent = 
+      `${batchProcessingState.processedImages} / ${batchProcessingState.totalImages} 张图像 ` +
+      `${Math.round(progress)}%${status}${speedStr}${remainingTimeStr}`;
+  }
+  
+  // 更新暂停/继续按钮文本
+  const pauseButton = batchProcessingState.progressElement.querySelector('.manga-translator-progress-button') as HTMLElement;
+  if (pauseButton) {
+    pauseButton.textContent = batchProcessingState.isPaused ? '继续' : '暂停';
   }
 }
 
@@ -685,61 +762,170 @@ export function toggleBatchProcess() {
 
 // 处理单个图片
 async function processImage(img: HTMLImageElement) {
+  // 防止重复处理
   if (translationState.processing) {
+    console.log('正在处理其他图片，跳过本次处理');
     return;
+  }
+
+  // 检查是否已处理过此图片
+  if (translationState.translatedImages.has(img.src)) {
+    const cached = translationState.translatedImages.get(img.src);
+    const CACHE_MAX_AGE = 24 * 60 * 60 * 1000; // 24小时
+    if (cached && Date.now() - cached.timestamp < CACHE_MAX_AGE) {
+      console.log('使用缓存的翻译结果');
+      renderTranslation(img, cached.textAreas, cached.translatedTexts, {
+        fontSize: 'auto',
+        color: '#000000',
+        backgroundColor: 'rgba(255, 255, 255, 0.8)'
+      });
+      return;
+    }
   }
 
   try {
     translationState.processing = true;
-    console.log('处理图片:', img.src);
+    const startTime = performance.now();
+    console.log('开始处理图片:', img.src);
     
-    // 1. 将图像转换为Base64格式
-    const base64Image = await imageToBase64(img);
+    // 获取当前配置
+    const fullConfig = await getFullConfig();
+    const configState = fullConfig['manga-translator-config'] || {};
+    const debugMode = configState.advancedSettings?.debugMode || false;
     
-    // 2. 调用API管理器进行文字检测
-    const apiManager = APIManager.getInstance();
-    const textAreas = await apiManager.detectText(base64Image, {
-      language: 'jpn', // 默认为日语，可根据配置调整
-      preprocess: true
-    });
+    // 显示处理中通知
+    if (debugMode) {
+      showNotification('开始检测文字...', 'info', 2000);
+    }
     
-    console.log('检测到的文字区域:', textAreas);
+    // 1. 检测图像中的文字区域（使用优化的OCR检测）
+    let textAreas;
+    try {
+      textAreas = await detectTextAreas(img, {
+        useCache: configState.advancedSettings?.cacheResults !== false,
+        debugMode: debugMode,
+        preferredOCRMethod: configState.ocrSettings?.preferredMethod || 'auto'
+      });
+      
+      if (debugMode) {
+        console.log('检测到的文字区域:', textAreas);
+      }
+    } catch (ocrError) {
+      console.error('OCR检测失败:', ocrError);
+      const errorMessage = ocrError instanceof Error ? ocrError.message : '未知错误';
+      showErrorNotification(`文字检测失败: ${errorMessage}`);
+      throw new Error('OCR检测失败');
+    }
     
-    // 3. 如果没有检测到文字，直接返回
+    // 2. 如果没有检测到文字，直接返回
     if (!textAreas || textAreas.length === 0) {
       console.log('未检测到文字区域');
+      if (debugMode) {
+        showNotification('未检测到文字区域', 'warning', 3000);
+      }
       return;
     }
     
-    // 4. 调用API管理器进行翻译
-    const texts = textAreas.map((area: any) => area.text);
-    const translatedTexts = await apiManager.translateText(
-      texts,
-      translationState.targetLanguage
-    );
+    // 显示翻译中通知
+    if (debugMode) {
+      showNotification(`检测到 ${textAreas.length} 个文字区域，开始翻译...`, 'info', 2000);
+    }
     
-    console.log('翻译结果:', translatedTexts);
+    // 3. 调用API管理器进行翻译
+    const apiManager = APIManager.getInstance();
+    
+    // 确保API管理器已初始化
+    try {
+      await apiManager.initialize();
+    } catch (initError) {
+      console.error('API管理器初始化失败:', initError);
+      showErrorNotification('API初始化失败，请检查配置');
+      throw initError;
+    }
+    
+    // 提取文本内容
+    const texts = textAreas
+      .map((area: any) => area.text)
+      .filter((text: string) => text && text.trim().length > 0);
+    
+    if (texts.length === 0) {
+      console.log('提取的文本为空');
+      if (debugMode) {
+        showNotification('提取的文本为空', 'warning', 3000);
+      }
+      return;
+    }
+    
+    // 翻译文本
+    let translatedTexts: string | string[];
+    try {
+      // 获取目标语言（优先使用同步的配置，否则使用本地状态）
+      const translationConfig = fullConfig['manga-translator-storage'] || {};
+      const targetLanguage = translationConfig.targetLanguage || translationState.targetLanguage || 'zh-CN';
+      translatedTexts = await apiManager.translateText(
+        texts,
+        targetLanguage,
+        {
+          sourceLanguage: 'auto',
+          context: 'manga'
+        }
+      );
+      
+      if (debugMode) {
+        console.log('翻译结果:', translatedTexts);
+      }
+    } catch (translateError) {
+      console.error('翻译失败:', translateError);
+      const errorMessage = translateError instanceof Error ? translateError.message : '未知错误';
+      showErrorNotification(`翻译失败: ${errorMessage}`);
+      throw new Error(`翻译失败: ${errorMessage}`);
+    }
+    
+    // 4. 准备样式选项
+    const styleOptions = {
+      fontSize: configState.fontSize || 'auto',
+      fontColor: configState.fontColor || 'auto',
+      backgroundColor: configState.backgroundColor || 'auto',
+      fontFamily: configState.fontFamily || '',
+      styleLevel: configState.styleLevel || 50,
+      showOriginalText: configState.advancedSettings?.showOriginalText || false
+    };
     
     // 5. 渲染翻译结果
     const translatedTextsArray = Array.isArray(translatedTexts) ? translatedTexts : [translatedTexts];
-    renderTranslation(img, textAreas, translatedTextsArray, {
-      fontSize: 'auto',
-      color: '#000000',
-      backgroundColor: 'rgba(255, 255, 255, 0.8)'
-    });
+    
+    try {
+      renderTranslation(img, textAreas, translatedTextsArray, styleOptions);
+    } catch (renderError) {
+      console.error('渲染失败:', renderError);
+      showErrorNotification('渲染翻译结果失败');
+      throw renderError;
+    }
     
     // 6. 将处理结果添加到状态管理
     translationState.translatedImages.set(img.src, {
       textAreas,
-      translatedTexts,
+      translatedTexts: translatedTextsArray,
       timestamp: Date.now()
     });
     
-    console.log('图片处理完成');
+    // 显示成功通知
+    const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
+    console.log(`图片处理完成，耗时: ${processingTime}秒`);
+    
+    if (debugMode) {
+      showNotification(`翻译完成 (${processingTime}秒)`, 'success', 2000);
+    }
   } catch (error) {
     console.error('图片处理失败:', error);
-    // 显示错误提示
-    showErrorNotification('图片处理失败，请重试');
+    
+    // 提供更详细的错误信息
+    let errorMessage = '图片处理失败，请重试';
+    if (error instanceof Error) {
+      errorMessage = error.message;
+    }
+    
+    showErrorNotification(errorMessage);
   } finally {
     translationState.processing = false;
   }

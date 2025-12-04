@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "漫画翻译助手",
-  "version": "0.1.0",
+  "version": "0.3.0",
   "description": "一款帮助翻译外文漫画的Chrome插件，保持原有文字样式",
   "permissions": [
     "storage",

@@ -18,8 +18,8 @@ export async function imageToBase64(image, maxWidth = 1024, maxHeight = 1024, fo
       if (image instanceof HTMLCanvasElement) {
         try {
           // 如果Canvas尺寸超过限制，先缩放
-          let canvasWidth = image.width;
-          let canvasHeight = image.height;
+          const canvasWidth = image.width;
+          const canvasHeight = image.height;
           let scaledCanvas = image;
           
           // 如果Canvas尺寸超过最大值，先缩放
@@ -1258,15 +1258,15 @@ function wrapText(ctx, text, maxWidth) {
       if (lineIndex > 0) {
         // 如果是长单词的换行部分，直接添加为新行
         lines.push(currentLine.trim());
-        currentLine = wordLine + ' ';
+        currentLine = `${wordLine  } `;
       } else {
-        const testLine = currentLine + word + ' ';
+        const testLine = `${currentLine + word  } `;
         const metrics = ctx.measureText(testLine);
         const testWidth = metrics.width;
         
         if (testWidth > maxWidth && currentLine !== '') {
           lines.push(currentLine.trim());
-          currentLine = word + ' ';
+          currentLine = `${word  } `;
         } else {
           currentLine = testLine;
         }

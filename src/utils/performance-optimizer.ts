@@ -126,7 +126,7 @@ export class PerformanceOptimizer {
     if (hitRate < this.config.thresholds.cacheHitRate) {
       // 缓存命中率低，建议增加缓存大小或调整TTL
       if (this.cache) {
-        const stats = this.cache.getStats();
+        const stats = await this.cache.getStats();
 
         if (stats.size < this.config.cache.maxSize * 0.8) {
           // 内存使用率低，可以增加缓存项数量
@@ -138,7 +138,7 @@ export class PerformanceOptimizer {
         // 调整TTL策略
         if (this.strategyManager) {
           // 执行策略性清理
-          this.strategyManager.strategicCleanup({
+          await this.strategyManager.strategicCleanup({
             maxAge: this.config.cache.defaultTTL / 2,
             minPriority: 1,
           });
@@ -151,11 +151,11 @@ export class PerformanceOptimizer {
 
     // 检查缓存大小
     if (this.cache) {
-      const stats = this.cache.getStats();
+      const stats = await this.cache.getStats();
 
       if (stats.size > this.config.cache.maxSize * 0.9) {
         // 内存使用率高，触发清理
-        this.cache.cleanup();
+        await this.cache.cleanup();
         applied.push('执行缓存清理');
       }
 

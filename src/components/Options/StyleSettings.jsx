@@ -253,9 +253,9 @@ const StyleSettings = () => {
                           fontSize === 'small' ? '14px' : 
                           fontSize === 'medium' ? '16px' : 
                           fontSize === 'large' ? '18px' : '20px',
-                fontFamily: fontFamily,
+                fontFamily,
                 color: textColor,
-                backgroundColor: backgroundColor,
+                backgroundColor,
                 textAlign: textAlignment,
                 lineHeight: `${lineSpacing / 100}`,
                 padding: '10px',
