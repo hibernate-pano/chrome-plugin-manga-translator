@@ -29,9 +29,13 @@ const PopupApp: React.FC = () => {
     enabled,
     mode,
     targetLanguage,
+    processing,
+    currentImage,
     setEnabled,
     setMode,
     setTargetLanguage,
+    setProcessing,
+    setCurrentImage
   } = useTranslationStore();
 
   const {
@@ -41,6 +45,53 @@ const PopupApp: React.FC = () => {
     updateProviderConfig,
     setStyleLevel,
   } = useConfigStore();
+
+  // 监听状态变化并发送消息到内容脚本
+  useEffect(() => {
+    const updateContentScript = async () => {
+      try {
+        const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+        if (tabs[0]?.id) {
+          await chrome.tabs.sendMessage(tabs[0].id, {
+            action: 'updateConfig',
+            config: {
+              enabled,
+              mode,
+              targetLanguage,
+              styleLevel
+            }
+          });
+        }
+      } catch (error) {
+        console.debug('无法向内容脚本发送消息，可能是因为内容脚本未注入', error);
+      }
+    };
+
+    updateContentScript();
+  }, [enabled, mode, targetLanguage, styleLevel]);
+
+  // 监听内容脚本消息
+  useEffect(() => {
+    const handleMessage = (request: any) => {
+      switch (request.action) {
+        case 'processingUpdate':
+          setProcessing(request.processing);
+          if (request.currentImage) {
+            setCurrentImage(request.currentImage);
+          }
+          break;
+        case 'translationComplete':
+          setProcessing(false);
+          setCurrentImage(null);
+          break;
+      }
+    };
+
+    chrome.runtime.onMessage.addListener(handleMessage);
+    return () => {
+      chrome.runtime.onMessage.removeListener(handleMessage);
+    };
+  }, [setProcessing, setCurrentImage]);
 
   // 初始化应用
   useEffect(() => {

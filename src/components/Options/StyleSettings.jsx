@@ -1,229 +1,279 @@
-import { useState, useEffect } from 'react';
+import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useConfigStore } from '@/stores/config';
+import { Info } from 'lucide-react';
 
-const StyleSettings = ({ config, onChange }) => {
-  const [styleLevel, setStyleLevel] = useState(config?.styleLevel || 50);
-  const [fontFamily, setFontFamily] = useState(config?.fontFamily || '');
-  const [fontSize, setFontSize] = useState(config?.fontSize || 'auto');
-  const [fontColor, setFontColor] = useState(config?.fontColor || 'auto');
-  const [backgroundColor, setBackgroundColor] = useState(config?.backgroundColor || 'auto');
-  const [customFontFamily, setCustomFontFamily] = useState('');
-  const [showCustomFont, setShowCustomFont] = useState(false);
+const StyleSettings = () => {
+  const {
+    styleLevel,
+    setStyleLevel,
+    textColor,
+    setTextColor,
+    backgroundColor,
+    setBackgroundColor,
+    fontSize,
+    setFontSize,
+    fontFamily,
+    setFontFamily,
+    showOriginalText,
+    setShowOriginalText,
+    textAlignment,
+    setTextAlignment,
+    lineSpacing,
+    setLineSpacing
+  } = useConfigStore();
 
-  // 当 config props 变化时更新组件状态
-  useEffect(() => {
-    console.log('StyleSettings 接收到新的 config:', config);
-    if (config) {
-      if (config.styleLevel !== undefined) setStyleLevel(config.styleLevel);
-      if (config.fontFamily !== undefined) setFontFamily(config.fontFamily);
-      if (config.fontSize !== undefined) setFontSize(config.fontSize);
-      if (config.fontColor !== undefined) setFontColor(config.fontColor);
-      if (config.backgroundColor !== undefined) setBackgroundColor(config.backgroundColor);
-    }
-  }, [config]);
-
-  useEffect(() => {
-    if (fontFamily === 'custom') {
-      setShowCustomFont(true);
-    } else {
-      setShowCustomFont(false);
-    }
-  }, [fontFamily]);
-
-  // 当组件卸载时保存配置
-  useEffect(() => {
-    return () => {
-      console.log('StyleSettings组件卸载，保存配置');
-      handleSave();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleSave = () => {
-    const newFontFamily = fontFamily === 'custom' ? customFontFamily : fontFamily;
-
-    onChange({
-      styleLevel,
-      fontFamily: newFontFamily,
-      fontSize,
-      fontColor,
-      backgroundColor
-    });
-  };
-
-  const fontFamilies = [
-    { value: '', label: '自动 (推荐)' },
-    { value: 'SimSun, serif', label: '宋体' },
-    { value: 'Microsoft YaHei, sans-serif', label: '微软雅黑' },
-    { value: 'KaiTi, serif', label: '楷体' },
-    { value: 'SimHei, sans-serif', label: '黑体' },
-    { value: 'FangSong, serif', label: '仿宋' },
-    { value: 'Arial, sans-serif', label: 'Arial' },
-    { value: 'custom', label: '自定义...' }
+  // 字体选项
+  const fontOptions = [
+    { value: 'sans-serif', label: '无衬线字体' },
+    { value: 'serif', label: '衬线字体' },
+    { value: 'monospace', label: '等宽字体' },
+    { value: '"Noto Sans CJK JP", "Microsoft YaHei", sans-serif', label: '中日韩字体' }
   ];
 
-  const fontSizes = [
-    { value: 'auto', label: '自动 (推荐)' },
-    { value: 'smaller', label: '较小' },
+  // 文本对齐选项
+  const alignmentOptions = [
+    { value: 'left', label: '左对齐' },
+    { value: 'center', label: '居中' },
+    { value: 'right', label: '右对齐' },
+    { value: 'justify', label: '两端对齐' }
+  ];
+
+  // 字体大小选项
+  const fontSizeOptions = [
+    { value: 'smaller', label: '更小' },
     { value: 'small', label: '小' },
     { value: 'medium', label: '中等' },
     { value: 'large', label: '大' },
-    { value: 'larger', label: '较大' }
+    { value: 'larger', label: '更大' }
   ];
 
   return (
-    <div>
-      <h2 className="text-lg font-medium text-gray-900 mb-4">样式设置</h2>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>样式保持程度</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="style-level">平衡清晰度和美观度</Label>
+                <div title="调整翻译文本的样式保持程度，值越高越接近原图样式" className="inline-block">
+                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                </div>
+              </div>
+              <Slider
+                id="style-level"
+                min={0}
+                max={100}
+                step={1}
+                value={[styleLevel]}
+                onValueChange={(values) => setStyleLevel(values[0] || 50)}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>更清晰</span>
+                <span>更美观</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          样式保持程度: {styleLevel}%
-        </label>
-        <input
-          type="range"
-          min="0"
-          max="100"
-          value={styleLevel}
-          onChange={(e) => {
-            setStyleLevel(Number(e.target.value));
-            handleSave();
-          }}
-          className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer"
-        />
-        <div className="flex justify-between text-xs text-gray-500 mt-1">
-          <span>更清晰</span>
-          <span>更美观</span>
-        </div>
-        <p className="text-xs text-gray-500 mt-1">
-          调整翻译文字的样式与原文的相似程度。较低的值优先保证文字清晰度，较高的值尽量模仿原文样式。
-        </p>
-      </div>
+      <Card>
+        <CardHeader>
+          <CardTitle>文本样式</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-2">
+              <Label htmlFor="text-color">文本颜色</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="text-color"
+                  type="color"
+                  value={textColor}
+                  onChange={(e) => setTextColor(e.target.value)}
+                  className="w-12 h-10 p-0 border-0"
+                />
+                <Input
+                  type="text"
+                  value={textColor}
+                  onChange={(e) => setTextColor(e.target.value)}
+                  placeholder="#000000"
+                  className="flex-1"
+                />
+              </div>
+            </div>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          字体
-        </label>
-        <select
-          value={fontFamily}
-          onChange={(e) => {
-            setFontFamily(e.target.value);
-            handleSave();
-          }}
-          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {fontFamilies.map(font => (
-            <option key={font.value} value={font.value}>
-              {font.label}
-            </option>
-          ))}
-        </select>
-        {showCustomFont && (
-          <input
-            type="text"
-            value={customFontFamily}
-            onChange={(e) => {
-              setCustomFontFamily(e.target.value);
-              handleSave();
-            }}
-            placeholder="输入自定义字体，例如: 'Comic Sans MS, cursive'"
-            className="w-full mt-2 px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          />
-        )}
-      </div>
+            <div className="space-y-2">
+              <Label htmlFor="background-color">背景颜色</Label>
+              <div className="flex items-center gap-2">
+                <Input
+                  id="background-color"
+                  type="color"
+                  value={backgroundColor}
+                  onChange={(e) => setBackgroundColor(e.target.value)}
+                  className="w-12 h-10 p-0 border-0"
+                />
+                <Input
+                  type="text"
+                  value={backgroundColor}
+                  onChange={(e) => setBackgroundColor(e.target.value)}
+                  placeholder="rgba(255, 255, 255, 0.8)"
+                  className="flex-1"
+                />
+              </div>
+            </div>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          字体大小
-        </label>
-        <select
-          value={fontSize}
-          onChange={(e) => {
-            setFontSize(e.target.value);
-            handleSave();
-          }}
-          className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-        >
-          {fontSizes.map(size => (
-            <option key={size.value} value={size.value}>
-              {size.label}
-            </option>
-          ))}
-        </select>
-      </div>
+            <div className="space-y-2">
+              <Label htmlFor="font-family">字体</Label>
+              <Select value={fontFamily} onValueChange={setFontFamily}>
+                <SelectTrigger id="font-family">
+                  <SelectValue placeholder="选择字体" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fontOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
 
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          字体颜色
-        </label>
-        <div className="flex items-center">
-          <select
-            value={fontColor}
-            onChange={(e) => {
-              setFontColor(e.target.value);
-              handleSave();
-            }}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-l text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="auto">自动 (推荐)</option>
-            <option value="black">黑色</option>
-            <option value="white">白色</option>
-            <option value="custom">自定义...</option>
-          </select>
-          {fontColor === 'custom' && (
-            <input
-              type="color"
-              value={fontColor === 'custom' ? (fontColor.startsWith('#') ? fontColor : '#000000') : '#000000'}
-              onChange={(e) => {
-                setFontColor(e.target.value);
-                handleSave();
+            <div className="space-y-2">
+              <Label htmlFor="font-size">字体大小</Label>
+              <Select value={fontSize} onValueChange={setFontSize}>
+                <SelectTrigger id="font-size">
+                  <SelectValue placeholder="选择字体大小" />
+                </SelectTrigger>
+                <SelectContent>
+                  {fontSizeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="text-alignment">文本对齐</Label>
+              <Select value={textAlignment} onValueChange={setTextAlignment}>
+                <SelectTrigger id="text-alignment">
+                  <SelectValue placeholder="选择文本对齐方式" />
+                </SelectTrigger>
+                <SelectContent>
+                  {alignmentOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="line-spacing">行间距</Label>
+                <span className="text-sm text-muted-foreground">{lineSpacing}%</span>
+              </div>
+              <Slider
+                id="line-spacing"
+                min={50}
+                max={200}
+                step={5}
+                value={[lineSpacing]}
+                onValueChange={(values) => setLineSpacing(values[0] || 100)}
+                className="w-full"
+              />
+              <div className="flex justify-between text-xs text-muted-foreground">
+                <span>紧凑</span>
+                <span>宽松</span>
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>高级选项</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="show-original-text">显示原文</Label>
+                <div title="在翻译文本下方显示原文" className="inline-block">
+                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                </div>
+              </div>
+              <Switch
+                id="show-original-text"
+                checked={showOriginalText}
+                onCheckedChange={setShowOriginalText}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="custom-css">自定义CSS（高级）</Label>
+              <Input
+                id="custom-css"
+                type="text"
+                placeholder="输入自定义CSS选择器和样式"
+                className="w-full"
+                // 这里可以添加自定义CSS支持
+              />
+              <p className="text-xs text-muted-foreground">
+                示例：.manga-translator-text {`{ font-weight: bold; }`}
+              </p>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>样式预览</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="p-6 border rounded-lg bg-muted/50">
+            <div 
+              className="manga-translator-preview"
+              style={{
+                fontSize: fontSize === 'smaller' ? '12px' : 
+                          fontSize === 'small' ? '14px' : 
+                          fontSize === 'medium' ? '16px' : 
+                          fontSize === 'large' ? '18px' : '20px',
+                fontFamily: fontFamily,
+                color: textColor,
+                backgroundColor: backgroundColor,
+                textAlign: textAlignment,
+                lineHeight: `${lineSpacing / 100}`,
+                padding: '10px',
+                borderRadius: '4px',
+                margin: '10px 0'
               }}
-              className="h-[42px] w-[42px] border border-gray-300 rounded-r border-l-0"
-            />
-          )}
-        </div>
-      </div>
-
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          背景颜色
-        </label>
-        <div className="flex items-center">
-          <select
-            value={backgroundColor}
-            onChange={(e) => {
-              setBackgroundColor(e.target.value);
-              handleSave();
-            }}
-            className="flex-1 px-3 py-2 border border-gray-300 rounded-l text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="auto">自动 (推荐)</option>
-            <option value="transparent">透明</option>
-            <option value="white">白色</option>
-            <option value="black">黑色</option>
-            <option value="custom">自定义...</option>
-          </select>
-          {backgroundColor === 'custom' && (
-            <input
-              type="color"
-              value={backgroundColor === 'custom' ? (backgroundColor.startsWith('#') ? backgroundColor : '#ffffff') : '#ffffff'}
-              onChange={(e) => {
-                setBackgroundColor(e.target.value);
-                handleSave();
-              }}
-              className="h-[42px] w-[42px] border border-gray-300 rounded-r border-l-0"
-            />
-          )}
-        </div>
-      </div>
-
-      <div className="mt-6 p-4 bg-yellow-50 rounded border border-yellow-200">
-        <h3 className="text-sm font-medium text-yellow-800 mb-2">样式提示</h3>
-        <ul className="text-xs text-yellow-700 list-disc list-inside">
-          <li>推荐使用"自动"设置，让插件根据原文样式自动调整</li>
-          <li>如果翻译文字难以阅读，可以降低样式保持程度</li>
-          <li>对于特定漫画，可能需要手动调整字体和颜色以获得最佳效果</li>
-          <li>背景透明度会根据样式保持程度自动调整</li>
-        </ul>
-      </div>
+            >
+              <p>这是一个样式预览示例</p>
+              <p>这里展示了文本颜色、背景颜色、字体大小、字体和行间距的效果</p>
+              {showOriginalText && (
+                <div className="mt-4 p-2 bg-muted text-sm">
+                  <p>这是原文的显示效果示例</p>
+                </div>
+              )}
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };

@@ -5,7 +5,43 @@ import { ProviderFactory, ProviderType } from './provider-factory.d';
 interface ExtendedAIProvider extends AIProvider {
   detectText?(imageData: string, options?: any): Promise<any>;
 }
-// import { APIErrorHandler } from '../utils/error-handler';
+
+// 错误类型枚举
+enum APIErrorType {
+  NETWORK_ERROR = 'NETWORK_ERROR',
+  TIMEOUT_ERROR = 'TIMEOUT_ERROR',
+  RATE_LIMIT_ERROR = 'RATE_LIMIT_ERROR',
+  AUTH_ERROR = 'AUTH_ERROR',
+  INVALID_REQUEST = 'INVALID_REQUEST',
+  SERVER_ERROR = 'SERVER_ERROR',
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR'
+}
+
+// API错误类
+class APIError extends Error {
+  public type: APIErrorType;
+  public statusCode?: number;
+  public retryable: boolean;
+  public rawError?: any;
+
+  constructor(message: string, type: APIErrorType, retryable: boolean = false, statusCode?: number, rawError?: any) {
+    super(message);
+    this.name = 'APIError';
+    this.type = type;
+    this.statusCode = statusCode;
+    this.retryable = retryable;
+    this.rawError = rawError;
+  }
+}
+
+// 日志级别枚举
+enum LogLevel {
+  DEBUG = 'DEBUG',
+  INFO = 'INFO',
+  WARN = 'WARN',
+  ERROR = 'ERROR'
+}
+
 import { useConfigStore } from '../stores/config';
 import { useCacheStore } from '../stores/cache';
 
@@ -20,8 +56,29 @@ export class APIManager {
   private requestCache: Map<string, { data: any; timestamp: number }> = new Map();
   private batchQueue: Array<{ id: string; request: any; resolve: Function; reject: Function }> = [];
   private batchTimer: NodeJS.Timeout | null = null;
-  // private readonly BATCH_DELAY = 100; // 100ms批处理延迟
-  // private readonly MAX_BATCH_SIZE = 10; // 最大批处理大小
+  
+  // 配置常量
+  private readonly BATCH_DELAY = 100; // 100ms批处理延迟
+  private readonly MAX_BATCH_SIZE = 10; // 最大批处理大小
+  private readonly MAX_RETRIES = 3; // 最大重试次数
+  private readonly BASE_RETRY_DELAY = 1000; // 基础重试延迟
+  private readonly MAX_RETRY_DELAY = 5000; // 最大重试延迟
+  private readonly REQUEST_TIMEOUT = 30000; // 请求超时时间（ms）
+  
+  // 限流相关
+  private requestCount = 0;
+  private lastRequestTime = 0;
+  private readonly RATE_LIMIT_WINDOW = 60000; // 限流窗口（ms）
+  private readonly MAX_REQUESTS_PER_WINDOW = 60; // 每个窗口最大请求数
+  
+  // 监控相关
+  private requestStats = {
+    total: 0,
+    success: 0,
+    failed: 0,
+    retried: 0,
+    cached: 0
+  };
 
   private constructor() { }
 
@@ -36,9 +93,33 @@ export class APIManager {
   }
 
   /**
+   * 记录日志
+   */
+  private log(level: LogLevel, message: string, data?: any): void {
+    const timestamp = new Date().toISOString();
+    const logMessage = `[${timestamp}] [${level}] ${message}`;
+    
+    switch (level) {
+      case LogLevel.DEBUG:
+        console.debug(logMessage, data);
+        break;
+      case LogLevel.INFO:
+        console.info(logMessage, data);
+        break;
+      case LogLevel.WARN:
+        console.warn(logMessage, data);
+        break;
+      case LogLevel.ERROR:
+        console.error(logMessage, data);
+        break;
+    }
+  }
+
+  /**
    * 初始化API管理器
    */
   async initialize(): Promise<void> {
+    this.log(LogLevel.INFO, '初始化API管理器');
     try {
       const configStore = useConfigStore.getState();
       const { providerType, providerConfig } = configStore;
@@ -56,9 +137,9 @@ export class APIManager {
       // 初始化提供者
       await this.currentProvider.initialize();
 
-      console.log(`API管理器已初始化，当前提供者: ${providerType}`);
+      this.log(LogLevel.INFO, `API管理器已初始化，当前提供者: ${providerType}`);
     } catch (error) {
-      console.error('API管理器初始化失败:', error);
+      this.log(LogLevel.ERROR, 'API管理器初始化失败', error);
       throw error;
     }
   }
@@ -67,6 +148,7 @@ export class APIManager {
    * 切换API提供者
    */
   async switchProvider(providerType: ProviderType, config: any): Promise<void> {
+    this.log(LogLevel.INFO, `切换API提供者到: ${providerType}`);
     try {
       // 终止当前提供者
       if (this.currentProvider) {
@@ -77,9 +159,9 @@ export class APIManager {
       this.currentProvider = ProviderFactory.createProvider(providerType, config);
       await this.currentProvider.initialize();
 
-      console.log(`已切换到提供者: ${providerType}`);
+      this.log(LogLevel.INFO, `已切换到提供者: ${providerType}`);
     } catch (error) {
-      console.error('切换提供者失败:', error);
+      this.log(LogLevel.ERROR, '切换提供者失败', error);
       throw error;
     }
   }
@@ -99,13 +181,14 @@ export class APIManager {
     const cacheStore = useCacheStore.getState();
     const cached = cacheStore.getOCRCache(cacheKey);
     if (cached && !this.isCacheExpired(cached.timestamp)) {
-      console.log('使用缓存的OCR结果');
+      this.log(LogLevel.DEBUG, '使用缓存的OCR结果', { cacheKey });
+      this.requestStats.cached++;
       return cached.data;
     }
 
     // 检查是否有相同的请求正在进行
     if (this.requestQueue.has(cacheKey)) {
-      console.log('等待相同的OCR请求完成');
+      this.log(LogLevel.DEBUG, '等待相同的OCR请求完成', { cacheKey });
       return this.requestQueue.get(cacheKey);
     }
 
@@ -137,6 +220,8 @@ export class APIManager {
       throw new Error('API提供者未初始化');
     }
 
+    this.log(LogLevel.DEBUG, '开始翻译文本', { text: Array.isArray(text) ? text.length : 1, targetLang });
+    
     const isArray = Array.isArray(text);
     const texts = isArray ? text : [text];
 
@@ -160,6 +245,7 @@ export class APIManager {
       const cached = cacheStore.getTranslationCache(cacheKey);
       if (cached && !this.isCacheExpired(cached.timestamp)) {
         cachedResults[i] = cached.data;
+        this.requestStats.cached++;
       } else {
         cachedResults[i] = null;
         uncachedTexts.push(text);
@@ -169,7 +255,7 @@ export class APIManager {
 
     // 如果所有结果都有缓存，直接返回
     if (uncachedTexts.length === 0) {
-      console.log('使用缓存的翻译结果');
+      this.log(LogLevel.DEBUG, '所有翻译结果都已缓存', { count: texts.length });
       return isArray ? cachedResults as string[] : cachedResults[0] as string;
     }
 
@@ -193,7 +279,10 @@ export class APIManager {
       }
     }
 
-    return isArray ? cachedResults as string[] : cachedResults[0] as string;
+    const result = isArray ? cachedResults as string[] : cachedResults[0] as string;
+    this.log(LogLevel.DEBUG, '翻译完成', { inputCount: texts.length, outputCount: result.length || 1 });
+    
+    return result;
   }
 
   /**
@@ -206,6 +295,8 @@ export class APIManager {
   ): Promise<string[]> {
     if (texts.length === 0) return [];
 
+    this.log(LogLevel.DEBUG, '开始批处理翻译', { count: texts.length });
+    
     // 如果只有一个文本，直接翻译
     if (texts.length === 1) {
       const request: TranslationRequest = {
@@ -213,7 +304,11 @@ export class APIManager {
         targetLanguage: targetLang,
         ...options
       };
-      const response = await this.currentProvider!.translateText(request);
+      const response = await this.executeWithRetry(
+        () => this.currentProvider!.translateText(request),
+        'translateText',
+        { request }
+      );
       return [response.translatedText];
     }
 
@@ -224,20 +319,38 @@ export class APIManager {
         targetLanguage: targetLang,
         ...options
       }));
-      const responses = await this.currentProvider!.translateBatch(requests);
+      const responses = await this.executeWithRetry(
+        () => this.currentProvider!.translateBatch!(requests),
+        'translateBatch',
+        { requestCount: requests.length }
+      );
       return responses.map(response => response.translatedText);
     } else {
-      // 如果不支持批量翻译，逐个翻译
+      // 如果不支持批量翻译，使用并行处理
+      this.log(LogLevel.DEBUG, '当前提供者不支持批量翻译，使用并行处理', { count: texts.length });
       const results: string[] = [];
-      for (const text of texts) {
-        const request: TranslationRequest = {
-          text,
-          targetLanguage: targetLang,
-          ...options
-        };
-        const response = await this.currentProvider!.translateText(request);
-        results.push(response.translatedText);
+      
+      // 并行处理，但限制并发数为5
+      const concurrencyLimit = 5;
+      for (let i = 0; i < texts.length; i += concurrencyLimit) {
+        const batch = texts.slice(i, i + concurrencyLimit);
+        const batchPromises = batch.map(text => {
+          const request: TranslationRequest = {
+            text,
+            targetLanguage: targetLang,
+            ...options
+          };
+          return this.executeWithRetry(
+            () => this.currentProvider!.translateText(request),
+            'translateText',
+            { request }
+          );
+        });
+        
+        const batchResults = await Promise.all(batchPromises);
+        results.push(...batchResults.map(response => response.translatedText));
       }
+      
       return results;
     }
   }
@@ -246,27 +359,204 @@ export class APIManager {
    * 执行文字检测
    */
   private async executeDetectText(imageData: string, options: any): Promise<any> {
-    // 简化的重试逻辑，暂时不使用APIErrorHandler
-    let lastError: Error;
-    const maxRetries = 3;
-
-    for (let attempt = 0; attempt < maxRetries; attempt++) {
-      try {
-        if (this.currentProvider!.detectText) {
-          return await this.currentProvider!.detectText(imageData, options);
-        } else {
-          throw new Error('当前提供者不支持文字检测功能');
-        }
-      } catch (error) {
-        lastError = error as Error;
-        if (attempt < maxRetries - 1) {
-          const delay = Math.min(1000 * Math.pow(2, attempt), 5000);
-          await new Promise(resolve => setTimeout(resolve, delay));
-        }
-      }
+    if (!this.currentProvider!.detectText) {
+      throw new Error('当前提供者不支持文字检测功能');
     }
 
-    throw lastError!;
+    return this.executeWithRetry(
+      () => this.currentProvider!.detectText!(imageData, options),
+      'detectText',
+      { imageSize: imageData.length, options }
+    );
+  }
+
+  /**
+   * 执行带重试的请求
+   */
+  private async executeWithRetry<T>(
+    requestFn: () => Promise<T>,
+    operation: string,
+    metadata?: any
+  ): Promise<T> {
+    this.requestStats.total++;
+    
+    let lastError: APIError | undefined;
+    const maxRetries = this.MAX_RETRIES;
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        this.log(LogLevel.DEBUG, `执行API请求`, {
+          operation,
+          attempt: attempt + 1,
+          maxRetries,
+          ...metadata
+        });
+
+        // 检查限流
+        await this.checkRateLimit();
+        
+        // 执行请求并添加超时
+        const result = await this.withTimeout(requestFn, this.REQUEST_TIMEOUT, `${operation}请求超时`);
+        
+        this.log(LogLevel.DEBUG, `API请求成功`, {
+          operation,
+          attempt: attempt + 1,
+          ...metadata
+        });
+        
+        this.requestStats.success++;
+        return result;
+      } catch (error) {
+        const apiError = this.parseError(error, operation);
+        lastError = apiError;
+        
+        this.log(LogLevel.WARN, `API请求失败`, {
+          operation,
+          attempt: attempt + 1,
+          error: apiError.message,
+          errorType: apiError.type,
+          retryable: apiError.retryable,
+          ...metadata
+        });
+        
+        // 检查是否可以重试
+        if (!apiError.retryable || attempt >= maxRetries) {
+          this.log(LogLevel.ERROR, `API请求最终失败，已达到最大重试次数`, {
+            operation,
+            maxRetries,
+            error: apiError.message,
+            errorType: apiError.type,
+            ...metadata
+          });
+          
+          this.requestStats.failed++;
+          throw apiError;
+        }
+        
+        // 计算重试延迟（指数退避）
+        const delay = this.calculateRetryDelay(attempt);
+        this.log(LogLevel.DEBUG, `计划重试API请求`, {
+          operation,
+          attempt: attempt + 1,
+          delay,
+          ...metadata
+        });
+        
+        this.requestStats.retried++;
+        await new Promise(resolve => setTimeout(resolve, delay));
+      }
+    }
+    
+    // 理论上不会执行到这里，但为了类型安全
+    this.requestStats.failed++;
+    throw lastError || new APIError('未知错误', APIErrorType.UNKNOWN_ERROR);
+  }
+
+  /**
+   * 解析错误
+   */
+  private parseError(error: any, operation: string): APIError {
+    this.log(LogLevel.DEBUG, `解析API错误`, { error, operation });
+    
+    // 网络错误
+    if (error instanceof TypeError && (error.message.includes('network') || error.message.includes('fetch'))) {
+      return new APIError('网络错误，请检查网络连接', APIErrorType.NETWORK_ERROR, true);
+    }
+    
+    // 超时错误
+    if (error.name === 'TimeoutError') {
+      return new APIError('请求超时，请稍后重试', APIErrorType.TIMEOUT_ERROR, true);
+    }
+    
+    // HTTP错误
+    if (error.statusCode || error.response?.status) {
+      const statusCode = error.statusCode || error.response.status;
+      
+      switch (true) {
+        case statusCode === 401 || statusCode === 403:
+          return new APIError('认证失败，请检查API密钥', APIErrorType.AUTH_ERROR, false, statusCode, error);
+          
+        case statusCode === 400:
+          return new APIError('无效的请求参数', APIErrorType.INVALID_REQUEST, false, statusCode, error);
+          
+        case statusCode === 429:
+          return new APIError('请求过于频繁，请稍后重试', APIErrorType.RATE_LIMIT_ERROR, true, statusCode, error);
+          
+        case statusCode >= 500 && statusCode < 600:
+          return new APIError('服务器错误，请稍后重试', APIErrorType.SERVER_ERROR, true, statusCode, error);
+          
+        default:
+          return new APIError(`HTTP错误: ${statusCode}`, APIErrorType.UNKNOWN_ERROR, false, statusCode, error);
+      }
+    }
+    
+    // 其他错误
+    return new APIError(
+      error.message || '未知错误',
+      APIErrorType.UNKNOWN_ERROR,
+      false,
+      undefined,
+      error
+    );
+  }
+
+  /**
+   * 带超时的请求执行
+   */
+  private async withTimeout<T>(
+    fn: () => Promise<T>,
+    timeout: number,
+    timeoutMessage: string
+  ): Promise<T> {
+    // 创建超时Promise
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      const timer = setTimeout(() => {
+        const error = new Error(timeoutMessage);
+        error.name = 'TimeoutError';
+        reject(error);
+      }, timeout);
+      
+      // 清理定时器
+      fn().finally(() => clearTimeout(timer));
+    });
+    
+    // 使用Promise.race实现超时
+    return Promise.race([fn(), timeoutPromise]) as Promise<T>;
+  }
+
+  /**
+   * 检查限流
+   */
+  private async checkRateLimit(): Promise<void> {
+    const now = Date.now();
+    
+    // 如果超过限流窗口，重置计数
+    if (now - this.lastRequestTime > this.RATE_LIMIT_WINDOW) {
+      this.requestCount = 0;
+      this.lastRequestTime = now;
+      return;
+    }
+    
+    // 如果超过最大请求数，等待
+    if (this.requestCount >= this.MAX_REQUESTS_PER_WINDOW) {
+      const waitTime = this.RATE_LIMIT_WINDOW - (now - this.lastRequestTime);
+      this.log(LogLevel.WARN, '达到限流限制，等待后重试', { waitTime });
+      await new Promise(resolve => setTimeout(resolve, waitTime));
+      this.requestCount = 0;
+      this.lastRequestTime = Date.now();
+    }
+    
+    this.requestCount++;
+  }
+
+  /**
+   * 计算重试延迟
+   */
+  private calculateRetryDelay(attempt: number): number {
+    // 指数退避 + 抖动
+    const baseDelay = this.BASE_RETRY_DELAY * Math.pow(2, attempt);
+    const jitter = Math.random() * baseDelay * 0.5; // 0-50%的抖动
+    return Math.min(baseDelay + jitter, this.MAX_RETRY_DELAY);
   }
 
   /**
@@ -308,7 +598,12 @@ export class APIManager {
       return { isValid: false, message: 'API提供者未初始化' };
     }
 
-    return await this.currentProvider.validateConfig();
+    try {
+      return await this.currentProvider.validateConfig();
+    } catch (error) {
+      this.log(LogLevel.ERROR, '验证提供者配置失败', { error });
+      return { isValid: false, message: `验证失败: ${error instanceof Error ? error.message : String(error)}` };
+    }
   }
 
   /**
@@ -322,6 +617,26 @@ export class APIManager {
     return {
       name: this.currentProvider.name,
       features: this.currentProvider.supportedFeatures,
+    };
+  }
+
+  /**
+   * 获取请求统计信息
+   */
+  getRequestStats(): typeof this.requestStats {
+    return { ...this.requestStats };
+  }
+
+  /**
+   * 重置请求统计信息
+   */
+  resetRequestStats(): void {
+    this.requestStats = {
+      total: 0,
+      success: 0,
+      failed: 0,
+      retried: 0,
+      cached: 0
     };
   }
 
@@ -350,6 +665,8 @@ export class APIManager {
    * 清理资源
    */
   async cleanup(): Promise<void> {
+    this.log(LogLevel.INFO, '清理API管理器资源');
+    
     // 清理批处理定时器
     if (this.batchTimer) {
       clearTimeout(this.batchTimer);
@@ -366,7 +683,10 @@ export class APIManager {
       this.currentProvider = null;
     }
 
-    console.log('API管理器已清理');
+    // 重置统计信息
+    this.resetRequestStats();
+
+    this.log(LogLevel.INFO, 'API管理器已清理');
   }
 }
 

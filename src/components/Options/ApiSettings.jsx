@@ -1,392 +1,213 @@
-import { useState, useEffect } from 'react';
-import { getConfig, saveProviderConfig } from '../../utils/storage';
-import ProviderFactory from '../../api/providers';
-import { DEFAULT_CONFIG } from '../../utils/default-config';
+import React from 'react';
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
+import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { useConfigStore } from '@/stores/config';
+import { Info } from 'lucide-react';
 
-/**
- * API设置组件
- */
-const ApiSettings = () => {
-  // 状态
-  const [loading, setLoading] = useState(true);
-  const [providerType, setProviderType] = useState('openai');
-  const [providerConfig, setProviderConfig] = useState({});
-  const [validationMessage, setValidationMessage] = useState('');
-  const [validating, setValidating] = useState(false);
-  const [providers, setProviders] = useState([]);
-  const [currentProvider, setCurrentProvider] = useState(null);
-  const [configSchema, setConfigSchema] = useState({});
-
-  // 加载配置
-  useEffect(() => {
-    const loadConfig = async () => {
-      try {
-        setLoading(true);
-        const config = await getConfig();
-        
-        // 获取所有注册的提供者
-        const registeredProviderTypes = ProviderFactory.getRegisteredProviders();
-        const providerList = registeredProviderTypes.map(type => {
-          const ProviderClass = ProviderFactory.getProviderClass(type);
-          const instance = new ProviderClass();
-          return {
-            id: type,
-            name: instance.name,
-            instance
-          };
-        });
-        
-        setProviders(providerList);
-        
-        // 使用默认配置填充缺失的值
-        const defaultType = DEFAULT_CONFIG.providerType;
-        const activeType = config.providerType || defaultType;
-        setProviderType(activeType);
-        
-        // 确保providerConfig包含所有提供者的默认配置
-        const mergedConfig = { ...DEFAULT_CONFIG.providerConfig };
-        
-        if (config.providerConfig) {
-          // 合并用户配置与默认配置
-          Object.keys(mergedConfig).forEach(provider => {
-            mergedConfig[provider] = {
-              ...mergedConfig[provider],
-              ...(config.providerConfig[provider] || {})
-            };
-          });
-        }
-        
-        setProviderConfig(mergedConfig);
-        
-        // 设置当前提供者
-        const currentProviderInstance = providerList.find(p => p.id === activeType)?.instance;
-        if (currentProviderInstance) {
-          setCurrentProvider(currentProviderInstance);
-          setConfigSchema(currentProviderInstance.getConfigurationSchema());
-        }
-        
-        setLoading(false);
-      } catch (error) {
-        console.error('加载配置失败:', error);
-        setLoading(false);
-      }
-    };
-
-    loadConfig();
-  }, []);
-
-  // 当提供者类型更改时更新当前提供者
-  useEffect(() => {
-    const provider = providers.find(p => p.id === providerType);
-    if (provider) {
-      setCurrentProvider(provider.instance);
-      setConfigSchema(provider.instance.getConfigurationSchema());
-      
-      // 如果当前提供者没有配置，使用默认配置
-      if (!providerConfig[providerType]) {
-        setProviderConfig(prev => ({
-          ...prev,
-          [providerType]: DEFAULT_CONFIG.providerConfig[providerType] || {}
-        }));
-      }
-    }
-  }, [providerType, providers]);
-
-  // 更改提供者类型
-  const handleProviderChange = (e) => {
-    const newType = e.target.value;
-    setProviderType(newType);
-  };
-
-  // 更新配置字段
-  const handleConfigChange = (key, value) => {
-    setProviderConfig(prev => ({
-      ...prev,
-      [providerType]: {
-        ...(prev[providerType] || {}),
-        [key]: value
-      }
-    }));
-  };
-
-  // 重置为默认配置
-  const resetToDefault = () => {
-    if (window.confirm('确定要重置为默认配置吗？这将覆盖当前设置。')) {
-      const defaultProviderConfig = DEFAULT_CONFIG.providerConfig[providerType];
-      if (defaultProviderConfig) {
-        setProviderConfig(prev => ({
-          ...prev,
-          [providerType]: { ...defaultProviderConfig }
-        }));
-        setValidationMessage('✅ 已重置为默认配置');
-      }
-    }
-  };
-
-  // 验证API配置
-  const validateConfig = async () => {
-    if (!currentProvider) return;
-
-    try {
-      setValidating(true);
-      setValidationMessage('正在验证...');
-
-      // 创建一个临时提供者实例进行验证
-      const tempProvider = new (ProviderFactory.getProvider(providerType))();
-      tempProvider.config = providerConfig[providerType] || {};
-
-      const result = await tempProvider.validateConfig();
-      
-      if (result.isValid) {
-        setValidationMessage(`✅ ${result.message || '验证成功'}`);
-      } else {
-        setValidationMessage(`❌ ${result.message || '验证失败'}`);
-      }
-    } catch (error) {
-      console.error('验证失败:', error);
-      setValidationMessage(`❌ 验证出错: ${error.message}`);
-    } finally {
-      setValidating(false);
-    }
-  };
-
-  // 保存配置
-  const saveConfig = async () => {
-    try {
-      // 保存提供者类型和配置
-      const result = await saveProviderConfig(providerType, providerConfig[providerType] || {});
-      
-      if (result.success) {
-        setValidationMessage('✅ 配置已保存');
-      } else {
-        setValidationMessage(`❌ 保存失败: ${result.message}`);
-      }
-    } catch (error) {
-      console.error('保存配置失败:', error);
-      setValidationMessage(`❌ 保存失败: ${error.message}`);
-    }
-  };
-
-  // 渲染配置字段
-  const renderConfigFields = () => {
-    if (!configSchema || !providerConfig[providerType]) {
-      return <p>加载配置中...</p>;
-    }
-
-    return Object.entries(configSchema).map(([key, field]) => {
-      const value = providerConfig[providerType]?.[key] ?? field.default;
-      
-      // 根据字段类型渲染不同的表单控件
-      switch (field.type) {
-        case 'string':
-          return (
-            <div key={key} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {field.label || key}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-              <input
-                type={key.toLowerCase().includes('key') ? 'password' : 'text'}
-                value={value || ''}
-                onChange={(e) => handleConfigChange(key, e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                required={field.required}
-              />
-              {field.description && (
-                <p className="mt-1 text-xs text-gray-500">{field.description}</p>
-              )}
-            </div>
-          );
-          
-        case 'number':
-          return (
-            <div key={key} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {field.label || key}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-              <input
-                type="number"
-                value={value || field.default || 0}
-                onChange={(e) => handleConfigChange(key, Number(e.target.value))}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                min={field.min}
-                max={field.max}
-                step={field.step || 1}
-                required={field.required}
-              />
-              {field.description && (
-                <p className="mt-1 text-xs text-gray-500">{field.description}</p>
-              )}
-            </div>
-          );
-          
-        case 'boolean':
-          return (
-            <div key={key} className="mb-4 flex items-start">
-              <div className="flex items-center h-5">
-                <input
-                  type="checkbox"
-                  checked={value || false}
-                  onChange={(e) => handleConfigChange(key, e.target.checked)}
-                  className="focus:ring-indigo-500 h-4 w-4 text-indigo-600 border-gray-300 rounded"
-                />
-              </div>
-              <div className="ml-3 text-sm">
-                <label className="font-medium text-gray-700">
-                  {field.label || key}
-                </label>
-                {field.description && (
-                  <p className="text-gray-500">{field.description}</p>
-                )}
-              </div>
-            </div>
-          );
-          
-        case 'select':
-          return (
-            <div key={key} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {field.label || key}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-              <select
-                value={value || field.default || ''}
-                onChange={(e) => handleConfigChange(key, e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                required={field.required}
-              >
-                {field.options.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-              {field.description && (
-                <p className="mt-1 text-xs text-gray-500">{field.description}</p>
-              )}
-            </div>
-          );
-          
-        case 'range':
-          return (
-            <div key={key} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {field.label || key}: {value || field.default || 0}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-              <input
-                type="range"
-                value={value || field.default || 0}
-                onChange={(e) => handleConfigChange(key, Number(e.target.value))}
-                className="mt-1 block w-full"
-                min={field.min || 0}
-                max={field.max || 1}
-                step={field.step || 0.1}
-                required={field.required}
-              />
-              <div className="flex justify-between text-xs text-gray-500">
-                <span>{field.min || 0}</span>
-                <span>{field.max || 1}</span>
-              </div>
-              {field.description && (
-                <p className="mt-1 text-xs text-gray-500">{field.description}</p>
-              )}
-            </div>
-          );
-          
-        default:
-          return (
-            <div key={key} className="mb-4">
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                {field.label || key}
-                {field.required && <span className="text-red-500 ml-1">*</span>}
-              </label>
-              <input
-                type="text"
-                value={value || ''}
-                onChange={(e) => handleConfigChange(key, e.target.value)}
-                className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-                required={field.required}
-              />
-            </div>
-          );
-      }
-    });
-  };
-
-  // 加载中显示
-  if (loading) {
-    return (
-      <div className="p-4">
-        <h2 className="text-lg font-semibold mb-4">API设置</h2>
-        <p>加载中...</p>
-      </div>
-    );
+// API提供商信息
+const providerInfo = {
+  openai: {
+    name: 'OpenAI',
+    description: '使用OpenAI的GPT模型进行翻译',
+    baseUrl: 'https://api.openai.com',
+    defaultModel: 'gpt-3.5-turbo',
+    models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o'],
+    needsApiKey: true
+  },
+  claude: {
+    name: 'Claude',
+    description: '使用Anthropic的Claude模型进行翻译',
+    baseUrl: 'https://api.anthropic.com',
+    defaultModel: 'claude-3-haiku-20240307',
+    models: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229'],
+    needsApiKey: true
+  },
+  deepseek: {
+    name: 'DeepSeek',
+    description: '使用深度求索的DeepSeek模型进行翻译',
+    baseUrl: 'https://api.deepseek.com',
+    defaultModel: 'deepseek-chat',
+    models: ['deepseek-chat', 'deepseek-coder-v2:latest'],
+    needsApiKey: true
+  },
+  qwen: {
+    name: 'Qwen',
+    description: '使用阿里通义千问模型进行翻译',
+    baseUrl: 'https://dashscope.aliyuncs.com',
+    defaultModel: 'qwen-turbo',
+    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+    needsApiKey: true
   }
+};
+
+const ApiSettings = () => {
+  const {
+    providerType,
+    providerConfig,
+    updateProviderConfig,
+    setProviderType
+  } = useConfigStore();
+
+  // 获取当前提供商的配置
+  const currentConfig = providerConfig[providerType] || {};
+  const currentProviderInfo = providerInfo[providerType] || providerInfo.openai;
+
+  // 处理提供商变更
+  const handleProviderChange = (value) => {
+    setProviderType(value);
+  };
+
+  // 处理API密钥变更
+  const handleApiKeyChange = (value) => {
+    updateProviderConfig(providerType, { apiKey: value });
+  };
+
+  // 处理模型变更
+  const handleModelChange = (value) => {
+    updateProviderConfig(providerType, { model: value });
+  };
+
+  // 处理基础URL变更
+  const handleBaseUrlChange = (value) => {
+    updateProviderConfig(providerType, { baseUrl: value });
+  };
 
   return (
-    <div className="p-4 bg-white rounded-lg shadow">
-      <h2 className="text-lg font-semibold mb-4">API设置</h2>
-      
-      {/* 提供者选择 */}
-      <div className="mb-4">
-        <label className="block text-sm font-medium text-gray-700 mb-1">
-          API提供者
-        </label>
-        <select
-          value={providerType}
-          onChange={handleProviderChange}
-          className="mt-1 block w-full px-3 py-2 border border-gray-300 bg-white rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 sm:text-sm"
-        >
-          {providers.map((provider) => (
-            <option key={provider.id} value={provider.id}>
-              {provider.name}
-            </option>
-          ))}
-        </select>
-        <p className="mt-1 text-xs text-gray-500">
-          选择您要使用的AI服务提供者
-        </p>
-      </div>
-      
-      {/* 提供者配置 */}
-      <div className="bg-gray-50 p-4 rounded-md mb-4">
-        <h3 className="text-md font-medium mb-3">{currentProvider?.name} 配置</h3>
-        {renderConfigFields()}
-      </div>
-      
-      {/* 验证结果 */}
-      {validationMessage && (
-        <div className={`mb-4 p-3 rounded ${validationMessage.includes('✅') ? 'bg-green-100' : 'bg-red-100'}`}>
-          <p>{validationMessage}</p>
-        </div>
-      )}
-      
-      {/* 操作按钮 */}
-      <div className="flex space-x-4">
-        <button
-          onClick={validateConfig}
-          disabled={validating}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500 disabled:opacity-50"
-        >
-          {validating ? '验证中...' : '验证配置'}
-        </button>
-        
-        <button
-          onClick={saveConfig}
-          className="inline-flex items-center px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-green-600 hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500"
-        >
-          保存配置
-        </button>
-        
-        <button
-          onClick={resetToDefault}
-          className="inline-flex items-center px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-500"
-        >
-          重置为默认
-        </button>
-      </div>
+    <div className="space-y-6">
+      <Card>
+        <CardHeader>
+          <CardTitle>API提供商</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="provider-type">选择翻译服务提供商</Label>
+                <div title="选择您要使用的AI翻译服务提供商" className="inline-block">
+                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                </div>
+              </div>
+              <Select value={providerType} onValueChange={handleProviderChange}>
+                <SelectTrigger id="provider-type">
+                  <SelectValue placeholder="选择翻译服务提供商" />
+                </SelectTrigger>
+                <SelectContent>
+                  {Object.entries(providerInfo).map(([key, info]) => (
+                    <SelectItem key={key} value={key}>
+                      {info.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>{currentProviderInfo.name}设置</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            {currentProviderInfo.needsApiKey && (
+              <div className="space-y-2">
+                <div className="flex items-center gap-2">
+                  <Label htmlFor="api-key">API密钥</Label>
+                  <div title={`输入您的${currentProviderInfo.name} API密钥`} className="inline-block">
+                    <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                  </div>
+                </div>
+                <Input
+                  id="api-key"
+                  type="password"
+                  placeholder={`输入${currentProviderInfo.name} API密钥`}
+                  value={currentConfig.apiKey || ''}
+                  onChange={(e) => handleApiKeyChange(e.target.value)}
+                  className="w-full"
+                />
+                <p className="text-xs text-muted-foreground">
+                  API密钥将安全地存储在浏览器的本地存储中，不会被上传到任何服务器。
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="model">模型</Label>
+                <div title={`选择要使用的${currentProviderInfo.name}模型`} className="inline-block">
+                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                </div>
+              </div>
+              <Select
+                value={currentConfig.model || currentProviderInfo.defaultModel}
+                onValueChange={handleModelChange}
+              >
+                <SelectTrigger id="model">
+                  <SelectValue placeholder="选择模型" />
+                </SelectTrigger>
+                <SelectContent>
+                  {currentProviderInfo.models.map((model) => (
+                    <SelectItem key={model} value={model}>
+                      {model}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <div className="flex items-center gap-2">
+                <Label htmlFor="base-url">基础URL</Label>
+                <div title={`修改${currentProviderInfo.name} API的基础URL`} className="inline-block">
+                  <Info className="w-4 h-4 text-muted-foreground cursor-help" />
+                </div>
+              </div>
+              <Input
+                id="base-url"
+                type="text"
+                placeholder="API基础URL"
+                value={currentConfig.baseUrl || currentProviderInfo.baseUrl}
+                onChange={(e) => handleBaseUrlChange(e.target.value)}
+                className="w-full"
+              />
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>API测试</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-4">
+            <div className="flex items-center gap-2">
+              <Label htmlFor="test-text">测试文本</Label>
+            </div>
+            <Input
+              id="test-text"
+              type="text"
+              placeholder="输入要测试的文本"
+              defaultValue="こんにちは世界"
+              className="w-full"
+            />
+            <div className="flex justify-end">
+              <button
+                className="px-4 py-2 bg-primary text-primary-foreground rounded-md hover:bg-primary/90 transition-colors"
+                onClick={() => {
+                  // 这里可以添加API测试逻辑
+                  alert('API测试功能正在开发中...');
+                }}
+              >
+                测试API
+              </button>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 };
