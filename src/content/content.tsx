@@ -6,6 +6,7 @@
 import { APIManager } from '../api/api-manager';
 import { renderTranslation } from './renderer';
 import { detectTextAreas } from './detector';
+import { BatchTranslationManager } from '../utils/batch-translation-manager';
 
 // 翻译状态接口
 interface TranslationState {
