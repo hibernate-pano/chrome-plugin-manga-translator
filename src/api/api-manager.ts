@@ -72,6 +72,9 @@ export class APIManager {
   private readonly RATE_LIMIT_WINDOW = 60000; // 限流窗口（ms）
   private maxRequestsPerWindow = 60; // 每个窗口最大请求数（可从配置读取）
   
+  // 并发控制
+  private maxConcurrency = 5; // 最大并发请求数（可从配置读取）
+  
   // 监控相关
   private requestStats = {
     total: 0,
@@ -138,6 +141,7 @@ export class APIManager {
         // 读取并发请求限制（用于限流）
         if (advancedSettings.maxConcurrentRequests) {
           this.maxRequestsPerWindow = advancedSettings.maxConcurrentRequests * 20; // 转换为每分钟请求数
+          this.maxConcurrency = advancedSettings.maxConcurrentRequests; // 设置并发数
         }
         
         // 可以根据需要添加重试次数配置
@@ -364,8 +368,8 @@ export class APIManager {
       this.log(LogLevel.DEBUG, '当前提供者不支持批量翻译，使用并行处理', { count: texts.length });
       const results: string[] = [];
       
-      // 并行处理，但限制并发数为5
-      const concurrencyLimit = 5;
+      // 并行处理，使用配置的并发限制
+      const concurrencyLimit = this.maxConcurrency;
       for (let i = 0; i < texts.length; i += concurrencyLimit) {
         const batch = texts.slice(i, i + concurrencyLimit);
         const batchPromises = batch.map(text => {

@@ -6,6 +6,7 @@ import { imageToBase64, preprocessImage } from '../utils/imageProcess';
 import { generateImageHash, getCachedTranslation, cacheTranslation } from '../utils/storage';
 import { getConfig } from '../utils/config-manager';
 import { initializeDefaultOCRProvider, detectWithFallback } from '../api/ocr';
+import { selectOptimalOCRProvider } from '../utils/ocr-provider-selector';
 
 // OCR提供者实例缓存
 let primaryOCRProvider = null;
@@ -210,16 +211,72 @@ export async function detectTextAreas(image, options = {}) {
 
     // 根据配置选择OCR方法
     let textAreas;
+    let selectedProvider = null;
+    
     if (preferredOCRMethod === 'auto') {
-      // 自动模式：先尝试主要方法，失败后回退到备选方法
-      textAreas = await detectWithFallback(imageData, primary, fallback, options);
+      // 智能自动模式：根据图像特征和配置自动选择最佳OCR方法
+      try {
+        const recommendation = selectOptimalOCRProvider(image, {
+          preferredMethod: 'auto',
+          prioritizeSpeed: advancedSettings.prioritizeSpeed === true,
+          prioritizeAccuracy: advancedSettings.prioritizeAccuracy !== false, // 默认优先准确率
+          apiAvailable: true, // 假设API可用（实际应该检查）
+          tesseractAvailable: !!primary,
+          largeImageThreshold: ocrSettings.largeImageThreshold || 2000000,
+          lowQualityThreshold: ocrSettings.lowQualityThreshold || 0.5
+        });
+        
+        if (debugMode) {
+          console.log('OCR提供者智能选择:', {
+            provider: recommendation.provider,
+            reason: recommendation.reason,
+            confidence: recommendation.confidence,
+            expectedPerformance: recommendation.expectedPerformance
+          });
+        }
+        
+        // 根据推荐选择提供者
+        if (recommendation.provider === 'api') {
+          selectedProvider = fallback;
+          textAreas = await fallback.detectText(imageData, options);
+        } else {
+          selectedProvider = primary;
+          // 如果推荐Tesseract但失败，回退到API
+          try {
+            textAreas = await primary.detectText(imageData, options);
+            // 检查结果是否有效
+            if (!textAreas || textAreas.length === 0) {
+              if (debugMode) {
+                console.log('Tesseract未检测到文本，回退到API OCR');
+              }
+              textAreas = await fallback.detectText(imageData, options);
+              selectedProvider = fallback;
+            }
+          } catch (error) {
+            if (debugMode) {
+              console.warn('Tesseract失败，回退到API OCR:', error);
+            }
+            textAreas = await fallback.detectText(imageData, options);
+            selectedProvider = fallback;
+          }
+        }
+      } catch (selectionError) {
+        // 智能选择失败，使用回退策略
+        console.warn('OCR提供者智能选择失败，使用回退策略:', selectionError);
+        textAreas = await detectWithFallback(imageData, primary, fallback, options);
+      }
     } else if (preferredOCRMethod === 'tesseract') {
       // 只使用Tesseract
+      selectedProvider = primary;
       textAreas = await primary.detectText(imageData, options);
     } else {
       // 只使用API
+      selectedProvider = fallback;
       textAreas = await fallback.detectText(imageData, options);
     }
+
+    // 导入OCR后处理模块
+    const { postProcessOCRResults } = await import('../utils/ocr-post-processor');
 
     // 处理和规范化文字区域数据
     const processedTextAreas = textAreas.map(area => {
@@ -238,16 +295,28 @@ export async function detectTextAreas(image, options = {}) {
         metadata: {
           readingDirection: area.metadata?.readingDirection || 'rtl', // 默认从右到左
           isProcessed: true,
-          detectionMethod: area.metadata?.detectionMethod || 'unknown'
+          detectionMethod: area.metadata?.detectionMethod || (selectedProvider === fallback ? 'vision-api' : 'tesseract')
         }
       };
     });
 
+    // 应用OCR后处理（清洗和优化）
+    const postProcessOptions = {
+      removeNoise: true,
+      mergeNearbyAreas: advancedSettings.mergeNearbyTextAreas !== false,
+      correctErrors: advancedSettings.correctOCRErrors !== false,
+      minConfidence: ocrSettings.minConfidence || 0.3,
+      maxDistance: ocrSettings.mergeDistance || 50,
+      language: ocrSettings.language || 'auto'
+    };
+
+    const postProcessedAreas = postProcessOCRResults(processedTextAreas, postProcessOptions);
+
     // 按阅读顺序排序
-    processedTextAreas.sort((a, b) => a.order - b.order);
+    postProcessedAreas.sort((a, b) => a.order - b.order);
 
     // 过滤掉低置信度的区域
-    const filteredTextAreas = processedTextAreas.filter(area =>
+    const filteredTextAreas = postProcessedAreas.filter(area =>
       area.text && area.text.trim() !== ''
     );
 

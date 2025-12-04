@@ -11,12 +11,12 @@ import { renderTranslatedImage } from '../utils/imageProcess';
  * @param {Object} styleOptions - 样式选项
  * @returns {void}
  */
-export function renderTranslation(image, textAreas, translatedTexts, styleOptions = {}) {
+export async function renderTranslation(image, textAreas, translatedTexts, styleOptions = {}) {
   // 确保全局样式定义
   ensureGlobalStyles();
 
-  // 创建翻译后的Canvas
-  const canvas = renderTranslatedImage(image, textAreas, translatedTexts, styleOptions);
+  // 创建翻译后的Canvas（使用异步渲染）
+  const canvas = await renderTranslatedImage(image, textAreas, translatedTexts, styleOptions);
 
   // 创建包装元素
   const wrapper = document.createElement('div');

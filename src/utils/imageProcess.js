@@ -900,7 +900,7 @@ function invertImage(canvas, imageData, data) {
  * @param {Object} styleOptions - 样式选项
  * @returns {HTMLCanvasElement} - 返回处理后的Canvas元素
  */
-export function renderTranslatedImage(image, textAreas, translatedTexts, styleOptions = {}) {
+export async function renderTranslatedImage(image, textAreas, translatedTexts, styleOptions = {}) {
   const canvas = document.createElement('canvas');
   const width = image.naturalWidth || image.width;
   const height = image.naturalHeight || image.height;
@@ -926,15 +926,18 @@ export function renderTranslatedImage(image, textAreas, translatedTexts, styleOp
     textDirection = 'auto' // 'horizontal' or 'vertical'
   } = styleOptions;
 
-  // 处理每个文字区域
-  textAreas.forEach((area, index) => {
-    if (!area || !translatedTexts[index]) return;
+  // 处理每个文字区域（使用Promise.all并行处理）
+  const renderPromises = textAreas.map(async (area, index) => {
+    if (!area || !translatedTexts[index]) return Promise.resolve();
 
     const { x, y, width: areaWidth, height: areaHeight, text: originalText, metadata } = area;
     const translatedText = translatedTexts[index];
 
-    // 分析原文字样式
-    const style = analyzeTextStyle(image, area);
+    // 分析原文字样式（使用增强的样式匹配）
+    const style = await analyzeTextStyle(image, area, {
+      styleLevel: styleLevel,
+      language: metadata?.language || 'zh-CN'
+    });
 
     // 根据styleLevel调整样式
     const styleRatio = styleLevel / 100;
@@ -1023,6 +1026,9 @@ export function renderTranslatedImage(image, textAreas, translatedTexts, styleOp
     }
   });
 
+  // 等待所有区域渲染完成
+  await Promise.all(renderPromises);
+
   return canvas;
 }
 
@@ -1108,12 +1114,47 @@ function drawVerticalText(ctx, text, x, y, width, height, fontSize, lineSpacing)
 }
 
 /**
- * 分析原文字样式
+ * 分析原文字样式（增强版，使用字体样式匹配器）
+ * @param {HTMLImageElement} image - 图像元素
+ * @param {Object} textArea - 文字区域信息
+ * @param {Object} options - 样式匹配选项
+ * @returns {Object} - 返回分析的样式信息
+ */
+export async function analyzeTextStyle(image, textArea, options = {}) {
+  // 尝试使用新的字体样式匹配器
+  try {
+    const { matchFontStyle } = await import('./font-style-matcher');
+    const matchedStyle = matchFontStyle(image, textArea, {
+      styleLevel: options.styleLevel || 50,
+      preferSystemFonts: options.preferSystemFonts !== false,
+      language: options.language || 'zh-CN'
+    });
+
+    // 转换为旧格式以保持兼容性
+    return {
+      fontSize: matchedStyle.fontSize,
+      fontFamily: matchedStyle.fontFamily,
+      fontWeight: matchedStyle.fontWeight,
+      fontColor: matchedStyle.fontColor,
+      backgroundColor: matchedStyle.backgroundColor,
+      fontStyle: matchedStyle.fontStyle || 'normal',
+      letterSpacing: matchedStyle.letterSpacing,
+      lineHeight: matchedStyle.lineHeight
+    };
+  } catch (error) {
+    console.warn('字体样式匹配器加载失败，使用旧版分析:', error);
+    // 回退到旧版实现
+    return analyzeTextStyleLegacy(image, textArea);
+  }
+}
+
+/**
+ * 分析原文字样式（旧版实现，作为回退）
  * @param {HTMLImageElement} image - 图像元素
  * @param {Object} textArea - 文字区域信息
  * @returns {Object} - 返回分析的样式信息
  */
-export function analyzeTextStyle(image, textArea) {
+function analyzeTextStyleLegacy(image, textArea) {
   const { x, y, width, height } = textArea;
 
   // 创建临时Canvas来分析样式

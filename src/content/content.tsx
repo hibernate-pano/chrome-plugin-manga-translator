@@ -895,7 +895,7 @@ async function processImage(img: HTMLImageElement) {
     const translatedTextsArray = Array.isArray(translatedTexts) ? translatedTexts : [translatedTexts];
     
     try {
-      renderTranslation(img, textAreas, translatedTextsArray, styleOptions);
+      await renderTranslation(img, textAreas, translatedTextsArray, styleOptions);
     } catch (renderError) {
       console.error('渲染失败:', renderError);
       showErrorNotification('渲染翻译结果失败');
