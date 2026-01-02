@@ -8,7 +8,7 @@
  * - 目标语言设置
  */
 
-import React, { useState, useCallback, useMemo } from 'react';
+import React, { useState, useCallback, useMemo, useEffect } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
@@ -33,10 +33,11 @@ import {
   Server,
   Globe,
   ExternalLink,
+  RefreshCw,
 } from 'lucide-react';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
-import { createProvider } from '@/providers';
+import { createProvider, OllamaProvider } from '@/providers';
 
 // ==================== Types ====================
 
@@ -54,6 +55,7 @@ const PROVIDER_CONFIG: Record<ProviderType, {
   placeholder: string;
   helpUrl: string;
   requiresApiKey: boolean;
+  modelPlaceholder: string;
 }> = {
   openai: {
     name: 'OpenAI GPT-4V',
@@ -62,6 +64,7 @@ const PROVIDER_CONFIG: Record<ProviderType, {
     placeholder: 'sk-...',
     helpUrl: 'https://platform.openai.com/api-keys',
     requiresApiKey: true,
+    modelPlaceholder: '例如: gpt-4o, gpt-4-turbo',
   },
   claude: {
     name: 'Claude Vision',
@@ -70,6 +73,7 @@ const PROVIDER_CONFIG: Record<ProviderType, {
     placeholder: 'sk-ant-...',
     helpUrl: 'https://console.anthropic.com/settings/keys',
     requiresApiKey: true,
+    modelPlaceholder: '例如: claude-3-5-sonnet-20241022',
   },
   deepseek: {
     name: 'DeepSeek VL',
@@ -78,6 +82,7 @@ const PROVIDER_CONFIG: Record<ProviderType, {
     placeholder: 'sk-...',
     helpUrl: 'https://platform.deepseek.com/api_keys',
     requiresApiKey: true,
+    modelPlaceholder: '例如: deepseek-chat',
   },
   ollama: {
     name: 'Ollama',
@@ -86,6 +91,7 @@ const PROVIDER_CONFIG: Record<ProviderType, {
     placeholder: 'http://localhost:11434',
     helpUrl: 'https://ollama.ai/download',
     requiresApiKey: false,
+    modelPlaceholder: '例如: llava, bakllava',
   },
 };
 
@@ -124,9 +130,49 @@ const OptionsApp: React.FC = () => {
     deepseek: null,
     ollama: null,
   });
+  
+  // Ollama models state
+  const [ollamaModels, setOllamaModels] = useState<string[]>([]);
+  const [loadingOllamaModels, setLoadingOllamaModels] = useState(false);
+  const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(null);
 
   // Current provider config
   const currentProviderConfig = PROVIDER_CONFIG[provider];
+
+  // Fetch Ollama models when base URL changes or on mount
+  const fetchOllamaModels = useCallback(async (baseUrl?: string) => {
+    const url = baseUrl || providers.ollama.baseUrl;
+    if (!url) return;
+    
+    setLoadingOllamaModels(true);
+    setOllamaModelsError(null);
+    
+    try {
+      const ollamaProvider = new OllamaProvider();
+      await ollamaProvider.initialize({ baseUrl: url });
+      const models = await ollamaProvider.getAvailableVisionModels();
+      
+      if (models.length > 0) {
+        setOllamaModels(models);
+        setOllamaModelsError(null);
+      } else {
+        setOllamaModels([]);
+        setOllamaModelsError('未找到视觉模型，请先运行: ollama pull llava');
+      }
+    } catch (error) {
+      setOllamaModels([]);
+      setOllamaModelsError('无法连接到 Ollama 服务');
+    } finally {
+      setLoadingOllamaModels(false);
+    }
+  }, [providers.ollama.baseUrl]);
+
+  // Fetch Ollama models on mount and when switching to Ollama tab
+  useEffect(() => {
+    if (provider === 'ollama' && providers.ollama.baseUrl) {
+      fetchOllamaModels();
+    }
+  }, [provider, fetchOllamaModels, providers.ollama.baseUrl]);
 
   // ==================== Handlers ====================
 
@@ -142,7 +188,14 @@ const OptionsApp: React.FC = () => {
   const handleBaseUrlChange = useCallback((providerType: ProviderType, value: string) => {
     updateProviderSettings(providerType, { baseUrl: value });
     setTestResults(prev => ({ ...prev, [providerType]: null }));
-  }, [updateProviderSettings]);
+    
+    // Refresh Ollama models when base URL changes (debounced)
+    if (providerType === 'ollama' && value) {
+      setTimeout(() => {
+        fetchOllamaModels(value);
+      }, 500);
+    }
+  }, [updateProviderSettings, fetchOllamaModels]);
 
   const handleModelChange = useCallback((providerType: ProviderType, value: string) => {
     updateProviderSettings(providerType, { model: value });
@@ -269,18 +322,80 @@ const OptionsApp: React.FC = () => {
 
         {/* Model Selection */}
         <div className="space-y-2">
-          <Label htmlFor={`${providerType}-model`}>模型</Label>
-          <Input
-            id={`${providerType}-model`}
-            type="text"
-            placeholder={providerType === 'ollama' ? 'llava' : 'gpt-4o'}
-            value={settings.model}
-            onChange={(e) => handleModelChange(providerType, e.target.value)}
-          />
-          {providerType === 'ollama' && (
-            <p className="text-xs text-muted-foreground">
-              推荐视觉模型: llava, bakllava, llava-llama3
-            </p>
+          <div className="flex items-center justify-between">
+            <Label htmlFor={`${providerType}-model`}>模型</Label>
+            {providerType === 'ollama' && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => fetchOllamaModels()}
+                disabled={loadingOllamaModels}
+                className="h-6 px-2"
+              >
+                <RefreshCw className={`h-3 w-3 ${loadingOllamaModels ? 'animate-spin' : ''}`} />
+              </Button>
+            )}
+          </div>
+          
+          {providerType === 'ollama' ? (
+            // Ollama: Dynamic model selection from local service
+            <>
+              {ollamaModels.length > 0 ? (
+                <Select
+                  value={settings.model}
+                  onValueChange={(value) => handleModelChange(providerType, value)}
+                >
+                  <SelectTrigger id={`${providerType}-model`}>
+                    <SelectValue placeholder="选择模型" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {ollamaModels.map((model) => (
+                      <SelectItem key={model} value={model}>
+                        {model}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <Input
+                  id={`${providerType}-model`}
+                  type="text"
+                  placeholder="llava"
+                  value={settings.model}
+                  onChange={(e) => handleModelChange(providerType, e.target.value)}
+                />
+              )}
+              {loadingOllamaModels && (
+                <p className="text-xs text-muted-foreground flex items-center gap-1">
+                  <Loader2 className="h-3 w-3 animate-spin" />
+                  正在获取模型列表...
+                </p>
+              )}
+              {ollamaModelsError && !loadingOllamaModels && (
+                <p className="text-xs text-amber-600">
+                  {ollamaModelsError}
+                </p>
+              )}
+              {ollamaModels.length > 0 && !loadingOllamaModels && (
+                <p className="text-xs text-muted-foreground">
+                  已从本地 Ollama 服务获取 {ollamaModels.length} 个视觉模型
+                </p>
+              )}
+              {ollamaModels.length === 0 && !loadingOllamaModels && !ollamaModelsError && (
+                <p className="text-xs text-muted-foreground">
+                  推荐视觉模型: llava, bakllava, llava-llama3
+                </p>
+              )}
+            </>
+          ) : (
+            // Other providers: Text input
+            <Input
+              id={`${providerType}-model`}
+              type="text"
+              placeholder={config.modelPlaceholder}
+              value={settings.model}
+              onChange={(e) => handleModelChange(providerType, e.target.value)}
+            />
           )}
         </div>
 

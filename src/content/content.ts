@@ -158,16 +158,18 @@ function findCandidateImages(): HTMLImageElement[] {
  * Start the translation process
  * 
  * Requirements: 1.2 - When user turns on the switch, start detecting and translating
+ * Requirements: 4.1, 4.2 - Debug logging at key positions
  * Requirements: 9.2 - Support parallel processing with limits
  * Requirements: 9.4 - Prioritize viewport images
  */
 async function startTranslation(): Promise<void> {
   if (state.isProcessing) {
-    console.log('[ContentScript] Translation already in progress');
+    console.log('[ContentScript] 翻译已在进行中');
     return;
   }
 
-  console.log('[ContentScript] Starting translation');
+  // Requirements 4.1 - Log when translation is enabled
+  console.log('[ContentScript] 翻译开关已打开');
   state.enabled = true;
   state.isProcessing = true;
   state.abortController = new AbortController();
@@ -175,8 +177,10 @@ async function startTranslation(): Promise<void> {
   try {
     // Initialize services if needed
     if (!translator) {
+      console.log('[ContentScript] 初始化翻译服务...');
       translator = createTranslatorFromConfig();
       await translator.initialize();
+      console.log('[ContentScript] 翻译服务初始化完成');
     }
 
     if (!renderer) {
@@ -187,7 +191,7 @@ async function startTranslation(): Promise<void> {
     const candidateImages = findCandidateImages();
     
     if (candidateImages.length === 0) {
-      console.log('[ContentScript] No candidate images found');
+      console.log('[ContentScript] 未找到候选图片');
       notifyPopup('noImages', {});
       return;
     }
@@ -195,7 +199,8 @@ async function startTranslation(): Promise<void> {
     // Sort images by viewport priority (Requirements 9.4)
     const images = getViewportFirstImages(candidateImages);
 
-    console.log(`[ContentScript] Found ${images.length} candidate images (viewport-first sorted)`);
+    // Requirements 4.2 - Log candidate image count
+    console.log(`[ContentScript] 找到候选图片: ${images.length} 张 (按视口优先排序)`);
     notifyPopup('processingStart', { total: images.length });
 
     // Get parallel limit from config (Requirements 9.2)
@@ -212,6 +217,8 @@ async function startTranslation(): Promise<void> {
       signal: state.abortController.signal,
       onItemComplete: (completed) => {
         processedCount = completed;
+        // Requirements 4.2 - Log progress for each image
+        console.log(`[ContentScript] 处理进度: ${processedCount}/${total}`);
         notifyPopup('processingUpdate', {
           current: processedCount,
           total,
@@ -220,7 +227,7 @@ async function startTranslation(): Promise<void> {
       onError: (error) => {
         errorCount++;
         const friendlyError = parseTranslationError(error);
-        console.error(`[ContentScript] Failed to process image:`, friendlyError.message);
+        console.error(`[ContentScript] 处理图片失败:`, friendlyError.message);
       },
     };
 
@@ -238,7 +245,7 @@ async function startTranslation(): Promise<void> {
       processingOptions
     );
 
-    console.log(`[ContentScript] Translation complete: ${processedCount} processed, ${errorCount} errors`);
+    console.log(`[ContentScript] 翻译完成: 成功 ${processedCount} 张, 失败 ${errorCount} 张`);
     notifyPopup('complete', {
       processedCount,
       errorCount,
@@ -247,7 +254,7 @@ async function startTranslation(): Promise<void> {
 
   } catch (error) {
     const friendlyError = parseTranslationError(error);
-    console.error('[ContentScript] Translation failed:', friendlyError.message);
+    console.error('[ContentScript] 翻译流程失败:', friendlyError.message);
     notifyPopup('error', { error: friendlyError });
   } finally {
     state.isProcessing = false;
@@ -261,7 +268,7 @@ async function startTranslation(): Promise<void> {
  * Requirements: 1.3 - When user turns off the switch, remove all overlays
  */
 function stopTranslation(): void {
-  console.log('[ContentScript] Stopping translation');
+  console.log('[ContentScript] 翻译开关已关闭');
   
   // Cancel ongoing processing
   if (state.abortController) {
@@ -287,36 +294,47 @@ function stopTranslation(): void {
     img.classList.remove(PROCESSED_CLASS);
   });
 
-  console.log('[ContentScript] Translation stopped, all overlays removed');
+  console.log('[ContentScript] 翻译已停止，所有覆盖层已移除');
 }
 
 /**
  * Process a single image
  * 
+ * Requirements: 2.1, 2.2, 2.5, 4.1, 4.2
+ * 
  * @param img Image element to process
  */
 async function processImage(img: HTMLImageElement): Promise<void> {
+  const imgSrc = img.src.substring(0, 50) + (img.src.length > 50 ? '...' : '');
+  console.log('[ContentScript] 开始处理图片', { src: imgSrc });
+
   if (!translator || !renderer) {
+    console.error('[ContentScript] 服务未初始化');
     throw new Error('Services not initialized');
   }
 
   // Mark as being processed
   img.classList.add(PROCESSED_CLASS);
 
-  // Translate the image
+  // Call TranslatorService to translate the image (Requirements 2.1, 2.2)
+  console.log('[ContentScript] 调用 Vision LLM 翻译');
   const result = await translator.translateImage(img);
 
   if (!result.success) {
+    console.error('[ContentScript] 翻译失败:', result.error);
     throw new Error(result.error || 'Translation failed');
   }
 
-  // Skip if no text areas detected (Requirements 2.4)
+  // Skip if no text areas detected (Requirements 2.5)
   if (result.textAreas.length === 0) {
-    console.log('[ContentScript] No text detected in image');
+    console.log('[ContentScript] 图片中未检测到文字，跳过渲染');
     return;
   }
 
+  console.log('[ContentScript] 检测到文字区域:', result.textAreas.length);
+
   // Render overlays
+  console.log('[ContentScript] 渲染翻译覆盖层');
   renderer.render(img, result.textAreas);
 }
 

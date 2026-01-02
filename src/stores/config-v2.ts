@@ -91,22 +91,22 @@ const DEFAULT_PROVIDERS: ProvidersConfig = {
   openai: {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
-    model: 'gpt-4o',
+    model: '',
   },
   claude: {
     apiKey: '',
     baseUrl: 'https://api.anthropic.com/v1',
-    model: 'claude-3-5-sonnet-20241022',
+    model: '',
   },
   deepseek: {
     apiKey: '',
     baseUrl: 'https://api.deepseek.com/v1',
-    model: 'deepseek-chat',
+    model: '',
   },
   ollama: {
     apiKey: '', // Not needed for Ollama
     baseUrl: 'http://localhost:11434',
-    model: 'llava',
+    model: '',
   },
 };
 

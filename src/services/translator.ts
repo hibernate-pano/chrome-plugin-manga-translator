@@ -75,6 +75,7 @@ export class TranslatorService {
       return;
     }
 
+    console.log(`[Translator] 初始化 Provider: ${this.config.provider}`);
     this.provider = await createProvider(this.config.provider, {
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
@@ -82,6 +83,7 @@ export class TranslatorService {
     });
 
     this.isInitialized = true;
+    console.log(`[Translator] Provider 初始化完成: ${this.provider.name}`);
   }
 
   /**
@@ -91,12 +93,15 @@ export class TranslatorService {
    * @returns Translation result
    */
   async translateImage(image: HTMLImageElement): Promise<TranslationResult> {
+    console.log('[Translator] 开始翻译图片');
+    
     // Ensure provider is initialized
     if (!this.provider) {
       await this.initialize();
     }
 
     if (!this.provider) {
+      console.error('[Translator] Provider 未初始化');
       return {
         success: false,
         textAreas: [],
@@ -106,21 +111,26 @@ export class TranslatorService {
 
     try {
       // Process image (compress if needed, get base64 and hash)
+      console.log('[Translator] 处理图片...');
       const processed = await processImage(image, this.config.imageOptions);
+      console.log('[Translator] 图片处理完成, hash:', processed.hash.substring(0, 16));
 
       // Check cache first
       if (this.config.cacheEnabled) {
         const cached = useTranslationCacheStore.getState().get(processed.hash);
         if (cached) {
+          console.log('[Translator] 使用缓存结果, 文字区域数:', cached.textAreas.length);
           return cached;
         }
       }
 
       // Call provider API
+      console.log(`[Translator] 调用 Vision LLM: ${this.provider.name}`);
       const response = await this.provider.analyzeAndTranslate(
         processed.base64,
         this.config.targetLanguage
       );
+      console.log('[Translator] Vision LLM 返回结果, 文字区域数:', response.textAreas.length);
 
       const result: TranslationResult = {
         success: true,
@@ -129,6 +139,7 @@ export class TranslatorService {
 
       // Store in cache
       if (this.config.cacheEnabled) {
+        console.log('[Translator] 存入缓存');
         useTranslationCacheStore.getState().set(
           processed.hash,
           result,
@@ -139,6 +150,11 @@ export class TranslatorService {
       return result;
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      console.error('[Translator] 翻译失败:', errorMessage);
+      // Include stack trace in development mode
+      if (error instanceof Error && error.stack) {
+        console.error('[Translator] 错误堆栈:', error.stack);
+      }
       return {
         success: false,
         textAreas: [],
@@ -158,6 +174,8 @@ export class TranslatorService {
     images: HTMLImageElement[],
     onProgress?: ProgressCallback
   ): Promise<TranslationResult[]> {
+    console.log(`[Translator] 开始批量翻译, 图片数量: ${images.length}`);
+    
     // Create new abort controller for this batch
     this.abortController = new AbortController();
     
@@ -167,6 +185,7 @@ export class TranslatorService {
     for (let i = 0; i < images.length; i++) {
       // Check if cancelled
       if (this.abortController.signal.aborted) {
+        console.log('[Translator] 批量翻译已取消');
         break;
       }
 
@@ -174,6 +193,7 @@ export class TranslatorService {
       if (!image) continue;
 
       // Report progress
+      console.log(`[Translator] 处理图片 ${i + 1}/${total}`);
       onProgress?.({
         current: i + 1,
         total,
@@ -184,6 +204,7 @@ export class TranslatorService {
       results.push(result);
     }
 
+    console.log(`[Translator] 批量翻译完成, 成功: ${results.filter(r => r.success).length}/${results.length}`);
     return results;
   }
 

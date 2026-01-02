@@ -8,7 +8,7 @@
 /**
  * API提供者类型
  */
-export type ProviderType = 'openai' | 'deepseek' | 'claude' | 'qwen' | 'anthropic' | 'openrouter';
+export type ProviderType = 'openai' | 'deepseek' | 'claude' | 'qwen' | 'anthropic' | 'openrouter' | 'ollama';
 
 /**
  * API提供者配置
@@ -408,7 +408,7 @@ export const DEFAULT_SHORTCUTS: ShortcutConfig = {
  * 检查是否为有效的提供者类型
  */
 export function isValidProviderType(type: string): type is ProviderType {
-  return ['openai', 'deepseek', 'claude', 'qwen', 'anthropic', 'openrouter'].includes(type);
+  return ['openai', 'deepseek', 'claude', 'qwen', 'anthropic', 'openrouter', 'ollama'].includes(type);
 }
 
 /**

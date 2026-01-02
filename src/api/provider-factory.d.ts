@@ -4,7 +4,7 @@
 
 import { AIProvider, ProviderConfig } from './base-provider';
 
-export type ProviderType = 'openai' | 'deepseek' | 'claude' | 'anthropic' | 'openrouter' | 'qwen';
+export type ProviderType = 'openai' | 'deepseek' | 'claude' | 'anthropic' | 'openrouter' | 'qwen' | 'ollama';
 
 /**
  * 提供者工厂类

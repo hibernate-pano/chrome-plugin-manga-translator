@@ -1,10 +1,11 @@
-import React from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
+import { Button } from '@/components/ui/button';
 import { useConfigStore } from '@/stores/config';
-import { Info } from 'lucide-react';
+import { Info, RefreshCw, Loader2 } from 'lucide-react';
 
 // API提供商信息
 const providerInfo = {
@@ -12,33 +13,36 @@ const providerInfo = {
     name: 'OpenAI',
     description: '使用OpenAI的GPT模型进行翻译',
     baseUrl: 'https://api.openai.com',
-    defaultModel: 'gpt-3.5-turbo',
-    models: ['gpt-3.5-turbo', 'gpt-4', 'gpt-4o'],
+    modelPlaceholder: '例如: gpt-4o, gpt-4-turbo',
     needsApiKey: true
   },
   claude: {
     name: 'Claude',
     description: '使用Anthropic的Claude模型进行翻译',
     baseUrl: 'https://api.anthropic.com',
-    defaultModel: 'claude-3-haiku-20240307',
-    models: ['claude-3-haiku-20240307', 'claude-3-sonnet-20240229', 'claude-3-opus-20240229'],
+    modelPlaceholder: '例如: claude-3-5-sonnet-20241022',
     needsApiKey: true
   },
   deepseek: {
     name: 'DeepSeek',
     description: '使用深度求索的DeepSeek模型进行翻译',
     baseUrl: 'https://api.deepseek.com',
-    defaultModel: 'deepseek-chat',
-    models: ['deepseek-chat', 'deepseek-coder-v2:latest'],
+    modelPlaceholder: '例如: deepseek-chat',
     needsApiKey: true
   },
   qwen: {
     name: 'Qwen',
     description: '使用阿里通义千问模型进行翻译',
     baseUrl: 'https://dashscope.aliyuncs.com',
-    defaultModel: 'qwen-turbo',
-    models: ['qwen-turbo', 'qwen-plus', 'qwen-max'],
+    modelPlaceholder: '例如: qwen-vl-max',
     needsApiKey: true
+  },
+  ollama: {
+    name: 'Ollama (本地)',
+    description: '使用本地部署的Ollama模型进行翻译，隐私友好，免费使用',
+    baseUrl: 'http://localhost:11434',
+    modelPlaceholder: '例如: llava, bakllava',
+    needsApiKey: false
   }
 };
 
@@ -50,9 +54,45 @@ const ApiSettings = () => {
     setProviderType
   } = useConfigStore();
 
+  // Ollama 模型列表状态
+  const [ollamaModels, setOllamaModels] = useState([]);
+  const [loadingOllamaModels, setLoadingOllamaModels] = useState(false);
+
   // 获取当前提供商的配置
   const currentConfig = providerConfig[providerType] || {};
   const currentProviderInfo = providerInfo[providerType] || providerInfo.openai;
+
+  // 获取 Ollama 模型列表
+  const fetchOllamaModels = useCallback(async (baseUrl) => {
+    const url = baseUrl || currentConfig.baseUrl || providerInfo.ollama.baseUrl;
+    if (!url) return;
+    
+    setLoadingOllamaModels(true);
+    try {
+      const response = await fetch(`${url}/api/tags`);
+      if (response.ok) {
+        const data = await response.json();
+        const models = (data.models || [])
+          .filter(m => {
+            const name = m.name.toLowerCase();
+            return name.includes('llava') || name.includes('bakllava') || name.includes('moondream');
+          })
+          .map(m => m.name);
+        setOllamaModels(models);
+      }
+    } catch {
+      setOllamaModels([]);
+    } finally {
+      setLoadingOllamaModels(false);
+    }
+  }, [currentConfig.baseUrl]);
+
+  // 当切换到 Ollama 时获取模型列表
+  useEffect(() => {
+    if (providerType === 'ollama') {
+      fetchOllamaModels();
+    }
+  }, [providerType, fetchOllamaModels]);
 
   // 处理提供商变更
   const handleProviderChange = (value) => {
@@ -137,25 +177,58 @@ const ApiSettings = () => {
             <div className="space-y-2">
               <div className="flex items-center gap-2">
                 <Label htmlFor="model">模型</Label>
-                <div title={`选择要使用的${currentProviderInfo.name}模型`} className="inline-block">
+                <div title={`输入要使用的${currentProviderInfo.name}模型名称`} className="inline-block">
                   <Info className="w-4 h-4 text-muted-foreground cursor-help" />
                 </div>
+                {providerType === 'ollama' && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => fetchOllamaModels()}
+                    disabled={loadingOllamaModels}
+                    className="h-6 px-2 ml-auto"
+                  >
+                    {loadingOllamaModels ? (
+                      <Loader2 className="h-3 w-3 animate-spin" />
+                    ) : (
+                      <RefreshCw className="h-3 w-3" />
+                    )}
+                  </Button>
+                )}
               </div>
-              <Select
-                value={currentConfig.model || currentProviderInfo.defaultModel}
-                onValueChange={handleModelChange}
-              >
-                <SelectTrigger id="model">
-                  <SelectValue placeholder="选择模型" />
-                </SelectTrigger>
-                <SelectContent>
-                  {currentProviderInfo.models.map((model) => (
-                    <SelectItem key={model} value={model}>
-                      {model}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              {providerType === 'ollama' && ollamaModels.length > 0 ? (
+                // Ollama: 动态模型选择
+                <>
+                  <Select
+                    value={currentConfig.model || ''}
+                    onValueChange={handleModelChange}
+                  >
+                    <SelectTrigger id="model">
+                      <SelectValue placeholder="选择模型" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {ollamaModels.map((model) => (
+                        <SelectItem key={model} value={model}>
+                          {model}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  <p className="text-xs text-muted-foreground">
+                    已从本地 Ollama 获取 {ollamaModels.length} 个视觉模型
+                  </p>
+                </>
+              ) : (
+                // 所有提供商: 文本输入框
+                <Input
+                  id="model"
+                  type="text"
+                  placeholder={currentProviderInfo.modelPlaceholder}
+                  value={currentConfig.model || ''}
+                  onChange={(e) => handleModelChange(e.target.value)}
+                  className="w-full"
+                />
+              )}
             </div>
 
             <div className="space-y-2">

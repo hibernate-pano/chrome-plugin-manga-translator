@@ -149,11 +149,15 @@ export class OverlayRenderer {
    * @returns The wrapper element containing the image and overlays
    */
   render(image: HTMLImageElement, textAreas: TextArea[]): HTMLElement {
+    console.log('[Renderer] 渲染翻译覆盖层');
+    console.log('[Renderer] 文字区域数量:', textAreas.length);
+    
     // Remove existing overlays for this image
     this.remove(image);
     
     // Skip if no text areas
     if (textAreas.length === 0) {
+      console.log('[Renderer] 无文字区域，跳过渲染');
       return image.parentElement || image;
     }
     

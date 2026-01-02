@@ -32,6 +32,13 @@ const SimplePopupApp: React.FC = () => {
   // 检查 API 是否已配置
   const isConfigured = useCallback((): boolean => {
     const currentConfig = providerConfig[providerType];
+    
+    // Ollama 不需要 API 密钥，只需要服务地址
+    if (providerType === 'ollama') {
+      return !!(currentConfig?.apiBaseUrl && currentConfig.apiBaseUrl.length > 0);
+    }
+    
+    // 其他提供者需要 API 密钥
     return !!(currentConfig?.apiKey && currentConfig.apiKey.length > 0);
   }, [providerConfig, providerType]);
 
