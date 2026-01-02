@@ -165,20 +165,46 @@ export class OpenAIProvider extends AIProvider {
   }
 
   /**
-   * 翻译文本
-   * @param {string|Array<string>} text - 要翻译的文本或文本数组
-   * @param {string} targetLang - 目标语言代码
-   * @param {Object} options - 翻译选项
-   * @returns {Promise<string|Array<string>>} - 翻译结果
+   * 翻译文本 - 实现统一接口
+   * @param {Object} request - 翻译请求对象
+   * @param {string} request.text - 要翻译的文本
+   * @param {string} request.targetLanguage - 目标语言代码
+   * @param {string} [request.sourceLanguage] - 源语言代码
+   * @param {string} [request.translationPrompt] - 自定义翻译提示词
+   * @returns {Promise<Object>} - 翻译响应 { translatedText, sourceLanguage? }
    */
-  async translateText(text, targetLang, options = {}) {
+  async translateText(request) {
+    // 支持旧的调用方式（向后兼容）
+    let text, targetLang, options;
+    if (typeof request === 'string' || Array.isArray(request)) {
+      text = request;
+      targetLang = arguments[1];
+      options = arguments[2] || {};
+      console.warn('[OpenAIProvider] 使用了旧的 translateText 调用方式，建议使用新的请求对象格式');
+    } else {
+      text = request.text;
+      targetLang = request.targetLanguage;
+      options = {
+        sourceLanguage: request.sourceLanguage,
+        translationPrompt: request.translationPrompt,
+        context: request.context,
+      };
+    }
+
     try {
       const isArray = Array.isArray(text);
       const textsToTranslate = isArray ? text : [text];
       
       if (textsToTranslate.length === 0 || !textsToTranslate[0]) {
-        return isArray ? [] : '';
+        return { translatedText: isArray ? [] : '' };
       }
+
+      console.log('[OpenAIProvider] 开始翻译:', {
+        textCount: textsToTranslate.length,
+        targetLang,
+        apiBaseUrl: this.config.apiBaseUrl,
+        model: this.config.chatModel
+      });
 
       const apiUrl = `${this.config.apiBaseUrl}/chat/completions`;
       
@@ -197,33 +223,35 @@ export class OpenAIProvider extends AIProvider {
       const targetLanguage = languageMap[targetLang] || targetLang;
       const translationPrompt = options.translationPrompt || '';
       
-      let systemPrompt = `你是一个专业的漫画翻译专家，请将以下文本翻译成${targetLanguage}。保持原文的语气和风格，确保翻译自然流畅。`;
-      
-      if (translationPrompt) {
-        systemPrompt += ` ${translationPrompt}`;
+      let systemPrompt;
+      if (translationPrompt && translationPrompt.length > 100) {
+        systemPrompt = translationPrompt;
+      } else {
+        systemPrompt = `你是一个专业的漫画翻译专家，请将以下文本翻译成${targetLanguage}。保持原文的语气和风格，确保翻译自然流畅。只返回翻译结果，不要添加任何解释。`;
+        if (translationPrompt) {
+          systemPrompt += ` ${translationPrompt}`;
+        }
       }
       
-      // 处理单个文本还是批量文本
-      const batchSize = options.batchSize || 5;
+      const batchSize = 5;
       const results = [];
       
-      // 分批处理文本，避免请求过大
       for (let i = 0; i < textsToTranslate.length; i += batchSize) {
         const batch = textsToTranslate.slice(i, i + batchSize);
-        const batchText = batch.join('\n---SPLIT---\n');
+        const batchText = batch.length > 1 ? batch.join('\n---SPLIT---\n') : batch[0];
         
         const result = await APIErrorHandler.withRetry(async () => {
+          console.log('[OpenAIProvider] 发送 API 请求:', {
+            url: apiUrl,
+            model: this.config.chatModel,
+            textLength: batchText.length
+          });
+
           const requestBody = {
             model: this.config.chatModel,
             messages: [
-              {
-                role: 'system',
-                content: systemPrompt
-              },
-              {
-                role: 'user',
-                content: batchText
-              }
+              { role: 'system', content: systemPrompt },
+              { role: 'user', content: batchText }
             ],
             temperature: this.config.temperature
           };
@@ -237,16 +265,19 @@ export class OpenAIProvider extends AIProvider {
             body: JSON.stringify(requestBody)
           });
           
-          const result = await APIErrorHandler.handleResponse(response);
-          const translatedText = result.choices[0].message.content.trim();
+          console.log('[OpenAIProvider] API 响应状态:', response.status);
           
-          // 如果是批量翻译，按分隔符拆分
+          const responseData = await APIErrorHandler.handleResponse(response);
+          const translatedText = responseData.choices[0].message.content.trim();
+          
+          console.log('[OpenAIProvider] 翻译成功:', {
+            inputLength: batchText.length,
+            outputLength: translatedText.length
+          });
+          
           if (batch.length > 1) {
             const translatedItems = translatedText.split('\n---SPLIT---\n');
-            // 确保返回的数组长度与输入一致
             if (translatedItems.length !== batch.length) {
-              // 如果数量不匹配，可能是分隔符被翻译或格式不正确
-              // 尝试其他分隔方式，如段落
               return translatedText.split('\n\n').slice(0, batch.length);
             }
             return translatedItems;
@@ -258,9 +289,13 @@ export class OpenAIProvider extends AIProvider {
         results.push(...result);
       }
       
-      return isArray ? results : results[0];
+      const translatedText = isArray ? results : results[0];
+      return {
+        translatedText,
+        sourceLanguage: options.sourceLanguage || 'auto'
+      };
     } catch (error) {
-      console.error('OpenAI文本翻译失败:', error);
+      console.error('[OpenAIProvider] 翻译失败:', error);
       throw error;
     }
   }

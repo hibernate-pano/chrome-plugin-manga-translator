@@ -15,6 +15,16 @@ export interface TranslationHistoryItem {
   imageHash?: string;
 }
 
+// 错误信息接口
+export interface TranslationError {
+  code: string;
+  title: string;
+  message: string;
+  suggestion: string;
+  retryable: boolean;
+  timestamp: number;
+}
+
 // 翻译状态接口
 export interface TranslationState {
   enabled: boolean;
@@ -24,6 +34,8 @@ export interface TranslationState {
   currentImage: string | null;
   translatedImages: Map<string, TranslationHistoryItem>;
   history: TranslationHistoryItem[];
+  // 错误状态
+  lastError: TranslationError | null;
 }
 
 // 翻译操作接口
@@ -40,6 +52,9 @@ export interface TranslationActions {
   removeFromHistory: (id: string) => void;
   clearHistory: () => void;
   getTranslatedImage: (imageHash: string) => TranslationHistoryItem | undefined;
+  // 错误处理
+  setError: (error: TranslationError | null) => void;
+  clearError: () => void;
 }
 
 // Chrome Storage 适配器
@@ -82,6 +97,7 @@ export const useTranslationStore = create<TranslationState & TranslationActions>
       currentImage: null,
       translatedImages: new Map(),
       history: [],
+      lastError: null,
 
       // 基本状态操作
       setEnabled: (enabled) => set({ enabled }),
@@ -133,6 +149,10 @@ export const useTranslationStore = create<TranslationState & TranslationActions>
         })),
 
       clearHistory: () => set({ history: [] }),
+
+      // 错误处理
+      setError: (error) => set({ lastError: error }),
+      clearError: () => set({ lastError: null }),
     }),
     {
       name: 'manga-translator-translation',

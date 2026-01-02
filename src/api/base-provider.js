@@ -1,7 +1,28 @@
 /**
  * AI服务提供者抽象基类
  * 所有具体的API提供者实现都应继承此类
+ * 
+ * 统一接口定义：
+ * - TranslationRequest: { text, targetLanguage, sourceLanguage?, translationPrompt? }
+ * - TranslationResponse: { translatedText, sourceLanguage?, confidence? }
  */
+
+/**
+ * @typedef {Object} TranslationRequest
+ * @property {string} text - 要翻译的文本
+ * @property {string} targetLanguage - 目标语言代码
+ * @property {string} [sourceLanguage] - 源语言代码（可选，默认自动检测）
+ * @property {string} [translationPrompt] - 自定义翻译提示词
+ * @property {string} [context] - 翻译上下文
+ */
+
+/**
+ * @typedef {Object} TranslationResponse
+ * @property {string} translatedText - 翻译后的文本
+ * @property {string} [sourceLanguage] - 检测到的源语言
+ * @property {number} [confidence] - 翻译置信度
+ */
+
 export class AIProvider {
   /**
    * 构造函数
@@ -80,18 +101,29 @@ export class AIProvider {
   }
 
   /**
-   * 翻译文本
-   * @param {string|Array<string>} text - 要翻译的文本或文本数组
-   * @param {string} targetLang - 目标语言代码
-   * @param {Object} options - 翻译选项
-   * @returns {Promise<string|Array<string>>} - 翻译结果
+   * 翻译文本 - 统一接口
+   * @param {TranslationRequest} request - 翻译请求对象
+   * @returns {Promise<TranslationResponse>} - 翻译响应对象
    */
-  async translateText(text, targetLang, options = {}) {
+  async translateText(request) {
     if (!this.isInitialized) {
       await this.initialize();
     }
     
-    throw new Error('Method not implemented');
+    // 验证请求参数
+    if (!request || typeof request !== 'object') {
+      throw new Error('translateText 需要一个请求对象参数');
+    }
+    
+    if (!request.text) {
+      throw new Error('翻译请求缺少 text 字段');
+    }
+    
+    if (!request.targetLanguage) {
+      throw new Error('翻译请求缺少 targetLanguage 字段');
+    }
+    
+    throw new Error('Method not implemented - 子类必须实现 translateText 方法');
   }
 
   /**

@@ -40,6 +40,9 @@ export interface AdvancedSettings {
 
 // 配置状态接口
 export interface ConfigState {
+  // 翻译开关状态
+  isEnabled: boolean;
+
   // API提供者配置
   providerType: string;
   providerConfig: Record<string, ProviderConfig>;
@@ -63,6 +66,10 @@ export interface ConfigState {
 
 // 配置操作接口
 export interface ConfigActions {
+  // 翻译开关操作
+  toggleEnabled: () => void;
+  setIsEnabled: (enabled: boolean) => void;
+
   // API提供者操作
   setProviderType: (providerType: string) => void;
   updateProviderConfig: (providerType: string, config: Partial<ProviderConfig>) => void;
@@ -94,6 +101,7 @@ export interface ConfigActions {
 
 // 默认配置
 const DEFAULT_CONFIG: ConfigState = {
+  isEnabled: false,
   providerType: 'openai',
   providerConfig: {
     openai: {
@@ -204,6 +212,10 @@ export const useConfigStore = create<ConfigState & ConfigActions>()(
   persist(
     (set, get) => ({
       ...DEFAULT_CONFIG,
+
+      // 翻译开关操作
+      toggleEnabled: () => set((state) => ({ isEnabled: !state.isEnabled })),
+      setIsEnabled: (enabled) => set({ isEnabled: enabled }),
 
       // API提供者操作
       setProviderType: (providerType) => set({ providerType }),

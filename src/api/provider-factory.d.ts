@@ -4,7 +4,7 @@
 
 import { AIProvider, ProviderConfig } from './base-provider';
 
-export type ProviderType = 'openai' | 'deepseek' | 'claude' | 'anthropic' | 'openrouter';
+export type ProviderType = 'openai' | 'deepseek' | 'claude' | 'anthropic' | 'openrouter' | 'qwen';
 
 /**
  * 提供者工厂类
@@ -14,6 +14,11 @@ export class ProviderFactory {
    * 创建提供者实例
    */
   static createProvider(type: ProviderType, config: ProviderConfig): AIProvider;
+
+  /**
+   * 获取所有注册的提供者类型
+   */
+  static getRegisteredProviders(): string[];
 
   /**
    * 获取所有支持的提供者类型

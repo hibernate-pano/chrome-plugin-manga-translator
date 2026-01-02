@@ -12,14 +12,17 @@ export interface TextArea {
 }
 
 export interface RenderOptions {
-  fontSize?: 'auto' | number;
+  fontSize?: 'auto' | number | string;
   color?: string;
+  fontColor?: string;
   backgroundColor?: string;
   opacity?: number;
   textColor?: string;
   showOriginalText?: boolean;
   textAlignment?: 'left' | 'center' | 'right';
   lineSpacing?: number;
+  fontFamily?: string;
+  styleLevel?: number;
 }
 
 export function renderTranslation(
@@ -27,8 +30,13 @@ export function renderTranslation(
   textAreas: TextArea[],
   translatedTexts: string[],
   options?: RenderOptions
-): void;
+): Promise<HTMLElement>;
 
-export function removeTranslation(image: HTMLImageElement): void;
+export function removeTranslation(wrapper: HTMLElement): void;
 
 export function clearAllTranslations(): void;
+
+export function showDebugAreas(
+  image: HTMLImageElement,
+  textAreas: TextArea[]
+): void;

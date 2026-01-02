@@ -1,132 +1,70 @@
-import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+/**
+ * Vitest Test Setup
+ * 
+ * This file is loaded before each test file runs.
+ * It sets up the testing environment with necessary mocks and configurations.
+ */
 
-// Mock Chrome APIs
-const mockChrome = {
+import '@testing-library/jest-dom';
+
+// Mock Chrome Storage API for testing
+const mockStorage: Record<string, unknown> = {};
+
+const createStorageMock = () => ({
+  get: vi.fn((keys: string | string[]) => {
+    const keyArray = Array.isArray(keys) ? keys : [keys];
+    const result: Record<string, unknown> = {};
+    keyArray.forEach((key) => {
+      if (key in mockStorage) {
+        result[key] = mockStorage[key];
+      }
+    });
+    return Promise.resolve(result);
+  }),
+  set: vi.fn((items: Record<string, unknown>) => {
+    Object.assign(mockStorage, items);
+    return Promise.resolve();
+  }),
+  remove: vi.fn((keys: string | string[]) => {
+    const keyArray = Array.isArray(keys) ? keys : [keys];
+    keyArray.forEach((key) => {
+      delete mockStorage[key];
+    });
+    return Promise.resolve();
+  }),
+  clear: vi.fn(() => {
+    Object.keys(mockStorage).forEach((key) => delete mockStorage[key]);
+    return Promise.resolve();
+  }),
+});
+
+// Mock chrome global
+const chromeMock = {
   storage: {
-    local: {
-      get: vi.fn().mockResolvedValue({}),
-      set: vi.fn().mockResolvedValue(undefined),
-      remove: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
-      onChanged: {
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        hasListener: vi.fn()
-      }
-    },
-    sync: {
-      get: vi.fn().mockResolvedValue({}),
-      set: vi.fn().mockResolvedValue(undefined),
-      remove: vi.fn().mockResolvedValue(undefined),
-      clear: vi.fn().mockResolvedValue(undefined),
-      onChanged: {
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-        hasListener: vi.fn()
-      }
-    }
+    sync: createStorageMock(),
+    local: createStorageMock(),
   },
   runtime: {
-    sendMessage: vi.fn().mockResolvedValue({}),
+    id: 'test-extension-id',
+    sendMessage: vi.fn(),
     onMessage: {
       addListener: vi.fn(),
       removeListener: vi.fn(),
-      hasListener: vi.fn()
     },
-    getURL: vi.fn((path: string) => `chrome-extension://test-id/${path}`),
-    id: 'test-extension-id'
   },
-  tabs: {
-    query: vi.fn().mockResolvedValue([]),
-    sendMessage: vi.fn().mockResolvedValue({}),
-    onUpdated: {
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      hasListener: vi.fn()
-    }
-  },
-  action: {
-    setBadgeText: vi.fn(),
-    setBadgeBackgroundColor: vi.fn(),
-    setIcon: vi.fn()
-  }
 };
 
-// 设置全局 chrome 对象
-Object.defineProperty(globalThis, 'chrome', {
-  value: mockChrome,
-  writable: true
-});
+// Assign to global
+Object.assign(globalThis, { chrome: chromeMock });
 
-// Mock fetch
-global.fetch = vi.fn();
+// Mock fetch for API tests
+globalThis.fetch = vi.fn();
 
-// Mock ResizeObserver
-global.ResizeObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
-
-// Mock IntersectionObserver
-global.IntersectionObserver = vi.fn().mockImplementation(() => ({
-  observe: vi.fn(),
-  unobserve: vi.fn(),
-  disconnect: vi.fn(),
-}));
-
-// Mock matchMedia
-Object.defineProperty(window, 'matchMedia', {
-  writable: true,
-  value: vi.fn().mockImplementation(query => ({
-    matches: false,
-    media: query,
-    onchange: null,
-    addListener: vi.fn(), // deprecated
-    removeListener: vi.fn(), // deprecated
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-    dispatchEvent: vi.fn(),
-  })),
-});
-
-// Mock HTMLCanvasElement.getContext
-HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
-  fillRect: vi.fn(),
-  clearRect: vi.fn(),
-  getImageData: vi.fn(() => ({
-    data: new Uint8ClampedArray(4)
-  })),
-  putImageData: vi.fn(),
-  createImageData: vi.fn(() => ({
-    data: new Uint8ClampedArray(4)
-  })),
-  setTransform: vi.fn(),
-  drawImage: vi.fn(),
-  save: vi.fn(),
-  fillText: vi.fn(),
-  restore: vi.fn(),
-  beginPath: vi.fn(),
-  moveTo: vi.fn(),
-  lineTo: vi.fn(),
-  closePath: vi.fn(),
-  stroke: vi.fn(),
-  translate: vi.fn(),
-  scale: vi.fn(),
-  rotate: vi.fn(),
-  arc: vi.fn(),
-  fill: vi.fn(),
-  measureText: vi.fn(() => ({ width: 0 })),
-  transform: vi.fn(),
-  rect: vi.fn(),
-  clip: vi.fn(),
-});
-
-// Mock HTMLCanvasElement.toDataURL
-HTMLCanvasElement.prototype.toDataURL = vi.fn(() => 'data:image/png;base64,test');
-
-// 清理函数
+// Reset mocks before each test
 beforeEach(() => {
   vi.clearAllMocks();
+  Object.keys(mockStorage).forEach((key) => delete mockStorage[key]);
 });
+
+// Export for use in tests
+export { mockStorage, chromeMock };

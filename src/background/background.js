@@ -1,7 +1,8 @@
 /**
  * 后台脚本
  */
-import { terminateOCRProviders } from '../content/detector';
+// TODO: detector.js 已删除，将在后续任务中使用 Vision LLM 替代
+// import { terminateOCRProviders } from '../content/detector';
 import { DEFAULT_CONFIG } from '../utils/default-config';
 import { initConfigManager, cleanup } from '../utils/config-manager';
 

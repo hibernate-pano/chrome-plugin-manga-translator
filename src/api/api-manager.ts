@@ -1,6 +1,32 @@
 import { AIProvider, TranslationRequest } from './base-provider.d';
 import { ProviderFactory, ProviderType } from './provider-factory.js';
 
+// 确保所有 Provider 已注册
+import './providers/index.js';
+
+// Provider 注册验证 - 在模块加载时立即执行
+const verifyProviderRegistration = () => {
+  const registeredProviders = ProviderFactory.getRegisteredProviders();
+  const expectedProviders = ['openai', 'deepseek', 'claude', 'qwen'];
+  const missingProviders = expectedProviders.filter(p => !registeredProviders.includes(p));
+  
+  console.log('[APIManager] Provider 注册验证', {
+    registered: registeredProviders,
+    expected: expectedProviders,
+    missing: missingProviders,
+    allRegistered: missingProviders.length === 0
+  });
+  
+  if (missingProviders.length > 0) {
+    console.warn('[APIManager] 警告: 部分 Provider 未注册', { missingProviders });
+  }
+  
+  return missingProviders.length === 0;
+};
+
+// 立即执行验证
+const providersRegistered = verifyProviderRegistration();
+
 // 扩展接口以支持文字检测
 interface ExtendedAIProvider extends AIProvider {
   detectText?(imageData: string, options?: any): Promise<any>;
@@ -120,16 +146,68 @@ export class APIManager {
   }
 
   /**
+   * 检查 Provider 是否已正确注册
+   * 用于 Content Script 验证 Provider 可用性
+   */
+  static checkProviderRegistration(): { 
+    isValid: boolean; 
+    registered: string[]; 
+    missing: string[] 
+  } {
+    const registeredProviders = ProviderFactory.getRegisteredProviders();
+    const expectedProviders = ['openai', 'deepseek', 'claude', 'qwen'];
+    const missingProviders = expectedProviders.filter(p => !registeredProviders.includes(p));
+    
+    return {
+      isValid: missingProviders.length === 0,
+      registered: registeredProviders,
+      missing: missingProviders
+    };
+  }
+
+  /**
    * 初始化API管理器
    */
   async initialize(): Promise<void> {
-    this.log(LogLevel.INFO, '初始化API管理器');
+    this.log(LogLevel.INFO, '[APIManager] 开始初始化');
+    
+    // 首先验证 Provider 注册状态（使用模块级验证结果）
+    if (!providersRegistered) {
+      this.log(LogLevel.ERROR, '[APIManager] Provider 注册验证失败，部分 Provider 未正确加载');
+    }
+    
+    const registeredProviders = ProviderFactory.getRegisteredProviders();
+    this.log(LogLevel.INFO, '[APIManager] Provider 注册状态', { 
+      registeredProviders,
+      count: registeredProviders.length,
+      expectedProviders: ['openai', 'deepseek', 'claude', 'qwen'],
+      moduleVerificationPassed: providersRegistered
+    });
+    
+    // 验证所有预期的 Provider 都已注册
+    const expectedProviders = ['openai', 'deepseek', 'claude', 'qwen'];
+    const missingProviders = expectedProviders.filter(p => !registeredProviders.includes(p));
+    if (missingProviders.length > 0) {
+      this.log(LogLevel.WARN, '[APIManager] 部分 Provider 未注册', { missingProviders });
+    }
+    
     try {
       const configStore = useConfigStore.getState();
       const { providerType, providerConfig, advancedSettings } = configStore;
 
+      this.log(LogLevel.DEBUG, '[APIManager] 读取配置', {
+        providerType,
+        hasProviderConfig: !!providerConfig[providerType],
+        apiKeyLength: providerConfig[providerType]?.apiKey?.length || 0
+      });
+
       if (!providerType || !providerConfig[providerType]) {
         throw new Error('未配置API提供者');
+      }
+
+      const currentConfig = providerConfig[providerType];
+      if (!currentConfig.apiKey) {
+        throw new Error(`${providerType} API密钥未配置`);
       }
 
       // 从配置中读取API设置
@@ -143,26 +221,40 @@ export class APIManager {
           this.maxRequestsPerWindow = advancedSettings.maxConcurrentRequests * 20; // 转换为每分钟请求数
           this.maxConcurrency = advancedSettings.maxConcurrentRequests; // 设置并发数
         }
-        
-        // 可以根据需要添加重试次数配置
-        // this.maxRetries = advancedSettings.maxRetries || 3;
+      }
+
+      // 检查 Provider 是否已注册
+      this.log(LogLevel.DEBUG, '[APIManager] 验证 Provider 注册', { 
+        requestedProvider: providerType,
+        isRegistered: registeredProviders.includes(providerType)
+      });
+
+      if (!registeredProviders.includes(providerType)) {
+        throw new Error(`Provider "${providerType}" 未注册，可用的 Provider: ${registeredProviders.join(', ')}`);
       }
 
       // 创建提供者实例
+      this.log(LogLevel.DEBUG, '[APIManager] 创建 Provider 实例', {
+        providerType,
+        apiBaseUrl: currentConfig.apiBaseUrl,
+        chatModel: currentConfig.chatModel
+      });
+
       this.currentProvider = ProviderFactory.createProvider(
         providerType as ProviderType,
-        providerConfig[providerType]
+        currentConfig
       );
 
       // 初始化提供者
       await this.currentProvider.initialize();
 
-      this.log(LogLevel.INFO, `API管理器已初始化，当前提供者: ${providerType}`, {
+      this.log(LogLevel.INFO, `[APIManager] 初始化完成，当前提供者: ${providerType}`, {
+        providerName: this.currentProvider.name,
         timeout: this.requestTimeout,
         maxRetries: this.maxRetries
       });
     } catch (error) {
-      this.log(LogLevel.ERROR, 'API管理器初始化失败', error);
+      this.log(LogLevel.ERROR, '[APIManager] 初始化失败', error);
       throw error;
     }
   }
@@ -240,10 +332,16 @@ export class APIManager {
     options: any = {}
   ): Promise<string | string[]> {
     if (!this.currentProvider) {
-      throw new Error('API提供者未初始化');
+      this.log(LogLevel.ERROR, '[APIManager] translateText 调用失败: API提供者未初始化');
+      throw new Error('API提供者未初始化，请先配置 API 密钥');
     }
 
-    this.log(LogLevel.DEBUG, '开始翻译文本', { text: Array.isArray(text) ? text.length : 1, targetLang });
+    this.log(LogLevel.INFO, '[APIManager] 开始翻译文本', { 
+      textCount: Array.isArray(text) ? text.length : 1, 
+      targetLang,
+      providerName: this.currentProvider.name,
+      hasOptions: Object.keys(options).length > 0
+    });
     
     const isArray = Array.isArray(text);
     const texts = isArray ? text : [text];
@@ -318,7 +416,15 @@ export class APIManager {
     }
 
     const result = isArray ? cachedResults as string[] : cachedResults[0] as string;
-    this.log(LogLevel.DEBUG, '翻译完成', { inputCount: texts.length, outputCount: result.length || 1 });
+    this.log(LogLevel.INFO, '[APIManager] 翻译流程完成', { 
+      inputCount: texts.length, 
+      outputCount: Array.isArray(result) ? result.length : 1,
+      cachedCount: texts.length - uncachedTexts.length,
+      translatedCount: uncachedTexts.length,
+      resultPreview: Array.isArray(result) 
+        ? result[0]?.substring(0, 50) + '...' 
+        : (result as string)?.substring(0, 50) + '...'
+    });
     
     return result;
   }
@@ -333,50 +439,121 @@ export class APIManager {
   ): Promise<string[]> {
     if (texts.length === 0) return [];
 
-    this.log(LogLevel.DEBUG, '开始批处理翻译', { count: texts.length });
+    this.log(LogLevel.INFO, '[APIManager] 开始批处理翻译', { 
+      count: texts.length,
+      targetLang,
+      providerName: this.currentProvider?.name,
+      firstTextPreview: (texts[0] || '').substring(0, 50) + ((texts[0]?.length || 0) > 50 ? '...' : '')
+    });
+    
+    // 辅助函数：从响应中提取翻译文本
+    const extractTranslatedText = (response: any): string => {
+      this.log(LogLevel.DEBUG, '[APIManager] 提取翻译文本', {
+        responseType: typeof response,
+        hasTranslatedText: response && typeof response.translatedText !== 'undefined',
+        isArray: Array.isArray(response)
+      });
+      
+      if (typeof response === 'string') {
+        return response;
+      }
+      if (response && typeof response.translatedText === 'string') {
+        return response.translatedText;
+      }
+      // 如果 translatedText 是数组，取第一个元素
+      if (response && Array.isArray(response.translatedText)) {
+        return response.translatedText[0] || '';
+      }
+      // 如果响应是数组，取第一个元素
+      if (Array.isArray(response) && response.length > 0) {
+        return extractTranslatedText(response[0]);
+      }
+      this.log(LogLevel.WARN, '[APIManager] 无法提取翻译文本，使用默认转换', { response });
+      return String(response || '');
+    };
     
     // 如果只有一个文本，直接翻译
     if (texts.length === 1) {
       const request: TranslationRequest = {
-        text: texts[0],
+        text: texts[0] || '',
         targetLanguage: targetLang,
-        ...options
+        sourceLanguage: options.sourceLanguage,
+        translationPrompt: options.translationPrompt,
       };
+      
+      this.log(LogLevel.DEBUG, '[APIManager] 单文本翻译请求', {
+        textLength: (texts[0] || '').length,
+        targetLang,
+        textPreview: (texts[0] || '').substring(0, 100)
+      });
+      
       const response = await this.executeWithRetry(
         () => this.currentProvider!.translateText(request),
         'translateText',
         { request }
       );
-      return [response.translatedText];
+      
+      this.log(LogLevel.DEBUG, '[APIManager] 翻译响应详情', {
+        responseType: typeof response,
+        hasTranslatedText: !!(response as any)?.translatedText,
+        translatedTextType: typeof (response as any)?.translatedText,
+        responseKeys: response ? Object.keys(response) : []
+      });
+      
+      const result = extractTranslatedText(response);
+      this.log(LogLevel.INFO, '[APIManager] 单文本翻译完成', {
+        inputLength: (texts[0] || '').length,
+        outputLength: result.length,
+        outputPreview: result.substring(0, 100)
+      });
+      
+      return [result];
     }
 
     // 批量翻译
     if (this.currentProvider!.translateBatch) {
+      this.log(LogLevel.DEBUG, '[APIManager] 使用批量翻译接口', { count: texts.length });
       const requests: TranslationRequest[] = texts.map(text => ({
-        text,
+        text: text || '',
         targetLanguage: targetLang,
-        ...options
+        sourceLanguage: options.sourceLanguage,
+        translationPrompt: options.translationPrompt,
       }));
       const responses = await this.executeWithRetry(
         () => this.currentProvider!.translateBatch!(requests),
         'translateBatch',
         { requestCount: requests.length }
       );
-      return responses.map(response => response.translatedText);
+      const results = responses.map(response => extractTranslatedText(response));
+      this.log(LogLevel.INFO, '[APIManager] 批量翻译完成', { 
+        inputCount: texts.length, 
+        outputCount: results.length 
+      });
+      return results;
     } else {
       // 如果不支持批量翻译，使用并行处理
-      this.log(LogLevel.DEBUG, '当前提供者不支持批量翻译，使用并行处理', { count: texts.length });
+      this.log(LogLevel.DEBUG, '[APIManager] 当前提供者不支持批量翻译，使用并行处理', { 
+        count: texts.length,
+        concurrencyLimit: this.maxConcurrency
+      });
       const results: string[] = [];
       
       // 并行处理，使用配置的并发限制
       const concurrencyLimit = this.maxConcurrency;
       for (let i = 0; i < texts.length; i += concurrencyLimit) {
         const batch = texts.slice(i, i + concurrencyLimit);
+        this.log(LogLevel.DEBUG, '[APIManager] 处理批次', { 
+          batchIndex: Math.floor(i / concurrencyLimit) + 1,
+          batchSize: batch.length,
+          totalBatches: Math.ceil(texts.length / concurrencyLimit)
+        });
+        
         const batchPromises = batch.map(text => {
           const request: TranslationRequest = {
-            text,
+            text: text || '',
             targetLanguage: targetLang,
-            ...options
+            sourceLanguage: options.sourceLanguage,
+            translationPrompt: options.translationPrompt,
           };
           return this.executeWithRetry(
             () => this.currentProvider!.translateText(request),
@@ -386,9 +563,13 @@ export class APIManager {
         });
         
         const batchResults = await Promise.all(batchPromises);
-        results.push(...batchResults.map(response => response.translatedText));
+        results.push(...batchResults.map(response => extractTranslatedText(response)));
       }
       
+      this.log(LogLevel.INFO, '[APIManager] 并行翻译完成', { 
+        inputCount: texts.length, 
+        outputCount: results.length 
+      });
       return results;
     }
   }
@@ -494,43 +675,72 @@ export class APIManager {
    * 解析错误
    */
   private parseError(error: any, operation: string): APIError {
-    this.log(LogLevel.DEBUG, `解析API错误`, { error, operation });
+    this.log(LogLevel.DEBUG, `[APIManager] 解析API错误`, { 
+      error: error?.message || error, 
+      operation,
+      errorName: error?.name,
+      statusCode: error?.status || error?.statusCode
+    });
     
     // 网络错误
-    if (error instanceof TypeError && (error.message.includes('network') || error.message.includes('fetch'))) {
-      return new APIError('网络错误，请检查网络连接', APIErrorType.NETWORK_ERROR, true);
+    if (error instanceof TypeError && (error.message.includes('network') || error.message.includes('fetch') || error.message.includes('Failed to fetch'))) {
+      return new APIError('网络连接失败，请检查网络', APIErrorType.NETWORK_ERROR, true);
     }
     
     // 超时错误
-    if (error.name === 'TimeoutError') {
+    if (error.name === 'TimeoutError' || error.message?.includes('timeout')) {
       return new APIError('请求超时，请稍后重试', APIErrorType.TIMEOUT_ERROR, true);
     }
     
-    // HTTP错误
-    if (error.statusCode || error.response?.status) {
-      const statusCode = error.statusCode || error.response.status;
+    // API 错误响应（来自 error-handler.js 的 APIError）
+    if (error.status || error.statusCode) {
+      const statusCode = error.status || error.statusCode;
       
       switch (true) {
-        case statusCode === 401 || statusCode === 403:
-          return new APIError('认证失败，请检查API密钥', APIErrorType.AUTH_ERROR, false, statusCode, error);
+        case statusCode === 401:
+          return new APIError('API 密钥无效，请检查配置', APIErrorType.AUTH_ERROR, false, statusCode, error);
+          
+        case statusCode === 403:
+          return new APIError('API 访问被拒绝，请检查密钥权限', APIErrorType.AUTH_ERROR, false, statusCode, error);
           
         case statusCode === 400:
-          return new APIError('无效的请求参数', APIErrorType.INVALID_REQUEST, false, statusCode, error);
+          return new APIError('请求参数错误', APIErrorType.INVALID_REQUEST, false, statusCode, error);
+          
+        case statusCode === 404:
+          return new APIError('API 端点不存在，请检查配置', APIErrorType.INVALID_REQUEST, false, statusCode, error);
           
         case statusCode === 429:
           return new APIError('请求过于频繁，请稍后重试', APIErrorType.RATE_LIMIT_ERROR, true, statusCode, error);
           
         case statusCode >= 500 && statusCode < 600:
-          return new APIError('服务器错误，请稍后重试', APIErrorType.SERVER_ERROR, true, statusCode, error);
+          return new APIError('API 服务器错误，请稍后重试', APIErrorType.SERVER_ERROR, true, statusCode, error);
           
         default:
-          return new APIError(`HTTP错误: ${statusCode}`, APIErrorType.UNKNOWN_ERROR, false, statusCode, error);
+          return new APIError(`API 错误 (${statusCode}): ${error.message || '未知错误'}`, APIErrorType.UNKNOWN_ERROR, false, statusCode, error);
       }
+    }
+    
+    // HTTP错误（来自 response）
+    if (error.response?.status) {
+      const statusCode = error.response.status;
+      return this.parseError({ ...error, statusCode }, operation);
+    }
+    
+    // 检查错误消息中的关键词
+    const errorMessage = error.message?.toLowerCase() || '';
+    if (errorMessage.includes('api key') || errorMessage.includes('apikey') || errorMessage.includes('密钥')) {
+      return new APIError('API 密钥配置错误', APIErrorType.AUTH_ERROR, false, undefined, error);
+    }
+    if (errorMessage.includes('rate limit') || errorMessage.includes('too many')) {
+      return new APIError('请求过于频繁，请稍后重试', APIErrorType.RATE_LIMIT_ERROR, true, undefined, error);
+    }
+    if (errorMessage.includes('network') || errorMessage.includes('connection')) {
+      return new APIError('网络连接失败', APIErrorType.NETWORK_ERROR, true, undefined, error);
     }
     
     // 其他错误
     return new APIError(
-      error.message || '未知错误',
+      error.message || '翻译失败，请重试',
       APIErrorType.UNKNOWN_ERROR,
       false,
       undefined,

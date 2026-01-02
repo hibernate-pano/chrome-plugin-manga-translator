@@ -67,7 +67,8 @@ export function selectOptimalPreprocessing(
 ): string {
   // 如果用户指定了方法，直接使用
   if (options.method && options.method !== 'auto') {
-    return Array.isArray(options.method) ? options.method[0] : options.method;
+    const method = Array.isArray(options.method) ? options.method[0] : options.method;
+    return method ?? 'light';
   }
 
   // 分析图像特征
@@ -125,9 +126,9 @@ function analyzeImageQuality(image: HTMLImageElement): {
   
   // 采样分析（每10个像素采样一次以提高性能）
   for (let i = 0; i < data.length; i += 40) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
+    const r = data[i] ?? 0;
+    const g = data[i + 1] ?? 0;
+    const b = data[i + 2] ?? 0;
     const brightness = (r + g + b) / 3;
     brightnessSum += brightness;
     samples.push(brightness);
@@ -147,7 +148,9 @@ function analyzeImageQuality(image: HTMLImageElement): {
   let noiseSum = 0;
   const noiseSamples = Math.min(100, samples.length);
   for (let i = 0; i < noiseSamples - 1; i++) {
-    noiseSum += Math.abs(samples[i] - samples[i + 1]);
+    const current = samples[i] ?? 0;
+    const next = samples[i + 1] ?? 0;
+    noiseSum += Math.abs(current - next);
   }
   noiseLevel = noiseSum / (noiseSamples - 1);
 
@@ -183,7 +186,8 @@ export async function smartPreprocessImage(
     : (options.method || 'none');
 
   // 获取预设配置
-  const preset = PREPROCESSING_PRESETS[method as keyof typeof PREPROCESSING_PRESETS] || PREPROCESSING_PRESETS.none;
+  const methodKey = Array.isArray(method) ? method[0] : method;
+  const preset = PREPROCESSING_PRESETS[methodKey as keyof typeof PREPROCESSING_PRESETS] || PREPROCESSING_PRESETS.none;
   const methods = preset.methods.length > 0 ? preset.methods : (Array.isArray(method) ? method : [method]);
 
   // 执行预处理
@@ -198,8 +202,43 @@ export async function smartPreprocessImage(
       ctx.drawImage(image, 0, 0);
     }
   } else {
-    // 执行预处理
-    canvas = await preprocessImageCore(image, methods, {});
+    // 执行预处理 - 先将图片转为 base64，然后调用预处理
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = image.naturalWidth || image.width;
+    tempCanvas.height = image.naturalHeight || image.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    if (tempCtx) {
+      tempCtx.drawImage(image, 0, 0);
+    }
+    const imageData = tempCanvas.toDataURL('image/png');
+    
+    // 构建预处理选项
+    const processOptions = {
+      grayscale: methods.includes('grayscale'),
+      denoise: methods.includes('denoise'),
+      sharpen: methods.includes('sharpen'),
+      histogramEqualization: methods.includes('equalize') || methods.includes('enhance'),
+      binarize: methods.includes('binarize'),
+    };
+    
+    const processedData = await preprocessImageCore(imageData, processOptions);
+    
+    // 将处理后的 base64 转回 canvas
+    canvas = document.createElement('canvas');
+    const img = new Image();
+    await new Promise<void>((resolve, reject) => {
+      img.onload = () => {
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+          ctx.drawImage(img, 0, 0);
+        }
+        resolve();
+      };
+      img.onerror = reject;
+      img.src = processedData;
+    });
   }
 
   // 评估预处理质量
@@ -234,7 +273,10 @@ function evaluatePreprocessingQuality(canvas: HTMLCanvasElement): number {
   const brightnesses: number[] = [];
   
   for (let i = 0; i < data.length; i += 40) {
-    const brightness = (data[i] + data[i + 1] + data[i + 2]) / 3;
+    const r = data[i] ?? 0;
+    const g = data[i + 1] ?? 0;
+    const b = data[i + 2] ?? 0;
+    const brightness = (r + g + b) / 3;
     brightnessSum += brightness;
     brightnesses.push(brightness);
   }

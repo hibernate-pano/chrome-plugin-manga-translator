@@ -38,7 +38,7 @@ export default defineConfig({
         popup: 'src/popup.tsx',
         options: 'src/options.tsx',
         background: 'src/background/background.ts',
-        content: 'src/content/content.tsx',
+        content: 'src/content/content.ts',
       },
       output: {
         entryFileNames: '[name].js',

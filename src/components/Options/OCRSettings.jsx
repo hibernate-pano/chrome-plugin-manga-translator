@@ -1,5 +1,9 @@
 import { useState, useEffect } from 'react';
-import { getSupportedOCRProviders } from '../../api/ocr';
+// TODO: OCR 已删除，将在后续任务中使用 Vision LLM 替代
+// import { getSupportedOCRProviders } from '../../api/ocr';
+
+// 临时占位函数
+const getSupportedOCRProviders = () => [];
 
 /**
  * OCR设置组件

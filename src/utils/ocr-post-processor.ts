@@ -134,7 +134,20 @@ function mergeNearbyTextAreas(
   for (let i = 0; i < sortedAreas.length; i++) {
     if (used.has(i)) continue;
 
-    let currentArea = { ...sortedAreas[i] };
+    const sourceArea = sortedAreas[i];
+    if (!sourceArea) continue;
+    
+    let currentArea: TextArea = {
+      x: sourceArea.x,
+      y: sourceArea.y,
+      width: sourceArea.width,
+      height: sourceArea.height,
+      text: sourceArea.text,
+      confidence: sourceArea.confidence,
+      type: sourceArea.type,
+      order: sourceArea.order,
+      metadata: sourceArea.metadata,
+    };
     used.add(i);
 
     // 查找可以合并的相邻区域
@@ -142,6 +155,8 @@ function mergeNearbyTextAreas(
       if (used.has(j)) continue;
 
       const otherArea = sortedAreas[j];
+      if (!otherArea) continue;
+      
       const distance = calculateDistance(currentArea, otherArea);
 
       // 如果距离足够近，且在同一行或相近行，则合并

@@ -1,428 +1,286 @@
+/**
+ * Config Store v2 - Simplified configuration for Manga Translator v2
+ * 
+ * This is a streamlined version that removes OCR-related settings
+ * and focuses on Vision LLM providers.
+ * 
+ * Requirements: 1.4, 6.2
+ */
+
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
-import { ProviderType, Language, TranslationMode, Theme } from '@/types';
+import type { ProviderType } from '@/providers/base';
 
-// ==================== 配置接口定义 ====================
+// ==================== Type Definitions ====================
 
-export interface ProviderConfig {
+/**
+ * Provider-specific configuration
+ */
+export interface ProviderSettings {
   apiKey: string;
-  apiBaseUrl?: string;
-  visionModel?: string;
-  chatModel?: string;
-  temperature?: number;
-  maxTokens?: number;
+  baseUrl: string;
+  model: string;
 }
 
-export interface OCRSettings {
-  preferredMethod: 'auto' | 'tesseract' | 'local';
-  language: string;
-  preprocess: boolean;
-  workerCount: number;
+/**
+ * All provider configurations
+ */
+export interface ProvidersConfig {
+  openai: ProviderSettings;
+  claude: ProviderSettings;
+  deepseek: ProviderSettings;
+  ollama: ProviderSettings;
 }
 
-export interface StyleConfig {
-  fontFamily: string;
-  fontSize: string;
-  fontColor: string;
-  backgroundColor: string;
-  styleLevel: number;
-}
-
-export interface ShortcutConfig {
-  toggleTranslation: string;
-  translateSelected: string;
-  openSettings: string;
-  clearTranslations: string;
-}
-
-export interface AdvancedSettings {
-  useLocalOcr: boolean;
-  cacheResults: boolean;
-  maxCacheSize: number;
-  debugMode: boolean;
-  apiTimeout: number;
-  maxConcurrentRequests: number;
-  imagePreprocessing: 'none' | 'enhance' | 'denoise';
-  showOriginalText: boolean;
-  translationPrompt: string;
-  useCorsProxy: boolean;
-  corsProxyType: 'corsproxy' | 'allorigins' | 'custom';
-  customCorsProxy: string;
-  renderType: 'overlay' | 'replace';
-}
-
-export interface AppConfig {
-  // 基础设置
+/**
+ * Application configuration state
+ */
+export interface AppConfigState {
+  /** Translation toggle state */
   enabled: boolean;
-  providerType: ProviderType;
-  targetLanguage: Language;
-  theme: Theme;
-  mode: TranslationMode;
   
-  // 提供者配置
-  providerConfig: Record<ProviderType, ProviderConfig>;
+  /** Current active provider */
+  provider: ProviderType;
   
-  // 功能配置
-  ocrSettings: OCRSettings;
-  styleConfig: StyleConfig;
-  shortcuts: ShortcutConfig;
-  advancedSettings: AdvancedSettings;
+  /** Provider-specific configurations */
+  providers: ProvidersConfig;
+  
+  /** Target language for translation (default: 'zh-CN') */
+  targetLanguage: string;
+  
+  /** Maximum image size in pixels before compression */
+  maxImageSize: number;
+  
+  /** Maximum parallel translation requests */
+  parallelLimit: number;
+  
+  /** Whether caching is enabled */
+  cacheEnabled: boolean;
 }
 
-// ==================== 默认配置 ====================
+/**
+ * Configuration actions
+ */
+export interface AppConfigActions {
+  // Toggle operations
+  setEnabled: (enabled: boolean) => void;
+  toggleEnabled: () => void;
+  
+  // Provider operations
+  setProvider: (provider: ProviderType) => void;
+  updateProviderSettings: (provider: ProviderType, settings: Partial<ProviderSettings>) => void;
+  setProviderApiKey: (provider: ProviderType, apiKey: string) => void;
+  
+  // Language operations
+  setTargetLanguage: (language: string) => void;
+  
+  // Performance settings
+  setMaxImageSize: (size: number) => void;
+  setParallelLimit: (limit: number) => void;
+  setCacheEnabled: (enabled: boolean) => void;
+  
+  // Utility operations
+  getActiveProviderSettings: () => ProviderSettings;
+  isProviderConfigured: (provider?: ProviderType) => boolean;
+  resetToDefaults: () => void;
+}
 
-const DEFAULT_PROVIDER_CONFIG: Record<ProviderType, ProviderConfig> = {
+// ==================== Default Configuration ====================
+
+const DEFAULT_PROVIDERS: ProvidersConfig = {
   openai: {
     apiKey: '',
-    apiBaseUrl: 'https://api.openai.com/v1',
-    visionModel: 'gpt-4-vision-preview',
-    chatModel: 'gpt-3.5-turbo',
-    temperature: 0.3,
-    maxTokens: 1000,
-  },
-  deepseek: {
-    apiKey: '',
-    apiBaseUrl: 'https://api.deepseek.com/v1',
-    visionModel: 'deepseek-vl',
-    chatModel: 'deepseek-chat',
-    temperature: 0.3,
-    maxTokens: 1000,
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o',
   },
   claude: {
     apiKey: '',
-    apiBaseUrl: 'https://api.anthropic.com/v1',
-    visionModel: 'claude-3-opus-20240229',
-    chatModel: 'claude-3-haiku-20240307',
-    temperature: 0.3,
-    maxTokens: 1000,
+    baseUrl: 'https://api.anthropic.com/v1',
+    model: 'claude-3-5-sonnet-20241022',
   },
-  qwen: {
+  deepseek: {
     apiKey: '',
-    apiBaseUrl: 'https://dashscope.aliyuncs.com/api/v1',
-    visionModel: 'qwen-vl-plus',
-    chatModel: 'qwen-turbo',
-    temperature: 0.3,
-    maxTokens: 1000,
+    baseUrl: 'https://api.deepseek.com/v1',
+    model: 'deepseek-chat',
   },
-  anthropic: {
-    apiKey: '',
-    apiBaseUrl: 'https://api.anthropic.com/v1',
-    visionModel: 'claude-3-opus-20240229',
-    chatModel: 'claude-3-haiku-20240307',
-    temperature: 0.3,
-    maxTokens: 1000,
-  },
-  openrouter: {
-    apiKey: '',
-    apiBaseUrl: 'https://openrouter.ai/api/v1',
-    visionModel: 'anthropic/claude-3-opus',
-    chatModel: 'anthropic/claude-3-haiku',
-    temperature: 0.3,
-    maxTokens: 1000,
+  ollama: {
+    apiKey: '', // Not needed for Ollama
+    baseUrl: 'http://localhost:11434',
+    model: 'llava',
   },
 };
 
-const DEFAULT_CONFIG: AppConfig = {
-  // 基础设置
+const DEFAULT_CONFIG: AppConfigState = {
   enabled: false,
-  providerType: 'openai',
+  provider: 'openai',
+  providers: DEFAULT_PROVIDERS,
   targetLanguage: 'zh-CN',
-  theme: 'system',
-  mode: 'manual',
-  
-  // 提供者配置
-  providerConfig: DEFAULT_PROVIDER_CONFIG,
-  
-  // OCR设置
-  ocrSettings: {
-    preferredMethod: 'auto',
-    language: 'jpn',
-    preprocess: true,
-    workerCount: 1,
-  },
-  
-  // 样式配置
-  styleConfig: {
-    fontFamily: '',
-    fontSize: 'auto',
-    fontColor: 'auto',
-    backgroundColor: 'auto',
-    styleLevel: 50,
-  },
-  
-  // 快捷键配置
-  shortcuts: {
-    toggleTranslation: 'Alt+T',
-    translateSelected: 'Alt+S',
-    openSettings: 'Alt+O',
-    clearTranslations: 'Alt+C',
-  },
-  
-  // 高级设置
-  advancedSettings: {
-    useLocalOcr: false,
-    cacheResults: true,
-    maxCacheSize: 50,
-    debugMode: false,
-    apiTimeout: 30,
-    maxConcurrentRequests: 3,
-    imagePreprocessing: 'none',
-    showOriginalText: false,
-    translationPrompt: '',
-    useCorsProxy: true,
-    corsProxyType: 'corsproxy',
-    customCorsProxy: '',
-    renderType: 'overlay',
-  },
+  maxImageSize: 1920,
+  parallelLimit: 3,
+  cacheEnabled: true,
 };
 
-// ==================== 配置验证 ====================
+// ==================== Chrome Storage Adapter ====================
 
-export class ConfigValidator {
-  static validateProviderConfig(config: ProviderConfig): string[] {
-    const errors: string[] = [];
-    
-    if (!config.apiKey) {
-      errors.push('API密钥不能为空');
-    }
-    
-    if (config.temperature && (config.temperature < 0 || config.temperature > 2)) {
-      errors.push('温度值必须在0-2之间');
-    }
-    
-    if (config.maxTokens && (config.maxTokens < 1 || config.maxTokens > 4000)) {
-      errors.push('最大令牌数必须在1-4000之间');
-    }
-    
-    return errors;
-  }
-  
-  static validateOCRSettings(settings: OCRSettings): string[] {
-    const errors: string[] = [];
-    
-    if (settings.workerCount < 1 || settings.workerCount > 4) {
-      errors.push('工作线程数必须在1-4之间');
-    }
-    
-    return errors;
-  }
-  
-  static validateAdvancedSettings(settings: AdvancedSettings): string[] {
-    const errors: string[] = [];
-    
-    if (settings.maxCacheSize < 1 || settings.maxCacheSize > 1000) {
-      errors.push('最大缓存大小必须在1-1000之间');
-    }
-    
-    if (settings.apiTimeout < 5 || settings.apiTimeout > 300) {
-      errors.push('API超时时间必须在5-300秒之间');
-    }
-    
-    if (settings.maxConcurrentRequests < 1 || settings.maxConcurrentRequests > 10) {
-      errors.push('最大并发请求数必须在1-10之间');
-    }
-    
-    return errors;
-  }
-}
-
-// ==================== Chrome Storage 适配器 ====================
-
+/**
+ * Chrome Storage adapter for Zustand persist middleware
+ * Uses chrome.storage.sync for cross-device synchronization
+ */
 const chromeStorage = {
   getItem: async (name: string): Promise<string | null> => {
     try {
-      const result = await chrome.storage.sync.get([name]);
-      return result[name] ? JSON.stringify(result[name]) : null;
+      // Check if chrome.storage is available (extension context)
+      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
+        const result = await chrome.storage.sync.get([name]);
+        return result[name] ? JSON.stringify(result[name]) : null;
+      }
+      // Fallback to localStorage for development/testing
+      return localStorage.getItem(name);
     } catch (error) {
-      console.error('Chrome storage getItem error:', error);
+      console.error('[ConfigStore] getItem error:', error);
       return null;
     }
   },
   setItem: async (name: string, value: string): Promise<void> => {
     try {
       const parsedValue = JSON.parse(value);
-      await chrome.storage.sync.set({ [name]: parsedValue });
+      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
+        await chrome.storage.sync.set({ [name]: parsedValue });
+      } else {
+        localStorage.setItem(name, value);
+      }
     } catch (error) {
-      console.error('Chrome storage setItem error:', error);
+      console.error('[ConfigStore] setItem error:', error);
     }
   },
   removeItem: async (name: string): Promise<void> => {
     try {
-      await chrome.storage.sync.remove([name]);
+      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
+        await chrome.storage.sync.remove([name]);
+      } else {
+        localStorage.removeItem(name);
+      }
     } catch (error) {
-      console.error('Chrome storage removeItem error:', error);
+      console.error('[ConfigStore] removeItem error:', error);
     }
   },
 };
 
-// ==================== 配置Store ====================
+// ==================== Store Creation ====================
 
-interface ConfigState extends AppConfig {
-  // 状态
-  isLoading: boolean;
-  error: string | null;
-  
-  // 基础操作
-  setEnabled: (enabled: boolean) => void;
-  setProviderType: (providerType: ProviderType) => void;
-  setTargetLanguage: (language: Language) => void;
-  setTheme: (theme: Theme) => void;
-  setMode: (mode: TranslationMode) => void;
-  
-  // 提供者配置操作
-  updateProviderConfig: (providerType: ProviderType, config: Partial<ProviderConfig>) => void;
-  setProviderApiKey: (providerType: ProviderType, apiKey: string) => void;
-  validateProvider: (providerType: ProviderType) => string[];
-  
-  // OCR设置操作
-  updateOCRSettings: (settings: Partial<OCRSettings>) => void;
-  validateOCRSettings: () => string[];
-  
-  // 样式配置操作
-  updateStyleConfig: (config: Partial<StyleConfig>) => void;
-  
-  // 快捷键操作
-  updateShortcuts: (shortcuts: Partial<ShortcutConfig>) => void;
-  
-  // 高级设置操作
-  updateAdvancedSettings: (settings: Partial<AdvancedSettings>) => void;
-  validateAdvancedSettings: () => string[];
-  
-  // 批量操作
-  updateConfig: (config: Partial<AppConfig>) => void;
-  resetToDefaults: () => void;
-  
-  // 工具方法
-  getActiveProviderConfig: () => ProviderConfig;
-  getActiveProviderApiKey: () => string;
-  isProviderConfigured: (providerType: ProviderType) => boolean;
-  getAllValidationErrors: () => string[];
-}
-
-export const useConfigStore = create<ConfigState>()(
+/**
+ * App Configuration Store (v2)
+ * 
+ * Simplified store for Manga Translator v2 that focuses on:
+ * - Translation toggle state
+ * - Vision LLM provider configuration
+ * - Target language settings
+ * - Performance settings
+ */
+export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
   persist(
     (set, get) => ({
+      // Initial state
       ...DEFAULT_CONFIG,
-      isLoading: false,
-      error: null,
 
-      // 基础操作
+      // Toggle operations
       setEnabled: (enabled) => set({ enabled }),
-      setProviderType: (providerType) => set({ providerType }),
+      toggleEnabled: () => set((state) => ({ enabled: !state.enabled })),
+
+      // Provider operations
+      setProvider: (provider) => set({ provider }),
+      
+      updateProviderSettings: (provider, settings) =>
+        set((state) => ({
+          providers: {
+            ...state.providers,
+            [provider]: {
+              ...state.providers[provider],
+              ...settings,
+            },
+          },
+        })),
+      
+      setProviderApiKey: (provider, apiKey) =>
+        set((state) => ({
+          providers: {
+            ...state.providers,
+            [provider]: {
+              ...state.providers[provider],
+              apiKey,
+            },
+          },
+        })),
+
+      // Language operations
       setTargetLanguage: (targetLanguage) => set({ targetLanguage }),
-      setTheme: (theme) => set({ theme }),
-      setMode: (mode) => set({ mode }),
 
-      // 提供者配置操作
-      updateProviderConfig: (providerType, config) =>
-        set((state) => {
-          const currentConfig = state.providerConfig[providerType] || {};
-          const updatedConfig = { ...currentConfig, ...config };
+      // Performance settings
+      setMaxImageSize: (maxImageSize) => set({ maxImageSize }),
+      setParallelLimit: (parallelLimit) => set({ parallelLimit }),
+      setCacheEnabled: (cacheEnabled) => set({ cacheEnabled }),
 
-          return {
-            providerConfig: {
-              ...state.providerConfig,
-              [providerType]: updatedConfig as ProviderConfig,
-            },
-          };
-        }),
-
-      setProviderApiKey: (providerType, apiKey) =>
-        set((state) => {
-          const currentConfig = state.providerConfig[providerType] || {};
-          const updatedConfig = { ...currentConfig, apiKey };
-
-          return {
-            providerConfig: {
-              ...state.providerConfig,
-              [providerType]: updatedConfig as ProviderConfig,
-            },
-          };
-        }),
-
-      validateProvider: (providerType) => {
+      // Utility operations
+      getActiveProviderSettings: () => {
         const state = get();
-        const config = state.providerConfig[providerType];
-        return config ? ConfigValidator.validateProviderConfig(config) : ['提供者配置不存在'];
+        return state.providers[state.provider];
       },
-
-      // OCR设置操作
-      updateOCRSettings: (settings) =>
-        set((state) => ({
-          ocrSettings: { ...state.ocrSettings, ...settings },
-        })),
-
-      validateOCRSettings: () => {
+      
+      isProviderConfigured: (provider?: ProviderType) => {
         const state = get();
-        return ConfigValidator.validateOCRSettings(state.ocrSettings);
-      },
-
-      // 样式配置操作
-      updateStyleConfig: (config) =>
-        set((state) => ({
-          styleConfig: { ...state.styleConfig, ...config },
-        })),
-
-      // 快捷键操作
-      updateShortcuts: (shortcuts) =>
-        set((state) => ({
-          shortcuts: { ...state.shortcuts, ...shortcuts },
-        })),
-
-      // 高级设置操作
-      updateAdvancedSettings: (settings) =>
-        set((state) => ({
-          advancedSettings: { ...state.advancedSettings, ...settings },
-        })),
-
-      validateAdvancedSettings: () => {
-        const state = get();
-        return ConfigValidator.validateAdvancedSettings(state.advancedSettings);
-      },
-
-      // 批量操作
-      updateConfig: (config) => set((state) => ({ ...state, ...config })),
-
-      resetToDefaults: () => set({ ...DEFAULT_CONFIG, isLoading: false, error: null }),
-
-      // 工具方法
-      getActiveProviderConfig: () => {
-        const state = get();
-        const config = state.providerConfig[state.providerType];
-        return config || DEFAULT_PROVIDER_CONFIG.openai;
-      },
-
-      getActiveProviderApiKey: () => {
-        const state = get();
-        const config = state.providerConfig[state.providerType];
-        return config?.apiKey || '';
-      },
-
-      isProviderConfigured: (providerType) => {
-        const state = get();
-        const config = state.providerConfig[providerType];
-        return !!(config && config.apiKey);
-      },
-
-      getAllValidationErrors: () => {
-        const state = get();
-        const errors: string[] = [];
+        const targetProvider = provider || state.provider;
+        const settings = state.providers[targetProvider];
         
-        // 验证当前提供者
-        errors.push(...state.validateProvider(state.providerType));
+        // Ollama doesn't require API key
+        if (targetProvider === 'ollama') {
+          return !!settings.baseUrl;
+        }
         
-        // 验证OCR设置
-        errors.push(...state.validateOCRSettings());
-        
-        // 验证高级设置
-        errors.push(...state.validateAdvancedSettings());
-        
-        return errors;
+        // Cloud providers require API key
+        return !!settings.apiKey;
       },
+      
+      resetToDefaults: () => set(DEFAULT_CONFIG),
     }),
     {
       name: 'manga-translator-config-v2',
       storage: createJSONStorage(() => chromeStorage),
+      // Only persist essential configuration, not derived state
+      partialize: (state) => ({
+        enabled: state.enabled,
+        provider: state.provider,
+        providers: state.providers,
+        targetLanguage: state.targetLanguage,
+        maxImageSize: state.maxImageSize,
+        parallelLimit: state.parallelLimit,
+        cacheEnabled: state.cacheEnabled,
+      }),
     }
   )
-); 
+);
+
+// ==================== Selector Hooks ====================
+
+/**
+ * Get current enabled state
+ */
+export const useTranslationEnabled = () => useAppConfigStore((state) => state.enabled);
+
+/**
+ * Get current provider type
+ */
+export const useCurrentProvider = () => useAppConfigStore((state) => state.provider);
+
+/**
+ * Get target language
+ */
+export const useTargetLanguage = () => useAppConfigStore((state) => state.targetLanguage);
+
+/**
+ * Get active provider settings
+ */
+export const useActiveProviderSettings = () => {
+  const provider = useAppConfigStore((state) => state.provider);
+  const providers = useAppConfigStore((state) => state.providers);
+  return providers[provider];
+};

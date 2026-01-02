@@ -166,20 +166,48 @@ export class QwenProvider extends AIProvider {
   }
 
   /**
-   * 翻译文本
-   * @param {string|Array<string>} text - 要翻译的文本或文本数组
-   * @param {string} targetLang - 目标语言代码
-   * @param {Object} options - 翻译选项
-   * @returns {Promise<string|Array<string>>} - 翻译结果
+   * 翻译文本 - 实现统一接口
+   * @param {Object} request - 翻译请求对象
+   * @param {string} request.text - 要翻译的文本
+   * @param {string} request.targetLanguage - 目标语言代码
+   * @param {string} [request.sourceLanguage] - 源语言代码
+   * @param {string} [request.translationPrompt] - 自定义翻译提示词
+   * @returns {Promise<Object>} - 翻译响应 { translatedText, sourceLanguage? }
    */
-  async translateText(text, targetLang, options = {}) {
+  async translateText(request) {
+    // 支持旧的调用方式（向后兼容）
+    let text, targetLang, options;
+    if (typeof request === 'string' || Array.isArray(request)) {
+      // 旧的调用方式: translateText(text, targetLang, options)
+      text = request;
+      targetLang = arguments[1];
+      options = arguments[2] || {};
+      console.warn('[QwenProvider] 使用了旧的 translateText 调用方式，建议使用新的请求对象格式');
+    } else {
+      // 新的统一接口
+      text = request.text;
+      targetLang = request.targetLanguage;
+      options = {
+        sourceLanguage: request.sourceLanguage,
+        translationPrompt: request.translationPrompt,
+        context: request.context,
+      };
+    }
+
     try {
       const isArray = Array.isArray(text);
       const textsToTranslate = isArray ? text : [text];
       
       if (textsToTranslate.length === 0 || !textsToTranslate[0]) {
-        return isArray ? [] : '';
+        return { translatedText: isArray ? [] : '' };
       }
+
+      console.log('[QwenProvider] 开始翻译:', {
+        textCount: textsToTranslate.length,
+        targetLang,
+        apiBaseUrl: this.config.apiBaseUrl,
+        model: this.config.model
+      });
 
       const apiUrl = `${this.config.apiBaseUrl}/chat/completions`;
       
@@ -198,22 +226,36 @@ export class QwenProvider extends AIProvider {
       const targetLanguage = languageMap[targetLang] || targetLang;
       const translationPrompt = options.translationPrompt || '';
       
-      let systemPrompt = `你是一个专业的漫画翻译专家，请将以下文本翻译成${targetLanguage}。保持原文的语气和风格，确保翻译自然流畅。`;
-      
-      if (translationPrompt) {
-        systemPrompt += ` ${translationPrompt}`;
+      // 如果提供了完整的翻译提示词（如漫画翻译专用提示词），直接使用
+      // 否则使用默认的简单提示词
+      let systemPrompt;
+      if (translationPrompt && translationPrompt.length > 100) {
+        // 完整的翻译提示词，直接使用
+        systemPrompt = translationPrompt;
+      } else {
+        // 默认提示词
+        systemPrompt = `你是一个专业的漫画翻译专家，请将以下文本翻译成${targetLanguage}。保持原文的语气和风格，确保翻译自然流畅。只返回翻译结果，不要添加任何解释。`;
+        if (translationPrompt) {
+          systemPrompt += ` ${translationPrompt}`;
+        }
       }
       
       // 处理单个文本还是批量文本
-      const batchSize = options.batchSize || 5;
+      const batchSize = 5;
       const results = [];
       
       // 分批处理文本，避免请求过大
       for (let i = 0; i < textsToTranslate.length; i += batchSize) {
         const batch = textsToTranslate.slice(i, i + batchSize);
-        const batchText = batch.join('\n---SPLIT---\n');
+        const batchText = batch.length > 1 ? batch.join('\n---SPLIT---\n') : batch[0];
         
         const result = await APIErrorHandler.withRetry(async () => {
+          console.log('[QwenProvider] 发送 API 请求:', {
+            url: apiUrl,
+            model: this.config.model,
+            textLength: batchText.length
+          });
+
           // Qwen模型不使用system角色，将系统消息合并到user消息中
           const requestBody = {
             model: this.config.model,
@@ -236,8 +278,15 @@ export class QwenProvider extends AIProvider {
             body: JSON.stringify(requestBody)
           });
           
-          const result = await APIErrorHandler.handleResponse(response);
-          const translatedText = result.choices[0].message.content.trim();
+          console.log('[QwenProvider] API 响应状态:', response.status);
+          
+          const responseData = await APIErrorHandler.handleResponse(response);
+          const translatedText = responseData.choices[0].message.content.trim();
+          
+          console.log('[QwenProvider] 翻译成功:', {
+            inputLength: batchText.length,
+            outputLength: translatedText.length
+          });
           
           // 如果是批量翻译，按分隔符拆分
           if (batch.length > 1) {
@@ -257,9 +306,14 @@ export class QwenProvider extends AIProvider {
         results.push(...result);
       }
       
-      return isArray ? results : results[0];
+      // 返回统一格式的响应
+      const translatedText = isArray ? results : results[0];
+      return {
+        translatedText,
+        sourceLanguage: options.sourceLanguage || 'auto'
+      };
     } catch (error) {
-      console.error('Qwen文本翻译失败:', error);
+      console.error('[QwenProvider] 翻译失败:', error);
       throw error;
     }
   }

@@ -5,8 +5,27 @@
 // 导入必要的模块
 import { APIManager } from '../api/api-manager';
 import { renderTranslation } from './renderer';
-import { detectTextAreas } from './detector';
+// TODO: detector.js 已删除，将在后续任务中使用 Vision LLM 替代
+// import { detectTextAreas } from './detector';
 import { BatchTranslationManager } from '../utils/batch-translation-manager';
+// TODO: translation-controller 依赖 detector，暂时禁用
+// import { 
+//   TranslationController, 
+//   initializeTranslationController,
+//   getTranslationController 
+// } from './translation-controller';
+
+// 临时类型定义，将在后续任务中实现
+type TranslationController = {
+  start: () => Promise<void>;
+  stop: () => void;
+  getState: () => { isProcessing: boolean; processedCount: number; overlayCount: number };
+  updateConfig: (config: { targetLanguage?: string }) => void;
+  destroy: () => Promise<void>;
+};
+
+// TranslationController 实例
+let translationController: TranslationController | null = null;
 
 // 翻译状态接口
 interface TranslationState {
@@ -28,9 +47,19 @@ let translationState: TranslationState = {
 
 // 初始化
 async function initialize() {
+  console.log('[ContentScript] ========== 开始初始化 ==========');
+  console.log('[ContentScript] 页面 URL:', window.location.href);
+  
   try {
     // 加载配置
+    console.log('[ContentScript] 步骤 1: 加载配置...');
     const config = await getConfig();
+    console.log('[ContentScript] 配置加载完成:', {
+      enabled: config.enabled,
+      mode: config.mode,
+      targetLanguage: config.targetLanguage,
+      hasAdvancedSettings: !!config.advancedSettings
+    });
 
     translationState = {
       ...translationState,
@@ -39,11 +68,18 @@ async function initialize() {
       targetLanguage: config.targetLanguage || 'zh-CN'
     };
 
+    // TODO: TranslationController 将在后续任务中重新实现
+    // 暂时跳过初始化
+    console.log('[ContentScript] 步骤 2: TranslationController 暂时禁用（等待 Vision LLM 重构）');
+    translationController = null;
+
     // 设置事件监听器
+    console.log('[ContentScript] 步骤 3: 设置事件监听器...');
     setupEventListeners();
 
     // 如果启用了自动模式，开始处理页面
     if (translationState.enabled && translationState.mode === 'auto') {
+      console.log('[ContentScript] 自动模式已启用，开始处理页面');
       processPage();
     }
 
@@ -53,9 +89,10 @@ async function initialize() {
     // 页面卸载时释放资源
     window.addEventListener('beforeunload', cleanup);
 
-    console.log('漫画翻译助手已初始化');
+    console.log('[ContentScript] ========== 初始化完成 ==========');
   } catch (error) {
-    console.error('初始化失败:', error);
+    console.error('[ContentScript] ========== 初始化失败 ==========');
+    console.error('[ContentScript] 错误详情:', error);
   }
 }
 
@@ -110,10 +147,59 @@ function handleKeydown(event: KeyboardEvent) {
 
 // 处理消息
 function handleMessages(request: any, _sender: any, sendResponse: (response: any) => void) {
+  console.log('[ContentScript] 收到消息:', {
+    action: request.action,
+    enabled: request.enabled,
+    hasController: !!translationController
+  });
+  
   switch (request.action) {
     case 'toggle':
+      console.log('[ContentScript] 处理 toggle 消息');
       toggleTranslation();
       sendResponse({ success: true });
+      break;
+    
+    case 'toggleTranslation':
+      console.log('[ContentScript] 处理 toggleTranslation 消息', { enabled: request.enabled });
+      // 来自 SimplePopupApp 的消息
+      if (request.enabled !== undefined) {
+        if (request.enabled) {
+          console.log('[ContentScript] 启用翻译，检查 TranslationController...');
+          // 使用 TranslationController 启动翻译
+          if (translationController) {
+            console.log('[ContentScript] 调用 translationController.start()');
+            translationController.start().then(() => {
+              console.log('[ContentScript] translationController.start() 完成');
+              translationState.enabled = true;
+              sendResponse({ success: true });
+            }).catch((error) => {
+              console.error('[ContentScript] translationController.start() 失败:', error);
+              sendResponse({ success: false, error: error.message });
+            });
+          } else {
+            console.log('[ContentScript] TranslationController 不存在，使用回退逻辑');
+            // 回退到原有逻辑
+            translationState.enabled = true;
+            if (translationState.mode === 'auto') {
+              processPage();
+            }
+            sendResponse({ success: true });
+          }
+        } else {
+          console.log('[ContentScript] 禁用翻译');
+          // 使用 TranslationController 停止翻译
+          if (translationController) {
+            translationController.stop();
+          }
+          translationState.enabled = false;
+          clearTranslations();
+          sendResponse({ success: true });
+        }
+      } else {
+        toggleTranslation();
+        sendResponse({ success: true });
+      }
       break;
       
     case 'setMode':
@@ -123,25 +209,56 @@ function handleMessages(request: any, _sender: any, sendResponse: (response: any
       
     case 'setLanguage':
       translationState.targetLanguage = request.language;
+      if (translationController) {
+        translationController.updateConfig({ targetLanguage: request.language });
+      }
       sendResponse({ success: true });
       break;
       
     case 'getState':
-      sendResponse(translationState);
+      const controllerState = translationController?.getState();
+      sendResponse({
+        ...translationState,
+        controllerState,
+      });
+      break;
+    
+    case 'checkState':
+      // 来自 Background Script 的状态检查请求（页面加载完成后）
+      // 如果翻译已启用，重新开始翻译流程
+      if (translationState.enabled && translationController) {
+        translationController.start().catch(() => {
+          // 静默处理错误
+        });
+      }
+      sendResponse({ 
+        enabled: translationState.enabled,
+        controllerState: translationController?.getState() 
+      });
       break;
       
     default:
       sendResponse({ error: 'Unknown action' });
   }
+  return true; // 保持消息通道开放以支持异步响应
 }
 
 // 切换翻译状态
 function toggleTranslation() {
   translationState.enabled = !translationState.enabled;
   
-  if (translationState.enabled && translationState.mode === 'auto') {
-    processPage();
-  } else if (!translationState.enabled) {
+  if (translationState.enabled) {
+    // 使用 TranslationController 启动翻译
+    if (translationController) {
+      translationController.start();
+    } else if (translationState.mode === 'auto') {
+      processPage();
+    }
+  } else {
+    // 使用 TranslationController 停止翻译
+    if (translationController) {
+      translationController.stop();
+    }
     clearTranslations();
   }
   
@@ -763,6 +880,9 @@ export function toggleBatchProcess() {
 
 // 处理单个图片
 async function processImage(img: HTMLImageElement) {
+  // TODO: 此函数将在后续任务中使用 Vision LLM 重新实现
+  // 当前版本暂时禁用，等待 Provider 层和翻译服务实现
+  
   // 防止重复处理
   if (translationState.processing) {
     console.log('正在处理其他图片，跳过本次处理');
@@ -799,124 +919,13 @@ async function processImage(img: HTMLImageElement) {
       showNotification('开始检测文字...', 'info', 2000);
     }
     
-    // 1. 检测图像中的文字区域（使用优化的OCR检测）
-    let textAreas;
-    try {
-      textAreas = await detectTextAreas(img, {
-        useCache: configState.advancedSettings?.cacheResults !== false,
-        debugMode: debugMode,
-        preferredOCRMethod: configState.ocrSettings?.preferredMethod || 'auto'
-      });
-      
-      if (debugMode) {
-        console.log('检测到的文字区域:', textAreas);
-      }
-    } catch (ocrError) {
-      console.error('OCR检测失败:', ocrError);
-      const errorMessage = ocrError instanceof Error ? ocrError.message : '未知错误';
-      showErrorNotification(`文字检测失败: ${errorMessage}`);
-      throw new Error('OCR检测失败');
-    }
+    // TODO: Vision LLM 翻译将在后续任务中实现
+    // 当前版本显示提示信息
+    console.log('[processImage] Vision LLM 翻译功能正在开发中...');
+    showNotification('Vision LLM 翻译功能正在开发中，请等待后续更新', 'info', 3000);
     
-    // 2. 如果没有检测到文字，直接返回
-    if (!textAreas || textAreas.length === 0) {
-      console.log('未检测到文字区域');
-      if (debugMode) {
-        showNotification('未检测到文字区域', 'warning', 3000);
-      }
-      return;
-    }
-    
-    // 显示翻译中通知
-    if (debugMode) {
-      showNotification(`检测到 ${textAreas.length} 个文字区域，开始翻译...`, 'info', 2000);
-    }
-    
-    // 3. 调用API管理器进行翻译
-    const apiManager = APIManager.getInstance();
-    
-    // 确保API管理器已初始化
-    try {
-      await apiManager.initialize();
-    } catch (initError) {
-      console.error('API管理器初始化失败:', initError);
-      showErrorNotification('API初始化失败，请检查配置');
-      throw initError;
-    }
-    
-    // 提取文本内容
-    const texts = textAreas
-      .map((area: any) => area.text)
-      .filter((text: string) => text && text.trim().length > 0);
-    
-    if (texts.length === 0) {
-      console.log('提取的文本为空');
-      if (debugMode) {
-        showNotification('提取的文本为空', 'warning', 3000);
-      }
-      return;
-    }
-    
-    // 翻译文本
-    let translatedTexts: string | string[];
-    try {
-      // 获取目标语言（优先使用同步的配置，否则使用本地状态）
-      const translationConfig = fullConfig['manga-translator-storage'] || {};
-      const targetLanguage = translationConfig.targetLanguage || translationState.targetLanguage || 'zh-CN';
-      translatedTexts = await apiManager.translateText(
-        texts,
-        targetLanguage,
-        {
-          sourceLanguage: 'auto',
-          context: 'manga'
-        }
-      );
-      
-      if (debugMode) {
-        console.log('翻译结果:', translatedTexts);
-      }
-    } catch (translateError) {
-      console.error('翻译失败:', translateError);
-      const errorMessage = translateError instanceof Error ? translateError.message : '未知错误';
-      showErrorNotification(`翻译失败: ${errorMessage}`);
-      throw new Error(`翻译失败: ${errorMessage}`);
-    }
-    
-    // 4. 准备样式选项
-    const styleOptions = {
-      fontSize: configState.fontSize || 'auto',
-      fontColor: configState.fontColor || 'auto',
-      backgroundColor: configState.backgroundColor || 'auto',
-      fontFamily: configState.fontFamily || '',
-      styleLevel: configState.styleLevel || 50,
-      showOriginalText: configState.advancedSettings?.showOriginalText || false
-    };
-    
-    // 5. 渲染翻译结果
-    const translatedTextsArray = Array.isArray(translatedTexts) ? translatedTexts : [translatedTexts];
-    
-    try {
-      await renderTranslation(img, textAreas, translatedTextsArray, styleOptions);
-    } catch (renderError) {
-      console.error('渲染失败:', renderError);
-      showErrorNotification('渲染翻译结果失败');
-      throw renderError;
-    }
-    
-    // 6. 将处理结果添加到状态管理
-    translationState.translatedImages.set(img.src, {
-      textAreas,
-      translatedTexts: translatedTextsArray,
-      timestamp: Date.now()
-    });
-    
-    // 显示成功通知
     const processingTime = ((performance.now() - startTime) / 1000).toFixed(2);
     console.log(`图片处理完成，耗时: ${processingTime}秒`);
-    
-    if (debugMode) {
-      showNotification(`翻译完成 (${processingTime}秒)`, 'success', 2000);
-    }
   } catch (error) {
     console.error('图片处理失败:', error);
     
@@ -946,9 +955,16 @@ function clearTranslations() {
 }
 
 // 清理资源
-function cleanup() {
+async function cleanup() {
   document.removeEventListener('click', handleClick);
   document.removeEventListener('keydown', handleKeydown);
+  
+  // 销毁 TranslationController
+  if (translationController) {
+    await translationController.destroy();
+    translationController = null;
+  }
+  
   clearTranslations();
 }
 

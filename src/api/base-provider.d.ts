@@ -7,6 +7,7 @@ export interface TranslationRequest {
   sourceLanguage?: string;
   targetLanguage: string;
   context?: string;
+  translationPrompt?: string;
 }
 
 export interface TranslationResponse {
