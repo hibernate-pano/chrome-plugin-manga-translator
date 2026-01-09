@@ -1,11 +1,11 @@
 /**
  * Overlay Renderer Service
- * 
+ *
  * Renders translation overlays on manga images:
  * - Creates positioned overlay elements
  * - Auto-adjusts font size based on text area
  * - Manages overlay lifecycle (create, remove, removeAll)
- * 
+ *
  * Requirements: 3.1, 3.2, 3.3, 3.4
  */
 
@@ -59,7 +59,7 @@ const DEFAULT_STYLE: OverlayStyle = {
 
 /**
  * Calculate optimal font size based on text area dimensions
- * 
+ *
  * @param areaHeight Height of the text area in pixels
  * @param textLength Length of the text
  * @param style Style configuration
@@ -73,13 +73,13 @@ export function calculateFontSize(
   // Base calculation: font size should be roughly 60-70% of area height
   // to leave room for padding and line spacing
   let fontSize = Math.floor(areaHeight * 0.65);
-  
+
   // Adjust for very long text (reduce font size)
   if (textLength > 20) {
     const reductionFactor = Math.min(1, 20 / textLength);
     fontSize = Math.floor(fontSize * (0.7 + 0.3 * reductionFactor));
   }
-  
+
   // Clamp to min/max bounds
   return Math.max(style.minFontSize, Math.min(style.maxFontSize, fontSize));
 }
@@ -118,7 +118,7 @@ function ensureStylesInjected(): void {
   if (document.getElementById(styleId)) {
     return;
   }
-  
+
   const styleElement = document.createElement('style');
   styleElement.id = styleId;
   styleElement.textContent = createOverlayStyles();
@@ -129,7 +129,7 @@ function ensureStylesInjected(): void {
 
 /**
  * Overlay Renderer
- * 
+ *
  * Manages the rendering of translation overlays on manga images.
  */
 export class OverlayRenderer {
@@ -143,56 +143,60 @@ export class OverlayRenderer {
 
   /**
    * Render translation overlays on an image
-   * 
+   *
    * @param image Image element to overlay
    * @param textAreas Array of text areas with translations
    * @returns The wrapper element containing the image and overlays
    */
   render(image: HTMLImageElement, textAreas: TextArea[]): HTMLElement {
-    console.log('[Renderer] 渲染翻译覆盖层');
-    console.log('[Renderer] 文字区域数量:', textAreas.length);
-    
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log('[Renderer] 渲染翻译覆盖层');
+      console.log('[Renderer] 文字区域数量:', textAreas.length);
+    }
+
     // Remove existing overlays for this image
     this.remove(image);
-    
+
     // Skip if no text areas
     if (textAreas.length === 0) {
-      console.log('[Renderer] 无文字区域，跳过渲染');
+      if (process.env['NODE_ENV'] === 'development') {
+        console.log('[Renderer] 无文字区域，跳过渲染');
+      }
       return image.parentElement || image;
     }
-    
+
     // Create wrapper element
     const wrapper = document.createElement('div');
     wrapper.className = WRAPPER_CLASS;
     wrapper.setAttribute(DATA_ATTR, 'true');
-    
+
     // Get image dimensions
     const imageWidth = image.offsetWidth || image.naturalWidth;
     const imageHeight = image.offsetHeight || image.naturalHeight;
-    
+
     // Insert wrapper and move image into it
     const parent = image.parentElement;
     if (parent) {
       parent.insertBefore(wrapper, image);
     }
     wrapper.appendChild(image);
-    
+
     // Create overlay elements
     const overlays: HTMLElement[] = [];
-    
+
     for (const area of textAreas) {
       const overlay = this.createOverlayElement(area, imageWidth, imageHeight);
       wrapper.appendChild(overlay);
       overlays.push(overlay);
     }
-    
+
     // Store reference for later removal
     this.renderedOverlays.set(image, {
       wrapper,
       image,
       overlays,
     });
-    
+
     return wrapper;
   }
 
@@ -207,20 +211,20 @@ export class OverlayRenderer {
     const overlay = document.createElement('div');
     overlay.className = OVERLAY_CLASS;
     overlay.setAttribute(DATA_ATTR, 'overlay');
-    
+
     // Calculate pixel positions from relative coordinates
     const left = area.x * imageWidth;
     const top = area.y * imageHeight;
     const width = area.width * imageWidth;
     const height = area.height * imageHeight;
-    
+
     // Calculate font size
     const fontSize = calculateFontSize(
       height,
       area.translatedText.length,
       this.style
     );
-    
+
     // Apply styles
     Object.assign(overlay.style, {
       left: `${left}px`,
@@ -234,18 +238,18 @@ export class OverlayRenderer {
       borderRadius: `${this.style.borderRadius}px`,
       padding: `${this.style.padding}px`,
     });
-    
+
     overlay.textContent = area.translatedText;
-    
+
     // Store original text as data attribute for debugging
     overlay.setAttribute('data-original', area.originalText);
-    
+
     return overlay;
   }
 
   /**
    * Remove overlays from a specific image
-   * 
+   *
    * @param image Image element or wrapper to remove overlays from
    */
   remove(image: HTMLImageElement | HTMLElement): void {
@@ -256,21 +260,21 @@ export class OverlayRenderer {
         image = img;
       }
     }
-    
+
     const rendered = this.renderedOverlays.get(image as HTMLImageElement);
     if (!rendered) {
       return;
     }
-    
+
     const { wrapper, image: originalImage } = rendered;
-    
+
     // Move image back to original position
     const parent = wrapper.parentElement;
     if (parent) {
       parent.insertBefore(originalImage, wrapper);
       wrapper.remove();
     }
-    
+
     // Clean up reference
     this.renderedOverlays.delete(originalImage);
   }
@@ -281,7 +285,7 @@ export class OverlayRenderer {
   removeAll(): void {
     // Create a copy of keys to avoid modification during iteration
     const images = Array.from(this.renderedOverlays.keys());
-    
+
     for (const image of images) {
       this.remove(image);
     }
@@ -289,7 +293,7 @@ export class OverlayRenderer {
 
   /**
    * Check if an image has overlays rendered
-   * 
+   *
    * @param image Image element to check
    * @returns True if overlays are rendered
    */
@@ -306,7 +310,7 @@ export class OverlayRenderer {
 
   /**
    * Update overlay style
-   * 
+   *
    * @param style New style configuration
    */
   updateStyle(style: Partial<OverlayStyle>): void {
@@ -327,7 +331,7 @@ let rendererInstance: OverlayRenderer | null = null;
 
 /**
  * Get or create the singleton renderer instance
- * 
+ *
  * @param style Optional style configuration
  * @returns OverlayRenderer instance
  */
@@ -372,7 +376,7 @@ export function findAllOverlays(): HTMLElement[] {
  */
 export function removeAllOverlaysFromDOM(): void {
   const wrappers = findAllWrappers();
-  
+
   for (const wrapper of wrappers) {
     const image = wrapper.querySelector('img');
     if (image && wrapper.parentElement) {

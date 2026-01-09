@@ -1,11 +1,11 @@
 /**
  * Image Processor Service
- * 
+ *
  * Handles image processing operations for manga translation:
  * - Convert images to base64
  * - Compress large images
  * - Calculate image hashes for caching
- * 
+ *
  * Requirements: 9.3
  */
 
@@ -14,10 +14,12 @@
 export interface ImageProcessingOptions {
   /** Maximum dimension (width or height) before compression */
   maxSize?: number;
-  /** JPEG quality for compression (0-1) */
+  /** JPEG/WebP quality for compression (0-1) */
   quality?: number;
   /** Output format */
-  format?: 'jpeg' | 'png' | 'webp';
+  format?: 'jpeg' | 'png' | 'webp' | 'auto';
+  /** Whether to preserve original format when possible */
+  preserveFormat?: boolean;
 }
 
 export interface ProcessedImage {
@@ -45,13 +47,14 @@ const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
   maxSize: 1920,
   quality: 0.85,
   format: 'jpeg',
+  preserveFormat: false,
 };
 
 // ==================== Core Functions ====================
 
 /**
  * Calculate SHA-256 hash of image data
- * 
+ *
  * @param data String data to hash
  * @returns Hash string
  */
@@ -62,9 +65,9 @@ export async function calculateHash(data: string): Promise<string> {
     const dataBuffer = encoder.encode(data);
     const hashBuffer = await crypto.subtle.digest('SHA-256', dataBuffer);
     const hashArray = Array.from(new Uint8Array(hashBuffer));
-    return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+    return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
-  
+
   // Fallback: simple string hash (djb2 algorithm)
   let hash = 5381;
   for (let i = 0; i < data.length; i++) {
@@ -76,7 +79,7 @@ export async function calculateHash(data: string): Promise<string> {
 
 /**
  * Convert an HTMLImageElement to base64
- * 
+ *
  * @param image Image element to convert
  * @param options Processing options
  * @returns Base64 encoded image data
@@ -88,25 +91,25 @@ export function imageToBase64(
   const opts = { ...DEFAULT_OPTIONS, ...options };
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  
+
   if (!ctx) {
     throw new Error('Failed to get canvas 2D context');
   }
-  
+
   canvas.width = image.naturalWidth;
   canvas.height = image.naturalHeight;
   ctx.drawImage(image, 0, 0);
-  
+
   const mimeType = `image/${opts.format}`;
   const dataUrl = canvas.toDataURL(mimeType, opts.quality);
-  
+
   // Remove data URL prefix to get pure base64
   return dataUrl.replace(/^data:image\/\w+;base64,/, '');
 }
 
 /**
  * Compress an image if it exceeds the maximum size
- * 
+ *
  * @param image Image element to compress
  * @param maxSize Maximum dimension (width or height)
  * @param quality JPEG quality (0-1)
@@ -119,41 +122,41 @@ export function compressImage(
 ): { base64: string; width: number; height: number; wasCompressed: boolean } {
   const originalWidth = image.naturalWidth;
   const originalHeight = image.naturalHeight;
-  
+
   // Check if compression is needed
   const needsCompression = originalWidth > maxSize || originalHeight > maxSize;
-  
+
   let targetWidth = originalWidth;
   let targetHeight = originalHeight;
-  
+
   if (needsCompression) {
     // Calculate new dimensions maintaining aspect ratio
     const ratio = Math.min(maxSize / originalWidth, maxSize / originalHeight);
     targetWidth = Math.round(originalWidth * ratio);
     targetHeight = Math.round(originalHeight * ratio);
   }
-  
+
   // Create canvas and draw image
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
-  
+
   if (!ctx) {
     throw new Error('Failed to get canvas 2D context');
   }
-  
+
   canvas.width = targetWidth;
   canvas.height = targetHeight;
-  
+
   // Use high-quality image smoothing for better compression results
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
-  
+
   ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
-  
+
   // Convert to base64 JPEG
   const dataUrl = canvas.toDataURL('image/jpeg', quality);
   const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
-  
+
   return {
     base64,
     width: targetWidth,
@@ -164,12 +167,12 @@ export function compressImage(
 
 /**
  * Process an image for translation
- * 
+ *
  * This is the main entry point that:
  * 1. Compresses the image if needed
  * 2. Converts to base64
  * 3. Calculates hash for caching
- * 
+ *
  * @param image Image element to process
  * @param options Processing options
  * @returns Processed image data
@@ -179,20 +182,20 @@ export async function processImage(
   options: ImageProcessingOptions = {}
 ): Promise<ProcessedImage> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
-  
+
   const originalWidth = image.naturalWidth;
   const originalHeight = image.naturalHeight;
-  
+
   // Compress if needed
   const { base64, width, height, wasCompressed } = compressImage(
     image,
     opts.maxSize,
     opts.quality
   );
-  
+
   // Calculate hash for caching
   const hash = await calculateHash(base64);
-  
+
   return {
     base64,
     mimeType: 'image/jpeg',
@@ -207,7 +210,7 @@ export async function processImage(
 
 /**
  * Load an image from URL and return as HTMLImageElement
- * 
+ *
  * @param url Image URL
  * @returns Promise resolving to loaded image element
  */
@@ -215,17 +218,17 @@ export function loadImage(url: string): Promise<HTMLImageElement> {
   return new Promise((resolve, reject) => {
     const img = new Image();
     img.crossOrigin = 'anonymous';
-    
+
     img.onload = () => resolve(img);
     img.onerror = () => reject(new Error(`Failed to load image: ${url}`));
-    
+
     img.src = url;
   });
 }
 
 /**
  * Process an image from URL
- * 
+ *
  * @param url Image URL
  * @param options Processing options
  * @returns Processed image data
@@ -240,7 +243,7 @@ export async function processImageFromUrl(
 
 /**
  * Check if an image meets minimum size requirements
- * 
+ *
  * @param image Image element to check
  * @param minWidth Minimum width in pixels
  * @param minHeight Minimum height in pixels
@@ -256,7 +259,7 @@ export function meetsMinimumSize(
 
 /**
  * Get image dimensions from an HTMLImageElement
- * 
+ *
  * @param image Image element
  * @returns Object with width and height
  */
@@ -272,18 +275,21 @@ export function getImageDimensions(image: HTMLImageElement): {
 
 /**
  * Convert base64 to data URL
- * 
+ *
  * @param base64 Base64 encoded image data
  * @param mimeType MIME type of the image
  * @returns Data URL string
  */
-export function base64ToDataUrl(base64: string, mimeType: string = 'image/jpeg'): string {
+export function base64ToDataUrl(
+  base64: string,
+  mimeType: string = 'image/jpeg'
+): string {
   return `data:${mimeType};base64,${base64}`;
 }
 
 /**
  * Extract base64 from data URL
- * 
+ *
  * @param dataUrl Data URL string
  * @returns Base64 encoded data
  */

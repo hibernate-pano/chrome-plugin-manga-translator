@@ -1,6 +1,6 @@
 /**
  * OpenAI GPT-4V Vision Provider
- * 
+ *
  * Uses OpenAI's GPT-4 Vision API for manga image analysis and translation.
  */
 
@@ -9,12 +9,14 @@ import {
   ProviderConfig,
   VisionResponse,
   ValidationResult,
+  ApiResponse,
+  parseImageData,
+  createApiError,
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';
-
-const DEFAULT_MODEL = 'gpt-4o';
-const DEFAULT_BASE_URL = 'https://api.openai.com/v1';
+import { DEFAULT_MODELS, API_URLS, REQUEST_LIMITS } from './constants';
+import { httpRequest } from '@/utils/http-client';
 
 interface OpenAIMessage {
   role: 'system' | 'user' | 'assistant';
@@ -46,14 +48,14 @@ interface OpenAIResponse {
 export class OpenAIProvider implements VisionProvider {
   readonly name = 'OpenAI GPT-4V';
   readonly type = 'openai' as const;
-  
+
   private config: ProviderConfig = {};
 
   async initialize(config: ProviderConfig): Promise<void> {
     this.config = {
       ...config,
-      model: config.model || DEFAULT_MODEL,
-      baseUrl: config.baseUrl || DEFAULT_BASE_URL,
+      model: config.model || DEFAULT_MODELS.OPENAI,
+      baseUrl: config.baseUrl || API_URLS.OPENAI,
     };
   }
 
@@ -67,53 +69,47 @@ export class OpenAIProvider implements VisionProvider {
     }
 
     const prompt = getMangaTranslationPrompt(targetLanguage);
-    
-    // Ensure proper base64 data URL format
-    const imageUrl = imageBase64.startsWith('data:')
-      ? imageBase64
-      : `data:image/jpeg;base64,${imageBase64}`;
+    const imageData = parseImageData(imageBase64);
+    const imageUrl = `data:${imageData.mediaType};base64,${imageData.base64}`;
 
     const messages: OpenAIMessage[] = [
       {
         role: 'user',
         content: [
-          {
-            type: 'text',
-            text: prompt,
-          },
+          { type: 'text', text: prompt },
           {
             type: 'image_url',
-            image_url: {
-              url: imageUrl,
-              detail: 'high',
-            },
+            image_url: { url: imageUrl, detail: 'high' },
           },
         ],
       },
     ];
 
-    const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: this.config.model,
-        messages,
-        max_tokens: 4096,
-        temperature: 0.1,
-      }),
-    });
+    const httpResponse = await httpRequest<OpenAIResponse>(
+      `${this.config.baseUrl}/chat/completions`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${this.config.apiKey}`,
+        },
+        body: {
+          model: this.config.model,
+          messages,
+          max_tokens: REQUEST_LIMITS.MAX_TOKENS,
+          temperature: REQUEST_LIMITS.TEMPERATURE,
+        },
+      }
+    );
 
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      const errorMessage = (errorData as OpenAIResponse).error?.message || response.statusText;
-      throw new Error(`OpenAI API error: ${errorMessage}`);
+    if (!httpResponse.ok) {
+      throw createApiError(
+        httpResponse.error || httpResponse.statusText,
+        this.name
+      );
     }
 
-    const data = await response.json() as OpenAIResponse;
-    
+    const data = httpResponse.data!;
+
     if (data.error) {
       throw new Error(`OpenAI API error: ${data.error.message}`);
     }

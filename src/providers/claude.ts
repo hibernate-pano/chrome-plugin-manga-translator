@@ -1,6 +1,6 @@
 /**
  * Claude Vision Provider
- * 
+ *
  * Uses Anthropic's Claude Vision API for manga image analysis and translation.
  * Claude offers high-quality vision understanding with strong reasoning capabilities.
  */
@@ -10,13 +10,12 @@ import {
   ProviderConfig,
   VisionResponse,
   ValidationResult,
+  parseImageData,
+  createApiError,
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';
-
-const DEFAULT_MODEL = 'claude-sonnet-4-20250514';
-const DEFAULT_BASE_URL = 'https://api.anthropic.com/v1';
-const ANTHROPIC_VERSION = '2023-06-01';
+import { DEFAULT_MODELS, API_URLS, API_VERSIONS } from './constants';
 
 interface ClaudeContentPart {
   type: 'text' | 'image';
@@ -47,14 +46,14 @@ interface ClaudeResponse {
 export class ClaudeProvider implements VisionProvider {
   readonly name = 'Claude Vision';
   readonly type = 'claude' as const;
-  
+
   private config: ProviderConfig = {};
 
   async initialize(config: ProviderConfig): Promise<void> {
     this.config = {
       ...config,
-      model: config.model || DEFAULT_MODEL,
-      baseUrl: config.baseUrl || DEFAULT_BASE_URL,
+      model: config.model || DEFAULT_MODELS.CLAUDE,
+      baseUrl: config.baseUrl || API_URLS.CLAUDE,
     };
   }
 
@@ -68,18 +67,7 @@ export class ClaudeProvider implements VisionProvider {
     }
 
     const prompt = getMangaTranslationPrompt(targetLanguage);
-    
-    // Extract base64 data and media type
-    let base64Data = imageBase64;
-    let mediaType = 'image/jpeg';
-    
-    if (imageBase64.startsWith('data:')) {
-      const match = imageBase64.match(/^data:([^;]+);base64,(.+)$/);
-      if (match && match[1] && match[2]) {
-        mediaType = match[1];
-        base64Data = match[2];
-      }
-    }
+    const imageData = parseImageData(imageBase64);
 
     const messages: ClaudeMessage[] = [
       {
@@ -89,8 +77,8 @@ export class ClaudeProvider implements VisionProvider {
             type: 'image',
             source: {
               type: 'base64',
-              media_type: mediaType,
-              data: base64Data,
+              media_type: imageData.mediaType,
+              data: imageData.base64,
             },
           },
           {
@@ -107,7 +95,7 @@ export class ClaudeProvider implements VisionProvider {
       headers: {
         'Content-Type': 'application/json',
         'x-api-key': apiKey,
-        'anthropic-version': ANTHROPIC_VERSION,
+        'anthropic-version': API_VERSIONS.CLAUDE,
       },
       body: JSON.stringify({
         model: this.config.model,
@@ -118,12 +106,13 @@ export class ClaudeProvider implements VisionProvider {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const errorMessage = (errorData as ClaudeResponse).error?.message || response.statusText;
+      const errorMessage =
+        (errorData as ClaudeResponse).error?.message || response.statusText;
       throw new Error(`Claude API error: ${errorMessage}`);
     }
 
-    const data = await response.json() as ClaudeResponse;
-    
+    const data = (await response.json()) as ClaudeResponse;
+
     if (data.error) {
       throw new Error(`Claude API error: ${data.error.message}`);
     }

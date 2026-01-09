@@ -6,10 +6,7 @@ import manifest from './public/manifest.json';
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [
-    react(),
-    crx({ manifest }),
-  ],
+  plugins: [react(), crx({ manifest })],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -17,8 +14,18 @@ export default defineConfig({
       '@/utils': path.resolve(__dirname, './src/utils'),
       '@/api': path.resolve(__dirname, './src/api'),
       '@/stores': path.resolve(__dirname, './src/stores'),
-      '@/types': path.resolve(__dirname, './src/types')
-    }
+      '@/types': path.resolve(__dirname, './src/types'),
+    },
+  },
+  optimizeDeps: {
+    include: [
+      'react',
+      'react-dom',
+      '@tanstack/react-query',
+      'zustand',
+      'clsx',
+      'class-variance-authority',
+    ],
   },
   build: {
     target: 'es2020',
@@ -33,6 +40,8 @@ export default defineConfig({
         safari10: true,
       },
     },
+    cssCodeSplit: true,
+    cssMinify: true,
     rollupOptions: {
       input: {
         popup: 'src/popup.tsx',
@@ -58,17 +67,6 @@ export default defineConfig({
     },
     // 启用代码分割
     chunkSizeWarningLimit: 1000,
-    // 优化依赖预构建
-    optimizeDeps: {
-      include: [
-        'react',
-        'react-dom',
-        '@tanstack/react-query',
-        'zustand',
-        'clsx',
-        'class-variance-authority',
-      ],
-    },
   },
   // 开发服务器优化
   server: {

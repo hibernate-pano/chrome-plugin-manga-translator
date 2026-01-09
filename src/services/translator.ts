@@ -1,12 +1,12 @@
 /**
  * Translator Service
- * 
+ *
  * Core translation service that orchestrates:
  * - Image processing
  * - Provider API calls
  * - Cache management
  * - Error handling
- * 
+ *
  * Requirements: 2.2, 2.3, 2.4
  */
 
@@ -16,9 +16,28 @@ import {
   type TextArea,
   createProvider,
 } from '@/providers';
-import { useTranslationCacheStore, type TranslationResult } from '@/stores/cache-v2';
+import {
+  useTranslationCacheStore,
+  type TranslationResult,
+} from '@/stores/cache-v2';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { processImage, type ImageProcessingOptions } from './image-processor';
+
+// ==================== Logging Utilities ====================
+
+const isDevelopment = process.env['NODE_ENV'] === 'development';
+
+function log(message: string, ...args: unknown[]): void {
+  if (isDevelopment) {
+    console.log(`[Translator] ${message}`, ...args);
+  }
+}
+
+function logError(message: string, ...args: unknown[]): void {
+  if (isDevelopment) {
+    console.error(`[Translator] ${message}`, ...args);
+  }
+}
 
 // ==================== Type Definitions ====================
 
@@ -46,6 +65,16 @@ export interface TranslationProgress {
   total: number;
   /** Current status message */
   status: string;
+  /** Estimated time remaining in seconds (optional) */
+  estimatedTimeRemaining?: number;
+  /** Current operation phase */
+  phase:
+    | 'initializing'
+    | 'processing'
+    | 'translating'
+    | 'rendering'
+    | 'complete'
+    | 'error';
 }
 
 export type ProgressCallback = (progress: TranslationProgress) => void;
@@ -54,7 +83,7 @@ export type ProgressCallback = (progress: TranslationProgress) => void;
 
 /**
  * Translator Service
- * 
+ *
  * Manages the translation workflow for manga images.
  */
 export class TranslatorService {
@@ -75,7 +104,9 @@ export class TranslatorService {
       return;
     }
 
-    console.log(`[Translator] 初始化 Provider: ${this.config.provider}`);
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log(`[Translator] 初始化 Provider: ${this.config.provider}`);
+    }
     this.provider = await createProvider(this.config.provider, {
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
@@ -83,25 +114,31 @@ export class TranslatorService {
     });
 
     this.isInitialized = true;
-    console.log(`[Translator] Provider 初始化完成: ${this.provider.name}`);
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log(`[Translator] Provider 初始化完成: ${this.provider.name}`);
+    }
   }
 
   /**
    * Translate a single image
-   * 
+   *
    * @param image Image element to translate
    * @returns Translation result
    */
   async translateImage(image: HTMLImageElement): Promise<TranslationResult> {
-    console.log('[Translator] 开始翻译图片');
-    
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log('[Translator] 开始翻译图片');
+    }
+
     // Ensure provider is initialized
     if (!this.provider) {
       await this.initialize();
     }
 
     if (!this.provider) {
-      console.error('[Translator] Provider 未初始化');
+      if (process.env['NODE_ENV'] === 'development') {
+        console.error('[Translator] Provider 未初始化');
+      }
       return {
         success: false,
         textAreas: [],
@@ -111,26 +148,45 @@ export class TranslatorService {
 
     try {
       // Process image (compress if needed, get base64 and hash)
-      console.log('[Translator] 处理图片...');
+      if (process.env['NODE_ENV'] === 'development') {
+        console.log('[Translator] 处理图片...');
+      }
       const processed = await processImage(image, this.config.imageOptions);
-      console.log('[Translator] 图片处理完成, hash:', processed.hash.substring(0, 16));
+      if (process.env['NODE_ENV'] === 'development') {
+        console.log(
+          '[Translator] 图片处理完成, hash:',
+          processed.hash.substring(0, 16)
+        );
+      }
 
       // Check cache first
       if (this.config.cacheEnabled) {
         const cached = useTranslationCacheStore.getState().get(processed.hash);
         if (cached) {
-          console.log('[Translator] 使用缓存结果, 文字区域数:', cached.textAreas.length);
+          if (process.env['NODE_ENV'] === 'development') {
+            console.log(
+              '[Translator] 使用缓存结果, 文字区域数:',
+              cached.textAreas.length
+            );
+          }
           return cached;
         }
       }
 
       // Call provider API
-      console.log(`[Translator] 调用 Vision LLM: ${this.provider.name}`);
+      if (process.env['NODE_ENV'] === 'development') {
+        console.log(`[Translator] 调用 Vision LLM: ${this.provider.name}`);
+      }
       const response = await this.provider.analyzeAndTranslate(
         processed.base64,
         this.config.targetLanguage
       );
-      console.log('[Translator] Vision LLM 返回结果, 文字区域数:', response.textAreas.length);
+      if (process.env['NODE_ENV'] === 'development') {
+        console.log(
+          '[Translator] Vision LLM 返回结果, 文字区域数:',
+          response.textAreas.length
+        );
+      }
 
       const result: TranslationResult = {
         success: true,
@@ -139,21 +195,24 @@ export class TranslatorService {
 
       // Store in cache
       if (this.config.cacheEnabled) {
-        console.log('[Translator] 存入缓存');
-        useTranslationCacheStore.getState().set(
-          processed.hash,
-          result,
-          this.config.provider
-        );
+        if (process.env['NODE_ENV'] === 'development') {
+          console.log('[Translator] 存入缓存');
+        }
+        useTranslationCacheStore
+          .getState()
+          .set(processed.hash, result, this.config.provider);
       }
 
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('[Translator] 翻译失败:', errorMessage);
-      // Include stack trace in development mode
-      if (error instanceof Error && error.stack) {
-        console.error('[Translator] 错误堆栈:', error.stack);
+      const errorMessage =
+        error instanceof Error ? error.message : 'Unknown error';
+      if (process.env['NODE_ENV'] === 'development') {
+        console.error('[Translator] 翻译失败:', errorMessage);
+        // Include stack trace in development mode
+        if (error instanceof Error && error.stack) {
+          console.error('[Translator] 错误堆栈:', error.stack);
+        }
       }
       return {
         success: false,
@@ -165,7 +224,7 @@ export class TranslatorService {
 
   /**
    * Translate multiple images
-   * 
+   *
    * @param images Array of image elements
    * @param onProgress Progress callback
    * @returns Array of translation results
@@ -174,18 +233,22 @@ export class TranslatorService {
     images: HTMLImageElement[],
     onProgress?: ProgressCallback
   ): Promise<TranslationResult[]> {
-    console.log(`[Translator] 开始批量翻译, 图片数量: ${images.length}`);
-    
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log(`[Translator] 开始批量翻译, 图片数量: ${images.length}`);
+    }
+
     // Create new abort controller for this batch
     this.abortController = new AbortController();
-    
+
     const results: TranslationResult[] = [];
     const total = images.length;
 
     for (let i = 0; i < images.length; i++) {
       // Check if cancelled
       if (this.abortController.signal.aborted) {
-        console.log('[Translator] 批量翻译已取消');
+        if (process.env['NODE_ENV'] === 'development') {
+          console.log('[Translator] 批量翻译已取消');
+        }
         break;
       }
 
@@ -193,18 +256,25 @@ export class TranslatorService {
       if (!image) continue;
 
       // Report progress
-      console.log(`[Translator] 处理图片 ${i + 1}/${total}`);
+      if (process.env['NODE_ENV'] === 'development') {
+        console.log(`[Translator] 处理图片 ${i + 1}/${total}`);
+      }
       onProgress?.({
         current: i + 1,
         total,
         status: `翻译中 ${i + 1}/${total}`,
+        phase: 'processing',
       });
 
       const result = await this.translateImage(image);
       results.push(result);
     }
 
-    console.log(`[Translator] 批量翻译完成, 成功: ${results.filter(r => r.success).length}/${results.length}`);
+    if (process.env['NODE_ENV'] === 'development') {
+      console.log(
+        `[Translator] 批量翻译完成, 成功: ${results.filter(r => r.success).length}/${results.length}`
+      );
+    }
     return results;
   }
 
@@ -255,7 +325,7 @@ export class TranslatorService {
 
 /**
  * Create a translator service from the current app configuration
- * 
+ *
  * @returns Configured TranslatorService instance
  */
 export function createTranslatorFromConfig(): TranslatorService {
@@ -281,7 +351,7 @@ let translatorInstance: TranslatorService | null = null;
 
 /**
  * Get or create the singleton translator instance
- * 
+ *
  * @param forceNew Force creation of a new instance
  * @returns TranslatorService instance
  */
