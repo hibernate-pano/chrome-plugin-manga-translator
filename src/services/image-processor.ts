@@ -169,8 +169,8 @@ export function compressImage(
  * Process an image for translation
  *
  * This is the main entry point that:
- * 1. Compresses the image if needed
- * 2. Converts to base64
+ * 1. Tries canvas path (same-origin fast path)
+ * 2. Falls back to background proxy for CORS images
  * 3. Calculates hash for caching
  *
  * @param image Image element to process
@@ -186,24 +186,62 @@ export async function processImage(
   const originalWidth = image.naturalWidth;
   const originalHeight = image.naturalHeight;
 
-  // Compress if needed
-  const { base64, width, height, wasCompressed } = compressImage(
-    image,
-    opts.maxSize,
-    opts.quality
-  );
+  try {
+    // Try canvas path first (same-origin or CORS-enabled images)
+    const { base64, width, height, wasCompressed } = compressImage(
+      image,
+      opts.maxSize,
+      opts.quality
+    );
 
-  // Calculate hash for caching
+    const hash = await calculateHash(base64);
+
+    return {
+      base64,
+      mimeType: 'image/jpeg',
+      originalWidth,
+      originalHeight,
+      width,
+      height,
+      wasCompressed,
+      hash,
+    };
+  } catch {
+    // Canvas tainted by CORS — fallback to background proxy
+    console.log('[ImageProcessor] Canvas tainted, falling back to background proxy');
+    return processImageViaBackground(image.src, originalWidth, originalHeight);
+  }
+}
+
+/**
+ * Process an image via background script to bypass CORS
+ */
+async function processImageViaBackground(
+  imageUrl: string,
+  originalWidth: number,
+  originalHeight: number
+): Promise<ProcessedImage> {
+  const response = await chrome.runtime.sendMessage({
+    action: 'fetchImage',
+    url: imageUrl,
+  });
+
+  if (!response?.success || !response.base64) {
+    throw new Error(`Failed to fetch image via background: ${response?.error || 'Unknown error'}`);
+  }
+
+  const base64: string = response.base64;
+  const mimeType: string = response.mimeType || 'image/jpeg';
   const hash = await calculateHash(base64);
 
   return {
     base64,
-    mimeType: 'image/jpeg',
+    mimeType,
     originalWidth,
     originalHeight,
-    width,
-    height,
-    wasCompressed,
+    width: originalWidth,
+    height: originalHeight,
+    wasCompressed: false,
     hash,
   };
 }

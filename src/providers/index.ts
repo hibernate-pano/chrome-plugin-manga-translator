@@ -1,6 +1,6 @@
 /**
  * Vision Providers Index
- * 
+ *
  * Exports all Vision LLM providers and utilities for manga translation.
  */
 
@@ -21,6 +21,8 @@ export { OpenAIProvider } from './openai';
 export { ClaudeProvider } from './claude';
 export { DeepSeekProvider } from './deepseek';
 export { OllamaProvider } from './ollama';
+export { SiliconFlowProvider } from './siliconflow';
+export { DashScopeProvider } from './dashscope';
 
 // Provider factory
 import { VisionProvider, ProviderType, ProviderConfig } from './base';
@@ -28,10 +30,12 @@ import { OpenAIProvider } from './openai';
 import { ClaudeProvider } from './claude';
 import { DeepSeekProvider } from './deepseek';
 import { OllamaProvider } from './ollama';
+import { SiliconFlowProvider } from './siliconflow';
+import { DashScopeProvider } from './dashscope';
 
 /**
  * Create a Vision Provider instance by type
- * 
+ *
  * @param type Provider type identifier
  * @param config Provider configuration
  * @returns Initialized VisionProvider instance
@@ -55,6 +59,12 @@ export async function createProvider(
     case 'ollama':
       provider = new OllamaProvider();
       break;
+    case 'siliconflow':
+      provider = new SiliconFlowProvider();
+      break;
+    case 'dashscope':
+      provider = new DashScopeProvider();
+      break;
     default:
       throw new Error(`Unknown provider type: ${type}`);
   }
@@ -72,6 +82,18 @@ export const PROVIDER_INFO: Record<ProviderType, {
   requiresApiKey: boolean;
   defaultModel: string;
 }> = {
+  siliconflow: {
+    name: '硅基流动',
+    description: '国内首选，支持 Qwen VL 系列，性价比高',
+    requiresApiKey: true,
+    defaultModel: 'Qwen/Qwen2.5-VL-32B-Instruct',
+  },
+  dashscope: {
+    name: '阿里云百炼',
+    description: '阿里云官方，支持通义千问 VL 系列',
+    requiresApiKey: true,
+    defaultModel: 'qwen-vl-max',
+  },
   openai: {
     name: 'OpenAI GPT-4V',
     description: '高质量云端服务，需要 API 密钥',

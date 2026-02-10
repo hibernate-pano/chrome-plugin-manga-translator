@@ -11,6 +11,8 @@ export const API_URLS = {
   CLAUDE: 'https://api.anthropic.com/v1',
   DEEPSEEK: 'https://api.deepseek.com/v1',
   OLLAMA: 'http://localhost:11434',
+  SILICONFLOW: 'https://api.siliconflow.cn/v1',
+  DASHSCOPE: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 } as const;
 
 // ==================== Default Models ====================
@@ -20,6 +22,8 @@ export const DEFAULT_MODELS = {
   CLAUDE: 'claude-3-5-sonnet-20241022',
   DEEPSEEK: 'deepseek-chat',
   OLLAMA: 'llava:7b',
+  SILICONFLOW: 'Qwen/Qwen2.5-VL-32B-Instruct',
+  DASHSCOPE: 'qwen-vl-max',
 } as const;
 
 // ==================== API Versions ====================

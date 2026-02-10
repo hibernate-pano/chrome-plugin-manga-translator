@@ -44,6 +44,10 @@ interface ContentScriptState {
   processedImages: Set<string>;
   /** Current abort controller for cancellation */
   abortController: AbortController | null;
+  /** MutationObserver for dynamic content */
+  mutationObserver: MutationObserver | null;
+  /** Debounce timer for MutationObserver */
+  mutationDebounceTimer: ReturnType<typeof setTimeout> | null;
 }
 
 interface TranslationStatus {
@@ -75,6 +79,8 @@ const state: ContentScriptState = {
   isProcessing: false,
   processedImages: new Set(),
   abortController: null,
+  mutationObserver: null,
+  mutationDebounceTimer: null,
 };
 
 let translator: TranslatorService | null = null;
@@ -252,6 +258,9 @@ async function startTranslation(): Promise<void> {
       total: images.length,
     });
 
+    // Start observing for dynamically loaded images
+    startMutationObserver();
+
   } catch (error) {
     const friendlyError = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendlyError.message);
@@ -269,12 +278,15 @@ async function startTranslation(): Promise<void> {
  */
 function stopTranslation(): void {
   console.log('[ContentScript] 翻译开关已关闭');
-  
+
   // Cancel ongoing processing
   if (state.abortController) {
     state.abortController.abort();
     state.abortController = null;
   }
+
+  // Stop mutation observer
+  stopMutationObserver();
 
   // Remove all overlays
   if (renderer) {
@@ -388,6 +400,10 @@ function handleMessage(
       sendResponse({ success: true });
       break;
 
+    case 'translateSingleImage':
+      handleTranslateSingleImage(request['imageUrl'] as string, sendResponse);
+      break;
+
     default:
       sendResponse({ error: `Unknown action: ${request.action}` });
   }
@@ -419,6 +435,139 @@ function handleToggleTranslation(
     sendResponse({ success: true });
   }
 }
+
+/**
+ * Handle translate single image message (from context menu)
+ */
+function handleTranslateSingleImage(
+  imageUrl: string | undefined,
+  sendResponse: (response: MessageResponse) => void
+): void {
+  if (!imageUrl) {
+    sendResponse({ success: false, error: 'No image URL provided' });
+    return;
+  }
+
+  (async () => {
+    try {
+      // Find matching image on page
+      const images = Array.from(document.querySelectorAll('img'));
+      const targetImg = images.find(
+        (img) => img.src === imageUrl || img.currentSrc === imageUrl
+      );
+
+      if (!targetImg) {
+        sendResponse({ success: false, error: 'Image not found on page' });
+        return;
+      }
+
+      // Initialize services if needed
+      if (!translator) {
+        translator = createTranslatorFromConfig();
+        await translator.initialize();
+      }
+      if (!renderer) {
+        renderer = getRenderer();
+      }
+
+      await processImage(targetImg);
+      state.processedImages.add(getImageKey(targetImg));
+      sendResponse({ success: true });
+    } catch (error) {
+      const friendlyError = parseTranslationError(error);
+      sendResponse({ success: false, error: friendlyError.message });
+    }
+  })();
+}
+
+// ==================== MutationObserver ====================
+
+/**
+ * Start observing DOM for dynamically added images
+ */
+function startMutationObserver(): void {
+  if (state.mutationObserver) return;
+
+  state.mutationObserver = new MutationObserver((mutations) => {
+    let hasNewImages = false;
+
+    for (const mutation of mutations) {
+      for (const node of Array.from(mutation.addedNodes)) {
+        if (node instanceof HTMLImageElement && isImageCandidate(node)) {
+          hasNewImages = true;
+          break;
+        }
+        if (node instanceof HTMLElement) {
+          const imgs = node.querySelectorAll('img');
+          if (imgs.length > 0) {
+            hasNewImages = true;
+            break;
+          }
+        }
+      }
+      if (hasNewImages) break;
+    }
+
+    if (hasNewImages) {
+      // Debounce: wait 500ms before processing new images
+      if (state.mutationDebounceTimer) {
+        clearTimeout(state.mutationDebounceTimer);
+      }
+      state.mutationDebounceTimer = setTimeout(() => {
+        processNewImages();
+      }, 500);
+    }
+  });
+
+  state.mutationObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+  });
+
+  console.log('[ContentScript] MutationObserver started');
+}
+
+/**
+ * Stop the MutationObserver
+ */
+function stopMutationObserver(): void {
+  if (state.mutationObserver) {
+    state.mutationObserver.disconnect();
+    state.mutationObserver = null;
+  }
+  if (state.mutationDebounceTimer) {
+    clearTimeout(state.mutationDebounceTimer);
+    state.mutationDebounceTimer = null;
+  }
+}
+
+/**
+ * Process newly added images detected by MutationObserver
+ */
+async function processNewImages(): Promise<void> {
+  if (!state.enabled || !translator || !renderer) return;
+
+  const newImages = findCandidateImages().filter(
+    (img) => !state.processedImages.has(getImageKey(img))
+  );
+
+  if (newImages.length === 0) return;
+
+  console.log(`[ContentScript] MutationObserver: 发现 ${newImages.length} 张新图片`);
+
+  for (const img of newImages) {
+    if (!state.enabled) break;
+    try {
+      await processImage(img);
+      state.processedImages.add(getImageKey(img));
+    } catch (error) {
+      const friendlyError = parseTranslationError(error);
+      console.error('[ContentScript] 处理新图片失败:', friendlyError.message);
+    }
+  }
+}
+
+// ==================== Popup Communication ====================
 
 /**
  * Notify popup of status updates

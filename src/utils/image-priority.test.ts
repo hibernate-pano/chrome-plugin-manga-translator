@@ -4,7 +4,7 @@
  * Requirements: 9.2, 9.4
  */
 
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   isInViewport,
   getDistanceFromViewportCenter,

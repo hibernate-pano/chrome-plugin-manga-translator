@@ -45,8 +45,10 @@ const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
 const DEFAULT_CONFIG = {
   enabled: false,
-  provider: 'openai',
+  provider: 'siliconflow',
   providers: {
+    siliconflow: { apiKey: '', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-VL-32B-Instruct' },
+    dashscope: { apiKey: '', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-max' },
     openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
     claude: { apiKey: '', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-3-5-sonnet-20241022' },
     deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
@@ -65,7 +67,19 @@ const DEFAULT_CONFIG = {
  */
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[Background] Extension installed/updated:', details.reason);
-  
+
+  // Create context menus
+  chrome.contextMenus.create({
+    id: 'translateImage',
+    title: '翻译此图像',
+    contexts: ['image'],
+  });
+  chrome.contextMenus.create({
+    id: 'translatePage',
+    title: '翻译页面上的漫画',
+    contexts: ['page'],
+  });
+
   if (details.reason === 'install') {
     // First time installation - initialize default settings
     initializeDefaultSettings();
@@ -279,6 +293,34 @@ async function handleMessage(
         chrome.runtime.openOptionsPage();
         sendResponse({ success: true });
         break;
+
+      // ==================== Image Fetching (CORS bypass) ====================
+
+      case 'fetchImage': {
+        const imageUrl = request['url'] as string;
+        if (!imageUrl) {
+          sendResponse({ success: false, error: 'No URL provided' });
+          break;
+        }
+        try {
+          const imageResponse = await fetch(imageUrl);
+          if (!imageResponse.ok) {
+            sendResponse({ success: false, error: `Failed to fetch image: ${imageResponse.status}` });
+            break;
+          }
+          const blob = await imageResponse.blob();
+          const mimeType = blob.type || 'image/jpeg';
+          const arrayBuffer = await blob.arrayBuffer();
+          const base64 = arrayBufferToBase64(arrayBuffer);
+          sendResponse({ success: true, base64, mimeType });
+        } catch (error) {
+          sendResponse({
+            success: false,
+            error: error instanceof Error ? error.message : 'Failed to fetch image',
+          });
+        }
+        break;
+      }
       
       // ==================== Unknown Action ====================
       
@@ -410,6 +452,32 @@ chrome.tabs.onActivated.addListener(async (activeInfo) => {
   console.log('[Background] Tab activated:', activeInfo.tabId);
 });
 
+// ==================== Context Menu Handler ====================
+
+chrome.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!tab?.id) return;
+
+  if (info.menuItemId === 'translateImage' && info.srcUrl) {
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        action: 'translateSingleImage',
+        imageUrl: info.srcUrl,
+      });
+    } catch {
+      // Content script not injected
+    }
+  } else if (info.menuItemId === 'translatePage') {
+    try {
+      await chrome.tabs.sendMessage(tab.id, {
+        action: 'toggleTranslation',
+        enabled: true,
+      });
+    } catch {
+      // Content script not injected
+    }
+  }
+});
+
 // ==================== Storage Change Listener ====================
 
 /**
@@ -436,6 +504,20 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     }
   }
 });
+
+// ==================== Utility Functions ====================
+
+/**
+ * Convert ArrayBuffer to base64 string
+ */
+function arrayBufferToBase64(buffer: ArrayBuffer): string {
+  const bytes = new Uint8Array(buffer);
+  let binary = '';
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i]!);
+  }
+  return btoa(binary);
+}
 
 // ==================== Initialization ====================
 

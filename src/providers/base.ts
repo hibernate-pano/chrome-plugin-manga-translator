@@ -86,7 +86,13 @@ export interface ValidationResult {
 /**
  * Supported provider types
  */
-export type ProviderType = 'openai' | 'claude' | 'deepseek' | 'ollama';
+export type ProviderType =
+  | 'openai'
+  | 'claude'
+  | 'deepseek'
+  | 'ollama'
+  | 'siliconflow'
+  | 'dashscope';
 
 /**
  * Vision Provider Interface

@@ -4,6 +4,8 @@
  * Renders translation overlays on manga images:
  * - Creates positioned overlay elements
  * - Auto-adjusts font size based on text area
+ * - Hover toggle: show translation on hover, original on leave
+ * - Control buttons: toggle and close
  * - Manages overlay lifecycle (create, remove, removeAll)
  *
  * Requirements: 3.1, 3.2, 3.3, 3.4
@@ -37,12 +39,18 @@ export interface RenderedOverlay {
   image: HTMLImageElement;
   /** Array of overlay elements */
   overlays: HTMLElement[];
+  /** The overlay container for hover toggle */
+  overlayContainer: HTMLElement;
+  /** Whether translation is pinned (manually toggled on) */
+  pinned: boolean;
 }
 
 // ==================== Constants ====================
 
 const WRAPPER_CLASS = 'manga-translator-wrapper';
 const OVERLAY_CLASS = 'manga-translator-overlay';
+const OVERLAY_CONTAINER_CLASS = 'manga-translator-overlay-container';
+const CONTROLS_CLASS = 'manga-translator-controls';
 const DATA_ATTR = 'data-manga-translator';
 
 const DEFAULT_STYLE: OverlayStyle = {
@@ -59,28 +67,19 @@ const DEFAULT_STYLE: OverlayStyle = {
 
 /**
  * Calculate optimal font size based on text area dimensions
- *
- * @param areaHeight Height of the text area in pixels
- * @param textLength Length of the text
- * @param style Style configuration
- * @returns Calculated font size in pixels
  */
 export function calculateFontSize(
   areaHeight: number,
   textLength: number,
   style: OverlayStyle = DEFAULT_STYLE
 ): number {
-  // Base calculation: font size should be roughly 60-70% of area height
-  // to leave room for padding and line spacing
   let fontSize = Math.floor(areaHeight * 0.65);
 
-  // Adjust for very long text (reduce font size)
   if (textLength > 20) {
     const reductionFactor = Math.min(1, 20 / textLength);
     fontSize = Math.floor(fontSize * (0.7 + 0.3 * reductionFactor));
   }
 
-  // Clamp to min/max bounds
   return Math.max(style.minFontSize, Math.min(style.maxFontSize, fontSize));
 }
 
@@ -93,7 +92,24 @@ function createOverlayStyles(): string {
       position: relative;
       display: inline-block;
     }
-    
+
+    .${OVERLAY_CONTAINER_CLASS} {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+      pointer-events: none;
+      z-index: 1000;
+    }
+
+    .${WRAPPER_CLASS}:hover .${OVERLAY_CONTAINER_CLASS},
+    .${WRAPPER_CLASS}.manga-translator-pinned .${OVERLAY_CONTAINER_CLASS} {
+      opacity: 1;
+    }
+
     .${OVERLAY_CLASS} {
       position: absolute;
       display: flex;
@@ -103,9 +119,46 @@ function createOverlayStyles(): string {
       word-break: break-word;
       overflow: hidden;
       pointer-events: none;
-      z-index: 1000;
       box-sizing: border-box;
       line-height: 1.2;
+    }
+
+    .${CONTROLS_CLASS} {
+      position: absolute;
+      top: 4px;
+      right: 4px;
+      display: flex;
+      gap: 4px;
+      opacity: 0;
+      transition: opacity 0.2s ease-in-out;
+      pointer-events: none;
+      z-index: 1001;
+    }
+
+    .${WRAPPER_CLASS}:hover .${CONTROLS_CLASS} {
+      opacity: 1;
+      pointer-events: auto;
+    }
+
+    .${CONTROLS_CLASS} button {
+      width: 28px;
+      height: 28px;
+      border: none;
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.6);
+      color: white;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 14px;
+      line-height: 1;
+      padding: 0;
+      transition: background 0.15s;
+    }
+
+    .${CONTROLS_CLASS} button:hover {
+      background: rgba(0, 0, 0, 0.85);
     }
   `;
 }
@@ -143,25 +196,12 @@ export class OverlayRenderer {
 
   /**
    * Render translation overlays on an image
-   *
-   * @param image Image element to overlay
-   * @param textAreas Array of text areas with translations
-   * @returns The wrapper element containing the image and overlays
    */
   render(image: HTMLImageElement, textAreas: TextArea[]): HTMLElement {
-    if (process.env['NODE_ENV'] === 'development') {
-      console.log('[Renderer] 渲染翻译覆盖层');
-      console.log('[Renderer] 文字区域数量:', textAreas.length);
-    }
-
     // Remove existing overlays for this image
     this.remove(image);
 
-    // Skip if no text areas
     if (textAreas.length === 0) {
-      if (process.env['NODE_ENV'] === 'development') {
-        console.log('[Renderer] 无文字区域，跳过渲染');
-      }
       return image.parentElement || image;
     }
 
@@ -181,20 +221,57 @@ export class OverlayRenderer {
     }
     wrapper.appendChild(image);
 
-    // Create overlay elements
-    const overlays: HTMLElement[] = [];
+    // Create overlay container (for hover toggle)
+    const overlayContainer = document.createElement('div');
+    overlayContainer.className = OVERLAY_CONTAINER_CLASS;
+    wrapper.appendChild(overlayContainer);
 
+    // Create overlay elements inside container
+    const overlays: HTMLElement[] = [];
     for (const area of textAreas) {
       const overlay = this.createOverlayElement(area, imageWidth, imageHeight);
-      wrapper.appendChild(overlay);
+      overlayContainer.appendChild(overlay);
       overlays.push(overlay);
     }
+
+    // Create control buttons
+    const controls = document.createElement('div');
+    controls.className = CONTROLS_CLASS;
+
+    // Toggle button (pin/unpin translation)
+    const toggleBtn = document.createElement('button');
+    toggleBtn.title = '切换翻译显示';
+    toggleBtn.textContent = '📌';
+    toggleBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const rendered = this.renderedOverlays.get(image);
+      if (rendered) {
+        rendered.pinned = !rendered.pinned;
+        wrapper.classList.toggle('manga-translator-pinned', rendered.pinned);
+        toggleBtn.textContent = rendered.pinned ? '👁' : '📌';
+      }
+    });
+    controls.appendChild(toggleBtn);
+
+    // Close button (remove overlay)
+    const closeBtn = document.createElement('button');
+    closeBtn.title = '移除翻译';
+    closeBtn.textContent = '✕';
+    closeBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.remove(image);
+    });
+    controls.appendChild(closeBtn);
+
+    wrapper.appendChild(controls);
 
     // Store reference for later removal
     this.renderedOverlays.set(image, {
       wrapper,
       image,
       overlays,
+      overlayContainer,
+      pinned: false,
     });
 
     return wrapper;
@@ -212,20 +289,17 @@ export class OverlayRenderer {
     overlay.className = OVERLAY_CLASS;
     overlay.setAttribute(DATA_ATTR, 'overlay');
 
-    // Calculate pixel positions from relative coordinates
     const left = area.x * imageWidth;
     const top = area.y * imageHeight;
     const width = area.width * imageWidth;
     const height = area.height * imageHeight;
 
-    // Calculate font size
     const fontSize = calculateFontSize(
       height,
       area.translatedText.length,
       this.style
     );
 
-    // Apply styles
     Object.assign(overlay.style, {
       left: `${left}px`,
       top: `${top}px`,
@@ -240,8 +314,6 @@ export class OverlayRenderer {
     });
 
     overlay.textContent = area.translatedText;
-
-    // Store original text as data attribute for debugging
     overlay.setAttribute('data-original', area.originalText);
 
     return overlay;
@@ -249,11 +321,8 @@ export class OverlayRenderer {
 
   /**
    * Remove overlays from a specific image
-   *
-   * @param image Image element or wrapper to remove overlays from
    */
   remove(image: HTMLImageElement | HTMLElement): void {
-    // Handle if wrapper was passed
     if (image.classList?.contains(WRAPPER_CLASS)) {
       const img = image.querySelector('img') as HTMLImageElement | null;
       if (img) {
@@ -268,14 +337,12 @@ export class OverlayRenderer {
 
     const { wrapper, image: originalImage } = rendered;
 
-    // Move image back to original position
     const parent = wrapper.parentElement;
     if (parent) {
       parent.insertBefore(originalImage, wrapper);
       wrapper.remove();
     }
 
-    // Clean up reference
     this.renderedOverlays.delete(originalImage);
   }
 
@@ -283,9 +350,7 @@ export class OverlayRenderer {
    * Remove all rendered overlays
    */
   removeAll(): void {
-    // Create a copy of keys to avoid modification during iteration
     const images = Array.from(this.renderedOverlays.keys());
-
     for (const image of images) {
       this.remove(image);
     }
@@ -293,9 +358,6 @@ export class OverlayRenderer {
 
   /**
    * Check if an image has overlays rendered
-   *
-   * @param image Image element to check
-   * @returns True if overlays are rendered
    */
   hasOverlays(image: HTMLImageElement): boolean {
     return this.renderedOverlays.has(image);
@@ -310,8 +372,6 @@ export class OverlayRenderer {
 
   /**
    * Update overlay style
-   *
-   * @param style New style configuration
    */
   updateStyle(style: Partial<OverlayStyle>): void {
     this.style = { ...this.style, ...style };
@@ -331,9 +391,6 @@ let rendererInstance: OverlayRenderer | null = null;
 
 /**
  * Get or create the singleton renderer instance
- *
- * @param style Optional style configuration
- * @returns OverlayRenderer instance
  */
 export function getRenderer(style?: Partial<OverlayStyle>): OverlayRenderer {
   if (!rendererInstance) {
@@ -372,7 +429,6 @@ export function findAllOverlays(): HTMLElement[] {
 
 /**
  * Remove all manga translator elements from the document
- * (Alternative to using renderer instance)
  */
 export function removeAllOverlaysFromDOM(): void {
   const wrappers = findAllWrappers();

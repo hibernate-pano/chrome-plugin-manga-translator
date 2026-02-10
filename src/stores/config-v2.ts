@@ -26,6 +26,8 @@ export interface ProviderSettings {
  * All provider configurations
  */
 export interface ProvidersConfig {
+  siliconflow: ProviderSettings;
+  dashscope: ProviderSettings;
   openai: ProviderSettings;
   claude: ProviderSettings;
   deepseek: ProviderSettings;
@@ -88,6 +90,16 @@ export interface AppConfigActions {
 // ==================== Default Configuration ====================
 
 const DEFAULT_PROVIDERS: ProvidersConfig = {
+  siliconflow: {
+    apiKey: '',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    model: '',
+  },
+  dashscope: {
+    apiKey: '',
+    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+    model: '',
+  },
   openai: {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
@@ -112,7 +124,7 @@ const DEFAULT_PROVIDERS: ProvidersConfig = {
 
 const DEFAULT_CONFIG: AppConfigState = {
   enabled: false,
-  provider: 'openai',
+  provider: 'siliconflow',
   providers: DEFAULT_PROVIDERS,
   targetLanguage: 'zh-CN',
   maxImageSize: 1920,

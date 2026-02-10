@@ -42,9 +42,9 @@ describe('AppConfigStore', () => {
   });
 
   describe('Provider Operations', () => {
-    it('should have openai as default provider', () => {
+    it('should have siliconflow as default provider', () => {
       const state = useAppConfigStore.getState();
-      expect(state.provider).toBe('openai');
+      expect(state.provider).toBe('siliconflow');
     });
 
     it('should change provider', () => {
@@ -112,11 +112,11 @@ describe('AppConfigStore', () => {
 
     it('should check current provider when no argument provided', () => {
       const store = useAppConfigStore.getState();
-      
-      // Default provider is openai with no API key
+
+      // Default provider is siliconflow with no API key
       expect(store.isProviderConfigured()).toBe(false);
-      
-      store.setProviderApiKey('openai', 'test-key');
+
+      store.setProviderApiKey('siliconflow', 'test-key');
       expect(useAppConfigStore.getState().isProviderConfigured()).toBe(true);
     });
   });
@@ -175,7 +175,7 @@ describe('AppConfigStore', () => {
       // Verify defaults
       const state = useAppConfigStore.getState();
       expect(state.enabled).toBe(false);
-      expect(state.provider).toBe('openai');
+      expect(state.provider).toBe('siliconflow');
       expect(state.providers.claude.apiKey).toBe('');
       expect(state.targetLanguage).toBe('zh-CN');
       expect(state.maxImageSize).toBe(1920);
