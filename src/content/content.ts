@@ -1,22 +1,24 @@
 /**
  * Content Script - Manga Translator v2
- * 
+ *
  * Core content script that handles:
  * - Image detection and filtering (Requirements 2.1)
  * - Translation flow control (Requirements 1.2, 1.3)
  * - Integration with translator and renderer services
- * 
+ * - Region selection translation
+ *
  * Requirements: 1.2, 1.3, 2.1
  */
 
 import { TranslatorService, createTranslatorFromConfig } from '@/services/translator';
 import { OverlayRenderer, getRenderer, removeAllOverlaysFromDOM } from '@/services/renderer';
+import { SelectionTool, type SelectionRect } from '@/services/selection-tool';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { parseTranslationError } from '@/utils/error-handler';
-import { 
-  getViewportFirstImages, 
+import {
+  getViewportFirstImages,
   processInParallel,
-  type ParallelProcessingOptions 
+  type ParallelProcessingOptions
 } from '@/utils/image-priority';
 
 // ==================== Constants ====================
