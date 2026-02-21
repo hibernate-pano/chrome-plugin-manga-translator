@@ -114,7 +114,7 @@ export class ErrorBoundary extends Component<Props, State> {
               <p className="mt-2 text-sm text-gray-500">
                 抱歉，应用程序遇到了一个意外错误。我们已经记录了这个错误，并将尽快修复。
               </p>
-              {process.env['NODE_ENV'] === 'development' && this.state.error && (
+              {import.meta.env.DEV && this.state.error && (
                 <details className="mt-4 text-left">
                   <summary className="cursor-pointer text-sm font-medium text-gray-700">
                     错误详情 (开发模式)

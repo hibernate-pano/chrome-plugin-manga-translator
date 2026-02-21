@@ -1,692 +1,445 @@
 /**
  * Content Script - Manga Translator v2
  *
- * Core content script that handles:
- * - Image detection and filtering (Requirements 2.1)
- * - Translation flow control (Requirements 1.2, 1.3)
- * - Integration with translator and renderer services
- * - Region selection translation
+ * 重构后的 content script，采用清晰的状态机架构：
+ * - ContentState 类型驱动所有 UI 和行为
+ * - 支持整页翻译、hover 选图翻译、取消、清除
+ * - 通过 FloatingHud 展示页面内状态
+ * - 通过消息协议与 Background/Popup 同步状态
  *
- * Requirements: 1.2, 1.3, 2.1
+ * 消息协议：
+ *   PopupToContent: TRANSLATE_PAGE | ENTER_HOVER_SELECT | EXIT_HOVER_SELECT
+ *                   | CANCEL_TRANSLATION | CLEAR_ALL
+ *   ContentToPopup: STATE_UPDATE | READY
  */
 
 import { TranslatorService, createTranslatorFromConfig } from '@/services/translator';
 import { OverlayRenderer, getRenderer, removeAllOverlaysFromDOM } from '@/services/renderer';
-import { SelectionTool, type SelectionRect } from '@/services/selection-tool';
-import { useAppConfigStore } from '@/stores/config-v2';
 import { parseTranslationError } from '@/utils/error-handler';
 import {
   getViewportFirstImages,
   processInParallel,
-  type ParallelProcessingOptions
+  type ParallelProcessingOptions,
 } from '@/utils/image-priority';
+import { useAppConfigStore } from '@/stores/config-v2';
+import { isTranslatableImage } from './hover-selector';
+import { HoverSelector } from './hover-selector';
+import { FloatingHud } from './floating-hud';
 
-// ==================== Constants ====================
+// ==================== 消息类型定义 ====================
 
-/** Minimum image width to be considered for translation */
-const MIN_IMAGE_WIDTH = 150;
+export type PopupToContentMsg =
+  | { type: 'GET_STATE' }
+  | { type: 'TRANSLATE_PAGE' }
+  | { type: 'ENTER_HOVER_SELECT' }
+  | { type: 'EXIT_HOVER_SELECT' }
+  | { type: 'CANCEL_TRANSLATION' }
+  | { type: 'CLEAR_ALL' };
 
-/** Minimum image height to be considered for translation */
-const MIN_IMAGE_HEIGHT = 150;
+export type ContentToPopupMsg =
+  | { type: 'STATE_UPDATE'; state: ContentState }
+  | { type: 'READY' };
 
-/** CSS class for processed images */
+// ==================== 状态类型定义 ====================
+
+export type ContentState =
+  | { status: 'idle' }
+  | { status: 'scanning' }
+  | { status: 'translating'; current: number; total: number }
+  | { status: 'complete'; count: number }
+  | { status: 'hover-select' }
+  | { status: 'error'; message: string };
+
+// ==================== 常量 ====================
+
 const PROCESSED_CLASS = 'manga-translator-processed';
-
-/** Storage key for config */
 const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
-// ==================== Type Definitions ====================
+// ==================== 运行时状态 ====================
 
-interface ContentScriptState {
-  /** Whether translation is enabled */
-  enabled: boolean;
-  /** Whether currently processing images */
-  isProcessing: boolean;
-  /** Set of processed image sources */
-  processedImages: Set<string>;
-  /** Current abort controller for cancellation */
-  abortController: AbortController | null;
-  /** MutationObserver for dynamic content */
-  mutationObserver: MutationObserver | null;
-  /** Debounce timer for MutationObserver */
-  mutationDebounceTimer: ReturnType<typeof setTimeout> | null;
-}
-
-interface TranslationStatus {
-  isProcessing: boolean;
-  processedCount: number;
-  totalCount: number;
-  error?: string;
-}
-
-interface MessageRequest {
-  action: string;
-  enabled?: boolean;
-  provider?: string;
-  targetLanguage?: string;
-  [key: string]: unknown;
-}
-
-interface MessageResponse {
-  success?: boolean;
-  error?: string;
-  state?: TranslationStatus;
-  enabled?: boolean;
-}
-
-// ==================== State Management ====================
-
-const state: ContentScriptState = {
-  enabled: false,
-  isProcessing: false,
-  processedImages: new Set(),
-  abortController: null,
-  mutationObserver: null,
-  mutationDebounceTimer: null,
-};
-
+let currentState: ContentState = { status: 'idle' };
+let abortController: AbortController | null = null;
 let translator: TranslatorService | null = null;
 let renderer: OverlayRenderer | null = null;
+let hud: FloatingHud | null = null;
+let hoverSelector: HoverSelector | null = null;
+const processedImages: Set<string> = new Set();
 
-// ==================== Image Detection ====================
+// ==================== 状态更新 ====================
 
-/**
- * Check if an image is a valid candidate for translation
- * 
- * Filters out:
- * - Small images (< 150x150)
- * - Data URL icons
- * - Avatar images
- * - Ad images
- * - Already processed images
- * 
- * Requirements: 2.1
- * 
- * @param img Image element to check
- * @returns True if image should be processed
- */
-export function isImageCandidate(img: HTMLImageElement): boolean {
-  // Get actual dimensions
-  const width = img.naturalWidth || img.width;
-  const height = img.naturalHeight || img.height;
+function setState(state: ContentState): void {
+  currentState = state;
 
-  // Filter: Minimum size requirement
-  if (width < MIN_IMAGE_WIDTH || height < MIN_IMAGE_HEIGHT) {
-    return false;
+  // 同步 HUD 显示
+  if (hud) {
+    switch (state.status) {
+      case 'idle':
+        hud.update({ status: 'hidden' });
+        break;
+      case 'scanning':
+        hud.update({ status: 'translating', current: 0, total: 0 });
+        break;
+      case 'translating':
+        hud.update({ status: 'translating', current: state.current, total: state.total });
+        break;
+      case 'complete':
+        hud.update({ status: 'complete', count: state.count });
+        break;
+      case 'hover-select':
+        hud.update({ status: 'hover-select' });
+        break;
+      case 'error':
+        hud.update({ status: 'error', message: state.message });
+        break;
+    }
   }
 
-  // Filter: Small data URL icons
-  if (img.src.startsWith('data:') && width < 50 && height < 50) {
-    return false;
-  }
-
-  // Filter: Avatar images (small and contains 'avatar' in src)
-  if (width < 150 && height < 150 && img.src.toLowerCase().includes('avatar')) {
-    return false;
-  }
-
-  // Filter: Ad images (check alt text)
-  const alt = (img.alt || '').toLowerCase();
-  if (alt.includes('广告') || alt.includes('ad') || alt.includes('advertisement')) {
-    return false;
-  }
-
-  // Filter: Ad images (check src)
-  const src = img.src.toLowerCase();
-  if (src.includes('/ad/') || src.includes('/ads/') || src.includes('advertisement')) {
-    return false;
-  }
-
-  // Filter: Already processed images
-  if (img.classList.contains(PROCESSED_CLASS)) {
-    return false;
-  }
-
-  // Filter: Images inside translator wrapper
-  if (img.closest('.manga-translator-wrapper')) {
-    return false;
-  }
-
-  return true;
+  // 发送状态给 background -> popup
+  sendToBackground({ type: 'STATE_UPDATE', state });
 }
 
-/**
- * Find all candidate images on the page
- * 
- * @returns Array of image elements that should be processed
- */
-function findCandidateImages(): HTMLImageElement[] {
+// ==================== 服务初始化 ====================
+
+async function ensureServicesInitialized(): Promise<void> {
+  if (!translator) {
+    translator = createTranslatorFromConfig();
+    await translator.initialize();
+  }
+  if (!renderer) {
+    renderer = getRenderer();
+  }
+}
+
+// ==================== 图片处理 ====================
+
+function findTranslatableImages(): HTMLImageElement[] {
+  // 等待一小段时间确保图片已加载（懒加载页面）
   const allImages = Array.from(document.querySelectorAll('img'));
-  return allImages.filter(isImageCandidate);
+
+  return allImages.filter(
+    (img) => isTranslatableImage(img) && !processedImages.has(getImageKey(img))
+  );
 }
 
-// ==================== Translation Flow Control ====================
+function getImageKey(img: HTMLImageElement): string {
+  return img.src || `img-${img.offsetLeft}-${img.offsetTop}-${img.width}-${img.height}`;
+}
+
+async function processSingleImage(img: HTMLImageElement): Promise<void> {
+  if (!translator || !renderer) {
+    throw new Error('Services not initialized');
+  }
+
+  img.classList.add(PROCESSED_CLASS);
+
+  const result = await translator.translateImage(img);
+
+  if (!result.success) {
+    throw new Error(result.error || 'Translation failed');
+  }
+
+  if (result.textAreas.length === 0) {
+    return;
+  }
+
+  renderer.render(img, result.textAreas);
+}
+
+// ==================== 核心动作 ====================
 
 /**
- * Start the translation process
- * 
- * Requirements: 1.2 - When user turns on the switch, start detecting and translating
- * Requirements: 4.1, 4.2 - Debug logging at key positions
- * Requirements: 9.2 - Support parallel processing with limits
- * Requirements: 9.4 - Prioritize viewport images
+ * 整页翻译
  */
-async function startTranslation(): Promise<void> {
-  if (state.isProcessing) {
+async function translatePage(): Promise<void> {
+  console.log('[ContentScript] translatePage 开始执行');
+
+  if (currentState.status === 'translating' || currentState.status === 'scanning') {
     console.log('[ContentScript] 翻译已在进行中');
     return;
   }
 
-  // Requirements 4.1 - Log when translation is enabled
-  console.log('[ContentScript] 翻译开关已打开');
-  state.enabled = true;
-  state.isProcessing = true;
-  state.abortController = new AbortController();
+  abortController = new AbortController();
+  setState({ status: 'scanning' });
+  console.log('[ContentScript] 状态设置为 scanning');
 
   try {
-    // Initialize services if needed
-    if (!translator) {
-      console.log('[ContentScript] 初始化翻译服务...');
-      translator = createTranslatorFromConfig();
-      await translator.initialize();
-      console.log('[ContentScript] 翻译服务初始化完成');
-    }
+    await ensureServicesInitialized();
+    console.log('[ContentScript] 服务初始化完成');
 
-    if (!renderer) {
-      renderer = getRenderer();
-    }
+    const allImages = Array.from(document.querySelectorAll('img'));
+    console.log('[ContentScript] 页面上的 img 元素数量:', allImages.length);
 
-    // Find candidate images
-    const candidateImages = findCandidateImages();
-    
-    if (candidateImages.length === 0) {
-      console.log('[ContentScript] 未找到候选图片');
-      notifyPopup('noImages', {});
+    const images = getViewportFirstImages(findTranslatableImages());
+    console.log('[ContentScript] 可翻译图片数量:', images.length);
+
+    if (images.length === 0) {
+      console.log('[ContentScript] 没有找到可翻译的图片，设置完成状态');
+      setState({ status: 'complete', count: 0 });
       return;
     }
 
-    // Sort images by viewport priority (Requirements 9.4)
-    const images = getViewportFirstImages(candidateImages);
-
-    // Requirements 4.2 - Log candidate image count
-    console.log(`[ContentScript] 找到候选图片: ${images.length} 张 (按视口优先排序)`);
-    notifyPopup('processingStart', { total: images.length });
-
-    // Get parallel limit from config (Requirements 9.2)
     const config = useAppConfigStore.getState();
     const parallelLimit = config.parallelLimit || 3;
-
-    let processedCount = 0;
-    let errorCount = 0;
     const total = images.length;
+    let current = 0;
 
-    // Process images with parallel limits
-    const processingOptions: ParallelProcessingOptions = {
+    setState({ status: 'translating', current: 0, total });
+
+    const options: ParallelProcessingOptions = {
       maxConcurrent: parallelLimit,
-      signal: state.abortController.signal,
+      signal: abortController.signal,
       onItemComplete: (completed) => {
-        processedCount = completed;
-        // Requirements 4.2 - Log progress for each image
-        console.log(`[ContentScript] 处理进度: ${processedCount}/${total}`);
-        notifyPopup('processingUpdate', {
-          current: processedCount,
-          total,
-        });
+        current = completed;
+        if (currentState.status === 'translating') {
+          setState({ status: 'translating', current, total });
+        }
       },
       onError: (error) => {
-        errorCount++;
-        const friendlyError = parseTranslationError(error);
-        console.error(`[ContentScript] 处理图片失败:`, friendlyError.message);
+        const friendly = parseTranslationError(error);
+        console.error('[ContentScript] 图片处理失败:', friendly.message);
       },
     };
 
     await processInParallel(
       images,
       async (img) => {
-        // Check for cancellation
-        if (state.abortController?.signal.aborted || !state.enabled) {
+        if (abortController?.signal.aborted) {
           throw new Error('Translation cancelled');
         }
-
-        await processImage(img);
-        state.processedImages.add(getImageKey(img));
+        await processSingleImage(img);
+        processedImages.add(getImageKey(img));
       },
-      processingOptions
+      options
     );
 
-    console.log(`[ContentScript] 翻译完成: 成功 ${processedCount} 张, 失败 ${errorCount} 张`);
-    notifyPopup('complete', {
-      processedCount,
-      errorCount,
-      total: images.length,
-    });
+    // 检查是否被取消
+    if (abortController?.signal.aborted) {
+      setState({ status: 'idle' });
+      return;
+    }
 
-    // Start observing for dynamically loaded images
-    startMutationObserver();
-
+    setState({ status: 'complete', count: current });
   } catch (error) {
-    const friendlyError = parseTranslationError(error);
-    console.error('[ContentScript] 翻译流程失败:', friendlyError.message);
-    notifyPopup('error', { error: friendlyError });
+    const friendly = parseTranslationError(error);
+    console.error('[ContentScript] 翻译流程失败:', friendly.message);
+    setState({ status: 'error', message: friendly.message });
   } finally {
-    state.isProcessing = false;
-    state.abortController = null;
+    abortController = null;
   }
 }
 
 /**
- * Stop translation and remove all overlays
- * 
- * Requirements: 1.3 - When user turns off the switch, remove all overlays
+ * 进入 hover 选图模式
  */
-function stopTranslation(): void {
-  console.log('[ContentScript] 翻译开关已关闭');
-
-  // Cancel ongoing processing
-  if (state.abortController) {
-    state.abortController.abort();
-    state.abortController = null;
+function enterHoverSelect(): void {
+  if (hoverSelector) {
+    hoverSelector.exit();
   }
 
-  // Stop mutation observer
-  stopMutationObserver();
+  hoverSelector = new HoverSelector();
+  hoverSelector.onImageClick(async (img) => {
+    hoverSelector = null;
+    setState({ status: 'translating', current: 0, total: 1 });
 
-  // Remove all overlays
+    try {
+      await ensureServicesInitialized();
+      await processSingleImage(img);
+      processedImages.add(getImageKey(img));
+      setState({ status: 'complete', count: 1 });
+    } catch (error) {
+      const friendly = parseTranslationError(error);
+      setState({ status: 'error', message: friendly.message });
+    }
+  });
+
+  hoverSelector.enter();
+  setState({ status: 'hover-select' });
+}
+
+/**
+ * 退出 hover 选图模式
+ */
+function exitHoverSelect(): void {
+  if (hoverSelector) {
+    hoverSelector.exit();
+    hoverSelector = null;
+  }
+  setState({ status: 'idle' });
+}
+
+/**
+ * 取消正在进行的翻译
+ */
+function cancelTranslation(): void {
+  if (abortController) {
+    abortController.abort();
+    abortController = null;
+  }
+  if (hoverSelector) {
+    hoverSelector.exit();
+    hoverSelector = null;
+  }
+  setState({ status: 'idle' });
+}
+
+/**
+ * 清除所有覆盖层
+ */
+function clearAll(): void {
+  cancelTranslation();
+
   if (renderer) {
     renderer.removeAll();
   }
-  
-  // Also clean up any orphaned overlays
   removeAllOverlaysFromDOM();
 
-  // Reset state
-  state.enabled = false;
-  state.isProcessing = false;
-  state.processedImages.clear();
-
-  // Remove processed class from all images
-  document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach(img => {
+  processedImages.clear();
+  document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach((img) => {
     img.classList.remove(PROCESSED_CLASS);
   });
 
-  console.log('[ContentScript] 翻译已停止，所有覆盖层已移除');
+  setState({ status: 'idle' });
 }
 
-/**
- * Process a single image
- * 
- * Requirements: 2.1, 2.2, 2.5, 4.1, 4.2
- * 
- * @param img Image element to process
- */
-async function processImage(img: HTMLImageElement): Promise<void> {
-  const imgSrc = img.src.substring(0, 50) + (img.src.length > 50 ? '...' : '');
-  console.log('[ContentScript] 开始处理图片', { src: imgSrc });
+// ==================== 消息处理 ====================
 
-  if (!translator || !renderer) {
-    console.error('[ContentScript] 服务未初始化');
-    throw new Error('Services not initialized');
+function sendToBackground(msg: ContentToPopupMsg): void {
+  try {
+    chrome.runtime.sendMessage(msg).catch(() => {
+      // popup 可能未打开，忽略
+    });
+  } catch {
+    // extension context 可能已失效
   }
-
-  // Mark as being processed
-  img.classList.add(PROCESSED_CLASS);
-
-  // Call TranslatorService to translate the image (Requirements 2.1, 2.2)
-  console.log('[ContentScript] 调用 Vision LLM 翻译');
-  const result = await translator.translateImage(img);
-
-  if (!result.success) {
-    console.error('[ContentScript] 翻译失败:', result.error);
-    throw new Error(result.error || 'Translation failed');
-  }
-
-  // Skip if no text areas detected (Requirements 2.5)
-  if (result.textAreas.length === 0) {
-    console.log('[ContentScript] 图片中未检测到文字，跳过渲染');
-    return;
-  }
-
-  console.log('[ContentScript] 检测到文字区域:', result.textAreas.length);
-
-  // Render overlays
-  console.log('[ContentScript] 渲染翻译覆盖层');
-  renderer.render(img, result.textAreas);
 }
 
-/**
- * Get unique key for an image
- */
-function getImageKey(img: HTMLImageElement): string {
-  return img.src || `img-${img.offsetLeft}-${img.offsetTop}-${img.width}-${img.height}`;
-}
-
-// ==================== Message Handling ====================
-
-/**
- * Handle messages from popup or background script
- */
 function handleMessage(
-  request: MessageRequest,
+  request: PopupToContentMsg,
   _sender: chrome.runtime.MessageSender,
-  sendResponse: (response: MessageResponse) => void
+  sendResponse: (response: { success: boolean; error?: string; state?: ContentState }) => void
 ): boolean {
-  console.log('[ContentScript] Received message:', request.action);
+  console.log('[ContentScript] 收到消息:', request.type);
 
-  switch (request.action) {
-    case 'toggleTranslation':
-      handleToggleTranslation(request.enabled, sendResponse);
+  switch (request.type) {
+    case 'GET_STATE':
+      sendResponse({ success: true, state: currentState });
       break;
 
-    case 'getState':
-      sendResponse({
-        success: true,
-        enabled: state.enabled,
-        state: {
-          isProcessing: state.isProcessing,
-          processedCount: state.processedImages.size,
-          totalCount: 0,
-        },
-      });
-      break;
+    case 'TRANSLATE_PAGE':
+      translatePage()
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: String(err) }));
+      return true;
 
-    case 'checkState':
-      // Called when page loads to check if translation should be active
-      sendResponse({
-        success: true,
-        enabled: state.enabled,
-      });
-      break;
-
-    case 'configUpdated':
-      // Configuration was updated, reset translator
-      translator = null;
+    case 'ENTER_HOVER_SELECT':
+      enterHoverSelect();
       sendResponse({ success: true });
       break;
 
-    case 'translateSingleImage':
-      handleTranslateSingleImage(request['imageUrl'] as string, sendResponse);
+    case 'EXIT_HOVER_SELECT':
+      exitHoverSelect();
+      sendResponse({ success: true });
+      break;
+
+    case 'CANCEL_TRANSLATION':
+      cancelTranslation();
+      sendResponse({ success: true });
+      break;
+
+    case 'CLEAR_ALL':
+      clearAll();
+      sendResponse({ success: true });
       break;
 
     default:
-      sendResponse({ error: `Unknown action: ${request.action}` });
+      sendResponse({ success: false, error: 'Unknown message type' });
   }
 
-  return true; // Keep message channel open for async response
+  return false;
 }
 
-/**
- * Handle toggle translation message
- */
-function handleToggleTranslation(
-  enabled: boolean | undefined,
-  sendResponse: (response: MessageResponse) => void
-): void {
-  if (enabled === undefined) {
-    // Toggle current state
-    enabled = !state.enabled;
-  }
+// ==================== 存储变更监听 ====================
 
-  if (enabled) {
-    startTranslation()
-      .then(() => sendResponse({ success: true }))
-      .catch(error => {
-        const friendlyError = parseTranslationError(error);
-        sendResponse({ success: false, error: friendlyError.message });
-      });
-  } else {
-    stopTranslation();
-    sendResponse({ success: true });
-  }
-}
-
-/**
- * Handle translate single image message (from context menu)
- */
-function handleTranslateSingleImage(
-  imageUrl: string | undefined,
-  sendResponse: (response: MessageResponse) => void
-): void {
-  if (!imageUrl) {
-    sendResponse({ success: false, error: 'No image URL provided' });
-    return;
-  }
-
-  (async () => {
-    try {
-      // Find matching image on page
-      const images = Array.from(document.querySelectorAll('img'));
-      const targetImg = images.find(
-        (img) => img.src === imageUrl || img.currentSrc === imageUrl
-      );
-
-      if (!targetImg) {
-        sendResponse({ success: false, error: 'Image not found on page' });
-        return;
-      }
-
-      // Initialize services if needed
-      if (!translator) {
-        translator = createTranslatorFromConfig();
-        await translator.initialize();
-      }
-      if (!renderer) {
-        renderer = getRenderer();
-      }
-
-      await processImage(targetImg);
-      state.processedImages.add(getImageKey(targetImg));
-      sendResponse({ success: true });
-    } catch (error) {
-      const friendlyError = parseTranslationError(error);
-      sendResponse({ success: false, error: friendlyError.message });
-    }
-  })();
-}
-
-// ==================== MutationObserver ====================
-
-/**
- * Start observing DOM for dynamically added images
- */
-function startMutationObserver(): void {
-  if (state.mutationObserver) return;
-
-  state.mutationObserver = new MutationObserver((mutations) => {
-    let hasNewImages = false;
-
-    for (const mutation of mutations) {
-      for (const node of Array.from(mutation.addedNodes)) {
-        if (node instanceof HTMLImageElement && isImageCandidate(node)) {
-          hasNewImages = true;
-          break;
-        }
-        if (node instanceof HTMLElement) {
-          const imgs = node.querySelectorAll('img');
-          if (imgs.length > 0) {
-            hasNewImages = true;
-            break;
-          }
-        }
-      }
-      if (hasNewImages) break;
-    }
-
-    if (hasNewImages) {
-      // Debounce: wait 500ms before processing new images
-      if (state.mutationDebounceTimer) {
-        clearTimeout(state.mutationDebounceTimer);
-      }
-      state.mutationDebounceTimer = setTimeout(() => {
-        processNewImages();
-      }, 500);
-    }
-  });
-
-  state.mutationObserver.observe(document.body, {
-    childList: true,
-    subtree: true,
-  });
-
-  console.log('[ContentScript] MutationObserver started');
-}
-
-/**
- * Stop the MutationObserver
- */
-function stopMutationObserver(): void {
-  if (state.mutationObserver) {
-    state.mutationObserver.disconnect();
-    state.mutationObserver = null;
-  }
-  if (state.mutationDebounceTimer) {
-    clearTimeout(state.mutationDebounceTimer);
-    state.mutationDebounceTimer = null;
-  }
-}
-
-/**
- * Process newly added images detected by MutationObserver
- */
-async function processNewImages(): Promise<void> {
-  if (!state.enabled || !translator || !renderer) return;
-
-  const newImages = findCandidateImages().filter(
-    (img) => !state.processedImages.has(getImageKey(img))
-  );
-
-  if (newImages.length === 0) return;
-
-  console.log(`[ContentScript] MutationObserver: 发现 ${newImages.length} 张新图片`);
-
-  for (const img of newImages) {
-    if (!state.enabled) break;
-    try {
-      await processImage(img);
-      state.processedImages.add(getImageKey(img));
-    } catch (error) {
-      const friendlyError = parseTranslationError(error);
-      console.error('[ContentScript] 处理新图片失败:', friendlyError.message);
-    }
-  }
-}
-
-// ==================== Popup Communication ====================
-
-/**
- * Notify popup of status updates
- */
-function notifyPopup(action: string, data: Record<string, unknown>): void {
-  try {
-    chrome.runtime.sendMessage({
-      action,
-      ...data,
-    }).catch(() => {
-      // Popup might not be open, ignore error
-    });
-  } catch {
-    // Extension context might be invalid
-  }
-}
-
-// ==================== Storage Listener ====================
-
-/**
- * Listen for configuration changes in storage
- */
 function handleStorageChange(
   changes: { [key: string]: chrome.storage.StorageChange },
   _areaName: string
 ): void {
   if (changes[CONFIG_STORAGE_KEY]) {
-    const newValue = changes[CONFIG_STORAGE_KEY].newValue;
-    const oldValue = changes[CONFIG_STORAGE_KEY].oldValue;
-
-    // Check if enabled state changed
-    const newEnabled = newValue?.state?.enabled ?? newValue?.enabled ?? false;
-    const oldEnabled = oldValue?.state?.enabled ?? oldValue?.enabled ?? false;
-
-    if (newEnabled !== oldEnabled) {
-      if (newEnabled && !state.enabled) {
-        startTranslation();
-      } else if (!newEnabled && state.enabled) {
-        stopTranslation();
-      }
-    }
-
-    // Reset translator if provider or settings changed
-    if (newValue?.provider !== oldValue?.provider ||
-        JSON.stringify(newValue?.providers) !== JSON.stringify(oldValue?.providers)) {
-      translator = null;
-    }
+    // 配置变更时重置 translator，下次使用时重新初始化
+    translator = null;
   }
 }
 
-// ==================== Initialization ====================
+// ==================== HUD 取消按钮监听 ====================
 
-/**
- * Initialize the content script
- */
+function setupHudCancelListener(): void {
+  document.addEventListener('hud-cancel', () => {
+    cancelTranslation();
+  });
+}
+
+// ==================== 初始化 ====================
+
 async function initialize(): Promise<void> {
-  console.log('[ContentScript] Initializing Manga Translator v2');
+  console.log('[ContentScript] Manga Translator v2 初始化');
 
   try {
-    // Load initial configuration
-    const config = useAppConfigStore.getState();
-    state.enabled = config.enabled;
+    // 创建 HUD
+    hud = new FloatingHud();
 
-    // Set up message listener
+    // 设置消息监听
     chrome.runtime.onMessage.addListener(handleMessage);
 
-    // Set up storage change listener
+    // 设置存储变更监听
     chrome.storage.onChanged.addListener(handleStorageChange);
 
-    // Set up cleanup on page unload
+    // 监听 HUD 取消按钮
+    setupHudCancelListener();
+
+    // 页面卸载时清理
     window.addEventListener('beforeunload', cleanup);
 
-    // If translation was enabled, start it
-    if (state.enabled) {
-      console.log('[ContentScript] Translation was enabled, starting...');
-      await startTranslation();
-    }
+    // 通知 background 已就绪
+    sendToBackground({ type: 'READY' });
 
-    console.log('[ContentScript] Initialization complete');
+    console.log('[ContentScript] 初始化完成');
   } catch (error) {
-    console.error('[ContentScript] Initialization failed:', error);
+    console.error('[ContentScript] 初始化失败:', error);
   }
 }
 
-/**
- * Clean up resources on page unload
- */
 function cleanup(): void {
-  console.log('[ContentScript] Cleaning up');
-  
-  // Stop any ongoing translation
-  if (state.abortController) {
-    state.abortController.abort();
+  if (abortController) {
+    abortController.abort();
   }
-
-  // Remove all overlays
   if (renderer) {
     renderer.removeAll();
   }
-
-  // Clear state
-  state.processedImages.clear();
+  if (hud) {
+    hud.destroy();
+    hud = null;
+  }
+  if (hoverSelector) {
+    hoverSelector.exit();
+    hoverSelector = null;
+  }
+  processedImages.clear();
 }
 
-// ==================== Start ====================
+// ==================== 启动 ====================
 
-// Initialize when script loads
 initialize();
 
-// ==================== Exports for Testing ====================
+// ==================== 测试导出 ====================
 
 export {
-  state,
-  startTranslation,
-  stopTranslation,
-  findCandidateImages,
+  currentState,
+  findTranslatableImages,
   handleMessage,
-  MIN_IMAGE_WIDTH,
-  MIN_IMAGE_HEIGHT,
+  translatePage,
+  enterHoverSelect,
+  exitHoverSelect,
+  cancelTranslation,
+  clearAll,
+  setState,
 };

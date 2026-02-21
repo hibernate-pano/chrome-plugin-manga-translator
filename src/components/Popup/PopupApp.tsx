@@ -1,38 +1,29 @@
 /**
- * Popup 组件 - 漫画翻译助手 v2
+ * Popup 组件 - 漫画翻译助手 v3
  *
- * 专业设计，质感提升：
- * - 翻译开关（Requirements 1.1, 1.2, 1.3）
- * - Provider 选择
- * - 状态显示（Requirements 8.4）
- * - 设置入口
- * - 微交互动画、渐变背景、进度可视化
+ * 重设计：操作驱动型 UI
+ * - 主操作按钮：翻译当前页面 / 翻译中状态 / 完成状态
+ * - 次级操作：点击选图翻译（hover-select 模式）
+ * - 底部：清除覆盖层 + API Key 警告
+ * - Provider/Model 信息展示
+ * - framer-motion 动画过渡
  */
 
-import React, { useEffect, useState, useCallback } from 'react';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Switch } from '@/components/ui/switch';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
-import { Badge } from '@/components/ui/badge';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
 import {
   Settings,
-  AlertCircle,
-  Loader2,
+  AlertTriangle,
   CheckCircle2,
-  RefreshCw,
+  X,
+  BookOpen,
+  MousePointer,
+  Trash2,
+  Loader2,
   Zap,
   Cloud,
   Server,
-  Languages,
   Sparkles,
 } from 'lucide-react';
 import { useAppConfigStore } from '@/stores/config-v2';
@@ -40,548 +31,454 @@ import type { ProviderType } from '@/providers/base';
 
 // ==================== Types ====================
 
-interface TranslationStatus {
-  isProcessing: boolean;
-  processedCount: number;
-  totalCount: number;
-  error?: {
-    code: string;
-    title: string;
-    message: string;
-    suggestion: string;
-    retryable: boolean;
-  };
-}
+type ContentState =
+  | { status: 'idle' }
+  | { status: 'scanning' }
+  | { status: 'translating'; current: number; total: number }
+  | { status: 'complete'; count: number }
+  | { status: 'hover-select' }
+  | { status: 'error'; message: string };
+
+type PopupToContentMsg =
+  | { type: 'TRANSLATE_PAGE' }
+  | { type: 'ENTER_HOVER_SELECT' }
+  | { type: 'EXIT_HOVER_SELECT' }
+  | { type: 'CANCEL_TRANSLATION' }
+  | { type: 'CLEAR_ALL' };
 
 // ==================== Provider Display Info ====================
 
 const PROVIDER_INFO: Record<
   ProviderType,
-  { name: string; icon: React.ReactNode; description: string; color: string }
+  { name: string; icon: React.ReactNode; color: string }
 > = {
   siliconflow: {
     name: '硅基流动',
-    icon: <Zap className="w-4 h-4" />,
-    description: '国内首选，性价比高',
+    icon: <Zap className="w-3.5 h-3.5" />,
     color: 'from-teal-500 to-cyan-500',
   },
   dashscope: {
     name: '阿里云百炼',
-    icon: <Cloud className="w-4 h-4" />,
-    description: '阿里云官方，稳定',
+    icon: <Cloud className="w-3.5 h-3.5" />,
     color: 'from-blue-500 to-indigo-500',
   },
   openai: {
-    name: 'OpenAI GPT-4V',
-    icon: <Sparkles className="w-4 h-4" />,
-    description: '高质量，云端',
+    name: 'OpenAI',
+    icon: <Sparkles className="w-3.5 h-3.5" />,
     color: 'from-emerald-500 to-teal-500',
   },
   claude: {
-    name: 'Claude Vision',
-    icon: <Cloud className="w-4 h-4" />,
-    description: '高质量，云端',
+    name: 'Claude',
+    icon: <Cloud className="w-3.5 h-3.5" />,
     color: 'from-purple-500 to-pink-500',
   },
   deepseek: {
-    name: 'DeepSeek VL',
-    icon: <Cloud className="w-4 h-4" />,
-    description: '性价比高，云端',
+    name: 'DeepSeek',
+    icon: <Cloud className="w-3.5 h-3.5" />,
     color: 'from-violet-500 to-purple-500',
   },
   ollama: {
     name: 'Ollama',
-    icon: <Server className="w-4 h-4" />,
-    description: '本地，隐私友好',
+    icon: <Server className="w-3.5 h-3.5" />,
     color: 'from-slate-500 to-gray-500',
   },
 };
 
+// ==================== Utils ====================
+
+async function sendToContent(msg: PopupToContentMsg): Promise<void> {
+  try {
+    const [tab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    if (tab?.id) {
+      await chrome.tabs.sendMessage(tab.id, msg);
+    }
+  } catch {
+    // Content script may not be injected
+  }
+}
+
 // ==================== Component ====================
 
 const PopupApp: React.FC = () => {
-  // Local state
-  const [isLoading, setIsLoading] = useState(true);
-  const [status, setStatus] = useState<TranslationStatus>({
-    isProcessing: false,
-    processedCount: 0,
-    totalCount: 0,
+  const [contentState, setContentState] = useState<ContentState>({
+    status: 'idle',
   });
+  const [isLoading, setIsLoading] = useState(true);
+  const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Config store
-  const {
-    enabled,
-    provider,
-    setEnabled,
-    setProvider,
-    isProviderConfigured,
-  } = useAppConfigStore();
+  // Store selectors
+  const provider = useAppConfigStore(state => state.provider);
+  const providers = useAppConfigStore(state => state.providers);
+  const isProviderConfigured = useAppConfigStore(
+    state => state.isProviderConfigured
+  );
 
-  // Check if current provider is configured
+  const currentProviderSettings = providers[provider];
   const isConfigured = isProviderConfigured();
+  const providerInfo = PROVIDER_INFO[provider];
+  const modelName = currentProviderSettings?.model || '默认模型';
 
-  // ==================== Initialization ====================
+  // ==================== Init ====================
 
   useEffect(() => {
-    const initializeApp = async () => {
+    const init = async () => {
       try {
-        setIsLoading(true);
-        // Wait for store to hydrate from Chrome Storage
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        // Wait for store to hydrate
+        await new Promise(resolve => setTimeout(resolve, 80));
 
-        // Get current content script state
-        try {
-          const tabs = await chrome.tabs.query({
-            active: true,
-            currentWindow: true,
-          });
-          if (tabs[0]?.id) {
-            const response = await chrome.tabs.sendMessage(tabs[0].id, {
-              action: 'getState',
+        // Try to get current state from content script
+        const [tab] = await chrome.tabs.query({
+          active: true,
+          currentWindow: true,
+        });
+        if (tab?.id) {
+          try {
+            const response = await chrome.tabs.sendMessage(tab.id, {
+              type: 'GET_STATE',
             });
-            if (response?.controllerState) {
-              setStatus((prev) => ({
-                ...prev,
-                processedCount: response.controllerState.processedCount || 0,
-                isProcessing: response.controllerState.isProcessing || false,
-              }));
+            if (response?.state) {
+              setContentState(response.state);
             }
+          } catch {
+            // Content script not injected yet
           }
-        } catch {
-          // Content script may not be injected, silently handle
         }
       } finally {
         setIsLoading(false);
       }
     };
-
-    initializeApp();
+    init();
   }, []);
 
   // ==================== Message Listener ====================
 
   useEffect(() => {
-    const handleMessage = (request: {
-      action: string;
-      count?: number;
-      total?: number;
-      message?: string;
-      processedCount?: number;
-      error?: TranslationStatus['error'];
-    }) => {
-      switch (request.action) {
-        case 'processingUpdate':
-          setStatus((prev) => ({
-            ...prev,
-            isProcessing: true,
-            processedCount: request.count ?? prev.processedCount,
-            totalCount: request.total ?? prev.totalCount,
-            error: undefined,
-          }));
-          break;
+    const handleMessage = (msg: { type: string; state?: ContentState }) => {
+      if (msg.type === 'STATE_UPDATE' && msg.state) {
+        setContentState(msg.state);
 
-        case 'processingStart':
-          setStatus({
-            isProcessing: true,
-            processedCount: 0,
-            totalCount: request.total ?? 0,
-            error: undefined,
-          });
-          break;
-
-        case 'complete':
-          setStatus((prev) => ({
-            ...prev,
-            isProcessing: false,
-            processedCount: request.processedCount ?? prev.processedCount,
-          }));
-          break;
-
-        case 'error':
-          setStatus((prev) => ({
-            ...prev,
-            isProcessing: false,
-            error: request.error || {
-              code: 'UNKNOWN_ERROR',
-              title: '错误',
-              message: request.message || '未知错误',
-              suggestion: '请稍后重试',
-              retryable: true,
-            },
-          }));
-          break;
-
-        case 'noImages':
-          setStatus((prev) => ({
-            ...prev,
-            isProcessing: false,
-            processedCount: 0,
-          }));
-          break;
+        // Auto-reset complete state after 2s
+        if (msg.state.status === 'complete') {
+          if (completeTimerRef.current) {
+            clearTimeout(completeTimerRef.current);
+          }
+          completeTimerRef.current = setTimeout(() => {
+            setContentState({ status: 'idle' });
+          }, 2000);
+        }
       }
     };
 
     chrome.runtime.onMessage.addListener(handleMessage);
     return () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
+      if (completeTimerRef.current) {
+        clearTimeout(completeTimerRef.current);
+      }
     };
   }, []);
 
   // ==================== Actions ====================
 
-  const notifyContentScript = useCallback(async (newEnabled: boolean) => {
-    try {
-      const tabs = await chrome.tabs.query({
-        active: true,
-        currentWindow: true,
-      });
-      if (tabs[0]?.id) {
-        await chrome.tabs.sendMessage(tabs[0].id, {
-          action: 'toggleTranslation',
-          enabled: newEnabled,
-        });
-      }
-    } catch {
-      // Content script may not be injected, silently handle
+  const handleTranslatePage = useCallback(async () => {
+    if (contentState.status === 'translating' || contentState.status === 'scanning') {
+      await sendToContent({ type: 'CANCEL_TRANSLATION' });
+      setContentState({ status: 'idle' });
+      return;
     }
+    setContentState({ status: 'scanning' });
+    await sendToContent({ type: 'TRANSLATE_PAGE' });
+  }, [contentState.status]);
+
+  const handleHoverSelect = useCallback(async () => {
+    if (contentState.status === 'hover-select') {
+      await sendToContent({ type: 'EXIT_HOVER_SELECT' });
+      setContentState({ status: 'idle' });
+      return;
+    }
+    setContentState({ status: 'hover-select' });
+    await sendToContent({ type: 'ENTER_HOVER_SELECT' });
+    // Close popup so user can interact with page
+    window.close();
+  }, [contentState.status]);
+
+  const handleClearAll = useCallback(async () => {
+    await sendToContent({ type: 'CLEAR_ALL' });
+    setContentState({ status: 'idle' });
   }, []);
-
-  const handleToggle = useCallback(
-    async (checked: boolean) => {
-      if (!isConfigured && checked) {
-        // Not configured, guide user to settings
-        chrome.runtime.openOptionsPage();
-        return;
-      }
-
-      setStatus((prev) => ({ ...prev, error: undefined }));
-      setEnabled(checked);
-
-      if (checked) {
-        setStatus((prev) => ({
-          ...prev,
-          isProcessing: true,
-          processedCount: 0,
-        }));
-      } else {
-        setStatus((prev) => ({
-          ...prev,
-          isProcessing: false,
-        }));
-      }
-
-      await notifyContentScript(checked);
-    },
-    [isConfigured, setEnabled, notifyContentScript],
-  );
-
-  const handleProviderChange = useCallback(
-    (value: string) => {
-      setProvider(value as ProviderType);
-    },
-    [setProvider],
-  );
-
-  const handleRetry = useCallback(async () => {
-    setStatus((prev) => ({
-      ...prev,
-      error: undefined,
-      isProcessing: true,
-      processedCount: 0,
-    }));
-    await notifyContentScript(true);
-  }, [notifyContentScript]);
 
   const openSettings = useCallback(() => {
     chrome.runtime.openOptionsPage();
   }, []);
 
-  // ==================== Progress Calculation ====================
+  // ==================== Derived State ====================
 
-  const progress = status.totalCount > 0
-    ? (status.processedCount / status.totalCount) * 100
-    : 0;
+  const isTranslating =
+    contentState.status === 'translating' ||
+    contentState.status === 'scanning';
+
+  const progress =
+    contentState.status === 'translating' && contentState.total > 0
+      ? (contentState.current / contentState.total) * 100
+      : 0;
 
   // ==================== Render ====================
 
   if (isLoading) {
     return (
-      <div className="w-[360px] h-[480px] flex flex-col items-center justify-center bg-gradient-to-br from-teal-50 via-white to-cyan-50 dark:from-slate-900 dark:via-slate-800 dark:to-teal-900">
-        <Loader2 className="w-8 h-8 animate-spin text-teal-600 dark:text-teal-400" />
-        <p className="mt-4 text-sm text-slate-600 dark:text-slate-400">
-          加载中...
-        </p>
+      <div className="w-[360px] h-[480px] flex items-center justify-center bg-[#0f1117]">
+        <Loader2 className="w-6 h-6 animate-spin text-teal-400" />
       </div>
     );
   }
 
   return (
-    <div className="w-[360px] min-h-[480px] bg-gradient-to-br from-teal-50 via-white to-cyan-50 dark:from-slate-900 dark:via-slate-800 dark:to-teal-900">
-      {/* Header with gradient */}
-      <div className="relative overflow-hidden">
-        <div className="absolute inset-0 bg-gradient-to-r from-teal-600 to-cyan-600 dark:from-teal-700 dark:to-cyan-700 opacity-90" />
-        <div className="absolute inset-0 bg-[url('data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iNjAiIGhlaWdodD0iNjAiIHhtbG5zPSJodHRwOi8vd3d3LnczLm9yZy8yMDAwL3N2ZyI+PGRlZnM+PHBhdHRlcm4gaWQ9ImdyaWQiIHdpZHRoPSI2MCIgaGVpZ2h0PSI2MCIgcGF0dGVyblVuaXRzPSJ1c2VyU3BhY2VPblVzZSI+PHBhdGggZD0iTSAwIDEwIEwgNjAgMTAgTSAxMCAwIEwgMTAgNjAiIGZpbGw9Im5vbmUiIHN0cm9rZT0id2hpdGUiIHN0cm9rZS13aWR0aD0iMC41IiBvcGFjaXR5PSIwLjEiLz48L3BhdHRlcm4+PC9kZWZzPjxyZWN0IHdpZHRoPSIxMDAlIiBoZWlnaHQ9IjEwMCUiIGZpbGw9InVybCgjZ3JpZCkiLz48L3N2Zz4=')] opacity-30" />
-
-        <CardHeader className="relative pb-6 pt-6">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className="p-2 bg-white/20 dark:bg-white/10 rounded-lg backdrop-blur-sm">
-              <Languages className="w-6 h-6 text-white" />
+    <div className="w-[360px] h-[480px] bg-[#0f1117] flex flex-col overflow-hidden">
+      {/* ---- Header ---- */}
+      <div className="relative flex items-center justify-between px-5 py-4 bg-gradient-to-r from-teal-600/90 to-cyan-600/90 shrink-0">
+        {/* Subtle grid pattern overlay */}
+        <div
+          className="absolute inset-0 opacity-10"
+          style={{
+            backgroundImage:
+              'repeating-linear-gradient(0deg, transparent, transparent 19px, rgba(255,255,255,0.3) 19px, rgba(255,255,255,0.3) 20px), repeating-linear-gradient(90deg, transparent, transparent 19px, rgba(255,255,255,0.3) 19px, rgba(255,255,255,0.3) 20px)',
+          }}
+        />
+        {/* Left: logo + title */}
+        <div className="relative flex items-center gap-2.5">
+          <div className="p-1.5 bg-white/20 rounded-lg backdrop-blur-sm">
+            <BookOpen className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-base font-bold text-white leading-none">
+              漫画翻译
+            </h1>
+            <div className="flex items-center gap-1 mt-1">
+              <div
+                className={`flex items-center gap-1 bg-gradient-to-r ${providerInfo.color} rounded px-1.5 py-0.5`}
+              >
+                <span className="text-white">{providerInfo.icon}</span>
+                <span className="text-white text-[10px] font-medium leading-none">
+                  {providerInfo.name}
+                </span>
+              </div>
+              <span className="text-white/60 text-[10px] leading-none">
+                {modelName}
+              </span>
             </div>
           </div>
-          <h1 className="text-center text-xl font-bold text-white tracking-tight">
-            漫画翻译助手
-          </h1>
-          <p className="text-center text-sm text-white/80 mt-1">
-            AI 驱动的智能翻译工具
-          </p>
-        </CardHeader>
+        </div>
+
+        {/* Right: settings button */}
+        <button
+          onClick={openSettings}
+          className="relative p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
+          title="打开设置"
+        >
+          <Settings className="w-4 h-4 text-white" />
+        </button>
       </div>
 
-      <CardContent className="space-y-4 pt-6 pb-6 px-5">
-        {/* Status Card */}
-        <Card className="border-none shadow-md bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm transition-all duration-200 hover:shadow-lg">
-          <CardContent className="pt-4 pb-4">
-            {/* Status Display */}
-            {!isConfigured ? (
-              <div className="flex items-start gap-3">
-                <div className="p-2 bg-amber-100 dark:bg-amber-900/30 rounded-lg">
-                  <AlertCircle className="w-5 h-5 text-amber-600 dark:text-amber-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900 dark:text-slate-100">
-                    需要配置
-                  </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    {provider === 'ollama'
-                      ? '请配置 Ollama 服务地址'
-                      : '请先配置 API 密钥'}
-                  </p>
-                </div>
-              </div>
-            ) : status.error ? (
-              <div className="space-y-3">
-                <div className="flex items-start gap-3">
-                  <div className="p-2 bg-red-100 dark:bg-red-900/30 rounded-lg">
-                    <AlertCircle className="w-5 h-5 text-red-600 dark:text-red-400" />
-                  </div>
-                  <div className="flex-1">
-                    <p className="font-medium text-slate-900 dark:text-slate-100">
-                      {status.error.title}
-                    </p>
-                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                      {status.error.message}
-                    </p>
-                    {status.error.suggestion && (
-                      <p className="text-xs text-slate-500 dark:text-slate-500 mt-1">
-                        💡 {status.error.suggestion}
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {status.error.retryable && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    className="w-full"
-                    onClick={handleRetry}
-                  >
-                    <RefreshCw className="w-4 h-4 mr-2" />
-                    重试
-                  </Button>
-                )}
-              </div>
-            ) : status.isProcessing ? (
-              <div className="space-y-3">
-                <div className="flex items-center gap-3">
-                  <Loader2 className="w-5 h-5 animate-spin text-teal-600 dark:text-teal-400" />
-                  <div className="flex-1">
-                    <div className="flex items-center justify-between">
-                      <p className="font-medium text-slate-900 dark:text-slate-100">
-                        正在翻译...
-                      </p>
-                      {status.totalCount > 0 && (
-                        <span className="text-sm font-mono text-slate-600 dark:text-slate-400">
-                          {status.processedCount}/{status.totalCount}
-                        </span>
-                      )}
-                    </div>
-                    {status.totalCount === 0 && (
-                      <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                        已处理 {status.processedCount} 张图片
-                      </p>
-                    )}
-                  </div>
-                </div>
-                {status.totalCount > 0 && (
-                  <Progress
-                    value={progress}
-                    className="h-2 bg-slate-200 dark:bg-slate-700"
-                  />
-                )}
-              </div>
-            ) : enabled && status.processedCount > 0 ? (
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-emerald-100 dark:bg-emerald-900/30 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5 text-emerald-600 dark:text-emerald-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900 dark:text-slate-100">
-                    翻译完成
-                  </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    已翻译 {status.processedCount} 张图片
-                  </p>
-                </div>
-              </div>
-            ) : enabled ? (
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-teal-100 dark:bg-teal-900/30 rounded-lg">
-                  <CheckCircle2 className="w-5 h-5 text-teal-600 dark:text-teal-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900 dark:text-slate-100">
-                    翻译已开启
-                  </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    等待图片检测...
-                  </p>
-                </div>
-              </div>
-            ) : (
-              <div className="flex items-center gap-3">
-                <div className="p-2 bg-slate-100 dark:bg-slate-700 rounded-lg">
-                  <Languages className="w-5 h-5 text-slate-600 dark:text-slate-400" />
-                </div>
-                <div className="flex-1">
-                  <p className="font-medium text-slate-900 dark:text-slate-100">
-                    翻译已关闭
-                  </p>
-                  <p className="text-sm text-slate-600 dark:text-slate-400 mt-1">
-                    开启开关以开始翻译
-                  </p>
-                </div>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-
-        {/* Main Toggle */}
-        <Card className="border-none shadow-md bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm transition-all duration-200 hover:shadow-lg">
-          <CardContent className="pt-4 pb-4">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div
-                  className={`p-2 rounded-lg transition-colors duration-200 ${
-                    enabled
-                      ? 'bg-teal-100 dark:bg-teal-900/30'
-                      : 'bg-slate-100 dark:bg-slate-700'
-                  }`}
-                >
-                  <Zap
-                    className={`w-5 h-5 transition-colors duration-200 ${
-                      enabled
-                        ? 'text-teal-600 dark:text-teal-400'
-                        : 'text-slate-600 dark:text-slate-400'
-                    }`}
-                  />
-                </div>
-                <div>
-                  <Label
-                    htmlFor="main-toggle"
-                    className="text-base font-semibold cursor-pointer text-slate-900 dark:text-slate-100"
-                  >
-                    翻译开关
-                  </Label>
-                  <p className="text-xs text-slate-600 dark:text-slate-400">
-                    {enabled ? '点击关闭' : '点击开启'}
-                  </p>
-                </div>
-              </div>
-              <Switch
-                id="main-toggle"
-                checked={enabled}
-                onCheckedChange={handleToggle}
-                disabled={status.isProcessing}
-                className="scale-110 data-[state=checked]:bg-teal-600"
-              />
-            </div>
-          </CardContent>
-        </Card>
-
-        {/* Provider Selection */}
-        <div className="space-y-2">
-          <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
-            AI 服务商
-          </Label>
-          <Select value={provider} onValueChange={handleProviderChange}>
-            <SelectTrigger className="w-full h-12 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-200 hover:border-teal-400 dark:hover:border-teal-600 cursor-pointer">
-              <SelectValue>
-                <div className="flex items-center gap-3">
-                  <div
-                    className={`p-1.5 bg-gradient-to-br ${PROVIDER_INFO[provider].color} rounded-md`}
-                  >
-                    <div className="text-white">
-                      {PROVIDER_INFO[provider].icon}
-                    </div>
-                  </div>
-                  <div className="text-left">
-                    <div className="font-medium text-slate-900 dark:text-slate-100">
-                      {PROVIDER_INFO[provider].name}
-                    </div>
-                    <div className="text-xs text-slate-500 dark:text-slate-400">
-                      {PROVIDER_INFO[provider].description}
-                    </div>
-                  </div>
-                </div>
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              {(Object.keys(PROVIDER_INFO) as ProviderType[]).map((key) => (
-                <SelectItem
-                  key={key}
-                  value={key}
-                  className="cursor-pointer py-3"
-                >
-                  <div className="flex items-center gap-3">
-                    <div
-                      className={`p-1.5 bg-gradient-to-br ${PROVIDER_INFO[key].color} rounded-md`}
-                    >
-                      <div className="text-white">{PROVIDER_INFO[key].icon}</div>
-                    </div>
-                    <div>
-                      <div className="font-medium">{PROVIDER_INFO[key].name}</div>
-                      <div className="text-xs text-muted-foreground">
-                        {PROVIDER_INFO[key].description}
-                      </div>
-                    </div>
-                  </div>
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </div>
-
-        {/* Settings Button */}
-        <Button
-          variant="outline"
-          className="w-full h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 shadow-sm transition-all duration-200 hover:bg-slate-50 dark:hover:bg-slate-700 hover:border-teal-400 dark:hover:border-teal-600 hover:shadow-md cursor-pointer"
-          onClick={openSettings}
-        >
-          <Settings className="w-4 h-4 mr-2" />
-          <span className="font-medium">高级设置</span>
-        </Button>
-
-        {/* Footer Badge */}
-        <div className="flex justify-center pt-2">
-          <Badge
-            variant="secondary"
-            className="bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 border-none px-3 py-1"
+      {/* ---- API Key Warning Banner ---- */}
+      <AnimatePresence>
+        {!isConfigured && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: 'auto', opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden shrink-0"
           >
-            <Sparkles className="w-3 h-3 mr-1.5" />
-            Powered by AI
-          </Badge>
+            <button
+              onClick={openSettings}
+              className="w-full flex items-center gap-2 px-4 py-2.5 bg-amber-500/15 border-b border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer text-left"
+            >
+              <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span className="text-xs text-amber-300">
+                请先配置 API Key 才能使用翻译功能
+              </span>
+              <span className="ml-auto text-xs text-amber-400 font-medium shrink-0">
+                去设置 →
+              </span>
+            </button>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ---- Main Action Area ---- */}
+      <div className="flex-1 flex flex-col justify-center gap-4 px-5 py-6">
+        {/* Primary Button: Translate Page */}
+        <div className="relative">
+          <AnimatePresence mode="wait">
+            {contentState.status === 'complete' ? (
+              /* Complete state */
+              <motion.div
+                key="complete"
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="w-full h-14 flex items-center justify-center gap-2.5 rounded-xl bg-emerald-600/20 border border-emerald-500/30"
+              >
+                <CheckCircle2 className="w-5 h-5 text-emerald-400" />
+                <span className="text-emerald-300 font-medium">
+                  已翻译 {contentState.count} 张图片
+                </span>
+              </motion.div>
+            ) : isTranslating ? (
+              /* Translating state */
+              <motion.div
+                key="translating"
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="w-full rounded-xl bg-teal-600/10 border border-teal-500/20 overflow-hidden"
+              >
+                <div className="flex items-center justify-between px-4 py-3">
+                  <div className="flex items-center gap-2.5">
+                    <Loader2 className="w-4 h-4 animate-spin text-teal-400" />
+                    <span className="text-teal-300 font-medium text-sm">
+                      {contentState.status === 'scanning'
+                        ? '正在扫描图片...'
+                        : `${contentState.current} / ${contentState.total} 已翻译`}
+                    </span>
+                  </div>
+                  <button
+                    onClick={handleTranslatePage}
+                    className="text-xs text-slate-400 hover:text-slate-200 transition-colors cursor-pointer px-2 py-1 rounded hover:bg-white/5"
+                  >
+                    取消
+                  </button>
+                </div>
+                {contentState.status === 'translating' &&
+                  contentState.total > 0 && (
+                    <Progress
+                      value={progress}
+                      className="h-1 rounded-none bg-teal-900/40"
+                    />
+                  )}
+              </motion.div>
+            ) : (
+              /* Idle state: main button */
+              <motion.div
+                key="idle"
+                initial={{ scale: 0.95, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                exit={{ scale: 0.95, opacity: 0 }}
+                transition={{ duration: 0.15 }}
+              >
+                <button
+                  onClick={handleTranslatePage}
+                  disabled={!isConfigured}
+                  className="w-full h-14 flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-teal-900/30 hover:shadow-teal-800/40 cursor-pointer"
+                >
+                  <BookOpen className="w-5 h-5 text-white" />
+                  <span className="text-white font-semibold text-base">
+                    翻译当前页面
+                  </span>
+                </button>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
-      </CardContent>
+
+        {/* Divider */}
+        <div className="flex items-center gap-3">
+          <div className="flex-1 h-px bg-white/5" />
+          <span className="text-xs text-slate-600">或</span>
+          <div className="flex-1 h-px bg-white/5" />
+        </div>
+
+        {/* Secondary Button: Hover Select */}
+        <AnimatePresence mode="wait">
+          {contentState.status === 'hover-select' ? (
+            <motion.div
+              key="hover-select-active"
+              initial={{ scale: 0.97, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.97, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+              className="w-full h-12 flex items-center justify-center gap-2.5 rounded-xl bg-cyan-600/15 border border-cyan-500/40"
+            >
+              <MousePointer className="w-4 h-4 text-cyan-400" />
+              <span className="text-cyan-300 text-sm font-medium">
+                请点击要翻译的图片...
+              </span>
+              <button
+                onClick={handleHoverSelect}
+                className="ml-1 p-1 rounded hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="hover-select-idle"
+              initial={{ scale: 0.97, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.97, opacity: 0 }}
+              transition={{ duration: 0.15 }}
+            >
+              <button
+                onClick={handleHoverSelect}
+                disabled={!isConfigured}
+                className="w-full h-12 flex items-center justify-center gap-2.5 rounded-xl border border-white/10 hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 cursor-pointer"
+              >
+                <MousePointer className="w-4 h-4 text-slate-400" />
+                <span className="text-slate-300 text-sm font-medium">
+                  点击选图翻译
+                </span>
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Error State */}
+        <AnimatePresence>
+          {contentState.status === 'error' && (
+            <motion.div
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="flex items-start gap-2.5 p-3 rounded-xl bg-red-500/10 border border-red-500/20"
+            >
+              <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-red-300 leading-relaxed">
+                  {contentState.message}
+                </p>
+              </div>
+              <button
+                onClick={() => setContentState({ status: 'idle' })}
+                className="shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
+              >
+                <X className="w-3 h-3 text-slate-500" />
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </div>
+
+      {/* ---- Footer ---- */}
+      <div className="shrink-0 border-t border-white/5 px-5 py-3.5 flex items-center justify-between">
+        <button
+          onClick={handleClearAll}
+          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
+        >
+          <Trash2 className="w-3.5 h-3.5" />
+          清除覆盖层
+        </button>
+
+        <div className="flex items-center gap-1.5">
+          <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
+          <span className="text-xs text-slate-600">漫画翻译 v2</span>
+        </div>
+      </div>
     </div>
   );
 };

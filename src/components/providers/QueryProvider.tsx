@@ -16,7 +16,7 @@ export function QueryProvider({ children }: QueryProviderProps) {
     <QueryClientProvider client={queryClient}>
       {children}
       {/* 开发环境下显示React Query开发工具 */}
-      {process.env['NODE_ENV'] === 'development' && (
+      {import.meta.env.DEV && (
         <ReactQueryDevtools
           initialIsOpen={false}
         />
