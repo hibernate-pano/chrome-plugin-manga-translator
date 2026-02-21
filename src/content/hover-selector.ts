@@ -39,11 +39,19 @@ export function isTranslatableImage(img: HTMLImageElement): boolean {
     return false;
   }
 
-  // 检查 className 和 id 是否含有 UI 图片关键词
+  // 检查 className 和 id 是否含有 UI 图片关键词（全词匹配，避免 "reading" 误匹配 "ad"）
   const classAndId = `${img.className} ${img.id}`.toLowerCase();
-  const uiKeywords = ['avatar', 'logo', 'icon', 'banner', 'ad', 'emoji'];
-  for (const keyword of uiKeywords) {
-    if (classAndId.includes(keyword)) {
+  const uiKeywordPatterns = [
+    /\bavatar\b/,
+    /\blogo\b/,
+    /\bicon\b/,
+    /\bbanner\b/,
+    /\bads?\b/,
+    /\badvert/,
+    /\bemoji\b/,
+  ];
+  for (const pattern of uiKeywordPatterns) {
+    if (pattern.test(classAndId)) {
       return false;
     }
   }

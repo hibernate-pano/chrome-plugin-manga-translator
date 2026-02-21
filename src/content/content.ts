@@ -151,29 +151,28 @@ async function processSingleImage(img: HTMLImageElement): Promise<void> {
  * 整页翻译
  */
 async function translatePage(): Promise<void> {
-  console.log('[ContentScript] translatePage 开始执行');
+  console.warn('[ContentScript] translatePage 开始执行');
 
   if (currentState.status === 'translating' || currentState.status === 'scanning') {
-    console.log('[ContentScript] 翻译已在进行中');
+    console.warn('[ContentScript] 翻译已在进行中');
     return;
   }
 
   abortController = new AbortController();
   setState({ status: 'scanning' });
-  console.log('[ContentScript] 状态设置为 scanning');
 
   try {
     await ensureServicesInitialized();
-    console.log('[ContentScript] 服务初始化完成');
+    console.warn('[ContentScript] 服务初始化完成');
 
     const allImages = Array.from(document.querySelectorAll('img'));
-    console.log('[ContentScript] 页面上的 img 元素数量:', allImages.length);
+    console.warn('[ContentScript] 页面上的 img 元素数量:', allImages.length);
 
     const images = getViewportFirstImages(findTranslatableImages());
-    console.log('[ContentScript] 可翻译图片数量:', images.length);
+    console.warn('[ContentScript] 可翻译图片数量:', images.length);
 
     if (images.length === 0) {
-      console.log('[ContentScript] 没有找到可翻译的图片，设置完成状态');
+      console.warn('[ContentScript] 没有找到可翻译的图片');
       setState({ status: 'complete', count: 0 });
       return;
     }
@@ -318,7 +317,7 @@ function handleMessage(
   _sender: chrome.runtime.MessageSender,
   sendResponse: (response: { success: boolean; error?: string; state?: ContentState }) => void
 ): boolean {
-  console.log('[ContentScript] 收到消息:', request.type);
+  console.warn('[ContentScript] 收到消息:', request.type);
 
   switch (request.type) {
     case 'GET_STATE':
@@ -381,7 +380,7 @@ function setupHudCancelListener(): void {
 // ==================== 初始化 ====================
 
 async function initialize(): Promise<void> {
-  console.log('[ContentScript] Manga Translator v2 初始化');
+  console.warn('[ContentScript] Manga Translator v2 初始化');
 
   try {
     // 创建 HUD
@@ -402,7 +401,7 @@ async function initialize(): Promise<void> {
     // 通知 background 已就绪
     sendToBackground({ type: 'READY' });
 
-    console.log('[ContentScript] 初始化完成');
+    console.warn('[ContentScript] 初始化完成');
   } catch (error) {
     console.error('[ContentScript] 初始化失败:', error);
   }

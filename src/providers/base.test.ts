@@ -141,8 +141,8 @@ describe('getMangaTranslationPrompt', () => {
 
   it('should include coordinate instructions', () => {
     const prompt = getMangaTranslationPrompt('zh-CN');
-    
+
     expect(prompt).toContain('0-1');
-    expect(prompt).toContain('相对');
+    expect(prompt).toContain('ratio');
   });
 });

@@ -16,12 +16,17 @@ export {
   parseVisionResponse,
 } from './base';
 
-// Provider factory with dynamic imports for better bundle splitting
+// Provider implementations (static imports for Chrome extension compatibility)
 import { VisionProvider, ProviderType, ProviderConfig } from './base';
+import { OpenAIProvider } from './openai';
+import { ClaudeProvider } from './claude';
+import { DeepSeekProvider } from './deepseek';
+import { OllamaProvider } from './ollama';
+import { SiliconFlowProvider } from './siliconflow';
+import { DashScopeProvider } from './dashscope';
 
 /**
- * Create a Vision Provider instance by type using dynamic imports
- * This reduces initial bundle size by only loading the required provider
+ * Create a Vision Provider instance by type
  *
  * @param type Provider type identifier
  * @param config Provider configuration
@@ -34,36 +39,24 @@ export async function createProvider(
   let provider: VisionProvider;
 
   switch (type) {
-    case 'openai': {
-      const { OpenAIProvider } = await import('./openai');
+    case 'openai':
       provider = new OpenAIProvider();
       break;
-    }
-    case 'claude': {
-      const { ClaudeProvider } = await import('./claude');
+    case 'claude':
       provider = new ClaudeProvider();
       break;
-    }
-    case 'deepseek': {
-      const { DeepSeekProvider } = await import('./deepseek');
+    case 'deepseek':
       provider = new DeepSeekProvider();
       break;
-    }
-    case 'ollama': {
-      const { OllamaProvider } = await import('./ollama');
+    case 'ollama':
       provider = new OllamaProvider();
       break;
-    }
-    case 'siliconflow': {
-      const { SiliconFlowProvider } = await import('./siliconflow');
+    case 'siliconflow':
       provider = new SiliconFlowProvider();
       break;
-    }
-    case 'dashscope': {
-      const { DashScopeProvider } = await import('./dashscope');
+    case 'dashscope':
       provider = new DashScopeProvider();
       break;
-    }
     default:
       throw new Error(`Unknown provider type: ${type}`);
   }

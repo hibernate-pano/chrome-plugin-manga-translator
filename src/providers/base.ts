@@ -144,31 +144,21 @@ export interface VisionProvider {
  * @returns Formatted prompt string
  */
 export function getMangaTranslationPrompt(targetLanguage: string): string {
-  return `你是一个专业的漫画翻译助手。请分析这张漫画图片，完成以下任务：
+  return `Analyze this manga/comic image. Find all text areas (speech bubbles, narration, sound effects) and translate them to ${targetLanguage}.
 
-1. 识别图片中所有的文字区域（对话气泡、旁白、音效等）
-2. 将识别到的文字翻译成${targetLanguage}
-3. 返回每个文字区域的位置和翻译结果
+IMPORTANT: You MUST respond with ONLY a JSON object, no other text. Do not describe the image. Do not explain anything.
 
-请以 JSON 格式返回结果：
-{
-  "textAreas": [
-    {
-      "x": 0.1,
-      "y": 0.2,
-      "width": 0.3,
-      "height": 0.1,
-      "originalText": "原文",
-      "translatedText": "翻译"
-    }
-  ]
-}
+Response format:
+{"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,"originalText":"原文","translatedText":"翻译"}]}
 
-注意：
-- 坐标使用相对比例（0-1），不是像素值
-- 按照漫画阅读顺序排列（日漫从右到左，韩漫从左到右）
-- 保持翻译的语气和风格与原文一致
-- 如果图片中没有文字，返回空数组 {"textAreas": []}`;
+Rules:
+- Coordinates are relative ratios (0-1), not pixels
+- x,y is the top-left corner of the text area
+- Order by manga reading direction (right-to-left for Japanese manga, left-to-right for Korean manhwa)
+- Keep translation tone consistent with original
+- If no text found, return: {"textAreas":[]}
+
+Respond with JSON only:`;
 }
 
 /**
@@ -183,6 +173,9 @@ export function getMangaTranslationPrompt(targetLanguage: string): string {
 export function parseVisionResponse(response: string): VisionResponse {
   let jsonStr = response.trim();
 
+  // Strip thinking tags (DeepSeek/Qwen models often wrap responses)
+  jsonStr = jsonStr.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
+
   // Handle Markdown code block wrapper
   const jsonMatch = jsonStr.match(/```(?:json)?\s*([\s\S]*?)```/);
   if (jsonMatch && jsonMatch[1]) {
@@ -195,42 +188,81 @@ export function parseVisionResponse(response: string): VisionResponse {
     jsonStr = jsonObjectMatch[0];
   }
 
-  try {
-    const parsed = JSON.parse(jsonStr);
+  const parseResult = tryParseJson(jsonStr);
+  if (parseResult !== null) {
+    return validateAndNormalize(parseResult, response);
+  }
 
-    // Validate the structure
-    if (!parsed.textAreas || !Array.isArray(parsed.textAreas)) {
-      return { textAreas: [], rawResponse: response };
-    }
+  // Retry: fix trailing commas before } or ]
+  const fixed = jsonStr.replace(/,\s*([\]}])/g, '$1');
+  const fixedResult = tryParseJson(fixed);
+  if (fixedResult !== null) {
+    return validateAndNormalize(fixedResult, response);
+  }
 
-    // Validate and normalize each text area
-    const textAreas: TextArea[] = parsed.textAreas
-      .filter((area: unknown): area is Record<string, unknown> => {
-        if (typeof area !== 'object' || area === null) return false;
-        const a = area as Record<string, unknown>;
-        return (
-          typeof a['x'] === 'number' &&
-          typeof a['y'] === 'number' &&
-          typeof a['width'] === 'number' &&
-          typeof a['height'] === 'number' &&
-          typeof a['translatedText'] === 'string'
-        );
-      })
-      .map((area: Record<string, unknown>) => ({
-        x: Math.max(0, Math.min(1, area['x'] as number)),
-        y: Math.max(0, Math.min(1, area['y'] as number)),
-        width: Math.max(0, Math.min(1, area['width'] as number)),
-        height: Math.max(0, Math.min(1, area['height'] as number)),
-        originalText: (area['originalText'] as string) || '',
-        translatedText: area['translatedText'] as string,
-      }));
+  console.warn(
+    '[parseVisionResponse] Failed to parse LLM response:',
+    response.substring(0, 500)
+  );
 
-    return { textAreas, rawResponse: response };
-  } catch {
+  // Detect common model incompatibility patterns
+  const trimmed = response.trim();
+  if (trimmed.length <= 5 && !trimmed.includes('{')) {
+    // Truncated garbage like "}" — model doesn't understand the task
     throw new Error(
-      `Failed to parse Vision LLM response: ${response.substring(0, 200)}`
+      'Model returned truncated response. This model may not support structured JSON output. Try switching to a vision-language model like Qwen2.5-VL.'
     );
   }
+  if (!trimmed.includes('{') && trimmed.length > 20) {
+    // Plain text description — model is doing captioning, not following instructions
+    throw new Error(
+      'Model returned plain text instead of JSON. This model does not follow instruction format. Try switching to a vision-language model like Qwen2.5-VL.'
+    );
+  }
+
+  throw new Error(
+    `Failed to parse Vision LLM response: ${response.substring(0, 200)}`
+  );
+}
+
+function tryParseJson(str: string): Record<string, unknown> | null {
+  try {
+    return JSON.parse(str) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function validateAndNormalize(
+  parsed: Record<string, unknown>,
+  rawResponse: string
+): VisionResponse {
+  if (!parsed['textAreas'] || !Array.isArray(parsed['textAreas'])) {
+    return { textAreas: [], rawResponse };
+  }
+
+  const textAreas: TextArea[] = (parsed['textAreas'] as unknown[])
+    .filter((area: unknown): area is Record<string, unknown> => {
+      if (typeof area !== 'object' || area === null) return false;
+      const a = area as Record<string, unknown>;
+      return (
+        typeof a['x'] === 'number' &&
+        typeof a['y'] === 'number' &&
+        typeof a['width'] === 'number' &&
+        typeof a['height'] === 'number' &&
+        typeof a['translatedText'] === 'string'
+      );
+    })
+    .map((area: Record<string, unknown>) => ({
+      x: Math.max(0, Math.min(1, area['x'] as number)),
+      y: Math.max(0, Math.min(1, area['y'] as number)),
+      width: Math.max(0, Math.min(1, area['width'] as number)),
+      height: Math.max(0, Math.min(1, area['height'] as number)),
+      originalText: (area['originalText'] as string) || '',
+      translatedText: area['translatedText'] as string,
+    }));
+
+  return { textAreas, rawResponse };
 }
 
 // ==================== Abstract Base Provider ====================
@@ -307,13 +339,23 @@ export function createApiError(error: unknown, providerName: string): Error {
     return error;
   }
 
+  if (typeof error === 'string' && error.length > 0) {
+    return new Error(`${providerName}: ${error}`);
+  }
+
   if (typeof error === 'object' && error !== null) {
-    const err = error as any;
-    if (err.message) {
-      return new Error(`${providerName}: ${err.message}`);
+    const err = error as Record<string, unknown>;
+    if (typeof err['message'] === 'string') {
+      return new Error(`${providerName}: ${err['message']}`);
     }
-    if (err.error?.message) {
-      return new Error(`${providerName}: ${err.error.message}`);
+    if (
+      typeof err['error'] === 'object' &&
+      err['error'] !== null &&
+      typeof (err['error'] as Record<string, unknown>)['message'] === 'string'
+    ) {
+      return new Error(
+        `${providerName}: ${(err['error'] as Record<string, unknown>)['message']}`
+      );
     }
   }
 
