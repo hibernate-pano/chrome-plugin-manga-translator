@@ -10,9 +10,9 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { TranslatorService, createTranslatorFromConfig, getTranslator, resetTranslator } from './translator';
+import { createTranslatorFromConfig, getTranslator, resetTranslator } from './translator';
 import { OverlayRenderer, getRenderer, resetRenderer } from './renderer';
-import { processImage, compressImage, calculateHash } from './image-processor';
+import { compressImage, calculateHash } from './image-processor';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
 import type { ProviderType, TextArea } from '@/providers/base';

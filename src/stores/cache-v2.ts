@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType, TextArea } from '@/providers/base';
+import { LRUCache } from '@/utils/lru-cache';
 
 // ==================== Type Definitions ====================
 
@@ -42,11 +43,11 @@ export interface CacheEntry {
 }
 
 /**
- * Cache state
+ * Cache state with LRU optimization
  */
 export interface TranslationCacheState {
-  /** Map of image hash to cache entry */
-  entries: Record<string, CacheEntry>;
+  /** LRU cache instance for efficient memory management */
+  cache: LRUCache<string, CacheEntry>;
   /** Maximum number of entries to keep */
   maxEntries: number;
 }
@@ -108,6 +109,12 @@ export interface TranslationCacheActions {
    * Clean up old entries to stay within maxEntries limit
    */
   cleanup: () => void;
+
+  /**
+   * Get all cache entries for debugging/testing
+   * @returns Array of [key, value] pairs
+   */
+  entries: () => [string, CacheEntry][];
 }
 
 // ==================== Default Configuration ====================
@@ -115,7 +122,7 @@ export interface TranslationCacheActions {
 const DEFAULT_MAX_ENTRIES = 100;
 
 const DEFAULT_STATE: TranslationCacheState = {
-  entries: {},
+  cache: new LRUCache<string, CacheEntry>(DEFAULT_MAX_ENTRIES),
   maxEntries: DEFAULT_MAX_ENTRIES,
 };
 
@@ -166,11 +173,10 @@ const chromeLocalStorage = {
 // ==================== Store Creation ====================
 
 /**
- * Translation Cache Store (v2)
- * 
+ * Translation Cache Store (v2) with LRU optimization
+ *
  * Stores translation results keyed by image hash to avoid
- * redundant API calls. Uses LRU-like eviction when cache
- * exceeds maxEntries.
+ * redundant API calls. Uses LRU cache for efficient memory management.
  */
 export const useTranslationCacheStore = create<TranslationCacheState & TranslationCacheActions>()(
   persist(
@@ -181,7 +187,7 @@ export const useTranslationCacheStore = create<TranslationCacheState & Translati
       // Get cached result
       get: (imageHash) => {
         const state = get();
-        const entry = state.entries[imageHash];
+        const entry = state.cache.get(imageHash);
         if (!entry) {
           return null;
         }
@@ -195,10 +201,7 @@ export const useTranslationCacheStore = create<TranslationCacheState & Translati
       // Store result in cache
       set: (imageHash, result, provider) => {
         set((state) => {
-          const newEntries = { ...state.entries };
-          
-          // Add new entry
-          newEntries[imageHash] = {
+          const newEntry: CacheEntry = {
             imageHash,
             result: {
               ...result,
@@ -207,56 +210,53 @@ export const useTranslationCacheStore = create<TranslationCacheState & Translati
             timestamp: Date.now(),
             provider,
           };
-          
-          // Check if we need to evict old entries
-          const entryCount = Object.keys(newEntries).length;
-          if (entryCount > state.maxEntries) {
-            // Find and remove oldest entries
-            const sortedEntries = Object.entries(newEntries)
-              .sort(([, a], [, b]) => a.timestamp - b.timestamp);
-            
-            const entriesToRemove = entryCount - state.maxEntries;
-            for (let i = 0; i < entriesToRemove; i++) {
-              const entry = sortedEntries[i];
-              if (entry) {
-                const [hashToRemove] = entry;
-                delete newEntries[hashToRemove];
-              }
-            }
+
+          // Create new LRU cache instance to avoid mutating state
+          const newCache = new LRUCache<string, CacheEntry>(state.maxEntries);
+          for (const [key, value] of state.cache.entries()) {
+            newCache.set(key, value);
           }
-          
-          return { entries: newEntries };
+          newCache.set(imageHash, newEntry);
+
+          return { ...state, cache: newCache };
         });
       },
 
       // Check if hash exists in cache
       has: (imageHash) => {
         const state = get();
-        return imageHash in state.entries;
+        return state.cache.has(imageHash);
       },
 
       // Remove specific entry
       remove: (imageHash) => {
         set((state) => {
-          const newEntries = { ...state.entries };
-          delete newEntries[imageHash];
-          return { entries: newEntries };
+          const newCache = new LRUCache<string, CacheEntry>(state.maxEntries);
+          for (const [key, value] of state.cache.entries()) {
+            if (key !== imageHash) {
+              newCache.set(key, value);
+            }
+          }
+          return { ...state, cache: newCache };
         });
       },
 
       // Clear all entries
       clear: () => {
-        set({ entries: {} });
+        set((state) => ({
+          ...state,
+          cache: new LRUCache<string, CacheEntry>(state.maxEntries),
+        }));
       },
 
       // Get cache statistics
       getStats: () => {
         const state = get();
-        const entries = Object.values(state.entries);
+        const entries = Array.from(state.cache.values());
         const timestamps = entries.map((e) => e.timestamp);
-        
+
         return {
-          entryCount: entries.length,
+          entryCount: state.cache.size,
           maxEntries: state.maxEntries,
           oldestEntry: timestamps.length > 0 ? Math.min(...timestamps) : null,
           newestEntry: timestamps.length > 0 ? Math.max(...timestamps) : null,
@@ -265,44 +265,69 @@ export const useTranslationCacheStore = create<TranslationCacheState & Translati
 
       // Set max entries
       setMaxEntries: (max) => {
-        set({ maxEntries: max });
-        // Trigger cleanup if needed
-        get().cleanup();
+        set((state) => {
+          // Create new LRU cache with new size
+          const newCache = new LRUCache<string, CacheEntry>(max);
+
+          // Copy existing entries (LRU will handle size limit)
+          for (const [key, value] of state.cache.entries()) {
+            newCache.set(key, value);
+          }
+
+          return {
+            ...state,
+            cache: newCache,
+            maxEntries: max,
+          };
+        });
       },
 
-      // Cleanup old entries
+      // Cleanup is handled automatically by LRU cache
       cleanup: () => {
-        set((state) => {
-          const entryCount = Object.keys(state.entries).length;
-          if (entryCount <= state.maxEntries) {
-            return state;
-          }
-          
-          const newEntries = { ...state.entries };
-          const sortedEntries = Object.entries(newEntries)
-            .sort(([, a], [, b]) => a.timestamp - b.timestamp);
-          
-          const entriesToRemove = entryCount - state.maxEntries;
-          for (let i = 0; i < entriesToRemove; i++) {
-            const entry = sortedEntries[i];
-            if (entry) {
-              const [hashToRemove] = entry;
-              delete newEntries[hashToRemove];
-            }
-          }
-          
-          return { entries: newEntries };
-        });
+        // No-op: LRU cache handles cleanup automatically
+      },
+
+      // Get all cache entries for debugging/testing
+      entries: () => {
+        const state = get();
+        return Array.from(state.cache.entries());
       },
     }),
     {
       name: 'manga-translator-cache-v2',
       storage: createJSONStorage(() => chromeLocalStorage),
-      // Only persist entries and maxEntries
-      partialize: (state) => ({
-        entries: state.entries,
-        maxEntries: state.maxEntries,
-      }),
+      // Custom serialization for LRU cache
+      partialize: (state) => {
+        // Convert LRU cache to plain object for persistence
+        const entries: Record<string, CacheEntry> = {};
+        for (const [key, value] of state.cache.entries()) {
+          entries[key] = value;
+        }
+        return {
+          entries,
+          maxEntries: state.maxEntries,
+        };
+      },
+      // Custom deserialization
+      onRehydrateStorage: () => (state) => {
+        if (state && 'entries' in state && typeof state.entries === 'object' && !Array.isArray(state.entries)) {
+          // Reconstruct LRU cache from persisted entries
+          const cache = new LRUCache<string, CacheEntry>(state.maxEntries);
+          const entries = state.entries as Record<string, CacheEntry>;
+
+          // Sort by timestamp to maintain LRU order
+          const sortedEntries = Object.entries(entries)
+            .sort(([, a], [, b]) => a.timestamp - b.timestamp);
+
+          for (const [key, value] of sortedEntries) {
+            cache.set(key, value);
+          }
+
+          // Update state with reconstructed cache
+          state.cache = cache;
+          delete (state as any).entries; // Remove the temporary entries object
+        }
+      },
     }
   )
 );
@@ -341,11 +366,11 @@ export async function calculateImageHash(imageData: string): Promise<string> {
 /**
  * Get cache entry count
  */
-export const useCacheEntryCount = () => 
-  useTranslationCacheStore((state) => Object.keys(state.entries).length);
+export const useCacheEntryCount = () =>
+  useTranslationCacheStore((state) => state.cache.size);
 
 /**
  * Check if caching is effectively enabled (has entries)
  */
 export const useHasCachedEntries = () =>
-  useTranslationCacheStore((state) => Object.keys(state.entries).length > 0);
+  useTranslationCacheStore((state) => state.cache.size > 0);

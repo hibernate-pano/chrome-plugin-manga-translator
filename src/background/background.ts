@@ -50,7 +50,7 @@ const DEFAULT_CONFIG = {
     siliconflow: { apiKey: '', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-VL-32B-Instruct' },
     dashscope: { apiKey: '', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-max' },
     openai: { apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
-    claude: { apiKey: '', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-3-5-sonnet-20241022' },
+    claude: { apiKey: '', baseUrl: 'https://api.anthropic.com/v1', model: 'claude-sonnet-4-20250514' },
     deepseek: { apiKey: '', baseUrl: 'https://api.deepseek.com/v1', model: 'deepseek-chat' },
     ollama: { apiKey: '', baseUrl: 'http://localhost:11434', model: 'llava' },
   },
@@ -225,6 +225,25 @@ async function handleMessage(
   sendResponse: (response: MessageResponse) => void
 ): Promise<void> {
   try {
+    // Handle type-based messages from new content script (v2 protocol)
+    if (request['type'] && !request.action) {
+      switch (request['type']) {
+        case 'STATE_UPDATE':
+          // Forward state update to popup
+          chrome.runtime.sendMessage(request).catch(() => {
+            // Popup may not be open
+          });
+          sendResponse({ received: true });
+          return;
+        case 'READY':
+          sendResponse({ received: true });
+          return;
+        default:
+          sendResponse({ received: true });
+          return;
+      }
+    }
+
     switch (request.action) {
       // ==================== Config Operations ====================
       

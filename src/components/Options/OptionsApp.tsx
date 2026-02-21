@@ -49,7 +49,7 @@ import {
 } from 'lucide-react';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
-import { createProvider, OllamaProvider } from '@/providers';
+import { createProvider } from '@/providers';
 
 // ==================== Types ====================
 
@@ -149,15 +149,17 @@ const TARGET_LANGUAGES = [
 // ==================== Component ====================
 
 const OptionsApp: React.FC = () => {
-  // Config store
-  const {
-    provider,
-    providers,
-    targetLanguage,
-    setProvider,
-    updateProviderSettings,
-    setTargetLanguage,
-  } = useAppConfigStore();
+  // Config store - 细粒度 selector 避免全量订阅
+  const provider = useAppConfigStore((state) => state.provider);
+  const providers = useAppConfigStore((state) => state.providers);
+  const targetLanguage = useAppConfigStore((state) => state.targetLanguage);
+  const setProvider = useAppConfigStore((state) => state.setProvider);
+  const updateProviderSettings = useAppConfigStore(
+    (state) => state.updateProviderSettings,
+  );
+  const setTargetLanguage = useAppConfigStore(
+    (state) => state.setTargetLanguage,
+  );
 
   // Local state
   const [showApiKey, setShowApiKey] = useState<Record<ProviderType, boolean>>({
@@ -202,9 +204,9 @@ const OptionsApp: React.FC = () => {
       setOllamaModelsError(null);
 
       try {
-        const ollamaProvider = new OllamaProvider();
+        const ollamaProvider = await createProvider('ollama', { baseUrl: url });
         await ollamaProvider.initialize({ baseUrl: url });
-        const models = await ollamaProvider.getAvailableVisionModels();
+        const models = await (ollamaProvider as any).getAvailableVisionModels();
 
         if (models.length > 0) {
           setOllamaModels(models);

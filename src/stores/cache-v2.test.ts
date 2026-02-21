@@ -165,7 +165,8 @@ describe('TranslationCacheStore', () => {
       
       // Access internal state to verify provider is stored
       const state = useTranslationCacheStore.getState();
-      const entry = state.entries[hash];
+      const entries = state.entries();
+      const entry = entries.find(([key]) => key === hash)?.[1];
       expect(entry?.provider).toBe('claude');
     });
   });

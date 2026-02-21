@@ -9,7 +9,6 @@ import {
   ProviderConfig,
   VisionResponse,
   ValidationResult,
-  ApiResponse,
   parseImageData,
   createApiError,
   getMangaTranslationPrompt,

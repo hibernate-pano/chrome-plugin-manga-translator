@@ -11,7 +11,6 @@ import {
   VisionResponse,
   ValidationResult,
   parseImageData,
-  createApiError,
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';

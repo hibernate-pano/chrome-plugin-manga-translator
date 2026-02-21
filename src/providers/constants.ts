@@ -19,7 +19,7 @@ export const API_URLS = {
 
 export const DEFAULT_MODELS = {
   OPENAI: 'gpt-4o',
-  CLAUDE: 'claude-3-5-sonnet-20241022',
+  CLAUDE: 'claude-sonnet-4-20250514',
   DEEPSEEK: 'deepseek-chat',
   OLLAMA: 'llava:7b',
   SILICONFLOW: 'Qwen/Qwen2.5-VL-32B-Instruct',

@@ -16,25 +16,12 @@ export {
   parseVisionResponse,
 } from './base';
 
-// Provider implementations
-export { OpenAIProvider } from './openai';
-export { ClaudeProvider } from './claude';
-export { DeepSeekProvider } from './deepseek';
-export { OllamaProvider } from './ollama';
-export { SiliconFlowProvider } from './siliconflow';
-export { DashScopeProvider } from './dashscope';
-
-// Provider factory
+// Provider factory with dynamic imports for better bundle splitting
 import { VisionProvider, ProviderType, ProviderConfig } from './base';
-import { OpenAIProvider } from './openai';
-import { ClaudeProvider } from './claude';
-import { DeepSeekProvider } from './deepseek';
-import { OllamaProvider } from './ollama';
-import { SiliconFlowProvider } from './siliconflow';
-import { DashScopeProvider } from './dashscope';
 
 /**
- * Create a Vision Provider instance by type
+ * Create a Vision Provider instance by type using dynamic imports
+ * This reduces initial bundle size by only loading the required provider
  *
  * @param type Provider type identifier
  * @param config Provider configuration
@@ -47,24 +34,36 @@ export async function createProvider(
   let provider: VisionProvider;
 
   switch (type) {
-    case 'openai':
+    case 'openai': {
+      const { OpenAIProvider } = await import('./openai');
       provider = new OpenAIProvider();
       break;
-    case 'claude':
+    }
+    case 'claude': {
+      const { ClaudeProvider } = await import('./claude');
       provider = new ClaudeProvider();
       break;
-    case 'deepseek':
+    }
+    case 'deepseek': {
+      const { DeepSeekProvider } = await import('./deepseek');
       provider = new DeepSeekProvider();
       break;
-    case 'ollama':
+    }
+    case 'ollama': {
+      const { OllamaProvider } = await import('./ollama');
       provider = new OllamaProvider();
       break;
-    case 'siliconflow':
+    }
+    case 'siliconflow': {
+      const { SiliconFlowProvider } = await import('./siliconflow');
       provider = new SiliconFlowProvider();
       break;
-    case 'dashscope':
+    }
+    case 'dashscope': {
+      const { DashScopeProvider } = await import('./dashscope');
       provider = new DashScopeProvider();
       break;
+    }
     default:
       throw new Error(`Unknown provider type: ${type}`);
   }
