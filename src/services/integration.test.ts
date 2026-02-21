@@ -403,6 +403,8 @@ describe('Integration Tests: Complete Translation Flow', () => {
     });
 
     it('should handle network errors', async () => {
+      // Network errors are retryable, so this test needs longer timeout
+      // Retry: 3 attempts with exponential backoff (2s + 4s + 8s = ~14s)
       globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
       
       useAppConfigStore.getState().setProvider('openai');
@@ -418,6 +420,8 @@ describe('Integration Tests: Complete Translation Flow', () => {
     });
 
     it('should handle malformed API responses', async () => {
+      // Parse errors are retryable, so this test needs longer timeout
+      // Retry: 3 attempts with exponential backoff (2s + 4s + 8s = ~14s)
       globalThis.fetch = vi.fn().mockResolvedValue({
         ok: true,
         json: () => Promise.resolve({

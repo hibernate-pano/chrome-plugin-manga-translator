@@ -22,6 +22,7 @@ import {
 } from '@/stores/cache-v2';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { processImage, type ImageProcessingOptions } from './image-processor';
+import { retryWithBackoff } from '@/utils/error-handler';
 
 // ==================== Logging Utilities ====================
 
@@ -104,9 +105,9 @@ export class TranslatorService {
       return;
     }
 
-    if (import.meta.env.DEV) {
-      console.log(`[Translator] 初始化 Provider: ${this.config.provider}`);
-    }
+    console.warn(
+      `[Translator] 初始化 Provider: ${this.config.provider}, Model: ${this.config.model || 'default'}`
+    );
     this.provider = await createProvider(this.config.provider, {
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
@@ -173,14 +174,19 @@ export class TranslatorService {
         }
       }
 
-      // Call provider API
+      // Call provider API with retry for transient errors
       if (import.meta.env.DEV) {
         console.log(`[Translator] 调用 Vision LLM: ${this.provider.name}`);
       }
-      const response = await this.provider.analyzeAndTranslate(
-        processed.base64,
-        this.config.targetLanguage
-      );
+
+      const callProvider = () =>
+        this.provider!.analyzeAndTranslate(
+          processed.base64,
+          this.config.targetLanguage
+        );
+
+      // Use retry for transient errors (timeout, network, rate limit)
+      const response = await retryWithBackoff(callProvider, 3, 2000);
       if (import.meta.env.DEV) {
         console.log(
           '[Translator] Vision LLM 返回结果, 文字区域数:',
@@ -207,12 +213,10 @@ export class TranslatorService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      if (import.meta.env.DEV) {
-        console.error('[Translator] 翻译失败:', errorMessage);
-        // Include stack trace in development mode
-        if (error instanceof Error && error.stack) {
-          console.error('[Translator] 错误堆栈:', error.stack);
-        }
+      // Always log translation errors for diagnostics
+      console.warn('[Translator] 翻译失败:', errorMessage);
+      if (import.meta.env.DEV && error instanceof Error && error.stack) {
+        console.error('[Translator] 错误堆栈:', error.stack);
       }
       return {
         success: false,

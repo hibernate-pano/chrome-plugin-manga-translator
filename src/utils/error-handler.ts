@@ -29,9 +29,15 @@ export enum TranslationErrorCode {
   OLLAMA_NOT_RUNNING = 'OLLAMA_NOT_RUNNING', // Ollama 服务未启动
   MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',       // 模型不存在
   
+  // 参数错误
+  PARAM_ERROR = 'PARAM_ERROR',             // 请求参数超出限制
+
+  // 模型不兼容
+  MODEL_INCOMPATIBLE = 'MODEL_INCOMPATIBLE', // 模型不支持结构化输出
+
   // 解析错误
   PARSE_ERROR = 'PARSE_ERROR',             // 翻译结果解析失败
-  
+
   // 其他错误
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',         // 未知错误
 }
@@ -84,6 +90,16 @@ const ERROR_MESSAGES: Record<TranslationErrorCode, { message: string; suggestion
   [TranslationErrorCode.MODEL_NOT_FOUND]: {
     message: '模型未安装，请先下载模型',
     suggestion: '请运行 ollama pull <model_name> 下载模型',
+    retryable: false,
+  },
+  [TranslationErrorCode.PARAM_ERROR]: {
+    message: '请求参数超出模型限制',
+    suggestion: '请在设置中调整模型参数，或更换支持更大上下文的模型',
+    retryable: false,
+  },
+  [TranslationErrorCode.MODEL_INCOMPATIBLE]: {
+    message: '当前模型不支持翻译任务',
+    suggestion: '请更换为支持指令跟随的视觉语言模型，如 Qwen2.5-VL-32B-Instruct',
     retryable: false,
   },
   [TranslationErrorCode.PARSE_ERROR]: {
@@ -240,9 +256,29 @@ export class TranslationErrorHandler {
       return TranslationErrorCode.MODEL_NOT_FOUND;
     }
 
+    // 参数超出限制 (e.g. "max_tokens exceeded max_seq_len limit")
+    if (message.includes('exceeded') || (message.includes('max_tokens') && message.includes('limit'))) {
+      return TranslationErrorCode.PARAM_ERROR;
+    }
+
+    // 模型不兼容（返回截断或纯文本，无法产生 JSON）
+    if (message.includes('truncated response') || message.includes('does not follow instruction') || message.includes('not support structured')) {
+      return TranslationErrorCode.MODEL_INCOMPATIBLE;
+    }
+
     // 解析错误
     if (message.includes('parse') || message.includes('json') || message.includes('解析')) {
       return TranslationErrorCode.PARSE_ERROR;
+    }
+
+    // API 返回空响应
+    if (message.includes('empty response') || message.includes('empty content')) {
+      return TranslationErrorCode.PARSE_ERROR;
+    }
+
+    // API 错误（通用）
+    if (message.includes('api error') || message.includes('unknown api')) {
+      return TranslationErrorCode.NETWORK_ERROR;
     }
 
     // 配置缺失
