@@ -16,7 +16,8 @@
 // ==================== Types ====================
 
 interface MessageRequest {
-  action: string;
+  action?: string;
+  type?: string;
   enabled?: boolean;
   config?: Record<string, unknown>;
   [key: string]: unknown;
@@ -267,30 +268,35 @@ async function handleMessage(
       // ==================== Translation Control ====================
       
       case 'toggleTranslation':
-        // Forward to active tab's content script
-        await forwardToActiveTab(request, sendResponse);
+        // Forward to active tab's content script with new protocol (type field)
+        await forwardToActiveTab(
+          request.enabled
+            ? { type: 'TRANSLATE_PAGE' }
+            : { type: 'CANCEL_TRANSLATION' },
+          sendResponse
+        );
         break;
-      
+
       case 'startTranslation':
         // Forward to active tab's content script
-        await forwardToActiveTab({ action: 'toggleTranslation', enabled: true }, sendResponse);
+        await forwardToActiveTab({ type: 'TRANSLATE_PAGE' }, sendResponse);
         break;
-      
+
       case 'stopTranslation':
         // Forward to active tab's content script
-        await forwardToActiveTab({ action: 'toggleTranslation', enabled: false }, sendResponse);
+        await forwardToActiveTab({ type: 'CANCEL_TRANSLATION' }, sendResponse);
         break;
       
       // ==================== State Queries ====================
       
       case 'getState':
-        // Forward to active tab's content script
-        await forwardToActiveTab(request, sendResponse);
+        // Forward to active tab's content script with new protocol
+        await forwardToActiveTab({ type: 'GET_STATE' }, sendResponse);
         break;
-      
+
       case 'checkState':
-        // Forward to active tab's content script
-        await forwardToActiveTab(request, sendResponse);
+        // Forward to active tab's content script with new protocol
+        await forwardToActiveTab({ type: 'GET_STATE' }, sendResponse);
         break;
       
       // ==================== Status Updates (from Content Script) ====================
@@ -449,12 +455,12 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
     // Notify content script to check if translation should be active
     try {
       const config = await getConfig();
-      const enabled = (config as { state?: { enabled?: boolean }; enabled?: boolean })?.state?.enabled ?? 
+      const enabled = (config as { state?: { enabled?: boolean }; enabled?: boolean })?.state?.enabled ??
                       (config as { enabled?: boolean })?.enabled ?? false;
-      
+
       if (enabled) {
         // If translation was enabled, notify content script
-        await sendToTab(tabId, { action: 'checkState' });
+        await sendToTab(tabId, { type: 'GET_STATE' });
       }
     } catch {
       // Content script might not be ready yet, ignore
@@ -479,8 +485,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   if (info.menuItemId === 'translateImage' && info.srcUrl) {
     try {
       await chrome.tabs.sendMessage(tab.id, {
-        action: 'translateSingleImage',
-        imageUrl: info.srcUrl,
+        type: 'ENTER_HOVER_SELECT',
       });
     } catch {
       // Content script not injected
@@ -488,8 +493,7 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
   } else if (info.menuItemId === 'translatePage') {
     try {
       await chrome.tabs.sendMessage(tab.id, {
-        action: 'toggleTranslation',
-        enabled: true,
+        type: 'TRANSLATE_PAGE',
       });
     } catch {
       // Content script not injected
@@ -515,11 +519,12 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
     
     if (newEnabled !== oldEnabled) {
       console.log('[Background] Enabled state changed:', oldEnabled, '->', newEnabled);
-      // Broadcast to all tabs
-      broadcastToAllTabs({
-        action: 'toggleTranslation',
-        enabled: newEnabled,
-      });
+      // Broadcast to all tabs with correct protocol
+      broadcastToAllTabs(
+        newEnabled
+          ? { type: 'TRANSLATE_PAGE' }
+          : { type: 'CANCEL_TRANSLATION' }
+      );
     }
   }
 });

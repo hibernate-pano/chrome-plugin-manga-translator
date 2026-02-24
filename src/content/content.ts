@@ -101,12 +101,22 @@ function setState(state: ContentState): void {
 // ==================== 服务初始化 ====================
 
 async function ensureServicesInitialized(): Promise<void> {
-  if (!translator) {
-    translator = createTranslatorFromConfig();
-    await translator.initialize();
-  }
+  // 确保 renderer 总是被初始化
   if (!renderer) {
     renderer = getRenderer();
+  }
+
+  // 重新创建 translator 以获取最新配置
+  translator = createTranslatorFromConfig();
+
+  try {
+    await translator.initialize();
+    console.warn('[ContentScript] Translator 初始化成功');
+  } catch (error) {
+    console.error('[ContentScript] Translator 初始化失败:', error);
+    const friendly = parseTranslationError(error);
+    setState({ status: 'error', message: `初始化失败: ${friendly.message}` });
+    throw error;
   }
 }
 
@@ -181,6 +191,7 @@ async function translatePage(): Promise<void> {
     const parallelLimit = config.parallelLimit || 3;
     const total = images.length;
     let current = 0;
+    let successCount = 0;
 
     setState({ status: 'translating', current: 0, total });
 
@@ -205,7 +216,12 @@ async function translatePage(): Promise<void> {
         if (abortController?.signal.aborted) {
           throw new Error('Translation cancelled');
         }
+        const beforeCount = processedImages.size;
         await processSingleImage(img);
+        // Only count if it wasn't already processed
+        if (processedImages.size > beforeCount) {
+          successCount++;
+        }
         processedImages.add(getImageKey(img));
       },
       options
@@ -217,7 +233,7 @@ async function translatePage(): Promise<void> {
       return;
     }
 
-    setState({ status: 'complete', count: current });
+    setState({ status: 'complete', count: successCount });
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
