@@ -21,7 +21,18 @@ import {
   type TranslationResult,
 } from '@/stores/cache-v2';
 import { useAppConfigStore } from '@/stores/config-v2';
-import { processImage, type ImageProcessingOptions } from './image-processor';
+import {
+  processImage,
+  type ImageProcessingOptions,
+  cropRegions,
+  combineCroppedRegions,
+} from './image-processor';
+import {
+  detectTextRegions,
+  mergeOverlappingRegions,
+  terminateWorker,
+  type TextRegion,
+} from './text-detector';
 import { retryWithBackoff } from '@/utils/error-handler';
 
 // ==================== Logging Utilities ====================
@@ -57,6 +68,8 @@ export interface TranslatorConfig {
   cacheEnabled: boolean;
   /** Image processing options */
   imageOptions?: ImageProcessingOptions;
+  /** Whether to use text detection to crop regions before sending to VLM */
+  useTextDetection?: boolean;
 }
 
 export interface TranslationProgress {
@@ -79,6 +92,90 @@ export interface TranslationProgress {
 }
 
 export type ProgressCallback = (progress: TranslationProgress) => void;
+
+// ==================== Helper Functions ====================
+
+/**
+ * Map translated text areas from cropped image back to original image coordinates
+ *
+ * When using text detection, the VLM receives a cropped/combined image.
+ * This function maps the response coordinates back to the original image.
+ */
+function mapTranslatedAreasToOriginal(
+  translatedAreas: TextArea[],
+  detectedRegions: TextRegion[],
+  originalWidth: number,
+  originalHeight: number
+): TextArea[] {
+  if (!detectedRegions || detectedRegions.length === 0) {
+    return translatedAreas;
+  }
+
+  // The combined image is a vertical stack of cropped regions
+  // We need to calculate the position of each region in the combined image
+  const spacing = 20; // Same as in combineCroppedRegions
+  let currentY = 0;
+  const regionPositions: Array<{ x: number; y: number; width: number; height: number }> = [];
+
+  for (const region of detectedRegions) {
+    // Center horizontally in max width
+    const maxWidth = Math.max(...detectedRegions.map((r) => r.width));
+    const x = Math.round((maxWidth - region.width) / 2);
+
+    regionPositions.push({
+      x: x + currentY,
+      y: currentY,
+      width: region.width,
+      height: region.height,
+    });
+
+    currentY += region.height + spacing;
+  }
+
+  const totalHeight = currentY - spacing;
+  const totalWidth = Math.max(...detectedRegions.map((r) => r.width));
+
+  return translatedAreas.map((area) => {
+    // Find which region this translation belongs to
+    for (let i = 0; i < regionPositions.length; i++) {
+      const pos = regionPositions[i];
+      if (!pos) continue;
+
+      // Check if this area falls within this region's bounds in the combined image
+      if (
+        area.y >= pos.y &&
+        area.y <= pos.y + pos.height &&
+        area.x >= pos.x &&
+        area.x <= pos.x + pos.width
+      ) {
+        // Map coordinates back to original image
+        const region = detectedRegions[i];
+        if (!region) continue;
+
+        const relativeX = (area.x - pos.x) / pos.width;
+        const relativeY = (area.y - pos.y) / pos.height;
+
+        return {
+          ...area,
+          x: region.x + relativeX * region.width,
+          y: region.y + relativeY * region.height,
+          // Scale width/height proportionally
+          width: (area.width / pos.width) * region.width,
+          height: (area.height / pos.height) * region.height,
+        };
+      }
+    }
+
+    // If no matching region found, scale to original dimensions
+    return {
+      ...area,
+      x: (area.x / totalWidth) * originalWidth,
+      y: (area.y / totalHeight) * originalHeight,
+      width: (area.width / totalWidth) * originalWidth,
+      height: (area.height / totalHeight) * originalHeight,
+    };
+  });
+}
 
 // ==================== Translator Service Class ====================
 
@@ -174,6 +271,69 @@ export class TranslatorService {
         }
       }
 
+      // Determine what image to send to VLM
+      let imageToTranslate = processed.base64;
+      let detectedRegions: TextRegion[] | undefined;
+
+      // Optional: Use text detection to crop regions before sending to VLM
+      if (this.config.useTextDetection) {
+        if (import.meta.env.DEV) {
+          console.log('[Translator] 使用文字检测裁剪图像...');
+        }
+
+        try {
+          const detectionResult = await detectTextRegions(image);
+
+          if (detectionResult.regions.length > 0) {
+            // Merge overlapping regions for better coverage
+            const mergedRegions = mergeOverlappingRegions(
+              detectionResult.regions,
+              0.3
+            );
+
+            if (import.meta.env.DEV) {
+              console.log(
+                `[Translator] 检测到 ${mergedRegions.length} 个文字区域`
+              );
+            }
+
+            // Crop the regions
+            const croppedImages = await cropRegions(
+              image,
+              mergedRegions.map((r) => ({
+                x: r.x,
+                y: r.y,
+                width: r.width,
+                height: r.height,
+              })),
+              this.config.imageOptions
+            );
+
+            // Combine all cropped regions into one image
+            if (croppedImages.length > 0) {
+              imageToTranslate = combineCroppedRegions(croppedImages, {
+                ...this.config.imageOptions,
+                format: 'png',
+              });
+              detectedRegions = mergedRegions;
+
+              if (import.meta.env.DEV) {
+                console.log(
+                  `[Translator] 裁剪完成, 合并为 ${croppedImages.length} 个区域`
+                );
+              }
+            }
+          } else {
+            if (import.meta.env.DEV) {
+              console.log('[Translator] 未检测到文字区域，使用原图');
+            }
+          }
+        } catch (detectError) {
+          // If text detection fails, fall back to full image
+          console.warn('[Translator] 文字检测失败，使用原图:', detectError);
+        }
+      }
+
       // Call provider API with retry for transient errors
       if (import.meta.env.DEV) {
         console.log(`[Translator] 调用 Vision LLM: ${this.provider.name}`);
@@ -181,7 +341,7 @@ export class TranslatorService {
 
       const callProvider = () =>
         this.provider!.analyzeAndTranslate(
-          processed.base64,
+          imageToTranslate,
           this.config.targetLanguage
         );
 
@@ -194,9 +354,19 @@ export class TranslatorService {
         );
       }
 
+      // Map the VLM response coordinates back to original image coordinates
+      const textAreas = detectedRegions
+        ? mapTranslatedAreasToOriginal(
+            response.textAreas,
+            detectedRegions,
+            processed.originalWidth,
+            processed.originalHeight
+          )
+        : response.textAreas;
+
       const result: TranslationResult = {
         success: true,
-        textAreas: response.textAreas,
+        textAreas,
       };
 
       // Store in cache
@@ -346,6 +516,8 @@ export function createTranslatorFromConfig(): TranslatorService {
     imageOptions: {
       maxSize: config.maxImageSize,
     },
+    // Enable text detection by default to save tokens
+    useTextDetection: true,
   });
 }
 

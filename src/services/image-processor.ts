@@ -334,3 +334,192 @@ export function base64ToDataUrl(
 export function dataUrlToBase64(dataUrl: string): string {
   return dataUrl.replace(/^data:image\/\w+;base64,/, '');
 }
+
+// ==================== Image Cropping ====================
+
+export interface CropRegion {
+  /** X coordinate of top-left corner */
+  x: number;
+  /** Y coordinate of top-left corner */
+  y: number;
+  /** Width of the region */
+  width: number;
+  /** Height of the region */
+  height: number;
+}
+
+/**
+ * Crop regions from an image
+ *
+ * @param image Image element or base64 string
+ * @param regions Array of regions to crop
+ * @param options Processing options
+ * @returns Array of cropped images as base64
+ */
+export async function cropRegions(
+  image: HTMLImageElement | string,
+  regions: CropRegion[],
+  options: ImageProcessingOptions = {}
+): Promise<string[]> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  if (regions.length === 0) {
+    return [];
+  }
+
+  // Ensure we have an image element
+  const imgElement = await ensureImageElement(image);
+
+  // Calculate scale factors (in case image was resized)
+  const scaleX = imgElement.naturalWidth / (opts.maxSize || imgElement.naturalWidth);
+  const scaleY = imgElement.naturalHeight / (opts.maxSize || imgElement.naturalHeight);
+
+  const croppedImages: string[] = [];
+
+  for (const region of regions) {
+    // Scale coordinates if image was compressed
+    const x = Math.round(region.x * scaleX);
+    const y = Math.round(region.y * scaleY);
+    const width = Math.round(region.width * scaleX);
+    const height = Math.round(region.height * scaleY);
+
+    // Ensure valid dimensions
+    const cropX = Math.max(0, Math.min(x, imgElement.naturalWidth - 1));
+    const cropY = Math.max(0, Math.min(y, imgElement.naturalHeight - 1));
+    const cropWidth = Math.max(1, Math.min(width, imgElement.naturalWidth - cropX));
+    const cropHeight = Math.max(1, Math.min(height, imgElement.naturalHeight - cropY));
+
+    const cropped = cropImageElement(imgElement, cropX, cropY, cropWidth, cropHeight, opts);
+    croppedImages.push(cropped);
+  }
+
+  return croppedImages;
+}
+
+/**
+ * Ensure input is an HTMLImageElement
+ */
+async function ensureImageElement(
+  image: HTMLImageElement | string
+): Promise<HTMLImageElement> {
+  if (image instanceof HTMLImageElement) {
+    return image;
+  }
+
+  // It's a base64 string, load it into an image
+  return loadImage(image.startsWith('data:') ? image : `data:image/png;base64,${image}`);
+}
+
+/**
+ * Crop a specific region from an image element
+ */
+function cropImageElement(
+  image: HTMLImageElement,
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  options: Required<ImageProcessingOptions>
+): string {
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Failed to get canvas context');
+  }
+
+  // Draw the cropped region
+  ctx.drawImage(image, x, y, width, height, 0, 0, width, height);
+
+  // Convert to base64
+  const mimeType = `image/${options.format}`;
+  const dataUrl = canvas.toDataURL(mimeType, options.quality);
+  return dataUrl.replace(/^data:image\/\w+;base64,/, '');
+}
+
+/**
+ * Combine multiple cropped regions into a single image
+ *
+ * This creates a vertical stack of all text regions,
+ * which can be sent to VLM for translation in one call.
+ *
+ * @param croppedImages Array of cropped base64 images
+ * @param options Processing options
+ * @returns Combined image as base64
+ */
+export function combineCroppedRegions(
+  croppedImages: string[],
+  options: ImageProcessingOptions = {}
+): string {
+  if (croppedImages.length === 0) {
+    throw new Error('No images to combine');
+  }
+
+  if (croppedImages.length === 1) {
+    return croppedImages[0] ?? '';
+  }
+
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  // First, load all images to get their dimensions
+  const images: HTMLImageElement[] = [];
+  let totalHeight = 0;
+  let maxWidth = 0;
+
+  for (const base64 of croppedImages) {
+    const img = imageFromBase64(base64);
+    images.push(img);
+    totalHeight += img.height;
+    maxWidth = Math.max(maxWidth, img.width);
+  }
+
+  // Add spacing between regions
+  const spacing = 20;
+  totalHeight += spacing * (images.length - 1);
+
+  // Create canvas and draw all images
+  const canvas = document.createElement('canvas');
+  canvas.width = maxWidth;
+  canvas.height = totalHeight;
+
+  const ctx = canvas.getContext('2d');
+  if (!ctx) {
+    throw new Error('Failed to get canvas context');
+  }
+
+  // Fill with white background
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Draw each image
+  let currentY = 0;
+  for (const img of images) {
+    const x = Math.round((maxWidth - img.width) / 2); // Center horizontally
+    ctx.drawImage(img, x, currentY);
+    currentY += img.height + spacing;
+  }
+
+  // Convert to base64
+  const mimeType = `image/${opts.format}`;
+  const dataUrl = canvas.toDataURL(mimeType, opts.quality);
+  return dataUrl.replace(/^data:image\/\w+;base64,/, '');
+}
+
+/**
+ * Create an Image element from base64 string
+ */
+function imageFromBase64(base64: string): HTMLImageElement {
+  const img = new Image();
+  const dataUrl = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
+  img.src = dataUrl;
+
+  // Synchronously available if already loaded
+  if (img.complete) {
+    return img;
+  }
+
+  // This shouldn't happen in practice since we just created the base64
+  throw new Error('Image not immediately available');
+}
