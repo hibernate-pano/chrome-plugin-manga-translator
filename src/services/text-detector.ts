@@ -6,7 +6,8 @@
  * significantly reducing token usage.
  */
 
-import Tesseract, { createWorker, type Worker } from 'tesseract.js';
+import { createWorker } from 'tesseract.js';
+import type { Worker } from 'tesseract.js';
 
 // ==================== Type Definitions ====================
 
@@ -77,7 +78,7 @@ async function getWorker(languages: string[]): Promise<Worker> {
 
   // Create new worker
   worker = await createWorker(langKey, 1, {
-    logger: (m) => {
+    logger: (m: { status: string; progress: number }) => {
       if (import.meta.env.DEV && m.status === 'recognizing text') {
         console.log(`[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`);
       }

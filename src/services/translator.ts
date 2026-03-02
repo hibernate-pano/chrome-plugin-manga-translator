@@ -2,38 +2,30 @@
  * Translator Service
  *
  * Core translation service that orchestrates:
- * - Image processing
- * - Provider API calls
- * - Cache management
- * - Error handling
+ * - Image processing（图像压缩 + base64 + hash）
+ * - Provider API calls（通过 background script 代理，解决 CORS）
+ * - Cache management（hash-based 缓存）
+ * - Error handling（retry + 用户友好的错误信息）
  *
  * Requirements: 2.2, 2.3, 2.4
  */
 
 import {
-  type VisionProvider,
   type ProviderType,
   type TextArea,
-  createProvider,
 } from '@/providers';
 import {
   useTranslationCacheStore,
   type TranslationResult,
 } from '@/stores/cache-v2';
 import { useAppConfigStore } from '@/stores/config-v2';
+import { useUsageStore } from '@/stores/usage-store';
 import {
   processImage,
   type ImageProcessingOptions,
-  cropRegions,
-  combineCroppedRegions,
 } from './image-processor';
-import {
-  detectTextRegions,
-  mergeOverlappingRegions,
-  terminateWorker,
-  type TextRegion,
-} from './text-detector';
 import { retryWithBackoff } from '@/utils/error-handler';
+
 
 // ==================== Logging Utilities ====================
 
@@ -68,8 +60,6 @@ export interface TranslatorConfig {
   cacheEnabled: boolean;
   /** Image processing options */
   imageOptions?: ImageProcessingOptions;
-  /** Whether to use text detection to crop regions before sending to VLM */
-  useTextDetection?: boolean;
 }
 
 export interface TranslationProgress {
@@ -83,99 +73,15 @@ export interface TranslationProgress {
   estimatedTimeRemaining?: number;
   /** Current operation phase */
   phase:
-    | 'initializing'
-    | 'processing'
-    | 'translating'
-    | 'rendering'
-    | 'complete'
-    | 'error';
+  | 'initializing'
+  | 'processing'
+  | 'translating'
+  | 'rendering'
+  | 'complete'
+  | 'error';
 }
 
 export type ProgressCallback = (progress: TranslationProgress) => void;
-
-// ==================== Helper Functions ====================
-
-/**
- * Map translated text areas from cropped image back to original image coordinates
- *
- * When using text detection, the VLM receives a cropped/combined image.
- * This function maps the response coordinates back to the original image.
- */
-function mapTranslatedAreasToOriginal(
-  translatedAreas: TextArea[],
-  detectedRegions: TextRegion[],
-  originalWidth: number,
-  originalHeight: number
-): TextArea[] {
-  if (!detectedRegions || detectedRegions.length === 0) {
-    return translatedAreas;
-  }
-
-  // The combined image is a vertical stack of cropped regions
-  // We need to calculate the position of each region in the combined image
-  const spacing = 20; // Same as in combineCroppedRegions
-  let currentY = 0;
-  const regionPositions: Array<{ x: number; y: number; width: number; height: number }> = [];
-
-  for (const region of detectedRegions) {
-    // Center horizontally in max width
-    const maxWidth = Math.max(...detectedRegions.map((r) => r.width));
-    const x = Math.round((maxWidth - region.width) / 2);
-
-    regionPositions.push({
-      x: x + currentY,
-      y: currentY,
-      width: region.width,
-      height: region.height,
-    });
-
-    currentY += region.height + spacing;
-  }
-
-  const totalHeight = currentY - spacing;
-  const totalWidth = Math.max(...detectedRegions.map((r) => r.width));
-
-  return translatedAreas.map((area) => {
-    // Find which region this translation belongs to
-    for (let i = 0; i < regionPositions.length; i++) {
-      const pos = regionPositions[i];
-      if (!pos) continue;
-
-      // Check if this area falls within this region's bounds in the combined image
-      if (
-        area.y >= pos.y &&
-        area.y <= pos.y + pos.height &&
-        area.x >= pos.x &&
-        area.x <= pos.x + pos.width
-      ) {
-        // Map coordinates back to original image
-        const region = detectedRegions[i];
-        if (!region) continue;
-
-        const relativeX = (area.x - pos.x) / pos.width;
-        const relativeY = (area.y - pos.y) / pos.height;
-
-        return {
-          ...area,
-          x: region.x + relativeX * region.width,
-          y: region.y + relativeY * region.height,
-          // Scale width/height proportionally
-          width: (area.width / pos.width) * region.width,
-          height: (area.height / pos.height) * region.height,
-        };
-      }
-    }
-
-    // If no matching region found, scale to original dimensions
-    return {
-      ...area,
-      x: (area.x / totalWidth) * originalWidth,
-      y: (area.y / totalHeight) * originalHeight,
-      width: (area.width / totalWidth) * originalWidth,
-      height: (area.height / totalHeight) * originalHeight,
-    };
-  });
-}
 
 // ==================== Translator Service Class ====================
 
@@ -183,9 +89,13 @@ function mapTranslatedAreasToOriginal(
  * Translator Service
  *
  * Manages the translation workflow for manga images.
+ *
+ * 架构说明：
+ * - 图像处理（压缩/base64）在 content script 中完成
+ * - AI API 调用通过 background script 代理，解决 CORS 问题
+ * - 缓存通过 image hash 实现，避免重复调用
  */
 export class TranslatorService {
-  private provider: VisionProvider | null = null;
   private config: TranslatorConfig;
   private abortController: AbortController | null = null;
   private isInitialized = false;
@@ -196,183 +106,112 @@ export class TranslatorService {
 
   /**
    * Initialize the translator with the configured provider
+   * 注意：background 代理模式下，provider 仅用于 validateConfig
    */
   async initialize(): Promise<void> {
-    if (this.isInitialized && this.provider) {
+    if (this.isInitialized) {
       return;
     }
 
     console.warn(
       `[Translator] 初始化 Provider: ${this.config.provider}, Model: ${this.config.model || 'default'}`
     );
-    this.provider = await createProvider(this.config.provider, {
+
+    // 验证配置：确保 API Key 已设置
+    const providerConfig = {
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
       model: this.config.model,
-    });
+    };
+
+    // 检查必要的配置
+    if (this.config.provider !== 'ollama' && !providerConfig.apiKey) {
+      throw new Error(
+        `${this.config.provider} 需要配置 API Key。请前往设置页面填写。`
+      );
+    }
 
     this.isInitialized = true;
-    if (import.meta.env.DEV) {
-      console.log(`[Translator] Provider 初始化完成: ${this.provider.name}`);
+    if (isDevelopment) {
+      _log(`Provider 配置验证完成: ${this.config.provider}`);
     }
   }
 
   /**
    * Translate a single image
    *
+   * 翻译流程：
+   * 1. 图像处理（压缩 + base64 + hash）
+   * 2. 检查缓存（hash 命中则跳过 API 调用）
+   * 3. 通过 background script 代理调用 AI API（解决 CORS）
+   * 4. 写入缓存
+   *
    * @param image Image element to translate
    * @returns Translation result
    */
   async translateImage(image: HTMLImageElement): Promise<TranslationResult> {
-    if (import.meta.env.DEV) {
-      console.log('[Translator] 开始翻译图片');
-    }
-
-    // Ensure provider is initialized
-    if (!this.provider) {
-      await this.initialize();
-    }
-
-    if (!this.provider) {
-      if (import.meta.env.DEV) {
-        console.error('[Translator] Provider 未初始化');
-      }
-      return {
-        success: false,
-        textAreas: [],
-        error: 'Provider not initialized',
-      };
+    if (isDevelopment) {
+      _log('开始翻译图片');
     }
 
     try {
-      // Process image (compress if needed, get base64 and hash)
-      if (import.meta.env.DEV) {
-        console.log('[Translator] 处理图片...');
+      // 步骤1：处理图片（压缩 + base64 + hash）
+      if (isDevelopment) {
+        _log('处理图片...');
       }
       const processed = await processImage(image, this.config.imageOptions);
-      if (import.meta.env.DEV) {
-        console.log(
-          '[Translator] 图片处理完成, hash:',
-          processed.hash.substring(0, 16)
-        );
+      if (isDevelopment) {
+        _log('图片处理完成, hash:', processed.hash.substring(0, 16));
       }
 
-      // Check cache first
+      // 步骤2：检查缓存
       if (this.config.cacheEnabled) {
         const cached = useTranslationCacheStore.getState().get(processed.hash);
         if (cached) {
-          if (import.meta.env.DEV) {
-            console.log(
-              '[Translator] 使用缓存结果, 文字区域数:',
-              cached.textAreas.length
-            );
+          if (isDevelopment) {
+            _log('使用缓存结果, 文字区域数:', cached.textAreas.length);
           }
           return cached;
         }
       }
 
-      // Determine what image to send to VLM
-      let imageToTranslate = processed.base64;
-      let detectedRegions: TextRegion[] | undefined;
-
-      // Optional: Use text detection to crop regions before sending to VLM
-      if (this.config.useTextDetection) {
-        if (import.meta.env.DEV) {
-          console.log('[Translator] 使用文字检测裁剪图像...');
-        }
-
-        try {
-          const detectionResult = await detectTextRegions(image);
-
-          if (detectionResult.regions.length > 0) {
-            // Merge overlapping regions for better coverage
-            const mergedRegions = mergeOverlappingRegions(
-              detectionResult.regions,
-              0.3
-            );
-
-            if (import.meta.env.DEV) {
-              console.log(
-                `[Translator] 检测到 ${mergedRegions.length} 个文字区域`
-              );
-            }
-
-            // Crop the regions
-            const croppedImages = await cropRegions(
-              image,
-              mergedRegions.map((r) => ({
-                x: r.x,
-                y: r.y,
-                width: r.width,
-                height: r.height,
-              })),
-              this.config.imageOptions
-            );
-
-            // Combine all cropped regions into one image
-            if (croppedImages.length > 0) {
-              imageToTranslate = combineCroppedRegions(croppedImages, {
-                ...this.config.imageOptions,
-                format: 'png',
-              });
-              detectedRegions = mergedRegions;
-
-              if (import.meta.env.DEV) {
-                console.log(
-                  `[Translator] 裁剪完成, 合并为 ${croppedImages.length} 个区域`
-                );
-              }
-            }
-          } else {
-            if (import.meta.env.DEV) {
-              console.log('[Translator] 未检测到文字区域，使用原图');
-            }
-          }
-        } catch (detectError) {
-          // If text detection fails, fall back to full image
-          console.warn('[Translator] 文字检测失败，使用原图:', detectError);
-        }
+      // 步骤3：通过 background script 代理调用 AI API（解决 CORS）
+      if (isDevelopment) {
+        _log(`通过 background 代理调用 Vision LLM: ${this.config.provider}`);
       }
 
-      // Call provider API with retry for transient errors
-      if (import.meta.env.DEV) {
-        console.log(`[Translator] 调用 Vision LLM: ${this.provider.name}`);
-      }
-
-      const callProvider = () =>
-        this.provider!.analyzeAndTranslate(
-          imageToTranslate,
+      const callViaBackground = () =>
+        this.callViaBackgroundScript(
+          processed.base64,
+          processed.mimeType,
           this.config.targetLanguage
         );
 
-      // Use retry for transient errors (timeout, network, rate limit)
-      const response = await retryWithBackoff(callProvider, 3, 2000);
-      if (import.meta.env.DEV) {
-        console.log(
-          '[Translator] Vision LLM 返回结果, 文字区域数:',
-          response.textAreas.length
-        );
+      // 使用重试机制处理瞬时错误（网络超时、限速等）
+      const response = await retryWithBackoff(callViaBackground, 3, 2000);
+
+      if (isDevelopment) {
+        _log('Vision LLM 返回结果, 文字区域数:', response.textAreas.length);
       }
 
-      // Map the VLM response coordinates back to original image coordinates
-      const textAreas = detectedRegions
-        ? mapTranslatedAreasToOriginal(
-            response.textAreas,
-            detectedRegions,
-            processed.originalWidth,
-            processed.originalHeight
-          )
-        : response.textAreas;
+      // 记录 Token 用量到统计 store
+      if (response.usage) {
+        useUsageStore.getState().addRecord({
+          provider: this.config.provider,
+          usage: response.usage,
+          cached: false,
+        });
+      }
 
       const result: TranslationResult = {
         success: true,
-        textAreas,
+        textAreas: response.textAreas,
       };
 
-      // Store in cache
+      // 步骤4：写入缓存
       if (this.config.cacheEnabled) {
-        if (import.meta.env.DEV) {
-          console.log('[Translator] 存入缓存');
+        if (isDevelopment) {
+          _log('存入缓存');
         }
         useTranslationCacheStore
           .getState()
@@ -383,10 +222,9 @@ export class TranslatorService {
     } catch (error) {
       const errorMessage =
         error instanceof Error ? error.message : 'Unknown error';
-      // Always log translation errors for diagnostics
       console.warn('[Translator] 翻译失败:', errorMessage);
-      if (import.meta.env.DEV && error instanceof Error && error.stack) {
-        console.error('[Translator] 错误堆栈:', error.stack);
+      if (isDevelopment && error instanceof Error && error.stack) {
+        _logError('错误堆栈:', error.stack);
       }
       return {
         success: false,
@@ -394,6 +232,42 @@ export class TranslatorService {
         error: errorMessage,
       };
     }
+  }
+
+  /**
+   * 通过 background script 代理调用 AI API
+   *
+   * 理由：content script 受 CORS 策略限制，无法直接调用第三方 AI API。
+   * 通过 background service worker 中转，可以绕过 CORS 限制。
+   */
+  private async callViaBackgroundScript(
+    imageBase64: string,
+    mimeType: string,
+    targetLanguage: string
+  ): Promise<{ textAreas: TextArea[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
+    const response = await chrome.runtime.sendMessage({
+      action: 'translateImage',
+      imageBase64,
+      mimeType,
+      targetLanguage,
+      provider: this.config.provider,
+      apiKey: this.config.apiKey,
+      baseUrl: this.config.baseUrl,
+      model: this.config.model,
+    });
+
+    if (!response) {
+      throw new Error('Background script 无响应，请刷新页面后重试');
+    }
+
+    if (!response.success) {
+      throw new Error(response.error || '翻译请求失败');
+    }
+
+    return {
+      textAreas: (response.textAreas as TextArea[]) || [],
+      usage: response.usage as { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
+    };
   }
 
   /**
@@ -407,21 +281,21 @@ export class TranslatorService {
     images: HTMLImageElement[],
     onProgress?: ProgressCallback
   ): Promise<TranslationResult[]> {
-    if (import.meta.env.DEV) {
-      console.log(`[Translator] 开始批量翻译, 图片数量: ${images.length}`);
+    if (isDevelopment) {
+      _log(`开始批量翻译, 图片数量: ${images.length}`);
     }
 
-    // Create new abort controller for this batch
+    // 创建新的中止控制器
     this.abortController = new AbortController();
 
     const results: TranslationResult[] = [];
     const total = images.length;
 
     for (let i = 0; i < images.length; i++) {
-      // Check if cancelled
+      // 检查是否已取消
       if (this.abortController.signal.aborted) {
-        if (import.meta.env.DEV) {
-          console.log('[Translator] 批量翻译已取消');
+        if (isDevelopment) {
+          _log('批量翻译已取消');
         }
         break;
       }
@@ -429,9 +303,8 @@ export class TranslatorService {
       const image = images[i];
       if (!image) continue;
 
-      // Report progress
-      if (import.meta.env.DEV) {
-        console.log(`[Translator] 处理图片 ${i + 1}/${total}`);
+      if (isDevelopment) {
+        _log(`处理图片 ${i + 1}/${total}`);
       }
       onProgress?.({
         current: i + 1,
@@ -444,9 +317,9 @@ export class TranslatorService {
       results.push(result);
     }
 
-    if (import.meta.env.DEV) {
-      console.log(
-        `[Translator] 批量翻译完成, 成功: ${results.filter(r => r.success).length}/${results.length}`
+    if (isDevelopment) {
+      _log(
+        `批量翻译完成, 成功: ${results.filter(r => r.success).length}/${results.length}`
       );
     }
     return results;
@@ -466,15 +339,10 @@ export class TranslatorService {
    * Check if provider is properly configured
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
-    if (!this.provider) {
-      await this.initialize();
+    if (this.config.provider !== 'ollama' && !this.config.apiKey) {
+      return { valid: false, message: `请配置 ${this.config.provider} 的 API Key` };
     }
-
-    if (!this.provider) {
-      return { valid: false, message: 'Provider not initialized' };
-    }
-
-    return this.provider.validateConfig();
+    return { valid: true, message: '配置有效' };
   }
 
   /**
@@ -482,8 +350,7 @@ export class TranslatorService {
    */
   updateConfig(config: Partial<TranslatorConfig>): void {
     this.config = { ...this.config, ...config };
-    // Reset provider to force re-initialization with new config
-    this.provider = null;
+    // 重置初始化状态，下次使用时重新初始化
     this.isInitialized = false;
   }
 
@@ -516,8 +383,8 @@ export function createTranslatorFromConfig(): TranslatorService {
     imageOptions: {
       maxSize: config.maxImageSize,
     },
-    // Enable text detection by default to save tokens
-    useTextDetection: true,
+    // 不使用 Tesseract 预处理，直接发送完整图片给 VLM
+    // 原因：1) Tesseract 坐标映射存在 Bug  2) VLM 直接处理完整图片质量更好
   });
 }
 

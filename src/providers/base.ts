@@ -24,6 +24,15 @@ export interface TextArea {
 }
 
 /**
+ * Token 使用量统计（AI API 返回）
+ */
+export interface TokenUsageInfo {
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+}
+
+/**
  * Response from Vision LLM analysis
  */
 export interface VisionResponse {
@@ -31,6 +40,8 @@ export interface VisionResponse {
   textAreas: TextArea[];
   /** Raw response from the API (for debugging) */
   rawResponse?: string;
+  /** Token 使用量（用于统计费用） */
+  usage?: TokenUsageInfo;
 }
 
 /**
@@ -144,21 +155,26 @@ export interface VisionProvider {
  * @returns Formatted prompt string
  */
 export function getMangaTranslationPrompt(targetLanguage: string): string {
-  return `Analyze this manga/comic image. Find all text areas (speech bubbles, narration, sound effects) and translate them to ${targetLanguage}.
+  return `You are a professional manga/comic translator. Analyze this image and extract ALL visible text.
 
-IMPORTANT: You MUST respond with ONLY a JSON object, no other text. Do not describe the image. Do not explain anything.
+OUTPUT FORMAT: Return ONLY a valid JSON object. No explanations, no markdown, no code blocks.
 
-Response format:
 {"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,"originalText":"原文","translatedText":"翻译"}]}
 
-Rules:
-- Coordinates are relative ratios (0-1), not pixels
-- x,y is the top-left corner of the text area
-- Order by manga reading direction (right-to-left for Japanese manga, left-to-right for Korean manhwa)
-- Keep translation tone consistent with original
-- If no text found, return: {"textAreas":[]}
+TRANSLATION TARGET: ${targetLanguage}
 
-Respond with JSON only:`;
+RULES:
+1. Find ALL text: speech bubbles, thought bubbles, narration boxes, signs, sound effects (SFX), watermarks
+2. Coordinates are decimal ratios 0.0-1.0 (not pixels): x,y = top-left corner, width/height = size
+3. Coordinates MUST cover the complete text area including surrounding bubble/box border
+4. For Japanese manga: read panels right-to-left, within panels also right-to-left
+5. For Korean manhwa/Chinese manhua: read left-to-right
+6. Sound effects (擬音語/SFX): preserve the energy, use onomatopoeia in target language when possible
+7. Keep speech style consistent (formal/informal/dialect matches original speaker's tone)
+8. If text has line breaks, use \\n in translatedText
+9. If image has NO text at all: {"textAreas":[]}
+
+CRITICAL: Output ONLY the JSON. Any text outside the JSON will break parsing.`;
 }
 
 /**

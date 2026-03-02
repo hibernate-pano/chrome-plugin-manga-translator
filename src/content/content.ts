@@ -100,7 +100,57 @@ function setState(state: ContentState): void {
 
 // ==================== 服务初始化 ====================
 
+/**
+ * 等待 Config Store 从 chrome.storage.sync 水合完成
+ *
+ * 问题：Zustand `persist` 中间件异步加载配置，若翻译前未等待水合完成，
+ * 会读到默认空配置（API Key 为空），导致每次翻译都静默失败。
+ *
+ * 解决：订阅 `onRehydrateStorage` 回调，最多等待 3 秒。
+ */
+async function waitForConfigHydration(): Promise<void> {
+  // 先检查 chrome.storage.sync 中是否有数据
+  return new Promise<void>(resolve => {
+    // 如果已经有 API Key，说明水合已完成
+    const currentState = useAppConfigStore.getState();
+    const providerSettings = currentState.providers[currentState.provider];
+    if (providerSettings?.apiKey) {
+      resolve();
+      return;
+    }
+
+    // 等待水合完成（最多 3 秒）
+    let resolved = false;
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        console.warn('[ContentScript] Config 水合超时，使用当前配置');
+        resolve();
+      }
+    }, 3000);
+
+    // 监听 storage 变化，当配置更新时解析
+    chrome.storage.sync.get(['manga-translator-config-v2'], result => {
+      if (!resolved) {
+        resolved = true;
+        clearTimeout(timeout);
+        // 将数据注入 store（触发水合等价操作）
+        const savedConfig = result['manga-translator-config-v2'];
+        if (savedConfig?.providers) {
+          // Zustand persist 会自动处理，这里只需短暂等待让它完成
+          setTimeout(resolve, 50);
+        } else {
+          resolve();
+        }
+      }
+    });
+  });
+}
+
 async function ensureServicesInitialized(): Promise<void> {
+  // 等待 Config Store 从 chrome.storage 水合（解决竞态条件）
+  await waitForConfigHydration();
+
   // 确保 renderer 总是被初始化
   if (!renderer) {
     renderer = getRenderer();
@@ -393,6 +443,78 @@ function setupHudCancelListener(): void {
   });
 }
 
+// ==================== 键盘快捷键 ====================
+
+/**
+ * 注册键盘快捷键
+ *
+ * 快捷键一览：
+ * - Alt+T: 翻译当前页面 / 停止翻译
+ * - Alt+H: 进入/退出 悬停选图模式
+ * - Escape: 取消翻译 / 退出悬停模式（任何时候均可用）
+ */
+function setupKeyboardShortcuts(): void {
+  document.addEventListener('keydown', (e: KeyboardEvent) => {
+    // 忽略输入框、文本框等表单元素中的快捷键
+    const target = e.target as HTMLElement;
+    if (
+      target.tagName === 'INPUT' ||
+      target.tagName === 'TEXTAREA' ||
+      target.isContentEditable
+    ) {
+      return;
+    }
+
+    // Alt+T — 翻译页面 / 停止翻译
+    if (e.altKey && e.key === 't') {
+      e.preventDefault();
+      if (
+        currentState.status === 'translating' ||
+        currentState.status === 'scanning'
+      ) {
+        cancelTranslation();
+      } else {
+        translatePage();
+      }
+      showKeyboardHint('Alt+T');
+      return;
+    }
+
+    // Alt+H — 悬停选图模式
+    if (e.altKey && e.key === 'h') {
+      e.preventDefault();
+      if (currentState.status === 'hover-select') {
+        exitHoverSelect();
+      } else {
+        enterHoverSelect();
+      }
+      showKeyboardHint('Alt+H');
+      return;
+    }
+
+    // Escape — 取消/退出
+    if (e.key === 'Escape') {
+      if (
+        currentState.status === 'translating' ||
+        currentState.status === 'scanning'
+      ) {
+        cancelTranslation();
+      } else if (currentState.status === 'hover-select') {
+        exitHoverSelect();
+      } else if (currentState.status === 'error') {
+        setState({ status: 'idle' });
+      }
+    }
+  });
+}
+
+/**
+ * 短暂提示用户已触发的快捷键
+ */
+function showKeyboardHint(_key: string): void {
+  // 键盘提示通过 Popup/HUD 状态变化体现，无需额外 UI
+}
+
 // ==================== 初始化 ====================
 
 async function initialize(): Promise<void> {
@@ -410,6 +532,9 @@ async function initialize(): Promise<void> {
 
     // 监听 HUD 取消按钮
     setupHudCancelListener();
+
+    // 注册键盘快捷键（Alt+T/Alt+H/Escape）
+    setupKeyboardShortcuts();
 
     // 页面卸载时清理
     window.addEventListener('beforeunload', cleanup);

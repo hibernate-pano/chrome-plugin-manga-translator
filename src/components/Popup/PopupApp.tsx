@@ -1,10 +1,11 @@
 /**
  * Popup 组件 - 漫画翻译助手 v3
  *
- * 重设计：操作驱动型 UI
+ * 重设计：操作驱动型 UI + Onboarding 引导
  * - 主操作按钮：翻译当前页面 / 翻译中状态 / 完成状态
  * - 次级操作：点击选图翻译（hover-select 模式）
- * - 底部：清除覆盖层 + API Key 警告
+ * - Onboarding：首次使用引导用户配置 API Key
+ * - 底部：快捷键提示 + 清除覆盖层 + API Key 警告
  * - Provider/Model 信息展示
  * - framer-motion 动画过渡
  */
@@ -25,6 +26,8 @@ import {
   Cloud,
   Server,
   Sparkles,
+  Keyboard,
+  ChevronRight,
 } from 'lucide-react';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
@@ -84,6 +87,37 @@ const PROVIDER_INFO: Record<
   },
 };
 
+// ==================== 错误信息优化 ====================
+
+/**
+ * 将内部错误信息转换为用户友好的文案
+ */
+function friendlyError(message: string): { title: string; action?: string } {
+  if (message.includes('API key') || message.includes('api_key') || message.includes('API Key')) {
+    return { title: 'API Key 无效或未配置', action: '去设置' };
+  }
+  if (message.includes('401') || message.includes('Unauthorized')) {
+    return { title: 'API Key 认证失败，请检查是否正确', action: '去设置' };
+  }
+  if (message.includes('429') || message.includes('rate limit') || message.includes('Rate limit')) {
+    return { title: 'API 请求频率超限，请稍后重试' };
+  }
+  if (message.includes('timeout') || message.includes('Timeout')) {
+    return { title: '请求超时，请检查网络连接后重试' };
+  }
+  if (message.includes('network') || message.includes('fetch') || message.includes('CORS')) {
+    return { title: '网络错误，请检查网络连接' };
+  }
+  if (message.includes('Background script') || message.includes('无响应')) {
+    return { title: '插件通信失败，请刷新页面后重试' };
+  }
+  if (message.includes('没有找到') || message.includes('no images') || message.includes('No images')) {
+    return { title: '未找到可翻译的漫画图片' };
+  }
+  // 超过 50 字截断
+  return { title: message.length > 50 ? message.substring(0, 50) + '...' : message };
+}
+
 // ==================== Utils ====================
 
 async function sendToContent(msg: PopupToContentMsg): Promise<void> {
@@ -107,6 +141,7 @@ const PopupApp: React.FC = () => {
     status: 'idle',
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [showShortcuts, setShowShortcuts] = useState(false);
   const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Store selectors
@@ -160,14 +195,14 @@ const PopupApp: React.FC = () => {
       if (msg.type === 'STATE_UPDATE' && msg.state) {
         setContentState(msg.state);
 
-        // Auto-reset complete state after 2s
+        // Auto-reset complete state after 2.5s
         if (msg.state.status === 'complete') {
           if (completeTimerRef.current) {
             clearTimeout(completeTimerRef.current);
           }
           completeTimerRef.current = setTimeout(() => {
             setContentState({ status: 'idle' });
-          }, 2000);
+          }, 2500);
         }
       }
     };
@@ -224,6 +259,10 @@ const PopupApp: React.FC = () => {
     contentState.status === 'translating' && contentState.total > 0
       ? (contentState.current / contentState.total) * 100
       : 0;
+
+  const errorInfo = contentState.status === 'error'
+    ? friendlyError(contentState.message)
+    : null;
 
   // ==================== Render ====================
 
@@ -282,7 +321,7 @@ const PopupApp: React.FC = () => {
         </button>
       </div>
 
-      {/* ---- API Key Warning Banner ---- */}
+      {/* ---- API Key Warning Banner (Onboarding) ---- */}
       <AnimatePresence>
         {!isConfigured && (
           <motion.div
@@ -294,15 +333,14 @@ const PopupApp: React.FC = () => {
           >
             <button
               onClick={openSettings}
-              className="w-full flex items-center gap-2 px-4 py-2.5 bg-amber-500/15 border-b border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer text-left"
+              className="w-full flex items-center gap-2 px-4 py-3 bg-amber-500/15 border-b border-amber-500/20 hover:bg-amber-500/20 transition-colors cursor-pointer text-left"
             >
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-              <span className="text-xs text-amber-300">
-                请先配置 API Key 才能使用翻译功能
-              </span>
-              <span className="ml-auto text-xs text-amber-400 font-medium shrink-0">
-                去设置 →
-              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-xs text-amber-300 font-medium">需要配置 API Key</p>
+                <p className="text-[11px] text-amber-400/70 mt-0.5">点击此处前往设置，填写您的 API Key</p>
+              </div>
+              <ChevronRight className="w-4 h-4 text-amber-400 shrink-0" />
             </button>
           </motion.div>
         )}
@@ -325,7 +363,9 @@ const PopupApp: React.FC = () => {
               >
                 <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                 <span className="text-emerald-300 font-medium">
-                  已翻译 {contentState.count} 张图片
+                  {contentState.count > 0
+                    ? `已翻译 ${contentState.count} 张图片`
+                    : '未找到可翻译的图片'}
                 </span>
               </motion.div>
             ) : isTranslating ? (
@@ -437,9 +477,9 @@ const PopupApp: React.FC = () => {
           )}
         </AnimatePresence>
 
-        {/* Error State */}
+        {/* Error State — 用户友好的错误信息 */}
         <AnimatePresence>
-          {contentState.status === 'error' && (
+          {contentState.status === 'error' && errorInfo && (
             <motion.div
               initial={{ opacity: 0, y: -8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -450,8 +490,16 @@ const PopupApp: React.FC = () => {
               <AlertTriangle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs text-red-300 leading-relaxed">
-                  {contentState.message}
+                  {errorInfo.title}
                 </p>
+                {errorInfo.action && (
+                  <button
+                    onClick={openSettings}
+                    className="mt-1.5 text-[11px] text-teal-400 hover:text-teal-300 underline underline-offset-2 cursor-pointer"
+                  >
+                    {errorInfo.action} →
+                  </button>
+                )}
               </div>
               <button
                 onClick={() => setContentState({ status: 'idle' })}
@@ -465,7 +513,7 @@ const PopupApp: React.FC = () => {
       </div>
 
       {/* ---- Footer ---- */}
-      <div className="shrink-0 border-t border-white/5 px-5 py-3.5 flex items-center justify-between">
+      <div className="shrink-0 border-t border-white/5 px-5 py-3 flex items-center justify-between">
         <button
           onClick={handleClearAll}
           className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors cursor-pointer"
@@ -474,9 +522,44 @@ const PopupApp: React.FC = () => {
           清除覆盖层
         </button>
 
-        <div className="flex items-center gap-1.5">
-          <div className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-          <span className="text-xs text-slate-600">漫画翻译 v2</span>
+        {/* 快捷键提示 */}
+        <div className="relative">
+          <button
+            onClick={() => setShowShortcuts(s => !s)}
+            className="flex items-center gap-1 text-xs text-slate-600 hover:text-slate-400 transition-colors cursor-pointer"
+            title="查看快捷键"
+          >
+            <Keyboard className="w-3.5 h-3.5" />
+            <span>快捷键</span>
+          </button>
+
+          <AnimatePresence>
+            {showShortcuts && (
+              <motion.div
+                initial={{ opacity: 0, y: 4, scale: 0.97 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 4, scale: 0.97 }}
+                transition={{ duration: 0.12 }}
+                className="absolute bottom-full right-0 mb-2 w-48 rounded-lg bg-[#1a1f2e] border border-white/8 shadow-xl p-3 text-xs"
+              >
+                <p className="text-slate-400 font-medium mb-2">键盘快捷键</p>
+                <div className="space-y-1.5">
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">翻译页面 / 停止</span>
+                    <kbd className="px-1.5 py-0.5 bg-white/8 rounded text-slate-400 font-mono text-[10px]">Alt+T</kbd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">选图翻译模式</span>
+                    <kbd className="px-1.5 py-0.5 bg-white/8 rounded text-slate-400 font-mono text-[10px]">Alt+H</kbd>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span className="text-slate-500">取消 / 退出</span>
+                    <kbd className="px-1.5 py-0.5 bg-white/8 rounded text-slate-400 font-mono text-[10px]">Esc</kbd>
+                  </div>
+                </div>
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </div>

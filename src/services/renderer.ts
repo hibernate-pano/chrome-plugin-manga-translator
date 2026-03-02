@@ -54,31 +54,47 @@ const CONTROLS_CLASS = 'manga-translator-controls';
 const DATA_ATTR = 'data-manga-translator';
 
 const DEFAULT_STYLE: OverlayStyle = {
-  backgroundColor: 'rgba(255, 255, 255, 0.92)',
-  textColor: '#1a1a1a',
-  fontFamily: '"Noto Sans SC", "Microsoft YaHei", sans-serif',
-  borderRadius: 4,
-  padding: 4,
+  backgroundColor: 'rgba(240, 240, 235, 0.94)',
+  textColor: '#111111',
+  fontFamily: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif',
+  borderRadius: 6,
+  padding: 5,
   minFontSize: 10,
-  maxFontSize: 24,
+  maxFontSize: 22,
 };
 
 // ==================== Utility Functions ====================
 
 /**
- * Calculate optimal font size based on text area dimensions
+ * 计算最优字体大小（感知中文字符宽度）
+ *
+ * 中文字符（CJK）宽度约为英文字符的 2 倍，需要据此调整排版计算。
  */
 export function calculateFontSize(
+  areaWidth: number,
   areaHeight: number,
-  textLength: number,
+  text: string,
   style: OverlayStyle = DEFAULT_STYLE
 ): number {
-  let fontSize = Math.floor(areaHeight * 0.65);
+  const padding = style.padding * 2;
+  const availWidth = Math.max(areaWidth - padding, 1);
+  const availHeight = Math.max(areaHeight - padding, 1);
 
-  if (textLength > 20) {
-    const reductionFactor = Math.min(1, 20 / textLength);
-    fontSize = Math.floor(fontSize * (0.7 + 0.3 * reductionFactor));
-  }
+  // 按中文字符计算"等效字符数"（CJK 算 2，ASCII 算 1）
+  const cjkCount = (text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []).length;
+  const asciiCount = text.length - cjkCount;
+  const effectiveLength = cjkCount * 2 + asciiCount;
+
+  // 估算单行最大字体：宽度优先
+  const fontByWidth = effectiveLength > 0
+    ? Math.floor(availWidth / (effectiveLength / 2))
+    : availHeight;
+
+  // 高度限制：单行场景
+  const fontByHeight = Math.floor(availHeight * 0.7);
+
+  // 取较小值，确保文字不溢出
+  const fontSize = Math.min(fontByWidth, fontByHeight);
 
   return Math.max(style.minFontSize, Math.min(style.maxFontSize, fontSize));
 }
@@ -120,7 +136,15 @@ function createOverlayStyles(): string {
       overflow: hidden;
       pointer-events: none;
       box-sizing: border-box;
-      line-height: 1.2;
+      line-height: 1.3;
+      font-weight: 500;
+      text-shadow: 0 1px 2px rgba(255,255,255,0.8);
+      box-shadow: 0 1px 4px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.6);
+    }
+
+    .${WRAPPER_CLASS}:hover .${OVERLAY_CLASS} {
+      pointer-events: auto;
+      user-select: text;
     }
 
     .${CONTROLS_CLASS} {
@@ -295,10 +319,12 @@ export class OverlayRenderer {
     const height = area.height * imageHeight;
 
     const fontSize = calculateFontSize(
+      width,
       height,
-      area.translatedText.length,
+      area.translatedText,
       this.style
     );
+
 
     Object.assign(overlay.style, {
       left: `${left}px`,

@@ -6,12 +6,10 @@
  * - Message relay (Popup ↔ Content Script)
  * - Configuration management
  * - Cross-tab state synchronization
- * 
- * Requirements:
- * - 1.2: When user turns on the switch, start translation
- * - 1.3: When user turns off the switch, remove all overlays
- * - 1.4: Remember user's toggle state across page refreshes
+ * - AI API 代理（解决 content script 的 CORS 限制）
  */
+
+import { createProvider, type ProviderType } from '@/providers';
 
 // ==================== Types ====================
 
@@ -127,17 +125,17 @@ async function initializeDefaultSettings(): Promise<void> {
  */
 async function migrateSettings(previousVersion?: string): Promise<void> {
   console.log('[Background] Migrating from version:', previousVersion);
-  
+
   try {
     const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
     const currentConfig = result[CONFIG_STORAGE_KEY];
-    
+
     if (!currentConfig) {
       // No existing config, initialize defaults
       await initializeDefaultSettings();
       return;
     }
-    
+
     // Merge with defaults to add any new fields
     const mergedConfig = {
       ...DEFAULT_CONFIG,
@@ -147,7 +145,7 @@ async function migrateSettings(previousVersion?: string): Promise<void> {
         ...currentConfig.providers,
       },
     };
-    
+
     await chrome.storage.sync.set({ [CONFIG_STORAGE_KEY]: mergedConfig });
     console.log('[Background] Settings migrated successfully');
   } catch (error) {
@@ -208,10 +206,10 @@ chrome.runtime.onMessage.addListener(
     sendResponse: (response: MessageResponse) => void
   ): boolean => {
     console.log('[Background] Received message:', request.action, 'from:', sender.tab?.id || 'popup/options');
-    
+
     // Handle message asynchronously
     handleMessage(request, sender, sendResponse);
-    
+
     // Return true to indicate async response
     return true;
   }
@@ -247,13 +245,13 @@ async function handleMessage(
 
     switch (request.action) {
       // ==================== Config Operations ====================
-      
+
       case 'getConfig': {
         const config = await getConfig();
         sendResponse({ success: true, config });
         break;
       }
-      
+
       case 'setConfig':
         if (request.config) {
           await setConfig(request.config);
@@ -264,9 +262,9 @@ async function handleMessage(
           sendResponse({ success: false, error: 'No config provided' });
         }
         break;
-      
+
       // ==================== Translation Control ====================
-      
+
       case 'toggleTranslation':
         // Forward to active tab's content script with new protocol (type field)
         await forwardToActiveTab(
@@ -286,9 +284,9 @@ async function handleMessage(
         // Forward to active tab's content script
         await forwardToActiveTab({ type: 'CANCEL_TRANSLATION' }, sendResponse);
         break;
-      
+
       // ==================== State Queries ====================
-      
+
       case 'getState':
         // Forward to active tab's content script with new protocol
         await forwardToActiveTab({ type: 'GET_STATE' }, sendResponse);
@@ -298,9 +296,9 @@ async function handleMessage(
         // Forward to active tab's content script with new protocol
         await forwardToActiveTab({ type: 'GET_STATE' }, sendResponse);
         break;
-      
+
       // ==================== Status Updates (from Content Script) ====================
-      
+
       case 'processingStart':
       case 'processingUpdate':
       case 'complete':
@@ -311,9 +309,9 @@ async function handleMessage(
         // The popup listens via chrome.runtime.onMessage
         sendResponse({ received: true });
         break;
-      
+
       // ==================== Navigation ====================
-      
+
       case 'openOptionsPage':
         chrome.runtime.openOptionsPage();
         sendResponse({ success: true });
@@ -346,9 +344,77 @@ async function handleMessage(
         }
         break;
       }
-      
+
+      // ==================== AI Translation Proxy (CORS bypass) ====================
+      // content script 无法直接调用第三方 AI API（受页面 CORS/CSP 限制），
+      // 由 background service worker 代理调用，绕过 CORS 限制。
+
+      case 'translateImage': {
+        const {
+          imageBase64,
+          mimeType = 'image/jpeg',
+          targetLanguage = 'zh-CN',
+          provider: providerType = 'siliconflow',
+          apiKey,
+          baseUrl,
+          model,
+        } = request as {
+          imageBase64?: string;
+          mimeType?: string;
+          targetLanguage?: string;
+          provider?: string;
+          apiKey?: string;
+          baseUrl?: string;
+          model?: string;
+        };
+
+        if (!imageBase64) {
+          sendResponse({ success: false, error: '未提供图片数据' });
+          break;
+        }
+
+        try {
+          // 创建 provider 实例（静态 import，构建时打包）
+          const visionProvider = await createProvider(
+            providerType as ProviderType,
+            { apiKey, baseUrl, model }
+          );
+
+          // 验证配置
+          const validation = await visionProvider.validateConfig();
+          if (!validation.valid) {
+            sendResponse({ success: false, error: validation.message });
+            break;
+          }
+
+          // 构造图片数据 URL（用于 AI API）
+          const imageDataUrl = imageBase64.startsWith('data:')
+            ? imageBase64
+            : `data:${mimeType};base64,${imageBase64}`;
+
+          // 调用 Vision LLM（getMangaTranslationPrompt 已内置在 provider 的 analyzeAndTranslate 中）
+          const visionResponse = await visionProvider.analyzeAndTranslate(
+            imageDataUrl,
+            targetLanguage
+          );
+
+          sendResponse({
+            success: true,
+            textAreas: visionResponse.textAreas,
+            usage: visionResponse.usage ?? null,
+          });
+
+        } catch (error) {
+          const errMsg = error instanceof Error ? error.message : '翻译失败，请检查 API 配置';
+          console.error('[Background] translateImage 失败:', errMsg);
+          sendResponse({ success: false, error: errMsg });
+        }
+        break;
+      }
+
+
       // ==================== Unknown Action ====================
-      
+
       default:
         console.warn('[Background] Unknown action:', request.action);
         sendResponse({ success: false, error: `Unknown action: ${request.action}` });
@@ -373,14 +439,14 @@ async function forwardToActiveTab(
 ): Promise<void> {
   try {
     const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
-    
+
     if (!tabs[0]?.id) {
       sendResponse({ success: false, error: 'No active tab found' });
       return;
     }
-    
+
     const tabId = tabs[0].id;
-    
+
     // Check if content script is injected
     try {
       const response = await chrome.tabs.sendMessage(tabId, request);
@@ -388,7 +454,7 @@ async function forwardToActiveTab(
     } catch (error) {
       // Content script might not be injected
       const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      
+
       if (errorMessage.includes('Receiving end does not exist')) {
         sendResponse({
           success: false,
@@ -416,7 +482,7 @@ async function forwardToActiveTab(
 async function broadcastToAllTabs(message: MessageRequest): Promise<void> {
   try {
     const tabs = await chrome.tabs.query({});
-    
+
     for (const tab of tabs) {
       if (tab.id) {
         try {
@@ -456,7 +522,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
     try {
       const config = await getConfig();
       const enabled = (config as { state?: { enabled?: boolean }; enabled?: boolean })?.state?.enabled ??
-                      (config as { enabled?: boolean })?.enabled ?? false;
+        (config as { enabled?: boolean })?.enabled ?? false;
 
       if (enabled) {
         // If translation was enabled, notify content script
@@ -509,14 +575,14 @@ chrome.contextMenus.onClicked.addListener(async (info, tab) => {
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === 'sync' && changes[CONFIG_STORAGE_KEY]) {
     console.log('[Background] Config changed in storage');
-    
+
     const newValue = changes[CONFIG_STORAGE_KEY].newValue;
     const oldValue = changes[CONFIG_STORAGE_KEY].oldValue;
-    
+
     // Check if enabled state changed
     const newEnabled = newValue?.state?.enabled ?? newValue?.enabled ?? false;
     const oldEnabled = oldValue?.state?.enabled ?? oldValue?.enabled ?? false;
-    
+
     if (newEnabled !== oldEnabled) {
       console.log('[Background] Enabled state changed:', oldEnabled, '->', newEnabled);
       // Broadcast to all tabs with correct protocol

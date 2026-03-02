@@ -9,7 +9,7 @@
  * - 渐变背景、彩色标签页、微交互动画
  */
 
-import React, { useState, useCallback, useMemo, useEffect } from 'react';
+import React, { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import {
   Card,
   CardContent,
@@ -46,10 +46,17 @@ import {
   Sparkles,
   Shield,
   Rocket,
+  BarChart3,
+  Download,
+  Upload,
+  Trash2,
+  Database,
 } from 'lucide-react';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { createProvider } from '@/providers';
+import { useUsageStore } from '@/stores/usage-store';
+import { useTranslationCacheStore } from '@/stores/cache-v2';
 
 // ==================== Types ====================
 
@@ -145,6 +152,204 @@ const TARGET_LANGUAGES = [
   { value: 'ja', label: '日本語', flag: '🇯🇵' },
   { value: 'ko', label: '한국어', flag: '🇰🇷' },
 ];
+
+// ==================== Data Management Card ====================
+
+const DataManagementCard: React.FC = () => {
+  const usageSummary = useUsageStore(state => state.getSummary());
+  const dailyStats = useUsageStore(state => state.getDailyStats(7));
+  const clearUsage = useUsageStore(state => state.clearAll);
+  const clearCache = useTranslationCacheStore(state => state.clear);
+  const cacheSize = useTranslationCacheStore(state => state.cache.size);
+  const importFileRef = useRef<HTMLInputElement>(null);
+  const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
+  const [importMessage, setImportMessage] = useState('');
+
+  // ---- 配置导出 ----
+  const handleExport = useCallback(() => {
+    const config = useAppConfigStore.getState();
+    const exportData = {
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      provider: config.provider,
+      providers: config.providers,
+      targetLanguage: config.targetLanguage,
+      maxImageSize: config.maxImageSize,
+      parallelLimit: config.parallelLimit,
+      cacheEnabled: config.cacheEnabled,
+    };
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `manga-translator-config-${new Date().toLocaleDateString('zh-CN').replace(/\//g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, []);
+
+  // ---- 配置导入 ----
+  const handleImport = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const data = JSON.parse(ev.target?.result as string);
+        if (data.version !== 2 || !data.providers) {
+          throw new Error('配置文件格式不兼容');
+        }
+        // 合并配置（不覆盖密钥以外的系统配置）
+        const store = useAppConfigStore.getState();
+        if (data.provider) store.setProvider(data.provider);
+        if (data.targetLanguage) store.setTargetLanguage(data.targetLanguage);
+        Object.entries(data.providers as Record<string, { apiKey?: string; model?: string; baseUrl?: string }>).forEach(([key, settings]) => {
+          store.updateProviderSettings(key as ProviderType, settings);
+        });
+        setImportStatus('success');
+        setImportMessage('配置导入成功！');
+      } catch (err) {
+        setImportStatus('error');
+        setImportMessage(err instanceof Error ? err.message : '文件解析失败');
+      } finally {
+        // 清空文件输入
+        if (importFileRef.current) importFileRef.current.value = '';
+        setTimeout(() => setImportStatus('idle'), 3000);
+      }
+    };
+    reader.readAsText(file);
+  }, []);
+
+  return (
+    <Card className="border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
+      <CardHeader className="pb-4">
+        <div className="flex items-center gap-3 mb-2">
+          <div className="p-2 bg-gradient-to-br from-violet-500 to-purple-600 rounded-lg">
+            <Database className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <CardTitle className="text-slate-900 dark:text-slate-100">数据管理</CardTitle>
+            <CardDescription className="text-slate-600 dark:text-slate-400">
+              使用量统计、配置导出备份
+            </CardDescription>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent className="space-y-6">
+
+        {/* Token 使用量统计 */}
+        <div className="space-y-3">
+          <div className="flex items-center gap-2">
+            <BarChart3 className="w-4 h-4 text-violet-500" />
+            <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">本月使用量</h3>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              { label: 'Token 用量', value: usageSummary.monthlyTokens.toLocaleString() },
+              { label: '估算费用', value: `$${usageSummary.monthlyCost.toFixed(4)}` },
+              { label: '翻译次数', value: usageSummary.totalRecords.toString() },
+              { label: '缓存命中率', value: `${Math.round(usageSummary.cacheHitRate * 100)}%` },
+            ].map(({ label, value }) => (
+              <div key={label} className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-center">
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">{label}</p>
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100">{value}</p>
+              </div>
+            ))}
+          </div>
+
+          {/* 最近7天列表 */}
+          {dailyStats.length > 0 && (
+            <div className="space-y-1.5">
+              <p className="text-xs text-slate-500 dark:text-slate-400">最近 7 天</p>
+              {dailyStats.slice(0, 7).map(day => (
+                <div key={day.date} className="flex items-center justify-between py-1.5 px-3 rounded-md bg-slate-50 dark:bg-slate-700/30 text-xs">
+                  <span className="text-slate-500 dark:text-slate-400">{day.date}</span>
+                  <span className="text-slate-700 dark:text-slate-300">{day.translationCount} 次翻译</span>
+                  <span className="text-violet-600 dark:text-violet-400">{day.totalTokens.toLocaleString()} tokens</span>
+                  <span className="text-emerald-600 dark:text-emerald-400">${day.estimatedCost.toFixed(4)}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="h-px bg-slate-100 dark:bg-slate-700" />
+
+        {/* 配置导入/导出 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">配置备份</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              className="h-10 gap-2 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
+            >
+              <Download className="w-4 h-4" />
+              导出配置
+            </Button>
+
+            <div className="relative">
+              <Button
+                variant="outline"
+                onClick={() => importFileRef.current?.click()}
+                className="w-full h-10 gap-2 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
+              >
+                <Upload className="w-4 h-4" />
+                导入配置
+              </Button>
+              <input
+                ref={importFileRef}
+                type="file"
+                accept=".json"
+                onChange={handleImport}
+                className="hidden"
+              />
+            </div>
+          </div>
+
+          {importStatus !== 'idle' && (
+            <div className={`flex items-center gap-2 p-2.5 rounded-lg text-sm ${importStatus === 'success'
+              ? 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-700 dark:text-emerald-400'
+              : 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-400'
+              }`}>
+              {importStatus === 'success'
+                ? <CheckCircle2 className="w-4 h-4" />
+                : <AlertCircle className="w-4 h-4" />
+              }
+              {importMessage}
+            </div>
+          )}
+        </div>
+
+        <div className="h-px bg-slate-100 dark:bg-slate-700" />
+
+        {/* 清除数据 */}
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">清除数据</h3>
+          <div className="grid grid-cols-2 gap-3">
+            <Button
+              variant="ghost"
+              onClick={() => { clearCache(); }}
+              className="h-10 gap-2 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              清除缓存（{cacheSize} 条）
+            </Button>
+            <Button
+              variant="ghost"
+              onClick={() => { clearUsage(); }}
+              className="h-10 gap-2 text-slate-500 hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-900/20 cursor-pointer transition-colors"
+            >
+              <Trash2 className="w-4 h-4" />
+              清除统计数据
+            </Button>
+          </div>
+        </div>
+
+      </CardContent>
+    </Card>
+  );
+};
 
 // ==================== Component ====================
 
@@ -510,11 +715,10 @@ const OptionsApp: React.FC = () => {
         {testResult && (
           <Alert
             variant={testResult.success ? 'default' : 'destructive'}
-            className={`border-none ${
-              testResult.success
-                ? 'bg-emerald-50 dark:bg-emerald-900/20'
-                : 'bg-red-50 dark:bg-red-900/20'
-            }`}
+            className={`border-none ${testResult.success
+              ? 'bg-emerald-50 dark:bg-emerald-900/20'
+              : 'bg-red-50 dark:bg-red-900/20'
+              }`}
           >
             <div className="flex items-start gap-3">
               {testResult.success ? (
@@ -528,20 +732,18 @@ const OptionsApp: React.FC = () => {
               )}
               <div className="flex-1">
                 <AlertTitle
-                  className={`font-semibold ${
-                    testResult.success
-                      ? 'text-emerald-900 dark:text-emerald-100'
-                      : 'text-red-900 dark:text-red-100'
-                  }`}
+                  className={`font-semibold ${testResult.success
+                    ? 'text-emerald-900 dark:text-emerald-100'
+                    : 'text-red-900 dark:text-red-100'
+                    }`}
                 >
                   {testResult.success ? '连接成功' : '连接失败'}
                 </AlertTitle>
                 <AlertDescription
-                  className={`mt-1 ${
-                    testResult.success
-                      ? 'text-emerald-700 dark:text-emerald-300'
-                      : 'text-red-700 dark:text-red-300'
-                  }`}
+                  className={`mt-1 ${testResult.success
+                    ? 'text-emerald-700 dark:text-emerald-300'
+                    : 'text-red-700 dark:text-red-300'
+                    }`}
                 >
                   {testResult.message}
                 </AlertDescription>
@@ -631,11 +833,10 @@ const OptionsApp: React.FC = () => {
                     <TabsTrigger
                       key={key}
                       value={key}
-                      className={`relative text-xs sm:text-sm py-2.5 px-2 transition-all duration-200 cursor-pointer ${
-                        isActive
-                          ? 'bg-white dark:bg-slate-800 shadow-md'
-                          : 'hover:bg-white/50 dark:hover:bg-slate-800/50'
-                      }`}
+                      className={`relative text-xs sm:text-sm py-2.5 px-2 transition-all duration-200 cursor-pointer ${isActive
+                        ? 'bg-white dark:bg-slate-800 shadow-md'
+                        : 'hover:bg-white/50 dark:hover:bg-slate-800/50'
+                        }`}
                     >
                       <div className="flex items-center gap-1.5 sm:gap-2">
                         <div
@@ -831,6 +1032,9 @@ const OptionsApp: React.FC = () => {
             </div>
           </Alert>
         )}
+        {/* ==================== Data Management Card ==================== */}
+        <DataManagementCard />
+
       </main>
 
       {/* Footer */}
