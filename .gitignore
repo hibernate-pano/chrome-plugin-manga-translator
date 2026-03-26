@@ -7,3 +7,8 @@ dist/
 .gemini/
 .trae/
 .idea/
+
+server/.venv
+server/.venv*
+server/data/*
+server/app/__pycache__/*

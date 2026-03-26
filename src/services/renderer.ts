@@ -58,7 +58,7 @@ const DEFAULT_STYLE: OverlayStyle = {
   textColor: '#111111',
   fontFamily: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif',
   borderRadius: 6,
-  padding: 5,
+  padding: 7,
   minFontSize: 10,
   maxFontSize: 22,
 };
@@ -196,10 +196,27 @@ function computeAdaptiveOverlayLayout(
   const areaWidth = area.width * imageWidth;
   const areaHeight = area.height * imageHeight;
 
-  let fontSize = calculateFontSize(areaWidth, areaHeight, area.translatedText, style);
+  const originalTextLength = Math.max(area.originalText.trim().length, 1);
+  const translatedTextLength = Math.max(area.translatedText.trim().length, 1);
+  const textExpansionRatio = Math.max(
+    1,
+    Math.sqrt(translatedTextLength / originalTextLength)
+  );
+  const maxWidth = Math.min(
+    imageWidth * 0.78,
+    Math.max(areaWidth * (1.7 + textExpansionRatio * 0.55), 120)
+  );
+  const maxHeight = Math.min(
+    imageHeight * 0.58,
+    Math.max(areaHeight * (2.1 + textExpansionRatio * 0.65), 54)
+  );
+  const visualPaddingX = Math.max(style.padding * 2, 12);
+  const visualPaddingY = Math.max(style.padding * 1.5, 10);
+
+  let fontSize = calculateFontSize(maxWidth, maxHeight, area.translatedText, style);
   let lines = wrapTextToWidth(
     area.translatedText,
-    Math.max(areaWidth - style.padding * 2, 1),
+    Math.max(maxWidth - style.padding * 2, 1),
     fontSize,
     style
   );
@@ -207,7 +224,7 @@ function computeAdaptiveOverlayLayout(
   while (fontSize > style.minFontSize) {
     lines = wrapTextToWidth(
       area.translatedText,
-      Math.max(areaWidth - style.padding * 2, 1),
+      Math.max(maxWidth - style.padding * 2, 1),
       fontSize,
       style
     );
@@ -218,16 +235,34 @@ function computeAdaptiveOverlayLayout(
       fontSize
     ) + style.padding * 2;
 
-    if (textHeight <= areaHeight && textWidth <= areaWidth) {
-      const width = Math.min(areaWidth, Math.max(textWidth, fontSize * 2));
-      const height = Math.min(areaHeight, Math.max(textHeight, lineHeight + style.padding * 2));
+    if (textHeight <= maxHeight && textWidth <= maxWidth) {
+      const width = Math.min(
+        maxWidth,
+        Math.max(textWidth + visualPaddingX, fontSize * 3.2, areaWidth * 1.15)
+      );
+      const height = Math.min(
+        maxHeight,
+        Math.max(
+          textHeight + visualPaddingY,
+          lineHeight + style.padding * 3,
+          areaHeight * 1.12
+        )
+      );
+      const left = Math.min(
+        Math.max(0, areaLeft + (areaWidth - width) / 2),
+        Math.max(0, imageWidth - width)
+      );
+      const top = Math.min(
+        Math.max(0, areaTop + (areaHeight - height) / 2),
+        Math.max(0, imageHeight - height)
+      );
       return {
         fontSize,
         lines,
         width,
         height,
-        left: areaLeft + (areaWidth - width) / 2,
-        top: areaTop + (areaHeight - height) / 2,
+        left,
+        top,
       };
     }
 
@@ -236,31 +271,47 @@ function computeAdaptiveOverlayLayout(
 
   lines = wrapTextToWidth(
     area.translatedText,
-    Math.max(areaWidth - style.padding * 2, 1),
+    Math.max(maxWidth - style.padding * 2, 1),
     style.minFontSize,
     style
   );
   const lineHeight = style.minFontSize * 1.3;
   const textHeight = Math.min(
-    areaHeight,
+    maxHeight,
     lines.length * lineHeight + style.padding * 2
   );
   const textWidth = Math.min(
-    areaWidth,
+    maxWidth,
     Math.max(
       ...lines.map(line => measureTextWidth(line, style.minFontSize, style)),
       style.minFontSize
     ) +
       style.padding * 2
   );
+  const width = Math.min(
+    maxWidth,
+    Math.max(textWidth + visualPaddingX, style.minFontSize * 3.2, areaWidth * 1.15)
+  );
+  const height = Math.min(
+    maxHeight,
+    Math.max(textHeight + visualPaddingY, areaHeight * 1.12)
+  );
+  const left = Math.min(
+    Math.max(0, areaLeft + (areaWidth - width) / 2),
+    Math.max(0, imageWidth - width)
+  );
+  const top = Math.min(
+    Math.max(0, areaTop + (areaHeight - height) / 2),
+    Math.max(0, imageHeight - height)
+  );
 
   return {
     fontSize: style.minFontSize,
     lines,
-    width: textWidth,
-    height: textHeight,
-    left: areaLeft + (areaWidth - textWidth) / 2,
-    top: areaTop + (areaHeight - textHeight) / 2,
+    width,
+    height,
+    left,
+    top,
   };
 }
 

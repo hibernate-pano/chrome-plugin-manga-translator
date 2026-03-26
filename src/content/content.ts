@@ -95,6 +95,7 @@ const failedImageQueue: Map<string, HTMLImageElement> = new Map();
 let autoTranslateObserver: MutationObserver | null = null;
 let autoTranslateDebounce: ReturnType<typeof setTimeout> | null = null;
 let autoTranslateEnabled = false;
+let pageFollowTranslateEnabled = false;
 let autoTranslatePending = false;
 
 // ==================== 状态更新 ====================
@@ -204,6 +205,20 @@ async function waitForConfigHydration(): Promise<void> {
       }
     });
   });
+}
+
+async function getPersistedAutoTranslateEnabled(): Promise<boolean> {
+  try {
+    const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
+    const persisted =
+      result[CONFIG_STORAGE_KEY] as
+        | { state?: { enabled?: boolean }; enabled?: boolean }
+        | undefined;
+
+    return persisted?.state?.enabled ?? persisted?.enabled ?? false;
+  } catch {
+    return useAppConfigStore.getState().enabled;
+  }
 }
 
 async function ensureServicesInitialized(): Promise<void> {
@@ -415,6 +430,8 @@ async function processImageBatch(
  */
 async function translatePage(): Promise<void> {
   console.warn('[ContentScript] translatePage 开始执行');
+  pageFollowTranslateEnabled = true;
+  setupAutoTranslateObserver();
 
   if (currentState.status === 'translating' || currentState.status === 'scanning') {
     console.warn('[ContentScript] 翻译已在进行中');
@@ -460,7 +477,7 @@ async function translatePage(): Promise<void> {
     setState({ status: 'error', message: friendly.message });
   } finally {
     abortController = null;
-    if (autoTranslateEnabled && autoTranslatePending) {
+    if (isAutoTranslateActive() && autoTranslatePending) {
       autoTranslatePending = false;
       scheduleAutoTranslateScan(300);
     }
@@ -469,7 +486,7 @@ async function translatePage(): Promise<void> {
 
 async function translateNewImages(): Promise<void> {
   if (
-    !autoTranslateEnabled ||
+    !isAutoTranslateActive() ||
     currentState.status === 'translating' ||
     currentState.status === 'scanning'
   ) {
@@ -578,6 +595,10 @@ function cancelTranslation(): void {
     hoverSelector.exit();
     hoverSelector = null;
   }
+  if (!autoTranslateEnabled) {
+    pageFollowTranslateEnabled = false;
+    teardownAutoTranslateObserver();
+  }
   autoTranslatePending = false;
   setState({ status: 'idle' });
 }
@@ -667,6 +688,7 @@ function clearAll(): void {
 
   processedImages.clear();
   failedImageQueue.clear();
+  pageFollowTranslateEnabled = false;
   currentSession = createEmptySession();
   document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach((img) => {
     img.classList.remove(PROCESSED_CLASS);
@@ -676,7 +698,7 @@ function clearAll(): void {
 }
 
 function scheduleAutoTranslateScan(delay: number = 600): void {
-  if (!autoTranslateEnabled) {
+  if (!isAutoTranslateActive()) {
     return;
   }
 
@@ -758,11 +780,18 @@ function handleAutoTranslateScroll(): void {
   scheduleAutoTranslateScan(400);
 }
 
-function syncAutoTranslateMode(): void {
-  const enabled = useAppConfigStore.getState().enabled;
+function isAutoTranslateActive(): boolean {
+  return autoTranslateEnabled || pageFollowTranslateEnabled;
+}
+
+async function syncAutoTranslateMode(
+  explicitEnabled?: boolean
+): Promise<void> {
+  const enabled =
+    explicitEnabled ?? (await getPersistedAutoTranslateEnabled());
   autoTranslateEnabled = enabled;
 
-  if (enabled) {
+  if (isAutoTranslateActive()) {
     setupAutoTranslateObserver();
     scheduleAutoTranslateScan(200);
   } else {
@@ -850,7 +879,11 @@ function handleStorageChange(
       readingLayer.destroy();
       readingLayer = null;
     }
-    syncAutoTranslateMode();
+    const nextValue = changes[CONFIG_STORAGE_KEY].newValue as
+      | { state?: { enabled?: boolean }; enabled?: boolean }
+      | undefined;
+    const enabled = nextValue?.state?.enabled ?? nextValue?.enabled;
+    void syncAutoTranslateMode(enabled);
   }
 }
 
@@ -950,7 +983,7 @@ async function initialize(): Promise<void> {
     chrome.storage.onChanged.addListener(handleStorageChange);
 
     await waitForConfigHydration();
-    syncAutoTranslateMode();
+    await syncAutoTranslateMode();
 
     // 监听 HUD 取消按钮
     setupHudCancelListener();
