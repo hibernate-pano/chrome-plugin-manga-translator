@@ -23,6 +23,7 @@ export interface TranslationTransportRequest {
   server?: ServerExecutionConfig;
   renderMode?: 'anchors-only' | 'strong-overlay-compat';
   translationStylePreset: TranslationStylePreset;
+  forceRefresh?: boolean;
 }
 
 export interface TranslationTransportResponse {

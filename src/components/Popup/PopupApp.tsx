@@ -54,6 +54,7 @@ interface ContentState {
 
 type PopupToContentMsg =
   | { type: 'TRANSLATE_PAGE' }
+  | { type: 'FORCE_RETRANSLATE_PAGE' }
   | { type: 'ENTER_HOVER_SELECT' }
   | { type: 'EXIT_HOVER_SELECT' }
   | { type: 'CANCEL_TRANSLATION' }
@@ -280,6 +281,11 @@ const PopupApp: React.FC = () => {
   const handleClearAll = useCallback(async () => {
     await sendToContent({ type: 'CLEAR_ALL' });
     setContentState({ status: 'idle', session: createEmptySession() });
+  }, []);
+
+  const handleForceRetranslate = useCallback(async () => {
+    setContentState({ status: 'scanning', session: createEmptySession() });
+    await sendToContent({ type: 'FORCE_RETRANSLATE_PAGE' });
   }, []);
 
   const handleAutoTranslateToggle = useCallback(
@@ -598,6 +604,16 @@ const PopupApp: React.FC = () => {
               重试失败项
             </button>
           )}
+
+        {!isTranslating && (
+          <button
+            onClick={handleForceRetranslate}
+            disabled={!isConfigured}
+            className="w-full h-10 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-sm font-medium hover:bg-cyan-500/15 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
+          >
+            强制重翻全部
+          </button>
+        )}
       </div>
 
       {/* ---- Footer ---- */}

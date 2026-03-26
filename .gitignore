@@ -12,3 +12,7 @@ server/.venv
 server/.venv*
 server/data/*
 server/app/__pycache__/*
+.logs/
+.cursor/
+.husky/
+.runtime/*

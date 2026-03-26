@@ -39,6 +39,7 @@ import {
 export type PopupToContentMsg =
   | { type: 'GET_STATE' }
   | { type: 'TRANSLATE_PAGE' }
+  | { type: 'FORCE_RETRANSLATE_PAGE' }
   | { type: 'ENTER_HOVER_SELECT' }
   | { type: 'EXIT_HOVER_SELECT' }
   | { type: 'CANCEL_TRANSLATION' }
@@ -313,7 +314,8 @@ function getProcessedImageKey(img: HTMLImageElement): string {
 async function processSingleImage(
   img: HTMLImageElement,
   viewportCrop: boolean = false,
-  autoPinned: boolean = false
+  autoPinned: boolean = false,
+  forceRefresh: boolean = false
 ) {
   if (!translator || !renderer) {
     throw new Error('Services not initialized');
@@ -324,7 +326,12 @@ async function processSingleImage(
   img.classList.add(PROCESSED_CLASS);
 
   const imageKey = getImageKey(img);
-  const result = await translator.translateImage(img, viewportCrop, imageKey);
+  const result = await translator.translateImage(
+    img,
+    viewportCrop,
+    imageKey,
+    forceRefresh
+  );
 
   if (!result.success) {
     throw new Error(result.error || 'Translation failed');
@@ -352,7 +359,8 @@ async function processSingleImage(
 
 async function processImageBatch(
   images: HTMLImageElement[],
-  preserveSession: boolean = false
+  preserveSession: boolean = false,
+  forceRefresh: boolean = false
 ): Promise<void> {
   if (images.length === 0) {
     if (!preserveSession) {
@@ -400,7 +408,7 @@ async function processImageBatch(
         throw new Error('Translation cancelled');
       }
       try {
-        const result = await processSingleImage(img, false, true);
+        const result = await processSingleImage(img, false, true, forceRefresh);
         processedImages.add(imageKey);
         failedImageQueue.delete(imageKey);
 
@@ -428,7 +436,7 @@ async function processImageBatch(
 /**
  * 整页翻译
  */
-async function translatePage(): Promise<void> {
+async function translatePage(forceRefresh: boolean = false): Promise<void> {
   console.warn('[ContentScript] translatePage 开始执行');
   pageFollowTranslateEnabled = true;
   setupAutoTranslateObserver();
@@ -440,6 +448,11 @@ async function translatePage(): Promise<void> {
 
   abortController = new AbortController();
   failedImageQueue.clear();
+  if (forceRefresh) {
+    renderer?.removeAll();
+    readingLayer?.clear();
+    processedImages.clear();
+  }
   setState({ status: 'scanning' });
 
   try {
@@ -458,7 +471,7 @@ async function translatePage(): Promise<void> {
       return;
     }
 
-    await processImageBatch(images, false);
+    await processImageBatch(images, false, forceRefresh);
 
     // 检查是否被取消
     if (abortController?.signal.aborted) {
@@ -507,7 +520,7 @@ async function translateNewImages(): Promise<void> {
       abortController = new AbortController();
     }
 
-    await processImageBatch(images, true);
+    await processImageBatch(images, true, false);
     setState({
       status: 'complete',
       count: currentSession.translatedCount,
@@ -545,7 +558,7 @@ function enterHoverSelect(): void {
         renderer.renderLoading(img);
       }
       // 单图翻译：viewportCrop + autoPinned（覆盖层自动固定显示）
-      const result = await processSingleImage(img, true, true);
+      const result = await processSingleImage(img, true, true, false);
       processedImages.add(getProcessedImageKey(img));
       currentSession = createEmptySession();
       currentSession.sessionId = `session-${Date.now()}`;
@@ -627,7 +640,7 @@ async function retryFailedTranslations(): Promise<void> {
       images,
       async img => {
         const imageKey = getProcessedImageKey(img);
-        const result = await processSingleImage(img, false, true);
+        const result = await processSingleImage(img, false, true, false);
         processedImages.add(imageKey);
         failedImageQueue.delete(imageKey);
 
@@ -825,6 +838,12 @@ function handleMessage(
 
     case 'TRANSLATE_PAGE':
       translatePage()
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: String(err) }));
+      return true;
+
+    case 'FORCE_RETRANSLATE_PAGE':
+      translatePage(true)
         .then(() => sendResponse({ success: true }))
         .catch((err) => sendResponse({ success: false, error: String(err) }));
       return true;
