@@ -94,6 +94,11 @@ describe('isTranslatableImage', () => {
       expect(isTranslatableImage(img)).toBe(false);
     });
 
+    it('allowIncomplete=true 时应通过', () => {
+      const img = makeImg({ complete: false });
+      expect(isTranslatableImage(img, { allowIncomplete: true })).toBe(true);
+    });
+
     it('src 为空时应过滤', () => {
       const img = makeImg({});
       // 清空 src

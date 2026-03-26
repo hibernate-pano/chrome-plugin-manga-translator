@@ -142,6 +142,7 @@ describe('AppConfigStore', () => {
       expect(state.maxImageSize).toBe(1920);
       expect(state.parallelLimit).toBe(3);
       expect(state.cacheEnabled).toBe(true);
+      expect(state.translationStylePreset).toBe('natural-zh');
     });
 
     it('should update performance settings', () => {
@@ -155,6 +156,17 @@ describe('AppConfigStore', () => {
       expect(state.maxImageSize).toBe(1280);
       expect(state.parallelLimit).toBe(5);
       expect(state.cacheEnabled).toBe(false);
+    });
+  });
+
+  describe('Translation Style Preset', () => {
+    it('should update translation style preset', () => {
+      const store = useAppConfigStore.getState();
+
+      store.setTranslationStylePreset('concise-bubble');
+      expect(useAppConfigStore.getState().translationStylePreset).toBe(
+        'concise-bubble'
+      );
     });
   });
 

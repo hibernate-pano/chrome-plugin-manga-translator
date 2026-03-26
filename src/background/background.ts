@@ -10,6 +10,7 @@
  */
 
 import { createProvider, type ProviderType } from '@/providers';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 // ==================== Types ====================
 
@@ -57,6 +58,7 @@ const DEFAULT_CONFIG = {
   maxImageSize: 1920,
   parallelLimit: 3,
   cacheEnabled: true,
+  translationStylePreset: 'natural-zh',
 };
 
 // ==================== Lifecycle Events ====================
@@ -358,6 +360,7 @@ async function handleMessage(
           apiKey,
           baseUrl,
           model,
+          translationStylePreset = 'natural-zh',
         } = request as {
           imageBase64?: string;
           mimeType?: string;
@@ -366,6 +369,7 @@ async function handleMessage(
           apiKey?: string;
           baseUrl?: string;
           model?: string;
+          translationStylePreset?: TranslationStylePreset;
         };
 
         if (!imageBase64) {
@@ -380,10 +384,9 @@ async function handleMessage(
             { apiKey, baseUrl, model }
           );
 
-          // 验证配置
-          const validation = await visionProvider.validateConfig();
-          if (!validation.valid) {
-            sendResponse({ success: false, error: validation.message });
+          // 快速校验：仅检查 API Key 存在性，跳过网络请求，提升性能
+          if (providerType !== 'ollama' && !apiKey) {
+            sendResponse({ success: false, error: '请先配置 API Key' });
             break;
           }
 
@@ -395,7 +398,8 @@ async function handleMessage(
           // 调用 Vision LLM（getMangaTranslationPrompt 已内置在 provider 的 analyzeAndTranslate 中）
           const visionResponse = await visionProvider.analyzeAndTranslate(
             imageDataUrl,
-            targetLanguage
+            targetLanguage,
+            translationStylePreset
           );
 
           sendResponse({

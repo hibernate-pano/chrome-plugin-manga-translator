@@ -10,6 +10,10 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType } from '@/providers/base';
+import {
+  DEFAULT_TRANSLATION_STYLE_PRESET,
+  type TranslationStylePreset,
+} from '@/utils/translation-style';
 
 // ==================== Type Definitions ====================
 
@@ -58,6 +62,9 @@ export interface AppConfigState {
   
   /** Whether caching is enabled */
   cacheEnabled: boolean;
+
+  /** Prompt style preset for manga translation */
+  translationStylePreset: TranslationStylePreset;
 }
 
 /**
@@ -80,6 +87,7 @@ export interface AppConfigActions {
   setMaxImageSize: (size: number) => void;
   setParallelLimit: (limit: number) => void;
   setCacheEnabled: (enabled: boolean) => void;
+  setTranslationStylePreset: (preset: TranslationStylePreset) => void;
   
   // Utility operations
   getActiveProviderSettings: () => ProviderSettings;
@@ -130,6 +138,7 @@ const DEFAULT_CONFIG: AppConfigState = {
   maxImageSize: 1920,
   parallelLimit: 3,
   cacheEnabled: true,
+  translationStylePreset: DEFAULT_TRANSLATION_STYLE_PRESET,
 };
 
 // ==================== Chrome Storage Adapter ====================
@@ -231,6 +240,8 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       setMaxImageSize: (maxImageSize) => set({ maxImageSize }),
       setParallelLimit: (parallelLimit) => set({ parallelLimit }),
       setCacheEnabled: (cacheEnabled) => set({ cacheEnabled }),
+      setTranslationStylePreset: (translationStylePreset) =>
+        set({ translationStylePreset }),
 
       // Utility operations
       getActiveProviderSettings: () => {
@@ -266,6 +277,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         maxImageSize: state.maxImageSize,
         parallelLimit: state.parallelLimit,
         cacheEnabled: state.cacheEnabled,
+        translationStylePreset: state.translationStylePreset,
       }),
     }
   )

@@ -1,3 +1,9 @@
+import {
+  DEFAULT_TRANSLATION_STYLE_PRESET,
+  getTranslationStyleInstruction,
+  type TranslationStylePreset,
+} from '@/utils/translation-style';
+
 /**
  * Vision Provider Base Interface
  *
@@ -138,7 +144,8 @@ export interface VisionProvider {
    */
   analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string
+    targetLanguage: string,
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse>;
 
   /**
@@ -154,27 +161,26 @@ export interface VisionProvider {
  * @param targetLanguage The target language for translation
  * @returns Formatted prompt string
  */
-export function getMangaTranslationPrompt(targetLanguage: string): string {
-  return `You are a professional manga/comic translator. Analyze this image and extract ALL visible text.
+export function getMangaTranslationPrompt(
+  targetLanguage: string,
+  translationStylePreset: TranslationStylePreset = DEFAULT_TRANSLATION_STYLE_PRESET
+): string {
+  return `Extract ALL visible text from this manga/comic image and translate to ${targetLanguage}.
 
-OUTPUT FORMAT: Return ONLY a valid JSON object. No explanations, no markdown, no code blocks.
-
-{"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,"originalText":"原文","translatedText":"翻译"}]}
-
-TRANSLATION TARGET: ${targetLanguage}
+Return ONLY valid JSON: {"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,"originalText":"原文","translatedText":"翻译"}]}
 
 RULES:
-1. Find ALL text: speech bubbles, thought bubbles, narration boxes, signs, sound effects (SFX), watermarks
-2. Coordinates are decimal ratios 0.0-1.0 (not pixels): x,y = top-left corner, width/height = size
-3. Coordinates MUST cover the complete text area including surrounding bubble/box border
-4. For Japanese manga: read panels right-to-left, within panels also right-to-left
-5. For Korean manhwa/Chinese manhua: read left-to-right
-6. Sound effects (擬音語/SFX): preserve the energy, use onomatopoeia in target language when possible
-7. Keep speech style consistent (formal/informal/dialect matches original speaker's tone)
-8. If text has line breaks, use \\n in translatedText
-9. If image has NO text at all: {"textAreas":[]}
+1. Find ALL text: bubbles, narration, signs, SFX, tiny side text, faint small captions. Don't miss small text.
+2. x,y,width,height are 0.0-1.0 ratios relative to image. x,y = top-left corner. Mark a TIGHT box around the text itself, not the whole speech bubble or empty padding.
+3. Merge multi-line text in one bubble into ONE item.
+4. SFX: use target language onomatopoeia.
+5. Keep original speaker tone (formal/casual).
+6. Use \\\\n for line breaks in translatedText.
+7. No text found: {"textAreas":[]}
+8. If two text blocks are separate, return separate items. Avoid giant boxes that overlap unrelated text.
+9. Output ONLY the JSON.
 
-CRITICAL: Output ONLY the JSON. Any text outside the JSON will break parsing.`;
+${getTranslationStyleInstruction(translationStylePreset)}`;
 }
 
 /**

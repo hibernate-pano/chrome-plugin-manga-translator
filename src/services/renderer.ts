@@ -99,6 +99,189 @@ export function calculateFontSize(
   return Math.max(style.minFontSize, Math.min(style.maxFontSize, fontSize));
 }
 
+interface OverlayLayout {
+  fontSize: number;
+  lines: string[];
+  width: number;
+  height: number;
+  left: number;
+  top: number;
+}
+
+interface TextMeasureContext {
+  measureText: (text: string) => { width: number };
+}
+
+function getTextMeasureContext(
+  fontSize: number,
+  style: OverlayStyle
+): TextMeasureContext | null {
+  try {
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    if (!ctx || typeof ctx.measureText !== 'function') {
+      return null;
+    }
+
+    ctx.font = `${fontSize}px ${style.fontFamily}`;
+    return ctx;
+  } catch {
+    return null;
+  }
+}
+
+function estimateTextWidth(text: string, fontSize: number): number {
+  const cjkCount = (text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []).length;
+  const latinCount = Math.max(0, text.length - cjkCount);
+  return cjkCount * fontSize + latinCount * fontSize * 0.55;
+}
+
+function measureTextWidth(
+  text: string,
+  fontSize: number,
+  style: OverlayStyle
+): number {
+  const ctx = getTextMeasureContext(fontSize, style);
+  if (ctx) {
+    return ctx.measureText(text).width;
+  }
+
+  return estimateTextWidth(text, fontSize);
+}
+
+function wrapTextToWidth(
+  text: string,
+  maxWidth: number,
+  fontSize: number,
+  style: OverlayStyle
+): string[] {
+  const paragraphs = text.split('\n');
+  const lines: string[] = [];
+
+  for (const paragraph of paragraphs) {
+    if (!paragraph.trim()) {
+      lines.push('');
+      continue;
+    }
+
+    let currentLine = '';
+
+    for (const char of paragraph) {
+      const candidate = currentLine + char;
+      if (
+        currentLine &&
+        measureTextWidth(candidate, fontSize, style) > maxWidth
+      ) {
+        lines.push(currentLine.trimEnd());
+        currentLine = char.trimStart();
+      } else {
+        currentLine = candidate;
+      }
+    }
+
+    lines.push(currentLine.trimEnd() || paragraph.trim());
+  }
+
+  return lines;
+}
+
+function computeAdaptiveOverlayLayout(
+  area: TextArea,
+  imageWidth: number,
+  imageHeight: number,
+  style: OverlayStyle
+): OverlayLayout {
+  const areaLeft = area.x * imageWidth;
+  const areaTop = area.y * imageHeight;
+  const areaWidth = area.width * imageWidth;
+  const areaHeight = area.height * imageHeight;
+
+  let fontSize = calculateFontSize(areaWidth, areaHeight, area.translatedText, style);
+  let lines = wrapTextToWidth(
+    area.translatedText,
+    Math.max(areaWidth - style.padding * 2, 1),
+    fontSize,
+    style
+  );
+
+  while (fontSize > style.minFontSize) {
+    lines = wrapTextToWidth(
+      area.translatedText,
+      Math.max(areaWidth - style.padding * 2, 1),
+      fontSize,
+      style
+    );
+    const lineHeight = fontSize * 1.3;
+    const textHeight = lines.length * lineHeight + style.padding * 2;
+    const textWidth = Math.max(
+      ...lines.map(line => measureTextWidth(line, fontSize, style)),
+      fontSize
+    ) + style.padding * 2;
+
+    if (textHeight <= areaHeight && textWidth <= areaWidth) {
+      const width = Math.min(areaWidth, Math.max(textWidth, fontSize * 2));
+      const height = Math.min(areaHeight, Math.max(textHeight, lineHeight + style.padding * 2));
+      return {
+        fontSize,
+        lines,
+        width,
+        height,
+        left: areaLeft + (areaWidth - width) / 2,
+        top: areaTop + (areaHeight - height) / 2,
+      };
+    }
+
+    fontSize -= 1;
+  }
+
+  lines = wrapTextToWidth(
+    area.translatedText,
+    Math.max(areaWidth - style.padding * 2, 1),
+    style.minFontSize,
+    style
+  );
+  const lineHeight = style.minFontSize * 1.3;
+  const textHeight = Math.min(
+    areaHeight,
+    lines.length * lineHeight + style.padding * 2
+  );
+  const textWidth = Math.min(
+    areaWidth,
+    Math.max(
+      ...lines.map(line => measureTextWidth(line, style.minFontSize, style)),
+      style.minFontSize
+    ) +
+      style.padding * 2
+  );
+
+  return {
+    fontSize: style.minFontSize,
+    lines,
+    width: textWidth,
+    height: textHeight,
+    left: areaLeft + (areaWidth - textWidth) / 2,
+    top: areaTop + (areaHeight - textHeight) / 2,
+  };
+}
+
+function overlaps(a: DOMRect, b: DOMRect): boolean {
+  return !(
+    a.right <= b.left ||
+    a.left >= b.right ||
+    a.bottom <= b.top ||
+    a.top >= b.bottom
+  );
+}
+
+function getStyledRect(element: HTMLElement): DOMRect {
+  const left = parseFloat(element.style.left || '0');
+  const top = parseFloat(element.style.top || '0');
+  const width = parseFloat(element.style.width || '0');
+  const height = parseFloat(element.style.height || '0');
+
+  return new DOMRect(left, top, width, height);
+}
+
 /**
  * Create CSS styles for overlay elements
  */
@@ -140,6 +323,7 @@ function createOverlayStyles(): string {
       font-weight: 500;
       text-shadow: 0 1px 2px rgba(255,255,255,0.8);
       box-shadow: 0 1px 4px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.6);
+      animation: manga-overlay-fadein 0.3s ease-out;
     }
 
     .${WRAPPER_CLASS}:hover .${OVERLAY_CLASS} {
@@ -184,6 +368,51 @@ function createOverlayStyles(): string {
     .${CONTROLS_CLASS} button:hover {
       background: rgba(0, 0, 0, 0.85);
     }
+
+    .manga-translator-loading {
+      position: absolute;
+      top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0, 0, 0, 0.4);
+      backdrop-filter: blur(2px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1001;
+      border-radius: inherit;
+    }
+    
+    .manga-translator-spinner {
+      width: 40px;
+      height: 40px;
+      border: 3px solid rgba(255,255,255,0.3);
+      border-radius: 50%;
+      border-top-color: #fff;
+      animation: manga-spin 1s ease-in-out infinite;
+    }
+    
+    @keyframes manga-spin {
+      to { transform: rotate(360deg); }
+    }
+
+    @keyframes manga-overlay-fadein {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+
+    .manga-translator-loading-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .manga-translator-loading-text {
+      color: #fff;
+      font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      font-weight: 500;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
+    }
   `;
 }
 
@@ -221,7 +450,7 @@ export class OverlayRenderer {
   /**
    * Render translation overlays on an image
    */
-  render(image: HTMLImageElement, textAreas: TextArea[]): HTMLElement {
+  render(image: HTMLImageElement, textAreas: TextArea[], autoPinned = false): HTMLElement {
     // Remove existing overlays for this image
     this.remove(image);
 
@@ -257,6 +486,8 @@ export class OverlayRenderer {
       overlayContainer.appendChild(overlay);
       overlays.push(overlay);
     }
+
+    this.resolveOverlayCollisions(overlays, imageWidth, imageHeight);
 
     // Create control buttons
     const controls = document.createElement('div');
@@ -295,10 +526,60 @@ export class OverlayRenderer {
       image,
       overlays,
       overlayContainer,
-      pinned: false,
+      pinned: autoPinned,
     });
 
+    // 点击翻译场景下自动 pin，翻译结果直接显示无需 hover
+    if (autoPinned) {
+      wrapper.classList.add('manga-translator-pinned');
+      toggleBtn.textContent = '👁';
+    }
+
     return wrapper;
+  }
+
+  /**
+   * Render a loading overlay over an image
+   */
+  renderLoading(image: HTMLImageElement): void {
+    let wrapper = image.parentElement;
+    if (!wrapper || !wrapper.classList.contains(WRAPPER_CLASS)) {
+      wrapper = document.createElement('div');
+      wrapper.className = WRAPPER_CLASS;
+      wrapper.setAttribute(DATA_ATTR, 'true');
+
+      const parent = image.parentElement;
+      if (parent) {
+        parent.insertBefore(wrapper, image);
+      }
+      wrapper.appendChild(image);
+    }
+
+    // Ensure no existing loading indicator
+    this.removeLoading(image);
+
+    const loading = document.createElement('div');
+    loading.className = 'manga-translator-loading';
+    loading.innerHTML = `
+      <div class="manga-translator-loading-content">
+        <div class="manga-translator-spinner"></div>
+        <div class="manga-translator-loading-text">翻译中...</div>
+      </div>
+    `;
+    wrapper.appendChild(loading);
+  }
+
+  /**
+   * Remove loading overlay from an image
+   */
+  removeLoading(image: HTMLImageElement): void {
+    const wrapper = image.parentElement;
+    if (wrapper && wrapper.classList.contains(WRAPPER_CLASS)) {
+      const loading = wrapper.querySelector('.manga-translator-loading');
+      if (loading) {
+        loading.remove();
+      }
+    }
   }
 
   /**
@@ -313,36 +594,91 @@ export class OverlayRenderer {
     overlay.className = OVERLAY_CLASS;
     overlay.setAttribute(DATA_ATTR, 'overlay');
 
-    const left = area.x * imageWidth;
-    const top = area.y * imageHeight;
-    const width = area.width * imageWidth;
-    const height = area.height * imageHeight;
-
-    const fontSize = calculateFontSize(
-      width,
-      height,
-      area.translatedText,
+    const layout = computeAdaptiveOverlayLayout(
+      area,
+      imageWidth,
+      imageHeight,
       this.style
     );
 
-
     Object.assign(overlay.style, {
-      left: `${left}px`,
-      top: `${top}px`,
-      width: `${width}px`,
-      height: `${height}px`,
+      left: `${layout.left}px`,
+      top: `${layout.top}px`,
+      width: `${layout.width}px`,
+      height: `${layout.height}px`,
       backgroundColor: this.style.backgroundColor,
       color: this.style.textColor,
       fontFamily: this.style.fontFamily,
-      fontSize: `${fontSize}px`,
+      fontSize: `${layout.fontSize}px`,
       borderRadius: `${this.style.borderRadius}px`,
       padding: `${this.style.padding}px`,
+      whiteSpace: 'pre-wrap',
     });
 
     overlay.textContent = area.translatedText;
     overlay.setAttribute('data-original', area.originalText);
 
     return overlay;
+  }
+
+  private resolveOverlayCollisions(
+    overlays: HTMLElement[],
+    imageWidth: number,
+    imageHeight: number
+  ): void {
+    const spacing = 4;
+    const sorted = [...overlays].sort(
+      (a, b) =>
+        parseFloat(a.style.top || '0') - parseFloat(b.style.top || '0')
+    );
+
+    for (let i = 0; i < sorted.length; i += 1) {
+      const current = sorted[i];
+      if (!current) {
+        continue;
+      }
+
+      for (let j = 0; j < i; j += 1) {
+        const previous = sorted[j];
+        if (!previous) {
+          continue;
+        }
+        const currentRect = getStyledRect(current);
+        const previousRect = getStyledRect(previous);
+
+        if (!overlaps(currentRect, previousRect)) {
+          continue;
+        }
+
+        const currentTop = parseFloat(current.style.top || '0');
+        const currentHeight = parseFloat(current.style.height || '0');
+        const nextTop = previousRect.bottom + spacing;
+        const maxTop = Math.max(0, imageHeight - currentHeight);
+        const adjustedTop = Math.min(nextTop, maxTop);
+
+        current.style.top = `${adjustedTop}px`;
+
+        const updatedRect = getStyledRect(current);
+        if (
+          overlaps(updatedRect, previousRect) &&
+          currentTop > previousRect.height + spacing
+        ) {
+          current.style.top = `${Math.max(0, previousRect.top - currentHeight - spacing)}px`;
+        }
+
+        const overflowRight =
+          parseFloat(current.style.left || '0') +
+            parseFloat(current.style.width || '0') -
+            imageWidth >
+          0;
+        if (overflowRight) {
+          current.style.left = `${Math.max(
+            0,
+            imageWidth - parseFloat(current.style.width || '0')
+          )}px`;
+        }
+      }
+    }
   }
 
   /**

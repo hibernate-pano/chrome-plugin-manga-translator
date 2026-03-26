@@ -17,7 +17,12 @@
 export type HudState =
   | { status: 'hidden' }
   | { status: 'translating'; current: number; total: number }
-  | { status: 'complete'; count: number }
+  | {
+      status: 'complete';
+      translatedCount: number;
+      failedCount: number;
+      cachedCount: number;
+    }
   | { status: 'hover-select' }
   | { status: 'error'; message: string };
 
@@ -124,7 +129,7 @@ export class FloatingHud {
         return `
           <div class="hud-card">
             <div class="hud-title">翻译完成</div>
-            <div class="hud-sub">共翻译 ${state.count} 张图片</div>
+            <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
           </div>
         `;
       }

@@ -34,20 +34,42 @@ import type { ProviderType } from '@/providers/base';
 
 // ==================== Types ====================
 
-type ContentState =
-  | { status: 'idle' }
-  | { status: 'scanning' }
-  | { status: 'translating'; current: number; total: number }
-  | { status: 'complete'; count: number }
-  | { status: 'hover-select' }
-  | { status: 'error'; message: string };
+interface ContentState {
+  status: 'idle' | 'scanning' | 'translating' | 'complete' | 'hover-select' | 'error';
+  current?: number;
+  total?: number;
+  count?: number;
+  message?: string;
+  session: {
+    sessionId: string | null;
+    queuedCount: number;
+    translatedCount: number;
+    failedCount: number;
+    skippedCount: number;
+    cachedCount: number;
+    lastError: string | null;
+  };
+}
 
 type PopupToContentMsg =
   | { type: 'TRANSLATE_PAGE' }
   | { type: 'ENTER_HOVER_SELECT' }
   | { type: 'EXIT_HOVER_SELECT' }
   | { type: 'CANCEL_TRANSLATION' }
-  | { type: 'CLEAR_ALL' };
+  | { type: 'CLEAR_ALL' }
+  | { type: 'RETRY_FAILED' };
+
+function createEmptySession(): ContentState['session'] {
+  return {
+    sessionId: null,
+    queuedCount: 0,
+    translatedCount: 0,
+    failedCount: 0,
+    skippedCount: 0,
+    cachedCount: 0,
+    lastError: null,
+  };
+}
 
 // ==================== Provider Display Info ====================
 
@@ -115,7 +137,7 @@ function friendlyError(message: string): { title: string; action?: string } {
     return { title: '未找到可翻译的漫画图片' };
   }
   // 超过 50 字截断
-  return { title: message.length > 50 ? message.substring(0, 50) + '...' : message };
+  return { title: message.length > 50 ? `${message.substring(0, 50)}...` : message };
 }
 
 // ==================== Utils ====================
@@ -139,6 +161,7 @@ async function sendToContent(msg: PopupToContentMsg): Promise<void> {
 const PopupApp: React.FC = () => {
   const [contentState, setContentState] = useState<ContentState>({
     status: 'idle',
+    session: createEmptySession(),
   });
   const [isLoading, setIsLoading] = useState(true);
   const [showShortcuts, setShowShortcuts] = useState(false);
@@ -201,7 +224,10 @@ const PopupApp: React.FC = () => {
             clearTimeout(completeTimerRef.current);
           }
           completeTimerRef.current = setTimeout(() => {
-            setContentState({ status: 'idle' });
+            setContentState({
+              status: 'idle',
+              session: msg.state?.session ?? createEmptySession(),
+            });
           }, 2500);
         }
       }
@@ -221,28 +247,28 @@ const PopupApp: React.FC = () => {
   const handleTranslatePage = useCallback(async () => {
     if (contentState.status === 'translating' || contentState.status === 'scanning') {
       await sendToContent({ type: 'CANCEL_TRANSLATION' });
-      setContentState({ status: 'idle' });
+      setContentState({ status: 'idle', session: contentState.session });
       return;
     }
-    setContentState({ status: 'scanning' });
+    setContentState({ status: 'scanning', session: contentState.session });
     await sendToContent({ type: 'TRANSLATE_PAGE' });
-  }, [contentState.status]);
+  }, [contentState.session, contentState.status]);
 
   const handleHoverSelect = useCallback(async () => {
     if (contentState.status === 'hover-select') {
       await sendToContent({ type: 'EXIT_HOVER_SELECT' });
-      setContentState({ status: 'idle' });
+      setContentState({ status: 'idle', session: contentState.session });
       return;
     }
-    setContentState({ status: 'hover-select' });
+    setContentState({ status: 'hover-select', session: contentState.session });
     await sendToContent({ type: 'ENTER_HOVER_SELECT' });
     // Close popup so user can interact with page
     window.close();
-  }, [contentState.status]);
+  }, [contentState.session, contentState.status]);
 
   const handleClearAll = useCallback(async () => {
     await sendToContent({ type: 'CLEAR_ALL' });
-    setContentState({ status: 'idle' });
+    setContentState({ status: 'idle', session: createEmptySession() });
   }, []);
 
   const openSettings = useCallback(() => {
@@ -256,12 +282,12 @@ const PopupApp: React.FC = () => {
     contentState.status === 'scanning';
 
   const progress =
-    contentState.status === 'translating' && contentState.total > 0
-      ? (contentState.current / contentState.total) * 100
+    contentState.status === 'translating' && (contentState.total ?? 0) > 0
+      ? ((contentState.current ?? 0) / (contentState.total ?? 1)) * 100
       : 0;
 
   const errorInfo = contentState.status === 'error'
-    ? friendlyError(contentState.message)
+    ? friendlyError(contentState.message ?? 'Unknown error')
     : null;
 
   // ==================== Render ====================
@@ -363,8 +389,9 @@ const PopupApp: React.FC = () => {
               >
                 <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                 <span className="text-emerald-300 font-medium">
-                  {contentState.count > 0
-                    ? `已翻译 ${contentState.count} 张图片`
+                  {contentState.session.translatedCount > 0 ||
+                  contentState.session.failedCount > 0
+                    ? `成功 ${contentState.session.translatedCount}，失败 ${contentState.session.failedCount}`
                     : '未找到可翻译的图片'}
                 </span>
               </motion.div>
@@ -384,7 +411,7 @@ const PopupApp: React.FC = () => {
                     <span className="text-teal-300 font-medium text-sm">
                       {contentState.status === 'scanning'
                         ? '正在扫描图片...'
-                        : `${contentState.current} / ${contentState.total} 已翻译`}
+                        : `${contentState.current ?? 0} / ${contentState.total ?? 0} 已处理`}
                     </span>
                   </div>
                   <button
@@ -395,7 +422,7 @@ const PopupApp: React.FC = () => {
                   </button>
                 </div>
                 {contentState.status === 'translating' &&
-                  contentState.total > 0 && (
+                  (contentState.total ?? 0) > 0 && (
                     <Progress
                       value={progress}
                       className="h-1 rounded-none bg-teal-900/40"
@@ -502,7 +529,12 @@ const PopupApp: React.FC = () => {
                 )}
               </div>
               <button
-                onClick={() => setContentState({ status: 'idle' })}
+                onClick={() =>
+                  setContentState({
+                    status: 'idle',
+                    session: contentState.session,
+                  })
+                }
                 className="shrink-0 p-0.5 rounded hover:bg-white/10 transition-colors cursor-pointer"
               >
                 <X className="w-3 h-3 text-slate-500" />
@@ -510,6 +542,16 @@ const PopupApp: React.FC = () => {
             </motion.div>
           )}
         </AnimatePresence>
+
+        {contentState.status === 'complete' &&
+          contentState.session.failedCount > 0 && (
+            <button
+              onClick={() => sendToContent({ type: 'RETRY_FAILED' })}
+              className="w-full h-10 rounded-xl border border-amber-500/30 bg-amber-500/10 text-amber-200 text-sm font-medium hover:bg-amber-500/15 transition-colors cursor-pointer"
+            >
+              重试失败项
+            </button>
+          )}
       </div>
 
       {/* ---- Footer ---- */}

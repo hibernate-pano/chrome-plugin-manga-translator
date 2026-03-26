@@ -314,7 +314,7 @@ export function mergeOverlappingRegions(
           y: minY,
           width: maxX - minX,
           height: maxY - minY,
-          text: current.text + ' ' + (other.text ?? ''),
+          text: `${current.text} ${other.text ?? ''}`,
           confidence: (current.confidence + (other.confidence ?? 0)) / 2,
         };
 

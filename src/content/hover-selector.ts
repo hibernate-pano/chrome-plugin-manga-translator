@@ -8,38 +8,57 @@
  * - 通过 Shadow DOM 注入样式，避免污染页面
  */
 
+import { getRealImageSource, type SiteAdapter } from './site-adapters';
+
+export interface ImageFilterOptions {
+  debug?: boolean;
+  allowIncomplete?: boolean;
+  siteAdapter?: SiteAdapter | null;
+}
+
 // ==================== 图片可翻译性判断 ====================
 
 /**
  * 判断图片是否为可翻译图片
- *
- * 过滤条件：
- * - 尺寸 >= 200x200
- * - 已加载完成
- * - 不在 header/nav/footer/aside 内
- * - className/id 不含常见 UI 图片关键词
- * - 不是小正方形头像
  */
-export function isTranslatableImage(img: HTMLImageElement): boolean {
+export function isTranslatableImage(
+  img: HTMLImageElement,
+  options: ImageFilterOptions = {}
+): boolean {
+  const {
+    debug = false,
+    allowIncomplete = false,
+    siteAdapter = null,
+  } = options;
+
   // 检查尺寸
   const width = img.naturalWidth || img.width;
   const height = img.naturalHeight || img.height;
 
   if (width < 200 || height < 200) {
+    if (debug) console.log('[Filter] 尺寸太小:', width, 'x', height, img.src);
     return false;
   }
 
-  // 检查是否已加载
-  if (!img.complete || !img.src) {
+  const realSrc = getRealImageSource(img, siteAdapter);
+
+  if (!realSrc) {
+    if (debug) console.log('[Filter] 无 src 属性:', img);
+    return false;
+  }
+
+  if (!allowIncomplete && !img.complete) {
+    if (debug) console.log('[Filter] 图片尚未加载完成:', realSrc);
     return false;
   }
 
   // 检查是否在语义性布局元素内（头部/导航/页脚/侧边栏）
   if (img.closest('header, nav, footer, aside')) {
+    if (debug) console.log('[Filter] 在 header/nav/footer/aside 内:', img.src);
     return false;
   }
 
-  // 检查 className 和 id 是否含有 UI 图片关键词（全词匹配，避免 "reading" 误匹配 "ad"）
+  // 检查 className 和 id 是否含有 UI 图片关键词
   const classAndId = `${img.className} ${img.id}`.toLowerCase();
   const uiKeywordPatterns = [
     /\bavatar\b/,
@@ -52,6 +71,7 @@ export function isTranslatableImage(img: HTMLImageElement): boolean {
   ];
   for (const pattern of uiKeywordPatterns) {
     if (pattern.test(classAndId)) {
+      if (debug) console.log('[Filter] 包含 UI 关键词:', pattern, img.src);
       return false;
     }
   }
@@ -59,16 +79,19 @@ export function isTranslatableImage(img: HTMLImageElement): boolean {
   // 过滤小正方形头像（1:1 比例且尺寸小于 400x400）
   const aspectRatio = width / height;
   if (aspectRatio > 0.9 && aspectRatio < 1.1 && width < 400 && height < 400) {
+    if (debug) console.log('[Filter] 判定为小方形头像:', img.src);
     return false;
   }
 
   // 排除已翻译图片
   if (img.classList.contains('manga-translator-processed')) {
+    if (debug) console.log('[Filter] 已翻译过:', img.src);
     return false;
   }
 
   // 排除翻译覆盖层内的图片
   if (img.closest('.manga-translator-wrapper')) {
+    if (debug) console.log('[Filter] 在覆盖层内:', img.src);
     return false;
   }
 

@@ -15,6 +15,7 @@ import {
   parseVisionResponse,
 } from './base';
 import { DEFAULT_MODELS, API_URLS, API_VERSIONS } from './constants';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 interface ClaudeContentPart {
   type: 'text' | 'image';
@@ -58,14 +59,18 @@ export class ClaudeProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string
+    targetLanguage: string,
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
     const validation = await this.validateConfig();
     if (!validation.valid) {
       throw new Error(validation.message);
     }
 
-    const prompt = getMangaTranslationPrompt(targetLanguage);
+    const prompt = getMangaTranslationPrompt(
+      targetLanguage,
+      translationStylePreset
+    );
     const imageData = parseImageData(imageBase64);
 
     const messages: ClaudeMessage[] = [

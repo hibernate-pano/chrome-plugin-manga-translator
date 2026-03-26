@@ -25,6 +25,13 @@ import { useAppConfigStore } from '@/stores/config-v2';
 import { isTranslatableImage } from './hover-selector';
 import { HoverSelector } from './hover-selector';
 import { FloatingHud } from './floating-hud';
+import {
+  collectSiteCandidateImages,
+  getRealImageSource,
+  matchSiteAdapter,
+  prepareImageForTranslation,
+  type SiteAdapter,
+} from './site-adapters';
 
 // ==================== 消息类型定义 ====================
 
@@ -34,7 +41,8 @@ export type PopupToContentMsg =
   | { type: 'ENTER_HOVER_SELECT' }
   | { type: 'EXIT_HOVER_SELECT' }
   | { type: 'CANCEL_TRANSLATION' }
-  | { type: 'CLEAR_ALL' };
+  | { type: 'CLEAR_ALL' }
+  | { type: 'RETRY_FAILED' };
 
 export type ContentToPopupMsg =
   | { type: 'STATE_UPDATE'; state: ContentState }
@@ -42,13 +50,24 @@ export type ContentToPopupMsg =
 
 // ==================== 状态类型定义 ====================
 
-export type ContentState =
-  | { status: 'idle' }
-  | { status: 'scanning' }
-  | { status: 'translating'; current: number; total: number }
-  | { status: 'complete'; count: number }
-  | { status: 'hover-select' }
-  | { status: 'error'; message: string };
+export interface TranslationSessionStats {
+  sessionId: string | null;
+  queuedCount: number;
+  translatedCount: number;
+  failedCount: number;
+  skippedCount: number;
+  cachedCount: number;
+  lastError: string | null;
+}
+
+export interface ContentState {
+  status: 'idle' | 'scanning' | 'translating' | 'complete' | 'hover-select' | 'error';
+  current?: number;
+  total?: number;
+  count?: number;
+  message?: string;
+  session: TranslationSessionStats;
+}
 
 // ==================== 常量 ====================
 
@@ -57,22 +76,44 @@ const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
 // ==================== 运行时状态 ====================
 
-let currentState: ContentState = { status: 'idle' };
+let currentState: ContentState = {
+  status: 'idle',
+  session: createEmptySession(),
+};
 let abortController: AbortController | null = null;
 let translator: TranslatorService | null = null;
 let renderer: OverlayRenderer | null = null;
 let hud: FloatingHud | null = null;
 let hoverSelector: HoverSelector | null = null;
 const processedImages: Set<string> = new Set();
+let servicesReady = false;
+let currentSiteAdapter: SiteAdapter | null = null;
+let currentSession: TranslationSessionStats = createEmptySession();
+const failedImageQueue: Map<string, HTMLImageElement> = new Map();
 
 // ==================== 状态更新 ====================
 
-function setState(state: ContentState): void {
-  currentState = state;
+function createEmptySession(): TranslationSessionStats {
+  return {
+    sessionId: null,
+    queuedCount: 0,
+    translatedCount: 0,
+    failedCount: 0,
+    skippedCount: 0,
+    cachedCount: 0,
+    lastError: null,
+  };
+}
+
+function setState(state: Omit<ContentState, 'session'>): void {
+  currentState = {
+    ...state,
+    session: { ...currentSession },
+  };
 
   // 同步 HUD 显示
   if (hud) {
-    switch (state.status) {
+    switch (currentState.status) {
       case 'idle':
         hud.update({ status: 'hidden' });
         break;
@@ -80,22 +121,34 @@ function setState(state: ContentState): void {
         hud.update({ status: 'translating', current: 0, total: 0 });
         break;
       case 'translating':
-        hud.update({ status: 'translating', current: state.current, total: state.total });
+        hud.update({
+          status: 'translating',
+          current: currentState.current ?? 0,
+          total: currentState.total ?? 0,
+        });
         break;
       case 'complete':
-        hud.update({ status: 'complete', count: state.count });
+        hud.update({
+          status: 'complete',
+          translatedCount: currentSession.translatedCount,
+          failedCount: currentSession.failedCount,
+          cachedCount: currentSession.cachedCount,
+        });
         break;
       case 'hover-select':
         hud.update({ status: 'hover-select' });
         break;
       case 'error':
-        hud.update({ status: 'error', message: state.message });
+        hud.update({
+          status: 'error',
+          message: currentState.message ?? 'Unknown error',
+        });
         break;
     }
   }
 
   // 发送状态给 background -> popup
-  sendToBackground({ type: 'STATE_UPDATE', state });
+  sendToBackground({ type: 'STATE_UPDATE', state: currentState });
 }
 
 // ==================== 服务初始化 ====================
@@ -148,6 +201,11 @@ async function waitForConfigHydration(): Promise<void> {
 }
 
 async function ensureServicesInitialized(): Promise<void> {
+  // 如果服务已初始化且实例存在，直接跳过（避免每次点击重复初始化）
+  if (servicesReady && translator && renderer) {
+    return;
+  }
+
   // 等待 Config Store 从 chrome.storage 水合（解决竞态条件）
   await waitForConfigHydration();
 
@@ -161,6 +219,7 @@ async function ensureServicesInitialized(): Promise<void> {
 
   try {
     await translator.initialize();
+    servicesReady = true;
     console.warn('[ContentScript] Translator 初始化成功');
   } catch (error) {
     console.error('[ContentScript] Translator 初始化失败:', error);
@@ -173,36 +232,67 @@ async function ensureServicesInitialized(): Promise<void> {
 // ==================== 图片处理 ====================
 
 function findTranslatableImages(): HTMLImageElement[] {
-  // 等待一小段时间确保图片已加载（懒加载页面）
+  currentSiteAdapter = matchSiteAdapter(window.location.href);
+  const siteImages = collectSiteCandidateImages(currentSiteAdapter);
   const allImages = Array.from(document.querySelectorAll('img'));
+  const uniqueImages = [...new Set([...siteImages, ...allImages])];
 
-  return allImages.filter(
-    (img) => isTranslatableImage(img) && !processedImages.has(getImageKey(img))
-  );
+  console.warn(`[ContentScript] 分析所有 ${uniqueImages.length} 张图片...`);
+
+  // 对于可能被懒加载干扰的图片，尝试将 data-src / data-original 等恢复到 src
+  uniqueImages.forEach(img => {
+    if (!img.src || img.src.includes('data:image') || img.src.includes('blank')) {
+      const realSrc = getRealImageSource(img, currentSiteAdapter);
+      if (realSrc && typeof realSrc === 'string') {
+        // 我们只在内存中标记它的真实 src 或者直接将 src 赋值
+        // 为了不破坏原网页行为，最好不要直接改 src，但为了测量可能需要。这里保守先不改。
+      }
+    }
+  });
+
+  return uniqueImages.filter((img) => {
+    const isTranslatable = isTranslatableImage(img, {
+      debug: true,
+      allowIncomplete: true,
+      siteAdapter: currentSiteAdapter,
+    });
+    const originalKey = getImageKey(img);
+    const notProcessed = !processedImages.has(originalKey);
+    // 这里如果已经被处理过，也要算在「无需重新处理的源」里，但对于本次队列过滤掉
+    return isTranslatable && notProcessed;
+  });
 }
 
 function getImageKey(img: HTMLImageElement): string {
-  return img.src || `img-${img.offsetLeft}-${img.offsetTop}-${img.width}-${img.height}`;
+  const realSrc = getRealImageSource(img, currentSiteAdapter);
+  return `${realSrc || 'unknown'}::${img.naturalWidth || img.width}x${img.naturalHeight || img.height}`;
 }
 
-async function processSingleImage(img: HTMLImageElement): Promise<void> {
+async function processSingleImage(
+  img: HTMLImageElement,
+  viewportCrop: boolean = false,
+  autoPinned: boolean = false
+) {
   if (!translator || !renderer) {
     throw new Error('Services not initialized');
   }
 
+  await prepareImageForTranslation(img, currentSiteAdapter);
+
   img.classList.add(PROCESSED_CLASS);
 
-  const result = await translator.translateImage(img);
+  const result = await translator.translateImage(img, viewportCrop);
 
   if (!result.success) {
     throw new Error(result.error || 'Translation failed');
   }
 
   if (result.textAreas.length === 0) {
-    return;
+    return result;
   }
 
-  renderer.render(img, result.textAreas);
+  renderer.render(img, result.textAreas, autoPinned);
+  return result;
 }
 
 // ==================== 核心动作 ====================
@@ -219,6 +309,9 @@ async function translatePage(): Promise<void> {
   }
 
   abortController = new AbortController();
+  currentSession = createEmptySession();
+  currentSession.sessionId = `session-${Date.now()}`;
+  failedImageQueue.clear();
   setState({ status: 'scanning' });
 
   try {
@@ -241,8 +334,8 @@ async function translatePage(): Promise<void> {
     const parallelLimit = config.parallelLimit || 3;
     const total = images.length;
     let current = 0;
-    let successCount = 0;
 
+    currentSession.queuedCount = total;
     setState({ status: 'translating', current: 0, total });
 
     const options: ParallelProcessingOptions = {
@@ -257,22 +350,36 @@ async function translatePage(): Promise<void> {
       onError: (error) => {
         const friendly = parseTranslationError(error);
         console.error('[ContentScript] 图片处理失败:', friendly.message);
+        currentSession.lastError = friendly.message;
       },
     };
 
     await processInParallel(
       images,
       async (img) => {
+        const imageKey = getImageKey(img);
         if (abortController?.signal.aborted) {
           throw new Error('Translation cancelled');
         }
-        const beforeCount = processedImages.size;
-        await processSingleImage(img);
-        // Only count if it wasn't already processed
-        if (processedImages.size > beforeCount) {
-          successCount++;
+        try {
+          const result = await processSingleImage(img, false, true);
+          processedImages.add(imageKey);
+          failedImageQueue.delete(imageKey);
+
+          if (result.cached) {
+            currentSession.cachedCount += 1;
+          }
+
+          if (result.textAreas.length === 0) {
+            currentSession.skippedCount += 1;
+          } else {
+            currentSession.translatedCount += 1;
+          }
+        } catch (error) {
+          currentSession.failedCount += 1;
+          failedImageQueue.set(imageKey, img);
+          throw error;
         }
-        processedImages.add(getImageKey(img));
       },
       options
     );
@@ -283,10 +390,14 @@ async function translatePage(): Promise<void> {
       return;
     }
 
-    setState({ status: 'complete', count: successCount });
+    setState({
+      status: 'complete',
+      count: currentSession.translatedCount,
+    });
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
+    currentSession.lastError = friendly.message;
     setState({ status: 'error', message: friendly.message });
   } finally {
     abortController = null;
@@ -303,17 +414,39 @@ function enterHoverSelect(): void {
 
   hoverSelector = new HoverSelector();
   hoverSelector.onImageClick(async (img) => {
-    hoverSelector = null;
+    // 翻译期间先退出当前选图器
+    if (hoverSelector) {
+      hoverSelector.exit();
+      hoverSelector = null;
+    }
     setState({ status: 'translating', current: 0, total: 1 });
 
     try {
       await ensureServicesInitialized();
-      await processSingleImage(img);
+      if (renderer) {
+        renderer.renderLoading(img);
+      }
+      // 单图翻译：viewportCrop + autoPinned（覆盖层自动固定显示）
+      const result = await processSingleImage(img, true, true);
       processedImages.add(getImageKey(img));
-      setState({ status: 'complete', count: 1 });
+      currentSession = createEmptySession();
+      currentSession.sessionId = `session-${Date.now()}`;
+      currentSession.queuedCount = 1;
+      currentSession.translatedCount = result.textAreas.length > 0 ? 1 : 0;
+      currentSession.skippedCount = result.textAreas.length === 0 ? 1 : 0;
+      currentSession.cachedCount = result.cached ? 1 : 0;
     } catch (error) {
       const friendly = parseTranslationError(error);
+      currentSession.lastError = friendly.message;
       setState({ status: 'error', message: friendly.message });
+    } finally {
+      if (renderer) {
+        renderer.removeLoading(img);
+      }
+      // 翻译完成后自动回到 hover-select 模式，支持连续翻译
+      if (currentState.status !== 'error') {
+        enterHoverSelect();
+      }
     }
   });
 
@@ -347,6 +480,75 @@ function cancelTranslation(): void {
   setState({ status: 'idle' });
 }
 
+async function retryFailedTranslations(): Promise<void> {
+  if (failedImageQueue.size === 0) {
+    setState({
+      status: 'complete',
+      count: currentSession.translatedCount,
+    });
+    return;
+  }
+
+  const images = [...failedImageQueue.values()].filter(image => image.isConnected);
+
+  currentSession = createEmptySession();
+  currentSession.sessionId = `session-${Date.now()}`;
+  currentSession.queuedCount = images.length;
+  abortController = new AbortController();
+  setState({ status: 'translating', current: 0, total: images.length });
+
+  try {
+    await ensureServicesInitialized();
+
+    await processInParallel(
+      images,
+      async img => {
+        const imageKey = getImageKey(img);
+        const result = await processSingleImage(img, false, true);
+        processedImages.add(imageKey);
+        failedImageQueue.delete(imageKey);
+
+        if (result.cached) {
+          currentSession.cachedCount += 1;
+        }
+
+        if (result.textAreas.length === 0) {
+          currentSession.skippedCount += 1;
+        } else {
+          currentSession.translatedCount += 1;
+        }
+      },
+      {
+        maxConcurrent: useAppConfigStore.getState().parallelLimit || 3,
+        signal: abortController.signal,
+        onItemComplete: completed => {
+          setState({
+            status: 'translating',
+            current: completed,
+            total: images.length,
+          });
+        },
+        onError: error => {
+          const friendly = parseTranslationError(error);
+          currentSession.failedCount += 1;
+          currentSession.lastError = friendly.message;
+        },
+      }
+    );
+
+    setState({
+      status: 'complete',
+      count: currentSession.translatedCount,
+    });
+  } catch (error) {
+    const friendly = parseTranslationError(error);
+    currentSession.lastError = friendly.message;
+    setState({ status: 'error', message: friendly.message });
+  } finally {
+    abortController = null;
+  }
+}
+
 /**
  * 清除所有覆盖层
  */
@@ -359,6 +561,8 @@ function clearAll(): void {
   removeAllOverlaysFromDOM();
 
   processedImages.clear();
+  failedImageQueue.clear();
+  currentSession = createEmptySession();
   document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach((img) => {
     img.classList.remove(PROCESSED_CLASS);
   });
@@ -416,6 +620,12 @@ function handleMessage(
       sendResponse({ success: true });
       break;
 
+    case 'RETRY_FAILED':
+      retryFailedTranslations()
+        .then(() => sendResponse({ success: true }))
+        .catch((err) => sendResponse({ success: false, error: String(err) }));
+      return true;
+
     default:
       sendResponse({ success: false, error: 'Unknown message type' });
   }
@@ -430,8 +640,9 @@ function handleStorageChange(
   _areaName: string
 ): void {
   if (changes[CONFIG_STORAGE_KEY]) {
-    // 配置变更时重置 translator，下次使用时重新初始化
+    // 配置变更时重置 translator 和初始化状态，下次使用时重新初始化
     translator = null;
+    servicesReady = false;
   }
 }
 

@@ -20,6 +20,8 @@ export interface ImageProcessingOptions {
   format?: 'jpeg' | 'png' | 'webp' | 'auto';
   /** Whether to preserve original format when possible */
   preserveFormat?: boolean;
+  /** Whether to crop the image to only the visible viewport part (useful for very long images) */
+  viewportCrop?: boolean;
 }
 
 export interface ProcessedImage {
@@ -39,16 +41,34 @@ export interface ProcessedImage {
   wasCompressed: boolean;
   /** Hash of the processed image for caching */
   hash: string;
+  /** Start Y coordinate of crop in original image (0 if not cropped) */
+  cropY?: number;
+  /** Height of the cropped area in original image (equal to originalHeight if not cropped) */
+  cropHeight?: number;
 }
 
 // ==================== Default Configuration ====================
 
-const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
-  maxSize: 1920,
+export const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
+  maxSize: 2048,
   quality: 0.85,
   format: 'jpeg',
-  preserveFormat: false,
+  preserveFormat: true,
+  viewportCrop: false,
 };
+
+export function shouldPreserveTallMangaPage(
+  width: number,
+  height: number,
+  maxSize: number = DEFAULT_OPTIONS.maxSize
+): boolean {
+  if (width <= 0 || height <= 0) {
+    return false;
+  }
+
+  const aspectRatio = height / width;
+  return width <= Math.min(maxSize, 1400) && height > maxSize && aspectRatio >= 2.4;
+}
 
 // ==================== Core Functions ====================
 
@@ -118,22 +138,60 @@ export function imageToBase64(
 export function compressImage(
   image: HTMLImageElement,
   maxSize: number = DEFAULT_OPTIONS.maxSize,
-  quality: number = DEFAULT_OPTIONS.quality
-): { base64: string; width: number; height: number; wasCompressed: boolean } {
-  const originalWidth = image.naturalWidth;
-  const originalHeight = image.naturalHeight;
+  quality: number = DEFAULT_OPTIONS.quality,
+  viewportCrop: boolean = false,
+  format: string = 'jpeg'
+): { base64: string; width: number; height: number; wasCompressed: boolean; cropY: number; cropHeight: number } {
+  let sourceY = 0;
+  let sourceHeight = image.naturalHeight;
+  const sourceWidth = image.naturalWidth;
 
-  // Check if compression is needed
-  const needsCompression = originalWidth > maxSize || originalHeight > maxSize;
+  // 1. 如果需要视口裁剪，计算当前视口中图片的范围
+  if (viewportCrop) {
+    const rect = image.getBoundingClientRect();
+    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
 
-  let targetWidth = originalWidth;
-  let targetHeight = originalHeight;
+    // 如果图片完全不在视口中，就不裁剪了（或给一个默认行为），但通常我们只有在 hover/click 时才调用这个
+    if (rect.bottom >= 0 && rect.top <= windowHeight) {
+      const scaleY = image.naturalHeight / rect.height;
+
+      // 在 DOM 像素下的可见顶部和底部
+      const visibleTopDOM = Math.max(0, -rect.top);
+      const visibleBottomDOM = Math.min(rect.height, windowHeight - rect.top);
+
+      // 上下增加一些 margin 以提供上下文给大模型 (比如 300 DOM 像素)
+      const marginDOM = 300;
+
+      const cropTopDOM = Math.max(0, visibleTopDOM - marginDOM);
+      const cropBottomDOM = Math.min(rect.height, visibleBottomDOM + marginDOM);
+
+      // 映射回 naturalHeight
+      sourceY = Math.floor(cropTopDOM * scaleY);
+      sourceHeight = Math.floor((cropBottomDOM - cropTopDOM) * scaleY);
+
+      // 确保不越界
+      sourceY = Math.max(0, sourceY);
+      sourceHeight = Math.min(image.naturalHeight - sourceY, sourceHeight);
+    }
+  }
+
+  // 2. 判断是否需要压缩这部分图像
+  const preserveTallPage = shouldPreserveTallMangaPage(
+    sourceWidth,
+    sourceHeight,
+    maxSize
+  );
+  const needsCompression =
+    !preserveTallPage && (sourceWidth > maxSize || sourceHeight > maxSize);
+
+  let targetWidth = sourceWidth;
+  let targetHeight = sourceHeight;
 
   if (needsCompression) {
     // Calculate new dimensions maintaining aspect ratio
-    const ratio = Math.min(maxSize / originalWidth, maxSize / originalHeight);
-    targetWidth = Math.round(originalWidth * ratio);
-    targetHeight = Math.round(originalHeight * ratio);
+    const ratio = Math.min(maxSize / sourceWidth, maxSize / sourceHeight);
+    targetWidth = Math.round(sourceWidth * ratio);
+    targetHeight = Math.round(sourceHeight * ratio);
   }
 
   // Create canvas and draw image
@@ -151,10 +209,12 @@ export function compressImage(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
+  // ctx.drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
+  ctx.drawImage(image, 0, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
 
-  // Convert to base64 JPEG
-  const dataUrl = canvas.toDataURL('image/jpeg', quality);
+  // Compress to base64
+  const mimeType = format === 'webp' ? 'image/webp' : 'image/jpeg';
+  const dataUrl = canvas.toDataURL(mimeType, quality);
   const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
 
   return {
@@ -162,6 +222,8 @@ export function compressImage(
     width: targetWidth,
     height: targetHeight,
     wasCompressed: needsCompression,
+    cropY: sourceY,
+    cropHeight: sourceHeight,
   };
 }
 
@@ -188,23 +250,27 @@ export async function processImage(
 
   try {
     // Try canvas path first (same-origin or CORS-enabled images)
-    const { base64, width, height, wasCompressed } = compressImage(
+    const { base64, width, height, wasCompressed, cropY, cropHeight } = compressImage(
       image,
       opts.maxSize,
-      opts.quality
+      opts.quality,
+      opts.viewportCrop,
+      opts.format
     );
 
     const hash = await calculateHash(base64);
 
     return {
       base64,
-      mimeType: 'image/jpeg',
+      mimeType: opts.format === 'webp' ? 'image/webp' : 'image/jpeg',
       originalWidth,
       originalHeight,
       width,
       height,
       wasCompressed,
       hash,
+      cropY,
+      cropHeight,
     };
   } catch {
     // Canvas tainted by CORS — fallback to background proxy
@@ -243,6 +309,8 @@ async function processImageViaBackground(
     height: originalHeight,
     wasCompressed: false,
     hash,
+    cropY: 0,
+    cropHeight: originalHeight,
   };
 }
 

@@ -11,6 +11,7 @@ export {
   compressImage,
   imageToBase64,
   calculateHash,
+  shouldPreserveTallMangaPage,
   loadImage,
   meetsMinimumSize,
   getImageDimensions,

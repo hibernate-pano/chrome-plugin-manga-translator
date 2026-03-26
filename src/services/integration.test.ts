@@ -16,6 +16,11 @@ import { compressImage, calculateHash } from './image-processor';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
 import type { ProviderType, TextArea } from '@/providers/base';
+import {
+  resetDefaultTranslationTransport,
+  setDefaultTranslationTransport,
+  type TranslationTransport,
+} from './translation-transport';
 
 // ==================== Test Utilities ====================
 
@@ -58,46 +63,15 @@ function createMockTextAreas(): TextArea[] {
   ];
 }
 
-/**
- * Mock fetch for API calls
- */
 // Valid API key format (at least 20 characters)
 const MOCK_API_KEY = 'sk-test-mock-api-key-12345678901234567890';
 
-function mockFetchSuccess(textAreas: TextArea[] = createMockTextAreas()) {
-  return vi.fn().mockResolvedValue({
-    ok: true,
-    json: () => Promise.resolve({
-      choices: [{
-        message: {
-          content: JSON.stringify({ textAreas }),
-        },
-      }],
-    }),
-  });
-}
-
-function mockFetchOllamaSuccess(textAreas: TextArea[] = createMockTextAreas()) {
-  return vi.fn().mockImplementation((url: string) => {
-    if (url.includes('/api/tags')) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({
-          models: [{ name: 'llava:latest', modified_at: '2024-01-01', size: 1000 }],
-        }),
-      });
-    }
-    if (url.includes('/api/generate')) {
-      return Promise.resolve({
-        ok: true,
-        json: () => Promise.resolve({
-          response: JSON.stringify({ textAreas }),
-          done: true,
-        }),
-      });
-    }
-    return Promise.reject(new Error('Unknown URL'));
-  });
+function createMockTransport(
+  implementation: TranslationTransport['translateImage']
+): TranslationTransport {
+  return {
+    translateImage: vi.fn(implementation),
+  };
 }
 
 // ==================== Integration Tests ====================
@@ -109,6 +83,7 @@ describe('Integration Tests: Complete Translation Flow', () => {
     resetRenderer();
     useAppConfigStore.getState().resetToDefaults();
     useTranslationCacheStore.getState().clear();
+    resetDefaultTranslationTransport();
     
     // Mock canvas for image processing
     HTMLCanvasElement.prototype.getContext = vi.fn().mockReturnValue({
@@ -121,13 +96,18 @@ describe('Integration Tests: Complete Translation Flow', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    resetDefaultTranslationTransport();
   });
 
   describe('Full Translation Pipeline', () => {
     it('should complete full translation flow: image → process → translate → render', async () => {
       // Setup
       const mockTextAreas = createMockTextAreas();
-      globalThis.fetch = mockFetchSuccess(mockTextAreas);
+      const transport = createMockTransport(async () => ({
+        success: true,
+        textAreas: mockTextAreas,
+      }));
+      setDefaultTranslationTransport(transport);
       
       // Configure store
       useAppConfigStore.getState().setProvider('openai');
@@ -169,8 +149,11 @@ describe('Integration Tests: Complete Translation Flow', () => {
     it('should use cache for repeated translations', async () => {
       // Setup
       const mockTextAreas = createMockTextAreas();
-      const fetchMock = mockFetchSuccess(mockTextAreas);
-      globalThis.fetch = fetchMock;
+      const transport = createMockTransport(async () => ({
+        success: true,
+        textAreas: mockTextAreas,
+      }));
+      setDefaultTranslationTransport(transport);
       
       // Configure store with caching enabled
       useAppConfigStore.getState().setProvider('openai');
@@ -183,20 +166,25 @@ describe('Integration Tests: Complete Translation Flow', () => {
       // First translation - should call API
       const result1 = await translator.translateImage(img);
       expect(result1.success).toBe(true);
-      expect(fetchMock).toHaveBeenCalled();
+      expect(transport.translateImage).toHaveBeenCalled();
       
-      const callCount = fetchMock.mock.calls.length;
+      const callCount = vi.mocked(transport.translateImage).mock.calls.length;
       
       // Second translation - should use cache
       const result2 = await translator.translateImage(img);
       expect(result2.success).toBe(true);
       expect(result2.cached).toBe(true);
-      expect(fetchMock.mock.calls.length).toBe(callCount); // No additional API calls
+      expect(vi.mocked(transport.translateImage).mock.calls.length).toBe(callCount);
     });
 
     it('should handle empty text areas gracefully', async () => {
       // Setup with empty response
-      globalThis.fetch = mockFetchSuccess([]);
+      setDefaultTranslationTransport(
+        createMockTransport(async () => ({
+          success: true,
+          textAreas: [],
+        }))
+      );
       
       useAppConfigStore.getState().setProvider('openai');
       useAppConfigStore.getState().setProviderApiKey('openai', MOCK_API_KEY);
@@ -222,7 +210,12 @@ describe('Integration Tests: Complete Translation Flow', () => {
   describe('Multi-Provider Switching', () => {
     it('should switch between OpenAI and Claude providers', async () => {
       const mockTextAreas = createMockTextAreas();
-      globalThis.fetch = mockFetchSuccess(mockTextAreas);
+      setDefaultTranslationTransport(
+        createMockTransport(async () => ({
+          success: true,
+          textAreas: mockTextAreas,
+        }))
+      );
       
       // Test OpenAI
       useAppConfigStore.getState().setProvider('openai');
@@ -302,7 +295,12 @@ describe('Integration Tests: Complete Translation Flow', () => {
 
   describe('Ollama Local Connection', () => {
     it('should connect to local Ollama service', async () => {
-      globalThis.fetch = mockFetchOllamaSuccess();
+      setDefaultTranslationTransport(
+        createMockTransport(async () => ({
+          success: true,
+          textAreas: createMockTextAreas(),
+        }))
+      );
       
       useAppConfigStore.getState().setProvider('ollama');
       useAppConfigStore.getState().updateProviderSettings('ollama', {
@@ -320,7 +318,11 @@ describe('Integration Tests: Complete Translation Flow', () => {
     });
 
     it('should handle Ollama service not running', async () => {
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Connection refused'));
+      setDefaultTranslationTransport(
+        createMockTransport(async () => {
+          throw new Error('Connection refused');
+        })
+      );
       
       useAppConfigStore.getState().setProvider('ollama');
       useAppConfigStore.getState().updateProviderSettings('ollama', {
@@ -338,19 +340,12 @@ describe('Integration Tests: Complete Translation Flow', () => {
     });
 
     it('should handle missing Ollama model', async () => {
-      globalThis.fetch = vi.fn().mockImplementation((url: string) => {
-        if (url.includes('/api/tags')) {
-          return Promise.resolve({
-            ok: true,
-            json: () => Promise.resolve({ models: [] }), // No models installed
-          });
-        }
-        return Promise.resolve({
-          ok: false,
-          status: 404,
-          text: () => Promise.resolve('model not found'),
-        });
-      });
+      setDefaultTranslationTransport(
+        createMockTransport(async () => ({
+          success: false,
+          error: 'model not found',
+        }))
+      );
       
       useAppConfigStore.getState().setProvider('ollama');
       useAppConfigStore.getState().updateProviderSettings('ollama', {
@@ -382,13 +377,12 @@ describe('Integration Tests: Complete Translation Flow', () => {
 
   describe('Error Handling Integration', () => {
     it('should handle API errors gracefully', async () => {
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: false,
-        status: 401,
-        statusText: 'Unauthorized',
-        json: () => Promise.resolve({ error: { message: 'Invalid API key' } }),
-        text: () => Promise.resolve('Invalid API key'),
-      });
+      setDefaultTranslationTransport(
+        createMockTransport(async () => ({
+          success: false,
+          error: 'Invalid API key',
+        }))
+      );
       
       useAppConfigStore.getState().setProvider('openai');
       useAppConfigStore.getState().setProviderApiKey('openai', MOCK_API_KEY);
@@ -405,7 +399,11 @@ describe('Integration Tests: Complete Translation Flow', () => {
     it('should handle network errors', async () => {
       // Network errors are retryable, so this test needs longer timeout
       // Retry: 3 attempts with exponential backoff (2s + 4s + 8s = ~14s)
-      globalThis.fetch = vi.fn().mockRejectedValue(new Error('Network error'));
+      setDefaultTranslationTransport(
+        createMockTransport(async () => {
+          throw new Error('Network error');
+        })
+      );
       
       useAppConfigStore.getState().setProvider('openai');
       useAppConfigStore.getState().setProviderApiKey('openai', MOCK_API_KEY);
@@ -420,18 +418,12 @@ describe('Integration Tests: Complete Translation Flow', () => {
     });
 
     it('should handle malformed API responses', async () => {
-      // Parse errors are retryable, so this test needs longer timeout
-      // Retry: 3 attempts with exponential backoff (2s + 4s + 8s = ~14s)
-      globalThis.fetch = vi.fn().mockResolvedValue({
-        ok: true,
-        json: () => Promise.resolve({
-          choices: [{
-            message: {
-              content: 'not valid json',
-            },
-          }],
-        }),
-      });
+      setDefaultTranslationTransport(
+        createMockTransport(async () => ({
+          success: false,
+          error: 'Failed to parse Vision LLM response: not valid json',
+        }))
+      );
       
       useAppConfigStore.getState().setProvider('openai');
       useAppConfigStore.getState().setProviderApiKey('openai', MOCK_API_KEY);
@@ -555,8 +547,12 @@ describe('Integration Tests: Overlay Rendering', () => {
     const overlay = wrapper.querySelector('.manga-translator-overlay') as HTMLElement;
     
     expect(overlay).toBeDefined();
-    expect(overlay.style.left).toBe('80px'); // 0.1 * 800
-    expect(overlay.style.top).toBe('120px'); // 0.2 * 600
+    expect(parseFloat(overlay.style.left)).toBeGreaterThanOrEqual(80);
+    expect(parseFloat(overlay.style.top)).toBeGreaterThanOrEqual(120);
+    expect(parseFloat(overlay.style.left) + parseFloat(overlay.style.width))
+      .toBeLessThanOrEqual(320);
+    expect(parseFloat(overlay.style.top) + parseFloat(overlay.style.height))
+      .toBeLessThanOrEqual(180);
     
     document.body.removeChild(wrapper);
   });

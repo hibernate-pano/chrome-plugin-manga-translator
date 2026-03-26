@@ -35,7 +35,7 @@ export const API_VERSIONS = {
 // ==================== Request Limits ====================
 
 export const REQUEST_LIMITS = {
-  MAX_TOKENS: 4096,
+  MAX_TOKENS: 2048, // 漫画翻译输出通常 <1000 tokens，降低上限加快响应
   TEMPERATURE: 0.1,
   IMAGE_DETAIL: 'high' as const,
 } as const;

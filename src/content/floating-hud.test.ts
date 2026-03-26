@@ -81,7 +81,12 @@ describe('FloatingHud', () => {
 
   describe('update - complete 状态', () => {
     it('应显示完成信息', () => {
-      hud.update({ status: 'complete', count: 7 });
+      hud.update({
+        status: 'complete',
+        translatedCount: 7,
+        failedCount: 1,
+        cachedCount: 2,
+      });
 
       const host = getHudHost() as HTMLElement;
       const shadow = host.shadowRoot;
@@ -94,7 +99,12 @@ describe('FloatingHud', () => {
     it('2 秒后应自动隐藏', () => {
       vi.useFakeTimers();
 
-      hud.update({ status: 'complete', count: 5 });
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 0,
+        cachedCount: 0,
+      });
 
       const host = getHudHost() as HTMLElement;
       const shadow = host.shadowRoot;

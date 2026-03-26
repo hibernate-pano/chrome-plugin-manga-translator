@@ -60,6 +60,19 @@ Object.assign(globalThis, { chrome: chromeMock });
 // Mock fetch for API tests
 globalThis.fetch = vi.fn();
 
+// Minimal canvas text measurement mock for jsdom-based layout tests
+Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
+  configurable: true,
+  value: vi.fn(() => ({
+    font: '',
+    measureText: (text: string) => ({ width: text.length * 10 }),
+    drawImage: vi.fn(),
+    toDataURL: vi.fn(),
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high',
+  })),
+});
+
 // Reset mocks before each test
 beforeEach(() => {
   vi.clearAllMocks();

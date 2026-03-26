@@ -23,8 +23,14 @@ import { useUsageStore } from '@/stores/usage-store';
 import {
   processImage,
   type ImageProcessingOptions,
-} from './image-processor';
+  DEFAULT_OPTIONS,
+} from '@/services/image-processor';
+import {
+  getDefaultTranslationTransport,
+  type TranslationTransport,
+} from '@/services/translation-transport';
 import { retryWithBackoff } from '@/utils/error-handler';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 
 // ==================== Logging Utilities ====================
@@ -58,8 +64,12 @@ export interface TranslatorConfig {
   targetLanguage: string;
   /** Whether to use cache */
   cacheEnabled: boolean;
+  /** Prompt style preset */
+  translationStylePreset: TranslationStylePreset;
   /** Image processing options */
   imageOptions?: ImageProcessingOptions;
+  /** Transport implementation */
+  transport?: TranslationTransport;
 }
 
 export interface TranslationProgress {
@@ -97,11 +107,13 @@ export type ProgressCallback = (progress: TranslationProgress) => void;
  */
 export class TranslatorService {
   private config: TranslatorConfig;
+  private transport: TranslationTransport;
   private abortController: AbortController | null = null;
   private isInitialized = false;
 
   constructor(config: TranslatorConfig) {
     this.config = config;
+    this.transport = config.transport ?? getDefaultTranslationTransport();
   }
 
   /**
@@ -149,46 +161,68 @@ export class TranslatorService {
    * @param image Image element to translate
    * @returns Translation result
    */
-  async translateImage(image: HTMLImageElement): Promise<TranslationResult> {
+  async translateImage(image: HTMLImageElement, viewportCrop: boolean = false): Promise<TranslationResult> {
     if (isDevelopment) {
       _log('开始翻译图片');
     }
 
     try {
-      // 步骤1：处理图片（压缩 + base64 + hash）
+      // 步骤1：处理图片（压缩 + base64 + hash + possible viewport crop）
       if (isDevelopment) {
         _log('处理图片...');
       }
-      const processed = await processImage(image, this.config.imageOptions);
+
+      const processOptions: ImageProcessingOptions = {
+        maxSize: DEFAULT_OPTIONS.maxSize,
+        quality: DEFAULT_OPTIONS.quality,
+        viewportCrop: false,
+        ...this.config.imageOptions, // Merge user-defined options
+      };
+
+      if (viewportCrop) {
+        processOptions.maxSize = 1600;    // 优化：文字识别不需要超高分辨率
+        processOptions.quality = 0.80;    // 优化：降低质量减少 base64 体积
+        processOptions.format = 'webp';   // 优化：使用 WebP 格式缩小体积
+        processOptions.viewportCrop = true;
+      }
+
+      const processed = await processImage(image, processOptions);
       if (isDevelopment) {
         _log('图片处理完成, hash:', processed.hash.substring(0, 16));
       }
 
-      // 步骤2：检查缓存
+      // 步骤3：检查缓存
       if (this.config.cacheEnabled) {
         const cached = useTranslationCacheStore.getState().get(processed.hash);
         if (cached) {
           if (isDevelopment) {
             _log('使用缓存结果, 文字区域数:', cached.textAreas.length);
           }
+          // 如果缓存命中，则使用缓存同时记录 Token 为 0（命中）
+          useUsageStore.getState().addRecord({
+            provider: this.config.provider,
+            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+            cached: true,
+          });
           return cached;
         }
       }
 
-      // 步骤3：通过 background script 代理调用 AI API（解决 CORS）
+      // 步骤4：通过 background script 代理调用 AI API（解决 CORS）
       if (isDevelopment) {
         _log(`通过 background 代理调用 Vision LLM: ${this.config.provider}`);
       }
 
-      const callViaBackground = () =>
-        this.callViaBackgroundScript(
+      const callViaTransport = () =>
+        this.callTranslationTransport(
           processed.base64,
           processed.mimeType,
           this.config.targetLanguage
         );
 
       // 使用重试机制处理瞬时错误（网络超时、限速等）
-      const response = await retryWithBackoff(callViaBackground, 3, 2000);
+      // 减少单图翻译场景下的重试次数和退避时间
+      const response = await retryWithBackoff(callViaTransport, 2, 1000);
 
       if (isDevelopment) {
         _log('Vision LLM 返回结果, 文字区域数:', response.textAreas.length);
@@ -203,12 +237,33 @@ export class TranslatorService {
         });
       }
 
+      // 将裁剪坐标映射回原始图片比例坐标
+      const mappedTextAreas = response.textAreas.map((area) => {
+        if (!processed.cropHeight || processed.cropHeight === processed.originalHeight) {
+          return area; // 如果没有裁剪或裁剪高度等于原高，不用映射
+        }
+
+        // 解析返回的相对坐标
+        const absoluteYInCrop = area.y * processed.cropHeight;
+        const absoluteHeightInCrop = area.height * processed.cropHeight;
+
+        // 加上裁剪的偏移量
+        const absoluteYOrig = absoluteYInCrop + (processed.cropY || 0);
+
+        // 转回原图绝对相对坐标
+        return {
+          ...area,
+          y: absoluteYOrig / processed.originalHeight,
+          height: absoluteHeightInCrop / processed.originalHeight,
+        };
+      });
+
       const result: TranslationResult = {
         success: true,
-        textAreas: response.textAreas,
+        textAreas: mappedTextAreas,
       };
 
-      // 步骤4：写入缓存
+      // 步骤5：写入缓存
       if (this.config.cacheEnabled) {
         if (isDevelopment) {
           _log('存入缓存');
@@ -240,13 +295,12 @@ export class TranslatorService {
    * 理由：content script 受 CORS 策略限制，无法直接调用第三方 AI API。
    * 通过 background service worker 中转，可以绕过 CORS 限制。
    */
-  private async callViaBackgroundScript(
+  private async callTranslationTransport(
     imageBase64: string,
     mimeType: string,
     targetLanguage: string
   ): Promise<{ textAreas: TextArea[]; usage?: { promptTokens: number; completionTokens: number; totalTokens: number } }> {
-    const response = await chrome.runtime.sendMessage({
-      action: 'translateImage',
+    const response = await this.transport.translateImage({
       imageBase64,
       mimeType,
       targetLanguage,
@@ -254,11 +308,8 @@ export class TranslatorService {
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
       model: this.config.model,
+      translationStylePreset: this.config.translationStylePreset,
     });
-
-    if (!response) {
-      throw new Error('Background script 无响应，请刷新页面后重试');
-    }
 
     if (!response.success) {
       throw new Error(response.error || '翻译请求失败');
@@ -350,6 +401,9 @@ export class TranslatorService {
    */
   updateConfig(config: Partial<TranslatorConfig>): void {
     this.config = { ...this.config, ...config };
+    if (config.transport) {
+      this.transport = config.transport;
+    }
     // 重置初始化状态，下次使用时重新初始化
     this.isInitialized = false;
   }
@@ -380,6 +434,7 @@ export function createTranslatorFromConfig(): TranslatorService {
     model: providerSettings.model,
     targetLanguage: config.targetLanguage,
     cacheEnabled: config.cacheEnabled,
+    translationStylePreset: config.translationStylePreset,
     imageOptions: {
       maxSize: config.maxImageSize,
     },

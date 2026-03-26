@@ -17,6 +17,7 @@ import {
 } from './base';
 import { DEFAULT_MODELS, API_URLS, REQUEST_LIMITS } from './constants';
 import { httpRequest } from '@/utils/http-client';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 interface OpenAICompatibleResponse {
   choices: Array<{
@@ -47,14 +48,18 @@ export class DashScopeProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string
+    targetLanguage: string,
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
     const validation = await this.validateConfig();
     if (!validation.valid) {
       throw new Error(validation.message);
     }
 
-    const prompt = getMangaTranslationPrompt(targetLanguage);
+    const prompt = getMangaTranslationPrompt(
+      targetLanguage,
+      translationStylePreset
+    );
     const imageData = parseImageData(imageBase64);
     const imageUrl = `data:${imageData.mediaType};base64,${imageData.base64}`;
 
@@ -92,7 +97,10 @@ export class DashScopeProvider implements VisionProvider {
       );
     }
 
-    const data = httpResponse.data!;
+    const data = httpResponse.data;
+    if (!data) {
+      throw new Error('DashScope API returned empty payload');
+    }
 
     if (data.error) {
       throw new Error(`DashScope API error: ${data.error.message}`);

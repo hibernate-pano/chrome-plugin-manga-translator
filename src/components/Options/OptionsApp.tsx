@@ -57,6 +57,7 @@ import type { ProviderType } from '@/providers/base';
 import { createProvider } from '@/providers';
 import { useUsageStore } from '@/stores/usage-store';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 // ==================== Types ====================
 
@@ -153,6 +154,28 @@ const TARGET_LANGUAGES = [
   { value: 'ko', label: '한국어', flag: '🇰🇷' },
 ];
 
+const TRANSLATION_STYLE_PRESETS: Array<{
+  value: TranslationStylePreset;
+  label: string;
+  description: string;
+}> = [
+  {
+    value: 'natural-zh',
+    label: '自然中文',
+    description: '优先阅读流畅度，适合沉浸式看漫画',
+  },
+  {
+    value: 'faithful',
+    label: '忠实原文',
+    description: '尽量贴近原句语气和信息，不主动润色',
+  },
+  {
+    value: 'concise-bubble',
+    label: '气泡精简',
+    description: '优先短句和紧凑排版，适合气泡空间有限的页面',
+  },
+];
+
 // ==================== Data Management Card ====================
 
 const DataManagementCard: React.FC = () => {
@@ -177,6 +200,7 @@ const DataManagementCard: React.FC = () => {
       maxImageSize: config.maxImageSize,
       parallelLimit: config.parallelLimit,
       cacheEnabled: config.cacheEnabled,
+      translationStylePreset: config.translationStylePreset,
     };
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -203,6 +227,9 @@ const DataManagementCard: React.FC = () => {
         const store = useAppConfigStore.getState();
         if (data.provider) store.setProvider(data.provider);
         if (data.targetLanguage) store.setTargetLanguage(data.targetLanguage);
+        if (data.translationStylePreset) {
+          store.setTranslationStylePreset(data.translationStylePreset);
+        }
         Object.entries(data.providers as Record<string, { apiKey?: string; model?: string; baseUrl?: string }>).forEach(([key, settings]) => {
           store.updateProviderSettings(key as ProviderType, settings);
         });
@@ -358,12 +385,18 @@ const OptionsApp: React.FC = () => {
   const provider = useAppConfigStore((state) => state.provider);
   const providers = useAppConfigStore((state) => state.providers);
   const targetLanguage = useAppConfigStore((state) => state.targetLanguage);
+  const translationStylePreset = useAppConfigStore(
+    (state) => state.translationStylePreset,
+  );
   const setProvider = useAppConfigStore((state) => state.setProvider);
   const updateProviderSettings = useAppConfigStore(
     (state) => state.updateProviderSettings,
   );
   const setTargetLanguage = useAppConfigStore(
     (state) => state.setTargetLanguage,
+  );
+  const setTranslationStylePreset = useAppConfigStore(
+    (state) => state.setTranslationStylePreset,
   );
 
   // Local state
@@ -411,7 +444,11 @@ const OptionsApp: React.FC = () => {
       try {
         const ollamaProvider = await createProvider('ollama', { baseUrl: url });
         await ollamaProvider.initialize({ baseUrl: url });
-        const models = await (ollamaProvider as any).getAvailableVisionModels();
+        const models = await (
+          ollamaProvider as unknown as {
+            getAvailableVisionModels: () => Promise<string[]>;
+          }
+        ).getAvailableVisionModels();
 
         if (models.length > 0) {
           setOllamaModels(models);
@@ -923,6 +960,46 @@ const OptionsApp: React.FC = () => {
               <p className="text-xs text-slate-500 dark:text-slate-400 flex items-center gap-1.5">
                 <Languages className="w-3 h-3" />
                 漫画中的文字将被翻译成此语言
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <Label
+                htmlFor="translation-style"
+                className="text-sm font-medium text-slate-700 dark:text-slate-300"
+              >
+                翻译风格
+              </Label>
+              <Select
+                value={translationStylePreset}
+                onValueChange={(value) =>
+                  setTranslationStylePreset(value as TranslationStylePreset)
+                }
+              >
+                <SelectTrigger
+                  id="translation-style"
+                  className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 hover:border-teal-400 dark:hover:border-teal-600 cursor-pointer"
+                >
+                  <SelectValue placeholder="选择翻译风格" />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRANSLATION_STYLE_PRESETS.map((preset) => (
+                    <SelectItem
+                      key={preset.value}
+                      value={preset.value}
+                      className="cursor-pointer"
+                    >
+                      {preset.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                {
+                  TRANSLATION_STYLE_PRESETS.find(
+                    preset => preset.value === translationStylePreset,
+                  )?.description
+                }
               </p>
             </div>
           </CardContent>

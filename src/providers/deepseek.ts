@@ -13,6 +13,7 @@ import {
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 const DEFAULT_MODEL = 'deepseek-chat';
 const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1';
@@ -59,14 +60,18 @@ export class DeepSeekProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string
+    targetLanguage: string,
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
     const validation = await this.validateConfig();
     if (!validation.valid) {
       throw new Error(validation.message);
     }
 
-    const prompt = getMangaTranslationPrompt(targetLanguage);
+    const prompt = getMangaTranslationPrompt(
+      targetLanguage,
+      translationStylePreset
+    );
     
     // Ensure proper base64 data URL format
     const imageUrl = imageBase64.startsWith('data:')
