@@ -41,6 +41,7 @@ import {
 import {
   getDefaultTranslationTransport,
   type TranslationTransport,
+  type ServerExecutionConfig,
 } from '@/services/translation-transport';
 import { retryWithBackoff } from '@/utils/error-handler';
 import type { TranslationStylePreset } from '@/utils/translation-style';
@@ -66,6 +67,8 @@ function _logError(message: string, ...args: unknown[]): void {
 // ==================== Type Definitions ====================
 
 export interface TranslatorConfig {
+  /** Whether to use self-hosted server or direct provider mode */
+  executionMode?: 'server' | 'provider-direct';
   /** Provider type to use */
   provider: ProviderType;
   /** API key for cloud providers */
@@ -80,6 +83,10 @@ export interface TranslatorConfig {
   cacheEnabled: boolean;
   /** Prompt style preset */
   translationStylePreset: TranslationStylePreset;
+  /** Self-hosted server configuration */
+  server?: ServerExecutionConfig;
+  /** Render mode for translated content */
+  renderMode?: 'anchors-only' | 'strong-overlay-compat';
   /** Image processing options */
   imageOptions?: ImageProcessingOptions;
   /** Transport implementation */
@@ -109,6 +116,8 @@ export type ProgressCallback = (progress: TranslationProgress) => void;
 
 interface TransportTextAreasResponse {
   textAreas: TextArea[];
+  cached?: boolean;
+  pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
 }
 
@@ -160,6 +169,16 @@ export class TranslatorService {
     };
 
     // 检查必要的配置
+    const useServer =
+      this.config.executionMode === 'server' &&
+      !!this.config.server?.enabled &&
+      !!this.config.server.baseUrl.trim();
+
+    if (useServer) {
+      this.isInitialized = true;
+      return;
+    }
+
     if (this.config.provider !== 'ollama' && !providerConfig.apiKey) {
       throw new Error(
         `${this.config.provider} 需要配置 API Key。请前往设置页面填写。`
@@ -280,16 +299,27 @@ export class TranslatorService {
   private async callTranslationTransport(
     imageBase64: string,
     mimeType: string,
-    targetLanguage: string
+    targetLanguage: string,
+    metadata?: {
+      imageKey?: string;
+      imageUrl?: string;
+      pageUrl?: string;
+    }
   ): Promise<TransportTextAreasResponse> {
     const response = await this.transport.translateImage({
       imageBase64,
       mimeType,
+      imageKey: metadata?.imageKey,
+      pageUrl: metadata?.pageUrl,
+      imageUrl: metadata?.imageUrl,
       targetLanguage,
       provider: this.config.provider,
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
       model: this.config.model,
+      executionMode: this.config.executionMode,
+      server: this.config.server,
+      renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
     });
 
@@ -299,17 +329,23 @@ export class TranslatorService {
 
     return {
       textAreas: (response.textAreas as TextArea[]) || [],
+      cached: response.cached,
+      pipeline: response.pipeline,
       usage: response.usage as { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
     };
   }
 
   private buildCacheKey(imageHash: string): string {
+    const executionScope =
+      this.config.executionMode === 'server' && this.config.server?.baseUrl
+        ? `server::${this.config.server.baseUrl}`
+        : `provider::${this.config.provider}::${this.config.model || 'default'}`;
     return [
       imageHash,
-      this.config.provider,
-      this.config.model || 'default',
+      executionScope,
       this.config.targetLanguage,
       this.config.translationStylePreset,
+      this.config.renderMode || 'strong-overlay-compat',
       HYBRID_PIPELINE_VERSION,
     ].join('::');
   }
@@ -321,8 +357,46 @@ export class TranslatorService {
     viewportCrop: boolean
   ): Promise<TranslationResult> {
     const appConfig = useAppConfigStore.getState();
+    const useServer =
+      this.config.executionMode === 'server' &&
+      !!this.config.server?.enabled &&
+      !!this.config.server.baseUrl.trim();
     const hybridEnabled = appConfig.translationPipeline === 'hybrid-regions';
     const allowFallback = appConfig.fallbackToFullImage;
+
+    if (useServer) {
+      const response = await retryWithBackoff(
+        () =>
+          this.callTranslationTransport(
+            processed.base64,
+            processed.mimeType,
+            this.config.targetLanguage,
+            {
+              imageKey,
+              imageUrl: image.currentSrc || image.src,
+              pageUrl: window.location.href,
+            }
+          ),
+        2,
+        1000
+      );
+
+      const readingResult = this.textAreasToReadingResult(
+        response.textAreas,
+        imageKey,
+        processed,
+        response.pipeline === 'full-image-fallback'
+          ? 'full-image-fallback'
+          : 'hybrid-regions'
+      );
+
+      return {
+        success: true,
+        textAreas: response.textAreas,
+        readingResult,
+        cached: response.cached,
+      };
+    }
 
     if (hybridEnabled) {
       try {
@@ -357,7 +431,12 @@ export class TranslatorService {
         this.callTranslationTransport(
           fallbackProcessed.base64,
           fallbackProcessed.mimeType,
-          this.config.targetLanguage
+          this.config.targetLanguage,
+          {
+            imageKey,
+            imageUrl: image.currentSrc || image.src,
+            pageUrl: window.location.href,
+          }
         ),
       2,
       1000
@@ -489,7 +568,11 @@ export class TranslatorService {
         this.callTranslationTransport(
           combined.base64,
           'image/jpeg',
-          this.config.targetLanguage
+          this.config.targetLanguage,
+          {
+            imageKey,
+            pageUrl: window.location.href,
+          }
         ),
       2,
       1000
@@ -633,7 +716,7 @@ export class TranslatorService {
     textAreas: TextArea[],
     imageKey: string,
     processed: Awaited<ReturnType<typeof processImage>>,
-    pipeline: 'full-image-fallback'
+    pipeline: 'hybrid-regions' | 'full-image-fallback'
   ): ImageReadingResult {
     const entries = [...textAreas]
       .sort((left, right) => {
@@ -755,6 +838,14 @@ export class TranslatorService {
    * Check if provider is properly configured
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
+    if (
+      this.config.executionMode === 'server' &&
+      this.config.server?.enabled &&
+      this.config.server.baseUrl.trim()
+    ) {
+      return { valid: true, message: '服务端模式配置有效' };
+    }
+
     if (this.config.provider !== 'ollama' && !this.config.apiKey) {
       return { valid: false, message: `请配置 ${this.config.provider} 的 API Key` };
     }
@@ -793,13 +884,19 @@ export function createTranslatorFromConfig(): TranslatorService {
   const providerSettings = config.providers[config.provider];
 
   return new TranslatorService({
+    executionMode:
+      config.server.enabled && config.server.baseUrl
+        ? 'server'
+        : config.executionMode,
     provider: config.provider,
+    server: config.server,
     apiKey: providerSettings.apiKey,
     baseUrl: providerSettings.baseUrl,
     model: providerSettings.model,
     targetLanguage: config.targetLanguage,
     cacheEnabled: config.cacheEnabled,
     translationStylePreset: config.translationStylePreset,
+    renderMode: config.renderMode,
     imageOptions: {
       maxSize: config.maxImageSize,
     },

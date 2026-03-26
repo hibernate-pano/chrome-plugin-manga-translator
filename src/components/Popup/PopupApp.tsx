@@ -170,17 +170,25 @@ const PopupApp: React.FC = () => {
 
   // Store selectors
   const provider = useAppConfigStore(state => state.provider);
+  const executionMode = useAppConfigStore(state => state.executionMode);
+  const server = useAppConfigStore(state => state.server);
   const providers = useAppConfigStore(state => state.providers);
   const enabled = useAppConfigStore(state => state.enabled);
   const setEnabled = useAppConfigStore(state => state.setEnabled);
   const isProviderConfigured = useAppConfigStore(
     state => state.isProviderConfigured
   );
+  const isServerConfigured = useAppConfigStore(state => state.isServerConfigured);
 
   const currentProviderSettings = providers[provider];
-  const isConfigured = isProviderConfigured();
+  const isConfigured =
+    executionMode === 'server' ? isServerConfigured() : isProviderConfigured();
   const providerInfo = PROVIDER_INFO[provider];
   const modelName = currentProviderSettings?.model || '默认模型';
+  const headerModeLabel =
+    executionMode === 'server'
+      ? server.baseUrl || '服务端 OCR-First'
+      : modelName;
 
   // ==================== Init ====================
 
@@ -333,15 +341,24 @@ const PopupApp: React.FC = () => {
             </h1>
             <div className="flex items-center gap-1 mt-1">
               <div
-                className={`flex items-center gap-1 bg-gradient-to-r ${providerInfo.color} rounded px-1.5 py-0.5`}
+                className={`flex items-center gap-1 rounded px-1.5 py-0.5 ${executionMode === 'server'
+                  ? 'bg-gradient-to-r from-emerald-500 to-cyan-500'
+                  : `bg-gradient-to-r ${providerInfo.color}`
+                  }`}
               >
-                <span className="text-white">{providerInfo.icon}</span>
+                <span className="text-white">
+                  {executionMode === 'server' ? (
+                    <Server className="w-3.5 h-3.5" />
+                  ) : (
+                    providerInfo.icon
+                  )}
+                </span>
                 <span className="text-white text-[10px] font-medium leading-none">
-                  {providerInfo.name}
+                  {executionMode === 'server' ? 'OCR 服务端' : providerInfo.name}
                 </span>
               </div>
               <span className="text-white/60 text-[10px] leading-none">
-                {modelName}
+                {headerModeLabel}
               </span>
             </div>
           </div>
@@ -373,8 +390,14 @@ const PopupApp: React.FC = () => {
             >
               <AlertTriangle className="w-3.5 h-3.5 text-amber-400 shrink-0" />
               <div className="flex-1 min-w-0">
-                <p className="text-xs text-amber-300 font-medium">需要配置 API Key</p>
-                <p className="text-[11px] text-amber-400/70 mt-0.5">点击此处前往设置，填写您的 API Key</p>
+                <p className="text-xs text-amber-300 font-medium">
+                  {executionMode === 'server' ? '需要配置服务端' : '需要配置 API Key'}
+                </p>
+                <p className="text-[11px] text-amber-400/70 mt-0.5">
+                  {executionMode === 'server'
+                    ? '点击前往设置，填写服务端地址并启用服务端模式'
+                    : '点击此处前往设置，填写您的 API Key'}
+                </p>
               </div>
               <ChevronRight className="w-4 h-4 text-amber-400 shrink-0" />
             </button>

@@ -205,6 +205,38 @@ describe('Integration Tests: Complete Translation Flow', () => {
       expect(wrapper).toBeDefined();
       expect(renderer.getOverlayCount()).toBe(0);
     });
+
+    it('should use server mode without requiring provider api key', async () => {
+      const mockTextAreas = createMockTextAreas();
+      const transport = createMockTransport(async request => {
+        expect(request.executionMode).toBe('server');
+        expect(request.server?.baseUrl).toBe('http://127.0.0.1:8000');
+        return {
+          success: true,
+          textAreas: mockTextAreas,
+          pipeline: 'ocr-first',
+          cached: false,
+        };
+      });
+      setDefaultTranslationTransport(transport);
+
+      const store = useAppConfigStore.getState();
+      store.setExecutionMode('server');
+      store.updateServerConfig({
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:8000',
+        authToken: 'token',
+        timeoutMs: 30000,
+      });
+
+      const translator = createTranslatorFromConfig();
+      const img = createMockImage();
+      const result = await translator.translateImage(img);
+
+      expect(result.success).toBe(true);
+      expect(result.textAreas).toHaveLength(2);
+      expect(transport.translateImage).toHaveBeenCalledOnce();
+    });
   });
 
   describe('Multi-Provider Switching', () => {

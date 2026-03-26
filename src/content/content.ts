@@ -278,6 +278,8 @@ function getPipelineFingerprint(): string {
   const config = useAppConfigStore.getState();
   const providerSettings = config.providers[config.provider];
   return [
+    config.executionMode,
+    config.server.enabled ? config.server.baseUrl : 'no-server',
     config.provider,
     providerSettings.model || 'default',
     config.targetLanguage,

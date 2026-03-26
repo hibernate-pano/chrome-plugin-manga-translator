@@ -26,6 +26,13 @@ export interface ProviderSettings {
   model: string;
 }
 
+export interface ServerConfig {
+  enabled: boolean;
+  baseUrl: string;
+  authToken: string;
+  timeoutMs: number;
+}
+
 /**
  * All provider configurations
  */
@@ -44,9 +51,15 @@ export interface ProvidersConfig {
 export interface AppConfigState {
   /** Translation toggle state */
   enabled: boolean;
+
+  /** Translation execution mode */
+  executionMode: 'server' | 'provider-direct';
   
   /** Current active provider */
   provider: ProviderType;
+
+  /** Self-hosted OCR-first server configuration */
+  server: ServerConfig;
   
   /** Provider-specific configurations */
   providers: ProvidersConfig;
@@ -89,6 +102,8 @@ export interface AppConfigActions {
   // Toggle operations
   setEnabled: (enabled: boolean) => void;
   toggleEnabled: () => void;
+  setExecutionMode: (mode: 'server' | 'provider-direct') => void;
+  updateServerConfig: (config: Partial<ServerConfig>) => void;
   
   // Provider operations
   setProvider: (provider: ProviderType) => void;
@@ -114,6 +129,7 @@ export interface AppConfigActions {
   // Utility operations
   getActiveProviderSettings: () => ProviderSettings;
   isProviderConfigured: (provider?: ProviderType) => boolean;
+  isServerConfigured: () => boolean;
   resetToDefaults: () => void;
 }
 
@@ -154,7 +170,14 @@ const DEFAULT_PROVIDERS: ProvidersConfig = {
 
 const DEFAULT_CONFIG: AppConfigState = {
   enabled: false,
+  executionMode: 'server',
   provider: 'siliconflow',
+  server: {
+    enabled: true,
+    baseUrl: 'http://127.0.0.1:8000',
+    authToken: '',
+    timeoutMs: 30000,
+  },
   providers: DEFAULT_PROVIDERS,
   targetLanguage: 'zh-CN',
   maxImageSize: 1920,
@@ -234,6 +257,14 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       // Toggle operations
       setEnabled: (enabled) => set({ enabled }),
       toggleEnabled: () => set((state) => ({ enabled: !state.enabled })),
+      setExecutionMode: executionMode => set({ executionMode }),
+      updateServerConfig: server =>
+        set(state => ({
+          server: {
+            ...state.server,
+            ...server,
+          },
+        })),
 
       // Provider operations
       setProvider: (provider) => set({ provider }),
@@ -295,6 +326,11 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         // Cloud providers require API key
         return !!settings.apiKey;
       },
+
+      isServerConfigured: () => {
+        const state = get();
+        return state.server.enabled && !!state.server.baseUrl.trim();
+      },
       
       resetToDefaults: () => set(DEFAULT_CONFIG),
     }),
@@ -304,7 +340,9 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       // Only persist essential configuration, not derived state
       partialize: (state) => ({
         enabled: state.enabled,
+        executionMode: state.executionMode,
         provider: state.provider,
+        server: state.server,
         providers: state.providers,
         targetLanguage: state.targetLanguage,
         maxImageSize: state.maxImageSize,

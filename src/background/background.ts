@@ -39,13 +39,27 @@ interface TranslationState {
   error?: string;
 }
 
+interface RuntimeServerConfig {
+  enabled?: boolean;
+  baseUrl?: string;
+  authToken?: string;
+  timeoutMs?: number;
+}
+
 // ==================== Constants ====================
 
 const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
 const DEFAULT_CONFIG = {
   enabled: false,
+  executionMode: 'server',
   provider: 'siliconflow',
+  server: {
+    enabled: true,
+    baseUrl: 'http://127.0.0.1:8000',
+    authToken: '',
+    timeoutMs: 30000,
+  },
   providers: {
     siliconflow: { apiKey: '', baseUrl: 'https://api.siliconflow.cn/v1', model: 'Qwen/Qwen2.5-VL-32B-Instruct' },
     dashscope: { apiKey: '', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', model: 'qwen-vl-max' },
@@ -147,6 +161,10 @@ async function migrateSettings(previousVersion?: string): Promise<void> {
     const mergedConfig = {
       ...DEFAULT_CONFIG,
       ...currentConfig,
+      server: {
+        ...DEFAULT_CONFIG.server,
+        ...(currentConfig.server || {}),
+      },
       providers: {
         ...DEFAULT_CONFIG.providers,
         ...currentConfig.providers,
@@ -284,6 +302,17 @@ async function handleMessage(
         }
         break;
 
+      case 'testServerConnection': {
+        const config = await getConfig();
+        const serverConfig = {
+          ...(config['server'] as RuntimeServerConfig | undefined),
+          ...(request['server'] as RuntimeServerConfig | undefined),
+        };
+        const result = await testServerConnection(serverConfig);
+        sendResponse(result);
+        break;
+      }
+
       // ==================== Translation Control ====================
 
       case 'toggleTranslation':
@@ -374,20 +403,32 @@ async function handleMessage(
         const {
           imageBase64,
           mimeType = 'image/jpeg',
+          imageKey,
+          pageUrl,
+          imageUrl,
           targetLanguage = 'zh-CN',
           provider: providerType = 'siliconflow',
           apiKey,
           baseUrl,
           model,
+          executionMode,
+          server,
+          renderMode = 'strong-overlay-compat',
           translationStylePreset = 'natural-zh',
         } = request as {
           imageBase64?: string;
           mimeType?: string;
+          imageKey?: string;
+          pageUrl?: string;
+          imageUrl?: string;
           targetLanguage?: string;
           provider?: string;
           apiKey?: string;
           baseUrl?: string;
           model?: string;
+          executionMode?: string;
+          server?: RuntimeServerConfig;
+          renderMode?: string;
           translationStylePreset?: TranslationStylePreset;
         };
 
@@ -397,6 +438,31 @@ async function handleMessage(
         }
 
         try {
+          const config = await getConfig();
+          const resolvedExecutionMode =
+            executionMode ||
+            ((config['executionMode'] as string | undefined) ?? 'provider-direct');
+          const serverConfig = {
+            ...(config['server'] as RuntimeServerConfig | undefined),
+            ...server,
+          };
+
+          if (shouldUseServerMode(resolvedExecutionMode, serverConfig)) {
+            const serverResponse = await proxyServerTranslation({
+              imageBase64,
+              mimeType,
+              imageKey,
+              pageUrl,
+              imageUrl,
+              targetLanguage,
+              translationStylePreset,
+              renderMode,
+              server: serverConfig,
+            });
+            sendResponse(serverResponse);
+            break;
+          }
+
           // 创建 provider 实例（静态 import，构建时打包）
           const visionProvider = await createProvider(
             providerType as ProviderType,
@@ -629,6 +695,186 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
     binary += String.fromCharCode(bytes[i]!);
   }
   return btoa(binary);
+}
+
+function shouldUseServerMode(
+  executionMode: string,
+  serverConfig: RuntimeServerConfig
+): boolean {
+  return (
+    executionMode === 'server' &&
+    !!serverConfig.enabled &&
+    !!serverConfig.baseUrl?.trim()
+  );
+}
+
+async function testServerConnection(
+  serverConfig: RuntimeServerConfig
+): Promise<MessageResponse> {
+  if (!serverConfig.baseUrl?.trim()) {
+    return { success: false, error: '请先填写服务端地址' };
+  }
+
+  try {
+    const response = await fetchWithTimeout(
+      `${serverConfig.baseUrl.replace(/\/$/, '')}/api/v1/health`,
+      {
+        method: 'GET',
+        headers: buildServerHeaders(serverConfig),
+      },
+      serverConfig.timeoutMs ?? 30000
+    );
+
+    if (!response.ok) {
+      return {
+        success: false,
+        error: `服务端连接失败: HTTP ${response.status}`,
+      };
+    }
+
+    const data = (await response.json()) as {
+      status?: string;
+      capabilities?: string[];
+    };
+
+    return {
+      success: true,
+      message:
+        data.capabilities && data.capabilities.length > 0
+          ? `服务端连接成功，能力: ${data.capabilities.join(', ')}`
+          : '服务端连接成功',
+    };
+  } catch (error) {
+    return {
+      success: false,
+      error:
+        error instanceof Error ? error.message : '无法连接服务端，请检查地址',
+    };
+  }
+}
+
+async function proxyServerTranslation(params: {
+  imageBase64: string;
+  mimeType: string;
+  imageKey?: string;
+  pageUrl?: string;
+  imageUrl?: string;
+  targetLanguage: string;
+  translationStylePreset: TranslationStylePreset;
+  renderMode: string;
+  server: RuntimeServerConfig;
+}): Promise<MessageResponse> {
+  const { server } = params;
+
+  if (!server.baseUrl?.trim()) {
+    return { success: false, error: '服务端模式未配置 baseUrl' };
+  }
+
+  const formData = new FormData();
+  formData.append(
+    'image',
+    base64ToBlob(params.imageBase64, params.mimeType),
+    `${params.imageKey || 'manga-image'}.${guessFileExtension(params.mimeType)}`
+  );
+  formData.append('imageKey', params.imageKey || '');
+  formData.append('pageUrl', params.pageUrl || '');
+  formData.append('imageUrl', params.imageUrl || '');
+  formData.append('targetLanguage', params.targetLanguage);
+  formData.append('translationStylePreset', params.translationStylePreset);
+  formData.append('renderMode', params.renderMode);
+
+  const response = await fetchWithTimeout(
+    `${server.baseUrl.replace(/\/$/, '')}/api/v1/translate-image`,
+    {
+      method: 'POST',
+      headers: buildServerHeaders(server),
+      body: formData,
+    },
+    server.timeoutMs ?? 30000
+  );
+
+  if (!response.ok) {
+    const message = await safeReadErrorMessage(response);
+    return {
+      success: false,
+      error: message || `服务端翻译失败: HTTP ${response.status}`,
+    };
+  }
+
+  const data = (await response.json()) as MessageResponse;
+  return {
+    success: data.success ?? true,
+    textAreas: data['textAreas'] as unknown[],
+    usage: data['usage'],
+    cached: data['cached'],
+    pipeline: data['pipeline'],
+    diagnostics: data['diagnostics'],
+    error: data.error,
+  };
+}
+
+function buildServerHeaders(serverConfig: RuntimeServerConfig): HeadersInit {
+  const headers: Record<string, string> = {};
+  if (serverConfig.authToken?.trim()) {
+    headers['Authorization'] = `Bearer ${serverConfig.authToken.trim()}`;
+  }
+  return headers;
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  const cleanBase64 = base64.startsWith('data:')
+    ? base64.split(',')[1] || ''
+    : base64;
+  const binary = atob(cleanBase64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
+function guessFileExtension(mimeType: string): string {
+  switch (mimeType) {
+    case 'image/png':
+      return 'png';
+    case 'image/webp':
+      return 'webp';
+    case 'image/jpeg':
+    default:
+      return 'jpg';
+  }
+}
+
+async function fetchWithTimeout(
+  input: RequestInfo | URL,
+  init: RequestInit,
+  timeoutMs: number
+): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    return await fetch(input, {
+      ...init,
+      signal: controller.signal,
+    });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function safeReadErrorMessage(response: Response): Promise<string | null> {
+  try {
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      const data = (await response.json()) as { error?: string; detail?: string };
+      return data.error || data.detail || null;
+    }
+    const text = await response.text();
+    return text || null;
+  } catch {
+    return null;
+  }
 }
 
 // ==================== Initialization ====================

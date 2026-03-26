@@ -41,6 +41,34 @@ describe('AppConfigStore', () => {
     });
   });
 
+  describe('Server Mode', () => {
+    it('should start in server mode with localhost preconfigured', () => {
+      const state = useAppConfigStore.getState();
+      expect(state.executionMode).toBe('server');
+      expect(state.server.enabled).toBe(true);
+      expect(state.server.baseUrl).toBe('http://127.0.0.1:8000');
+      expect(state.isServerConfigured()).toBe(true);
+    });
+
+    it('should update server configuration', () => {
+      const store = useAppConfigStore.getState();
+
+      store.setExecutionMode('server');
+      store.updateServerConfig({
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:8000',
+        authToken: 'token',
+        timeoutMs: 15000,
+      });
+
+      const state = useAppConfigStore.getState();
+      expect(state.executionMode).toBe('server');
+      expect(state.server.baseUrl).toBe('http://127.0.0.1:8000');
+      expect(state.server.timeoutMs).toBe(15000);
+      expect(state.isServerConfigured()).toBe(true);
+    });
+  });
+
   describe('Provider Operations', () => {
     it('should have siliconflow as default provider', () => {
       const state = useAppConfigStore.getState();

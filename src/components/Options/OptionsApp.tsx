@@ -59,10 +59,16 @@ import { createProvider } from '@/providers';
 import { useUsageStore } from '@/stores/usage-store';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
 import type { TranslationStylePreset } from '@/utils/translation-style';
+import { Switch } from '@/components/ui/switch';
 
 // ==================== Types ====================
 
 interface TestResult {
+  success: boolean;
+  message: string;
+}
+
+interface ServerTestResult {
   success: boolean;
   message: string;
 }
@@ -196,6 +202,8 @@ const DataManagementCard: React.FC = () => {
       version: 2,
       exportedAt: new Date().toISOString(),
       provider: config.provider,
+      executionMode: config.executionMode,
+      server: config.server,
       providers: config.providers,
       targetLanguage: config.targetLanguage,
       maxImageSize: config.maxImageSize,
@@ -232,6 +240,12 @@ const DataManagementCard: React.FC = () => {
         // 合并配置（不覆盖密钥以外的系统配置）
         const store = useAppConfigStore.getState();
         if (data.provider) store.setProvider(data.provider);
+        if (data.executionMode) {
+          store.setExecutionMode(data.executionMode);
+        }
+        if (data.server) {
+          store.updateServerConfig(data.server);
+        }
         if (data.targetLanguage) store.setTargetLanguage(data.targetLanguage);
         if (data.translationStylePreset) {
           store.setTranslationStylePreset(data.translationStylePreset);
@@ -401,6 +415,8 @@ const DataManagementCard: React.FC = () => {
 const OptionsApp: React.FC = () => {
   // Config store - 细粒度 selector 避免全量订阅
   const provider = useAppConfigStore((state) => state.provider);
+  const executionMode = useAppConfigStore((state) => state.executionMode);
+  const server = useAppConfigStore((state) => state.server);
   const providers = useAppConfigStore((state) => state.providers);
   const targetLanguage = useAppConfigStore((state) => state.targetLanguage);
   const translationStylePreset = useAppConfigStore(
@@ -415,6 +431,10 @@ const OptionsApp: React.FC = () => {
     (state) => state.fallbackToFullImage,
   );
   const setProvider = useAppConfigStore((state) => state.setProvider);
+  const setExecutionMode = useAppConfigStore((state) => state.setExecutionMode);
+  const updateServerConfig = useAppConfigStore(
+    (state) => state.updateServerConfig,
+  );
   const updateProviderSettings = useAppConfigStore(
     (state) => state.updateProviderSettings,
   );
@@ -447,6 +467,7 @@ const OptionsApp: React.FC = () => {
   const [testingProvider, setTestingProvider] = useState<ProviderType | null>(
     null,
   );
+  const [testingServer, setTestingServer] = useState(false);
   const [testResults, setTestResults] = useState<
     Record<ProviderType, TestResult | null>
   >({
@@ -457,6 +478,9 @@ const OptionsApp: React.FC = () => {
     deepseek: null,
     ollama: null,
   });
+  const [serverTestResult, setServerTestResult] = useState<ServerTestResult | null>(
+    null,
+  );
 
   // Ollama models state
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
@@ -591,6 +615,37 @@ const OptionsApp: React.FC = () => {
     },
     [providers],
   );
+
+  const handleTestServerConnection = useCallback(async () => {
+    setTestingServer(true);
+    setServerTestResult(null);
+
+    try {
+      const response = await chrome.runtime.sendMessage({
+        action: 'testServerConnection',
+        server,
+      }) as {
+        success?: boolean;
+        error?: string;
+        message?: string;
+      };
+
+      setServerTestResult({
+        success: !!response?.success,
+        message:
+          response?.message ||
+          response?.error ||
+          '服务端连接测试失败',
+      });
+    } catch (error) {
+      setServerTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : '服务端连接测试失败',
+      });
+    } finally {
+      setTestingServer(false);
+    }
+  }, [server]);
 
   // ==================== Validation ====================
 
@@ -876,6 +931,147 @@ const OptionsApp: React.FC = () => {
         <Card className="border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
           <CardHeader className="pb-4">
             <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-gradient-to-br from-emerald-500 to-cyan-500 rounded-lg">
+                <Server className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-slate-900 dark:text-slate-100">
+                  服务端 OCR-First 模式
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">
+                  配置你的自托管服务端，优先使用 OCR + 文本翻译 + 区域回退
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-5">
+            <div className="flex items-center justify-between rounded-lg border border-slate-200 dark:border-slate-700 px-4 py-3">
+              <div className="space-y-1">
+                <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  启用服务端模式
+                </Label>
+                <p className="text-xs text-slate-500 dark:text-slate-400">
+                  开启后优先走自托管 OCR 服务；关闭时继续使用当前视觉模型 provider
+                </p>
+              </div>
+              <Switch
+                checked={server.enabled}
+                onCheckedChange={(checked) => {
+                  updateServerConfig({ enabled: checked });
+                  setExecutionMode(checked ? 'server' : 'provider-direct');
+                }}
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                执行模式
+              </Label>
+              <Select
+                value={executionMode}
+                onValueChange={(value) =>
+                  setExecutionMode(value as 'server' | 'provider-direct')
+                }
+              >
+                <SelectTrigger className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 hover:border-teal-400 dark:hover:border-teal-600 cursor-pointer">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="server" className="cursor-pointer">
+                    服务端 OCR-First
+                  </SelectItem>
+                  <SelectItem value="provider-direct" className="cursor-pointer">
+                    插件直连视觉模型
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                服务端地址
+              </Label>
+              <Input
+                value={server.baseUrl}
+                placeholder="http://127.0.0.1:8000"
+                onChange={(e) =>
+                  updateServerConfig({ baseUrl: e.target.value.trim() })
+                }
+                className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 focus:border-teal-400 dark:focus:border-teal-600"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                服务端 Token
+              </Label>
+              <Input
+                value={server.authToken}
+                type="password"
+                placeholder="Bearer Token（可选）"
+                onChange={(e) =>
+                  updateServerConfig({ authToken: e.target.value })
+                }
+                className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 focus:border-teal-400 dark:focus:border-teal-600"
+              />
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                超时时间（毫秒）
+              </Label>
+              <Input
+                value={String(server.timeoutMs)}
+                type="number"
+                min={1000}
+                step={1000}
+                onChange={(e) =>
+                  updateServerConfig({
+                    timeoutMs: Math.max(1000, Number(e.target.value) || 30000),
+                  })
+                }
+                className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 focus:border-teal-400 dark:focus:border-teal-600"
+              />
+            </div>
+
+            {serverTestResult && (
+              <Alert
+                variant={serverTestResult.success ? 'default' : 'destructive'}
+                className={`border-none ${serverTestResult.success
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                  : 'bg-red-50 dark:bg-red-900/20'
+                  }`}
+              >
+                <AlertTitle>
+                  {serverTestResult.success ? '服务端可用' : '服务端不可用'}
+                </AlertTitle>
+                <AlertDescription>{serverTestResult.message}</AlertDescription>
+              </Alert>
+            )}
+
+            <Button
+              onClick={handleTestServerConnection}
+              disabled={testingServer || !server.baseUrl}
+              className="w-full h-11 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md hover:shadow-lg transition-all duration-200 cursor-pointer"
+            >
+              {testingServer ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  测试服务端...
+                </>
+              ) : (
+                <>
+                  <Server className="mr-2 h-4 w-4" />
+                  测试服务端连接
+                </>
+              )}
+            </Button>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3 mb-2">
               <div
                 className={`p-2 bg-gradient-to-br ${currentProviderConfig.color} rounded-lg`}
               >
@@ -883,10 +1079,10 @@ const OptionsApp: React.FC = () => {
               </div>
               <div className="flex-1">
                 <CardTitle className="text-slate-900 dark:text-slate-100">
-                  AI 服务配置
+                  兼容模式 Provider 配置
                 </CardTitle>
                 <CardDescription className="text-slate-600 dark:text-slate-400">
-                  选择并配置翻译服务提供者
+                  当服务端模式关闭时，插件直接调用视觉模型
                 </CardDescription>
               </div>
               {currentProviderConfig.badge && (
@@ -954,10 +1150,10 @@ const OptionsApp: React.FC = () => {
               </div>
               <div className="flex-1">
                 <CardTitle className="text-slate-900 dark:text-slate-100">
-                  阅读层与混合式 Pipeline
+                  渲染与兼容 Pipeline
                 </CardTitle>
                 <CardDescription className="text-slate-600 dark:text-slate-400">
-                  默认使用右侧阅读面板和区域批量翻译
+                  直接渲染仍然是默认体验；本地 hybrid 仅作为兼容模式保留
                 </CardDescription>
               </div>
             </div>
