@@ -51,10 +51,7 @@ export class DashScopeProvider implements VisionProvider {
     targetLanguage: string,
     translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
-    const validation = await this.validateConfig();
-    if (!validation.valid) {
-      throw new Error(validation.message);
-    }
+    this.ensureConfigured();
 
     const prompt = getMangaTranslationPrompt(
       targetLanguage,
@@ -157,6 +154,15 @@ export class DashScopeProvider implements VisionProvider {
         valid: false,
         message: '无法连接到阿里云百炼服务',
       };
+    }
+  }
+
+  private ensureConfigured(): void {
+    if (!this.config.apiKey) {
+      throw new Error('请配置阿里云百炼 API 密钥');
+    }
+    if (this.config.apiKey.length < 10) {
+      throw new Error('阿里云百炼 API 密钥格式无效');
     }
   }
 }

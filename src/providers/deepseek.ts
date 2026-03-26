@@ -63,10 +63,7 @@ export class DeepSeekProvider implements VisionProvider {
     targetLanguage: string,
     translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
-    const validation = await this.validateConfig();
-    if (!validation.valid) {
-      throw new Error(validation.message);
-    }
+    this.ensureConfigured();
 
     const prompt = getMangaTranslationPrompt(
       targetLanguage,
@@ -149,5 +146,14 @@ export class DeepSeekProvider implements VisionProvider {
       valid: true,
       message: 'DeepSeek 配置有效',
     };
+  }
+
+  private ensureConfigured(): void {
+    if (!this.config.apiKey) {
+      throw new Error('请配置 DeepSeek API 密钥');
+    }
+    if (this.config.apiKey.length < 10) {
+      throw new Error('DeepSeek API 密钥格式无效');
+    }
   }
 }

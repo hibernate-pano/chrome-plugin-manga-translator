@@ -65,6 +65,21 @@ export interface AppConfigState {
 
   /** Prompt style preset for manga translation */
   translationStylePreset: TranslationStylePreset;
+
+  /** Reading UI mode */
+  readingMode: 'panel';
+
+  /** Render mode for translated content */
+  renderMode: 'anchors-only' | 'strong-overlay-compat';
+
+  /** Translation pipeline mode */
+  translationPipeline: 'hybrid-regions' | 'full-image-vlm';
+
+  /** Region batch size for hybrid pipeline */
+  regionBatchSize: number;
+
+  /** Whether to fallback to full-image VLM translation */
+  fallbackToFullImage: boolean;
 }
 
 /**
@@ -88,6 +103,13 @@ export interface AppConfigActions {
   setParallelLimit: (limit: number) => void;
   setCacheEnabled: (enabled: boolean) => void;
   setTranslationStylePreset: (preset: TranslationStylePreset) => void;
+  setReadingMode: (mode: 'panel') => void;
+  setRenderMode: (mode: 'anchors-only' | 'strong-overlay-compat') => void;
+  setTranslationPipeline: (
+    pipeline: 'hybrid-regions' | 'full-image-vlm'
+  ) => void;
+  setRegionBatchSize: (size: number) => void;
+  setFallbackToFullImage: (enabled: boolean) => void;
   
   // Utility operations
   getActiveProviderSettings: () => ProviderSettings;
@@ -139,6 +161,11 @@ const DEFAULT_CONFIG: AppConfigState = {
   parallelLimit: 3,
   cacheEnabled: true,
   translationStylePreset: DEFAULT_TRANSLATION_STYLE_PRESET,
+  readingMode: 'panel',
+  renderMode: 'strong-overlay-compat',
+  translationPipeline: 'full-image-vlm',
+  regionBatchSize: 10,
+  fallbackToFullImage: true,
 };
 
 // ==================== Chrome Storage Adapter ====================
@@ -242,6 +269,12 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       setCacheEnabled: (cacheEnabled) => set({ cacheEnabled }),
       setTranslationStylePreset: (translationStylePreset) =>
         set({ translationStylePreset }),
+      setReadingMode: readingMode => set({ readingMode }),
+      setRenderMode: renderMode => set({ renderMode }),
+      setTranslationPipeline: translationPipeline => set({ translationPipeline }),
+      setRegionBatchSize: regionBatchSize => set({ regionBatchSize }),
+      setFallbackToFullImage: fallbackToFullImage =>
+        set({ fallbackToFullImage }),
 
       // Utility operations
       getActiveProviderSettings: () => {
@@ -278,6 +311,11 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         parallelLimit: state.parallelLimit,
         cacheEnabled: state.cacheEnabled,
         translationStylePreset: state.translationStylePreset,
+        readingMode: state.readingMode,
+        renderMode: state.renderMode,
+        translationPipeline: state.translationPipeline,
+        regionBatchSize: state.regionBatchSize,
+        fallbackToFullImage: state.fallbackToFullImage,
       }),
     }
   )

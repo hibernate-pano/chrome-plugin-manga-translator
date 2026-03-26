@@ -47,6 +47,7 @@ import {
   Shield,
   Rocket,
   BarChart3,
+  BookOpen,
   Download,
   Upload,
   Trash2,
@@ -201,6 +202,11 @@ const DataManagementCard: React.FC = () => {
       parallelLimit: config.parallelLimit,
       cacheEnabled: config.cacheEnabled,
       translationStylePreset: config.translationStylePreset,
+      readingMode: config.readingMode,
+      renderMode: config.renderMode,
+      translationPipeline: config.translationPipeline,
+      regionBatchSize: config.regionBatchSize,
+      fallbackToFullImage: config.fallbackToFullImage,
     };
     const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
@@ -229,6 +235,18 @@ const DataManagementCard: React.FC = () => {
         if (data.targetLanguage) store.setTargetLanguage(data.targetLanguage);
         if (data.translationStylePreset) {
           store.setTranslationStylePreset(data.translationStylePreset);
+        }
+        if (data.renderMode) {
+          store.setRenderMode(data.renderMode);
+        }
+        if (data.translationPipeline) {
+          store.setTranslationPipeline(data.translationPipeline);
+        }
+        if (typeof data.regionBatchSize === 'number') {
+          store.setRegionBatchSize(data.regionBatchSize);
+        }
+        if (typeof data.fallbackToFullImage === 'boolean') {
+          store.setFallbackToFullImage(data.fallbackToFullImage);
         }
         Object.entries(data.providers as Record<string, { apiKey?: string; model?: string; baseUrl?: string }>).forEach(([key, settings]) => {
           store.updateProviderSettings(key as ProviderType, settings);
@@ -388,6 +406,14 @@ const OptionsApp: React.FC = () => {
   const translationStylePreset = useAppConfigStore(
     (state) => state.translationStylePreset,
   );
+  const renderMode = useAppConfigStore((state) => state.renderMode);
+  const translationPipeline = useAppConfigStore(
+    (state) => state.translationPipeline,
+  );
+  const regionBatchSize = useAppConfigStore((state) => state.regionBatchSize);
+  const fallbackToFullImage = useAppConfigStore(
+    (state) => state.fallbackToFullImage,
+  );
   const setProvider = useAppConfigStore((state) => state.setProvider);
   const updateProviderSettings = useAppConfigStore(
     (state) => state.updateProviderSettings,
@@ -397,6 +423,16 @@ const OptionsApp: React.FC = () => {
   );
   const setTranslationStylePreset = useAppConfigStore(
     (state) => state.setTranslationStylePreset,
+  );
+  const setRenderMode = useAppConfigStore((state) => state.setRenderMode);
+  const setTranslationPipeline = useAppConfigStore(
+    (state) => state.setTranslationPipeline,
+  );
+  const setRegionBatchSize = useAppConfigStore(
+    (state) => state.setRegionBatchSize,
+  );
+  const setFallbackToFullImage = useAppConfigStore(
+    (state) => state.setFallbackToFullImage,
   );
 
   // Local state
@@ -907,6 +943,112 @@ const OptionsApp: React.FC = () => {
                 </TabsContent>
               ))}
             </Tabs>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-gradient-to-br from-cyan-500 to-teal-500 rounded-lg">
+                <BookOpen className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-slate-900 dark:text-slate-100">
+                  阅读层与混合式 Pipeline
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">
+                  默认使用右侧阅读面板和区域批量翻译
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                渲染模式
+              </Label>
+              <Select value={renderMode} onValueChange={(value) => setRenderMode(value as 'anchors-only' | 'strong-overlay-compat')}>
+                <SelectTrigger className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 hover:border-teal-400 dark:hover:border-teal-600 cursor-pointer">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="strong-overlay-compat" className="cursor-pointer">
+                    直接渲染到漫画中
+                  </SelectItem>
+                  <SelectItem value="anchors-only" className="cursor-pointer">
+                    右侧阅读层 + 图上编号锚点
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                翻译 Pipeline
+              </Label>
+              <Select
+                value={translationPipeline}
+                onValueChange={(value) =>
+                  setTranslationPipeline(
+                    value as 'hybrid-regions' | 'full-image-vlm',
+                  )
+                }
+              >
+                <SelectTrigger className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700 transition-all duration-200 hover:border-teal-400 dark:hover:border-teal-600 cursor-pointer">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="full-image-vlm" className="cursor-pointer">
+                    整图 VLM + 覆盖渲染
+                  </SelectItem>
+                  <SelectItem value="hybrid-regions" className="cursor-pointer">
+                    本地检测分块 + VLM 批量翻译
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="space-y-2">
+              <Label
+                htmlFor="region-batch-size"
+                className="text-sm font-medium text-slate-700 dark:text-slate-300"
+              >
+                区域批大小
+              </Label>
+              <Input
+                id="region-batch-size"
+                type="number"
+                min={1}
+                max={20}
+                value={regionBatchSize}
+                onChange={(e) =>
+                  setRegionBatchSize(
+                    Math.max(1, Math.min(20, Number(e.target.value) || 1)),
+                  )
+                }
+                className="h-11 bg-white dark:bg-slate-800 border-slate-200 dark:border-slate-700"
+              />
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                单张图片按批次翻译文本块，默认 10。
+              </p>
+            </div>
+
+            <label className="flex items-center justify-between gap-4 rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3 bg-slate-50/80 dark:bg-slate-900/40">
+              <div>
+                <div className="text-sm font-medium text-slate-700 dark:text-slate-300">
+                  整图回退
+                </div>
+                <div className="text-xs text-slate-500 dark:text-slate-400 mt-1">
+                  区域批量翻译失败时，自动退回整图 VLM。
+                </div>
+              </div>
+              <input
+                type="checkbox"
+                checked={fallbackToFullImage}
+                onChange={(e) => setFallbackToFullImage(e.target.checked)}
+                className="h-4 w-4 accent-teal-600 cursor-pointer"
+              />
+            </label>
           </CardContent>
         </Card>
 

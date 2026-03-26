@@ -15,6 +15,12 @@ export type {
   ValidationResult,
   TextArea,
 } from '@/providers/base';
+export type {
+  ImageReadingResult,
+  ReadingEntry,
+  ReadingPipeline,
+  ReadingRegion,
+} from '@/services/reading-result';
 
 // ==================== UI 相关类型 ====================
 

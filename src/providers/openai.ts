@@ -64,10 +64,7 @@ export class OpenAIProvider implements VisionProvider {
     targetLanguage: string,
     translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
-    const validation = await this.validateConfig();
-    if (!validation.valid) {
-      throw new Error(validation.message);
-    }
+    this.ensureConfigured();
 
     const prompt = getMangaTranslationPrompt(
       targetLanguage,
@@ -145,5 +142,14 @@ export class OpenAIProvider implements VisionProvider {
       valid: true,
       message: 'OpenAI 配置有效',
     };
+  }
+
+  private ensureConfigured(): void {
+    if (!this.config.apiKey) {
+      throw new Error('请配置 OpenAI API 密钥');
+    }
+    if (this.config.apiKey.length < 20) {
+      throw new Error('OpenAI API 密钥格式无效');
+    }
   }
 }

@@ -13,6 +13,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import {
   Settings,
   AlertTriangle,
@@ -170,6 +171,8 @@ const PopupApp: React.FC = () => {
   // Store selectors
   const provider = useAppConfigStore(state => state.provider);
   const providers = useAppConfigStore(state => state.providers);
+  const enabled = useAppConfigStore(state => state.enabled);
+  const setEnabled = useAppConfigStore(state => state.setEnabled);
   const isProviderConfigured = useAppConfigStore(
     state => state.isProviderConfigured
   );
@@ -270,6 +273,13 @@ const PopupApp: React.FC = () => {
     await sendToContent({ type: 'CLEAR_ALL' });
     setContentState({ status: 'idle', session: createEmptySession() });
   }, []);
+
+  const handleAutoTranslateToggle = useCallback(
+    (checked: boolean) => {
+      setEnabled(checked);
+    },
+    [setEnabled]
+  );
 
   const openSettings = useCallback(() => {
     chrome.runtime.openOptionsPage();
@@ -374,6 +384,19 @@ const PopupApp: React.FC = () => {
 
       {/* ---- Main Action Area ---- */}
       <div className="flex-1 flex flex-col justify-center gap-4 px-5 py-6">
+        <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
+          <div>
+            <div className="text-sm font-medium text-slate-100">自动翻译模式</div>
+            <div className="mt-1 text-[11px] text-slate-400">
+              页面后续懒加载的新漫画图片也会继续翻译
+            </div>
+          </div>
+          <Switch
+            checked={enabled}
+            onCheckedChange={handleAutoTranslateToggle}
+          />
+        </div>
+
         {/* Primary Button: Translate Page */}
         <div className="relative">
           <AnimatePresence mode="wait">

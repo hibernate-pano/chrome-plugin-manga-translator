@@ -22,6 +22,7 @@ import {
   type ParallelProcessingOptions,
 } from '@/utils/image-priority';
 import { useAppConfigStore } from '@/stores/config-v2';
+import { ReadingLayer } from './reading-layer';
 import { isTranslatableImage } from './hover-selector';
 import { HoverSelector } from './hover-selector';
 import { FloatingHud } from './floating-hud';
@@ -83,6 +84,7 @@ let currentState: ContentState = {
 let abortController: AbortController | null = null;
 let translator: TranslatorService | null = null;
 let renderer: OverlayRenderer | null = null;
+let readingLayer: ReadingLayer | null = null;
 let hud: FloatingHud | null = null;
 let hoverSelector: HoverSelector | null = null;
 const processedImages: Set<string> = new Set();
@@ -90,6 +92,10 @@ let servicesReady = false;
 let currentSiteAdapter: SiteAdapter | null = null;
 let currentSession: TranslationSessionStats = createEmptySession();
 const failedImageQueue: Map<string, HTMLImageElement> = new Map();
+let autoTranslateObserver: MutationObserver | null = null;
+let autoTranslateDebounce: ReturnType<typeof setTimeout> | null = null;
+let autoTranslateEnabled = false;
+let autoTranslatePending = false;
 
 // ==================== 状态更新 ====================
 
@@ -256,7 +262,7 @@ function findTranslatableImages(): HTMLImageElement[] {
       allowIncomplete: true,
       siteAdapter: currentSiteAdapter,
     });
-    const originalKey = getImageKey(img);
+    const originalKey = getProcessedImageKey(img);
     const notProcessed = !processedImages.has(originalKey);
     // 这里如果已经被处理过，也要算在「无需重新处理的源」里，但对于本次队列过滤掉
     return isTranslatable && notProcessed;
@@ -266,6 +272,25 @@ function findTranslatableImages(): HTMLImageElement[] {
 function getImageKey(img: HTMLImageElement): string {
   const realSrc = getRealImageSource(img, currentSiteAdapter);
   return `${realSrc || 'unknown'}::${img.naturalWidth || img.width}x${img.naturalHeight || img.height}`;
+}
+
+function getPipelineFingerprint(): string {
+  const config = useAppConfigStore.getState();
+  const providerSettings = config.providers[config.provider];
+  return [
+    config.provider,
+    providerSettings.model || 'default',
+    config.targetLanguage,
+    config.translationStylePreset,
+    config.translationPipeline,
+    config.renderMode,
+    config.regionBatchSize,
+    config.fallbackToFullImage,
+  ].join('::');
+}
+
+function getProcessedImageKey(img: HTMLImageElement): string {
+  return `${getImageKey(img)}::${getPipelineFingerprint()}`;
 }
 
 async function processSingleImage(
@@ -281,10 +306,23 @@ async function processSingleImage(
 
   img.classList.add(PROCESSED_CLASS);
 
-  const result = await translator.translateImage(img, viewportCrop);
+  const imageKey = getImageKey(img);
+  const result = await translator.translateImage(img, viewportCrop, imageKey);
 
   if (!result.success) {
     throw new Error(result.error || 'Translation failed');
+  }
+
+  if (result.readingResult?.entries.length) {
+    if (useAppConfigStore.getState().renderMode === 'anchors-only') {
+      if (!readingLayer) {
+        readingLayer = new ReadingLayer();
+      }
+      readingLayer?.upsert(img, result.readingResult);
+    } else {
+      renderer.render(img, result.textAreas, autoPinned);
+    }
+    return result;
   }
 
   if (result.textAreas.length === 0) {
@@ -293,6 +331,79 @@ async function processSingleImage(
 
   renderer.render(img, result.textAreas, autoPinned);
   return result;
+}
+
+async function processImageBatch(
+  images: HTMLImageElement[],
+  preserveSession: boolean = false
+): Promise<void> {
+  if (images.length === 0) {
+    if (!preserveSession) {
+      setState({ status: 'complete', count: 0 });
+    }
+    return;
+  }
+
+  const config = useAppConfigStore.getState();
+  const parallelLimit = config.parallelLimit || 3;
+  const total = images.length;
+  let current = 0;
+
+  if (!preserveSession) {
+    currentSession = createEmptySession();
+    currentSession.sessionId = `session-${Date.now()}`;
+    currentSession.queuedCount = total;
+  } else {
+    currentSession.queuedCount += total;
+  }
+
+  setState({ status: 'translating', current: 0, total });
+
+  const options: ParallelProcessingOptions = {
+    maxConcurrent: parallelLimit,
+    signal: abortController?.signal,
+    onItemComplete: (completed) => {
+      current = completed;
+      if (currentState.status === 'translating') {
+        setState({ status: 'translating', current, total });
+      }
+    },
+    onError: (error) => {
+      const friendly = parseTranslationError(error);
+      console.error('[ContentScript] 图片处理失败:', friendly.message);
+      currentSession.lastError = friendly.message;
+    },
+  };
+
+  await processInParallel(
+    images,
+    async (img) => {
+      const imageKey = getProcessedImageKey(img);
+      if (abortController?.signal.aborted) {
+        throw new Error('Translation cancelled');
+      }
+      try {
+        const result = await processSingleImage(img, false, true);
+        processedImages.add(imageKey);
+        failedImageQueue.delete(imageKey);
+
+        if (result.cached) {
+          currentSession.cachedCount += 1;
+        }
+
+        if (result.textAreas.length === 0) {
+          currentSession.skippedCount += 1;
+        } else {
+          currentSession.translatedCount += 1;
+        }
+      } catch (error) {
+        currentSession.failedCount += 1;
+        failedImageQueue.set(imageKey, img);
+        throw error;
+      }
+    },
+    options
+  );
 }
 
 // ==================== 核心动作 ====================
@@ -309,8 +420,6 @@ async function translatePage(): Promise<void> {
   }
 
   abortController = new AbortController();
-  currentSession = createEmptySession();
-  currentSession.sessionId = `session-${Date.now()}`;
   failedImageQueue.clear();
   setState({ status: 'scanning' });
 
@@ -330,59 +439,7 @@ async function translatePage(): Promise<void> {
       return;
     }
 
-    const config = useAppConfigStore.getState();
-    const parallelLimit = config.parallelLimit || 3;
-    const total = images.length;
-    let current = 0;
-
-    currentSession.queuedCount = total;
-    setState({ status: 'translating', current: 0, total });
-
-    const options: ParallelProcessingOptions = {
-      maxConcurrent: parallelLimit,
-      signal: abortController.signal,
-      onItemComplete: (completed) => {
-        current = completed;
-        if (currentState.status === 'translating') {
-          setState({ status: 'translating', current, total });
-        }
-      },
-      onError: (error) => {
-        const friendly = parseTranslationError(error);
-        console.error('[ContentScript] 图片处理失败:', friendly.message);
-        currentSession.lastError = friendly.message;
-      },
-    };
-
-    await processInParallel(
-      images,
-      async (img) => {
-        const imageKey = getImageKey(img);
-        if (abortController?.signal.aborted) {
-          throw new Error('Translation cancelled');
-        }
-        try {
-          const result = await processSingleImage(img, false, true);
-          processedImages.add(imageKey);
-          failedImageQueue.delete(imageKey);
-
-          if (result.cached) {
-            currentSession.cachedCount += 1;
-          }
-
-          if (result.textAreas.length === 0) {
-            currentSession.skippedCount += 1;
-          } else {
-            currentSession.translatedCount += 1;
-          }
-        } catch (error) {
-          currentSession.failedCount += 1;
-          failedImageQueue.set(imageKey, img);
-          throw error;
-        }
-      },
-      options
-    );
+    await processImageBatch(images, false);
 
     // 检查是否被取消
     if (abortController?.signal.aborted) {
@@ -401,6 +458,48 @@ async function translatePage(): Promise<void> {
     setState({ status: 'error', message: friendly.message });
   } finally {
     abortController = null;
+    if (autoTranslateEnabled && autoTranslatePending) {
+      autoTranslatePending = false;
+      scheduleAutoTranslateScan(300);
+    }
+  }
+}
+
+async function translateNewImages(): Promise<void> {
+  if (
+    !autoTranslateEnabled ||
+    currentState.status === 'translating' ||
+    currentState.status === 'scanning'
+  ) {
+    autoTranslatePending = true;
+    return;
+  }
+
+  try {
+    await ensureServicesInitialized();
+    const images = getViewportFirstImages(findTranslatableImages());
+
+    if (images.length === 0) {
+      autoTranslatePending = false;
+      return;
+    }
+
+    if (!abortController) {
+      abortController = new AbortController();
+    }
+
+    await processImageBatch(images, true);
+    setState({
+      status: 'complete',
+      count: currentSession.translatedCount,
+    });
+  } catch (error) {
+    const friendly = parseTranslationError(error);
+    currentSession.lastError = friendly.message;
+    setState({ status: 'error', message: friendly.message });
+  } finally {
+    abortController = null;
+    autoTranslatePending = false;
   }
 }
 
@@ -428,7 +527,7 @@ function enterHoverSelect(): void {
       }
       // 单图翻译：viewportCrop + autoPinned（覆盖层自动固定显示）
       const result = await processSingleImage(img, true, true);
-      processedImages.add(getImageKey(img));
+      processedImages.add(getProcessedImageKey(img));
       currentSession = createEmptySession();
       currentSession.sessionId = `session-${Date.now()}`;
       currentSession.queuedCount = 1;
@@ -477,6 +576,7 @@ function cancelTranslation(): void {
     hoverSelector.exit();
     hoverSelector = null;
   }
+  autoTranslatePending = false;
   setState({ status: 'idle' });
 }
 
@@ -503,7 +603,7 @@ async function retryFailedTranslations(): Promise<void> {
     await processInParallel(
       images,
       async img => {
-        const imageKey = getImageKey(img);
+        const imageKey = getProcessedImageKey(img);
         const result = await processSingleImage(img, false, true);
         processedImages.add(imageKey);
         failedImageQueue.delete(imageKey);
@@ -558,6 +658,9 @@ function clearAll(): void {
   if (renderer) {
     renderer.removeAll();
   }
+  if (readingLayer) {
+    readingLayer.clear();
+  }
   removeAllOverlaysFromDOM();
 
   processedImages.clear();
@@ -568,6 +671,101 @@ function clearAll(): void {
   });
 
   setState({ status: 'idle' });
+}
+
+function scheduleAutoTranslateScan(delay: number = 600): void {
+  if (!autoTranslateEnabled) {
+    return;
+  }
+
+  if (autoTranslateDebounce) {
+    clearTimeout(autoTranslateDebounce);
+  }
+
+  autoTranslateDebounce = setTimeout(() => {
+    autoTranslateDebounce = null;
+    void translateNewImages();
+  }, delay);
+}
+
+function setupAutoTranslateObserver(): void {
+  if (autoTranslateObserver) {
+    return;
+  }
+
+  autoTranslateObserver = new MutationObserver((mutations) => {
+    let shouldScan = false;
+
+    for (const mutation of mutations) {
+      if (mutation.type === 'childList') {
+        if (mutation.addedNodes.length > 0) {
+          shouldScan = true;
+        }
+      }
+
+      if (
+        mutation.type === 'attributes' &&
+        mutation.target instanceof HTMLImageElement
+      ) {
+        shouldScan = true;
+      }
+
+      if (shouldScan) {
+        break;
+      }
+    }
+
+    if (shouldScan) {
+      scheduleAutoTranslateScan();
+    }
+  });
+
+  autoTranslateObserver.observe(document.body, {
+    childList: true,
+    subtree: true,
+    attributes: true,
+    attributeFilter: [
+      'src',
+      'srcset',
+      'data-src',
+      'data-original',
+      'data-lazy-src',
+      'class',
+      'style',
+    ],
+  });
+
+  document.addEventListener('scroll', handleAutoTranslateScroll, true);
+}
+
+function teardownAutoTranslateObserver(): void {
+  if (autoTranslateObserver) {
+    autoTranslateObserver.disconnect();
+    autoTranslateObserver = null;
+  }
+
+  if (autoTranslateDebounce) {
+    clearTimeout(autoTranslateDebounce);
+    autoTranslateDebounce = null;
+  }
+
+  document.removeEventListener('scroll', handleAutoTranslateScroll, true);
+}
+
+function handleAutoTranslateScroll(): void {
+  scheduleAutoTranslateScan(400);
+}
+
+function syncAutoTranslateMode(): void {
+  const enabled = useAppConfigStore.getState().enabled;
+  autoTranslateEnabled = enabled;
+
+  if (enabled) {
+    setupAutoTranslateObserver();
+    scheduleAutoTranslateScan(200);
+  } else {
+    teardownAutoTranslateObserver();
+  }
 }
 
 // ==================== 消息处理 ====================
@@ -643,6 +841,14 @@ function handleStorageChange(
     // 配置变更时重置 translator 和初始化状态，下次使用时重新初始化
     translator = null;
     servicesReady = false;
+    processedImages.clear();
+    if (useAppConfigStore.getState().renderMode === 'anchors-only') {
+      readingLayer?.clear();
+    } else if (readingLayer) {
+      readingLayer.destroy();
+      readingLayer = null;
+    }
+    syncAutoTranslateMode();
   }
 }
 
@@ -741,6 +947,9 @@ async function initialize(): Promise<void> {
     // 设置存储变更监听
     chrome.storage.onChanged.addListener(handleStorageChange);
 
+    await waitForConfigHydration();
+    syncAutoTranslateMode();
+
     // 监听 HUD 取消按钮
     setupHudCancelListener();
 
@@ -770,10 +979,15 @@ function cleanup(): void {
     hud.destroy();
     hud = null;
   }
+  if (readingLayer) {
+    readingLayer.destroy();
+    readingLayer = null;
+  }
   if (hoverSelector) {
     hoverSelector.exit();
     hoverSelector = null;
   }
+  teardownAutoTranslateObserver();
   processedImages.clear();
 }
 

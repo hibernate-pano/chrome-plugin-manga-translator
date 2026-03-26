@@ -10,6 +10,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType, TextArea } from '@/providers/base';
+import type { ImageReadingResult } from '@/services/reading-result';
 import { LRUCache } from '@/utils/lru-cache';
 
 // ==================== Type Definitions ====================
@@ -22,6 +23,8 @@ export interface TranslationResult {
   success: boolean;
   /** Array of detected and translated text areas */
   textAreas: TextArea[];
+  /** Structured reading-layer result */
+  readingResult?: ImageReadingResult;
   /** Error message if translation failed */
   error?: string;
   /** Whether this result was retrieved from cache */

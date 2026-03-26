@@ -416,6 +416,19 @@ export interface CropRegion {
   height: number;
 }
 
+export interface CombinedRegionSegment {
+  index: number;
+  top: number;
+  height: number;
+}
+
+export interface CombinedCroppedRegions {
+  base64: string;
+  width: number;
+  height: number;
+  segments: CombinedRegionSegment[];
+}
+
 /**
  * Crop regions from an image
  *
@@ -438,9 +451,9 @@ export async function cropRegions(
   // Ensure we have an image element
   const imgElement = await ensureImageElement(image);
 
-  // Calculate scale factors (in case image was resized)
-  const scaleX = imgElement.naturalWidth / (opts.maxSize || imgElement.naturalWidth);
-  const scaleY = imgElement.naturalHeight / (opts.maxSize || imgElement.naturalHeight);
+  // Regions are expected to be in the coordinate space of the provided image.
+  const scaleX = 1;
+  const scaleY = 1;
 
   const croppedImages: string[] = [];
 
@@ -517,16 +530,22 @@ function cropImageElement(
  * @param options Processing options
  * @returns Combined image as base64
  */
-export function combineCroppedRegions(
+export async function combineCroppedRegions(
   croppedImages: string[],
   options: ImageProcessingOptions = {}
-): string {
+): Promise<CombinedCroppedRegions> {
   if (croppedImages.length === 0) {
     throw new Error('No images to combine');
   }
 
   if (croppedImages.length === 1) {
-    return croppedImages[0] ?? '';
+    const single = await imageFromBase64(croppedImages[0] ?? '');
+    return {
+      base64: croppedImages[0] ?? '',
+      width: single.width,
+      height: single.height,
+      segments: [{ index: 0, top: 0, height: single.height }],
+    };
   }
 
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -537,7 +556,7 @@ export function combineCroppedRegions(
   let maxWidth = 0;
 
   for (const base64 of croppedImages) {
-    const img = imageFromBase64(base64);
+    const img = await imageFromBase64(base64);
     images.push(img);
     totalHeight += img.height;
     maxWidth = Math.max(maxWidth, img.width);
@@ -563,31 +582,37 @@ export function combineCroppedRegions(
 
   // Draw each image
   let currentY = 0;
-  for (const img of images) {
+  const segments: CombinedRegionSegment[] = [];
+  for (let index = 0; index < images.length; index += 1) {
+    const img = images[index];
+    if (!img) continue;
     const x = Math.round((maxWidth - img.width) / 2); // Center horizontally
     ctx.drawImage(img, x, currentY);
+    segments.push({
+      index,
+      top: currentY,
+      height: img.height,
+    });
     currentY += img.height + spacing;
   }
 
   // Convert to base64
   const mimeType = `image/${opts.format}`;
   const dataUrl = canvas.toDataURL(mimeType, opts.quality);
-  return dataUrl.replace(/^data:image\/\w+;base64,/, '');
+  return {
+    base64: dataUrl.replace(/^data:image\/\w+;base64,/, ''),
+    width: canvas.width,
+    height: canvas.height,
+    segments,
+  };
 }
 
 /**
  * Create an Image element from base64 string
  */
-function imageFromBase64(base64: string): HTMLImageElement {
-  const img = new Image();
-  const dataUrl = base64.startsWith('data:') ? base64 : `data:image/png;base64,${base64}`;
-  img.src = dataUrl;
-
-  // Synchronously available if already loaded
-  if (img.complete) {
-    return img;
-  }
-
-  // This shouldn't happen in practice since we just created the base64
-  throw new Error('Image not immediately available');
+async function imageFromBase64(base64: string): Promise<HTMLImageElement> {
+  const dataUrl = base64.startsWith('data:')
+    ? base64
+    : `data:image/png;base64,${base64}`;
+  return loadImage(dataUrl);
 }

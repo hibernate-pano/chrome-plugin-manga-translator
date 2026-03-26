@@ -67,10 +67,7 @@ export class OllamaProvider implements VisionProvider {
     targetLanguage: string,
     translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
-    const validation = await this.validateConfig();
-    if (!validation.valid) {
-      throw new Error(validation.message);
-    }
+    this.ensureConfigured();
 
     const prompt = getMangaTranslationPrompt(
       targetLanguage,
@@ -150,6 +147,15 @@ export class OllamaProvider implements VisionProvider {
       valid: true,
       message: `Ollama 服务正常，使用模型: ${this.config.model}`,
     };
+  }
+
+  private ensureConfigured(): void {
+    if (!this.config.baseUrl) {
+      throw new Error('请配置 Ollama 服务地址');
+    }
+    if (!this.config.model) {
+      throw new Error('请配置 Ollama 模型');
+    }
   }
 
   /**

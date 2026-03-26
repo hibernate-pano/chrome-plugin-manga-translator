@@ -51,10 +51,7 @@ export class SiliconFlowProvider implements VisionProvider {
     targetLanguage: string,
     translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
-    const validation = await this.validateConfig();
-    if (!validation.valid) {
-      throw new Error(validation.message);
-    }
+    this.ensureConfigured();
 
     const prompt = getMangaTranslationPrompt(
       targetLanguage,
@@ -157,6 +154,15 @@ export class SiliconFlowProvider implements VisionProvider {
         valid: false,
         message: '无法连接到硅基流动服务',
       };
+    }
+  }
+
+  private ensureConfigured(): void {
+    if (!this.config.apiKey) {
+      throw new Error('请配置硅基流动 API 密钥');
+    }
+    if (this.config.apiKey.length < 10) {
+      throw new Error('硅基流动 API 密钥格式无效');
     }
   }
 }

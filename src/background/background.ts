@@ -59,6 +59,11 @@ const DEFAULT_CONFIG = {
   parallelLimit: 3,
   cacheEnabled: true,
   translationStylePreset: 'natural-zh',
+  readingMode: 'panel',
+  renderMode: 'strong-overlay-compat',
+  translationPipeline: 'full-image-vlm',
+  regionBatchSize: 10,
+  fallbackToFullImage: true,
 };
 
 // ==================== Lifecycle Events ====================
@@ -237,6 +242,20 @@ async function handleMessage(
           sendResponse({ received: true });
           return;
         case 'READY':
+          try {
+            const config = await getConfig();
+            const enabled =
+              (config as { state?: { enabled?: boolean }; enabled?: boolean })
+                ?.state?.enabled ??
+              (config as { enabled?: boolean })?.enabled ??
+              false;
+
+            if (enabled && sender.tab?.id) {
+              await sendToTab(sender.tab.id, { type: 'TRANSLATE_PAGE' });
+            }
+          } catch {
+            // Ignore auto-start failure on ready
+          }
           sendResponse({ received: true });
           return;
         default:
@@ -529,8 +548,7 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, _tab) => {
         (config as { enabled?: boolean })?.enabled ?? false;
 
       if (enabled) {
-        // If translation was enabled, notify content script
-        await sendToTab(tabId, { type: 'GET_STATE' });
+        await sendToTab(tabId, { type: 'TRANSLATE_PAGE' });
       }
     } catch {
       // Content script might not be ready yet, ignore
