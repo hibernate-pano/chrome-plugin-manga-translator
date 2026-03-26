@@ -206,7 +206,8 @@ export class TranslatorService {
   async translateImage(
     image: HTMLImageElement,
     viewportCrop: boolean = false,
-    imageKeyOverride?: string
+    imageKeyOverride?: string,
+    forceRefresh: boolean = false
   ): Promise<TranslationResult> {
     if (isDevelopment) {
       _log('开始翻译图片');
@@ -241,7 +242,7 @@ export class TranslatorService {
       const cacheKey = this.buildCacheKey(processed.hash);
 
       // 步骤3：检查缓存
-      if (this.config.cacheEnabled) {
+      if (this.config.cacheEnabled && !forceRefresh) {
         const cached = useTranslationCacheStore.getState().get(cacheKey);
         if (cached) {
           if (isDevelopment) {
@@ -261,7 +262,8 @@ export class TranslatorService {
         image,
         processed,
         imageKey,
-        viewportCrop
+        viewportCrop,
+        forceRefresh
       );
 
       // 步骤5：写入缓存
@@ -300,6 +302,7 @@ export class TranslatorService {
     imageBase64: string,
     mimeType: string,
     targetLanguage: string,
+    forceRefresh: boolean,
     metadata?: {
       imageKey?: string;
       imageUrl?: string;
@@ -321,6 +324,7 @@ export class TranslatorService {
       server: this.config.server,
       renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
+      forceRefresh,
     });
 
     if (!response.success) {
@@ -354,7 +358,8 @@ export class TranslatorService {
     image: HTMLImageElement,
     processed: Awaited<ReturnType<typeof processImage>>,
     imageKey: string,
-    viewportCrop: boolean
+    viewportCrop: boolean,
+    forceRefresh: boolean
   ): Promise<TranslationResult> {
     const appConfig = useAppConfigStore.getState();
     const useServer =
@@ -371,6 +376,7 @@ export class TranslatorService {
             processed.base64,
             processed.mimeType,
             this.config.targetLanguage,
+            forceRefresh,
             {
               imageKey,
               imageUrl: image.currentSrc || image.src,
@@ -432,6 +438,7 @@ export class TranslatorService {
           fallbackProcessed.base64,
           fallbackProcessed.mimeType,
           this.config.targetLanguage,
+          forceRefresh,
           {
             imageKey,
             imageUrl: image.currentSrc || image.src,
@@ -569,6 +576,7 @@ export class TranslatorService {
           combined.base64,
           'image/jpeg',
           this.config.targetLanguage,
+          false,
           {
             imageKey,
             pageUrl: window.location.href,

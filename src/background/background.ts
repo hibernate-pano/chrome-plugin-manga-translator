@@ -415,6 +415,7 @@ async function handleMessage(
           server,
           renderMode = 'strong-overlay-compat',
           translationStylePreset = 'natural-zh',
+          forceRefresh = false,
         } = request as {
           imageBase64?: string;
           mimeType?: string;
@@ -430,6 +431,7 @@ async function handleMessage(
           server?: RuntimeServerConfig;
           renderMode?: string;
           translationStylePreset?: TranslationStylePreset;
+          forceRefresh?: boolean;
         };
 
         if (!imageBase64) {
@@ -457,6 +459,7 @@ async function handleMessage(
               targetLanguage,
               translationStylePreset,
               renderMode,
+              forceRefresh,
               server: serverConfig,
             });
             sendResponse(serverResponse);
@@ -762,6 +765,7 @@ async function proxyServerTranslation(params: {
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
   renderMode: string;
+  forceRefresh: boolean;
   server: RuntimeServerConfig;
 }): Promise<MessageResponse> {
   const { server } = params;
@@ -782,6 +786,7 @@ async function proxyServerTranslation(params: {
   formData.append('targetLanguage', params.targetLanguage);
   formData.append('translationStylePreset', params.translationStylePreset);
   formData.append('renderMode', params.renderMode);
+  formData.append('forceRefresh', params.forceRefresh ? 'true' : 'false');
 
   const response = await fetchWithTimeout(
     `${server.baseUrl.replace(/\/$/, '')}/api/v1/translate-image`,
