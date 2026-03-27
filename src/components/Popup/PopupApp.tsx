@@ -15,6 +15,11 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import {
+  getActiveTabSupport,
+  type ActiveTabSupport,
+} from '@/utils/product-readiness';
+import { useProductMetricsStore } from '@/stores/product-metrics';
+import {
   Settings,
   AlertTriangle,
   CheckCircle2,
@@ -166,8 +171,14 @@ const PopupApp: React.FC = () => {
     session: createEmptySession(),
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [activeTabSupport, setActiveTabSupport] = useState<ActiveTabSupport>(
+    () => getActiveTabSupport()
+  );
+  const [needsPageRefresh, setNeedsPageRefresh] = useState(false);
   const [showShortcuts, setShowShortcuts] = useState(false);
   const completeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const trackedSessionsRef = useRef<Set<string>>(new Set());
+  const trackedPopupOpenRef = useRef(false);
 
   // Store selectors
   const provider = useAppConfigStore(state => state.provider);
@@ -176,6 +187,13 @@ const PopupApp: React.FC = () => {
   const providers = useAppConfigStore(state => state.providers);
   const enabled = useAppConfigStore(state => state.enabled);
   const setEnabled = useAppConfigStore(state => state.setEnabled);
+  const setProvider = useAppConfigStore(state => state.setProvider);
+  const setExecutionMode = useAppConfigStore(state => state.setExecutionMode);
+  const updateServerConfig = useAppConfigStore(state => state.updateServerConfig);
+  const trackProductEvent = useProductMetricsStore(state => state.track);
+  const recommendedProfile = useProductMetricsStore(
+    state => state.recommendedProfile
+  );
   const isProviderConfigured = useAppConfigStore(
     state => state.isProviderConfigured
   );
@@ -195,15 +213,30 @@ const PopupApp: React.FC = () => {
 
   useEffect(() => {
     const init = async () => {
+      if (!trackedPopupOpenRef.current) {
+        trackedPopupOpenRef.current = true;
+        trackProductEvent('popup_opened', {
+          executionMode,
+          provider,
+        });
+      }
       try {
         // Wait for store to hydrate
         await new Promise(resolve => setTimeout(resolve, 80));
+        setNeedsPageRefresh(false);
 
         // Try to get current state from content script
         const [tab] = await chrome.tabs.query({
           active: true,
           currentWindow: true,
         });
+        const nextTabSupport = getActiveTabSupport(tab?.url);
+        setActiveTabSupport(nextTabSupport);
+
+        if (!nextTabSupport.supported) {
+          return;
+        }
+
         if (tab?.id) {
           try {
             const response = await chrome.tabs.sendMessage(tab.id, {
@@ -213,7 +246,7 @@ const PopupApp: React.FC = () => {
               setContentState(response.state);
             }
           } catch {
-            // Content script not injected yet
+            setNeedsPageRefresh(true);
           }
         }
       } finally {
@@ -221,7 +254,7 @@ const PopupApp: React.FC = () => {
       }
     };
     init();
-  }, []);
+  }, [executionMode, provider, trackProductEvent]);
 
   // ==================== Message Listener ====================
 
@@ -229,6 +262,39 @@ const PopupApp: React.FC = () => {
     const handleMessage = (msg: { type: string; state?: ContentState }) => {
       if (msg.type === 'STATE_UPDATE' && msg.state) {
         setContentState(msg.state);
+
+        const sessionId = msg.state.session.sessionId;
+        if (
+          sessionId &&
+          !trackedSessionsRef.current.has(sessionId) &&
+          msg.state.status === 'complete'
+        ) {
+          trackedSessionsRef.current.add(sessionId);
+          trackProductEvent(
+            msg.state.session.translatedCount > 0
+              ? 'translate_succeeded'
+              : 'translate_failed',
+            {
+              provider,
+              executionMode,
+              translatedCount: msg.state.session.translatedCount,
+              failedCount: msg.state.session.failedCount,
+            }
+          );
+        }
+
+        if (
+          sessionId &&
+          !trackedSessionsRef.current.has(`${sessionId}:error`) &&
+          msg.state.status === 'error'
+        ) {
+          trackedSessionsRef.current.add(`${sessionId}:error`);
+          trackProductEvent('translate_failed', {
+            provider,
+            executionMode,
+            message: msg.state.message ?? 'unknown-error',
+          });
+        }
 
         // Auto-reset complete state after 2.5s
         if (msg.state.status === 'complete') {
@@ -252,58 +318,15 @@ const PopupApp: React.FC = () => {
         clearTimeout(completeTimerRef.current);
       }
     };
-  }, []);
-
-  // ==================== Actions ====================
-
-  const handleTranslatePage = useCallback(async () => {
-    if (contentState.status === 'translating' || contentState.status === 'scanning') {
-      await sendToContent({ type: 'CANCEL_TRANSLATION' });
-      setContentState({ status: 'idle', session: contentState.session });
-      return;
-    }
-    setContentState({ status: 'scanning', session: contentState.session });
-    await sendToContent({ type: 'TRANSLATE_PAGE' });
-  }, [contentState.session, contentState.status]);
-
-  const handleHoverSelect = useCallback(async () => {
-    if (contentState.status === 'hover-select') {
-      await sendToContent({ type: 'EXIT_HOVER_SELECT' });
-      setContentState({ status: 'idle', session: contentState.session });
-      return;
-    }
-    setContentState({ status: 'hover-select', session: contentState.session });
-    await sendToContent({ type: 'ENTER_HOVER_SELECT' });
-    // Close popup so user can interact with page
-    window.close();
-  }, [contentState.session, contentState.status]);
-
-  const handleClearAll = useCallback(async () => {
-    await sendToContent({ type: 'CLEAR_ALL' });
-    setContentState({ status: 'idle', session: createEmptySession() });
-  }, []);
-
-  const handleForceRetranslate = useCallback(async () => {
-    setContentState({ status: 'scanning', session: createEmptySession() });
-    await sendToContent({ type: 'FORCE_RETRANSLATE_PAGE' });
-  }, []);
-
-  const handleAutoTranslateToggle = useCallback(
-    (checked: boolean) => {
-      setEnabled(checked);
-    },
-    [setEnabled]
-  );
-
-  const openSettings = useCallback(() => {
-    chrome.runtime.openOptionsPage();
-  }, []);
+  }, [executionMode, provider, trackProductEvent]);
 
   // ==================== Derived State ====================
 
   const isTranslating =
     contentState.status === 'translating' ||
     contentState.status === 'scanning';
+  const canTranslate =
+    isConfigured && activeTabSupport.supported && !needsPageRefresh;
 
   const progress =
     contentState.status === 'translating' && (contentState.total ?? 0) > 0
@@ -313,6 +336,145 @@ const PopupApp: React.FC = () => {
   const errorInfo = contentState.status === 'error'
     ? friendlyError(contentState.message ?? 'Unknown error')
     : null;
+  const onboardingSteps = [
+    {
+      key: 'page',
+      title: '打开漫画页面',
+      done: activeTabSupport.supported && !needsPageRefresh,
+      helper: !activeTabSupport.supported
+        ? activeTabSupport.advice
+        : needsPageRefresh
+          ? '刷新当前网页，让插件接入页面。'
+          : '页面已准备好。',
+    },
+    {
+      key: 'config',
+      title: executionMode === 'server' ? '配置服务端' : '配置 Provider',
+      done: isConfigured,
+      helper: isConfigured
+        ? '配置已满足基础条件。'
+        : executionMode === 'server'
+          ? '先填写服务端地址并测试连接。'
+          : '先填写 API Key 或配置本地模型。',
+    },
+    {
+      key: 'run',
+      title: '跑通第一张图',
+      done: Boolean(recommendedProfile),
+      helper: recommendedProfile
+        ? `已记录成功方案：${recommendedProfile.executionMode} / ${recommendedProfile.provider}`
+        : '先跑通一次翻译，拿到第一个成功样本。',
+    },
+  ];
+  const recommendedProfileMismatch =
+    recommendedProfile &&
+    (recommendedProfile.executionMode !== executionMode ||
+      (recommendedProfile.provider !== 'unknown' &&
+        recommendedProfile.provider !== provider));
+
+  // ==================== Actions ====================
+
+  const handleTranslatePage = useCallback(async () => {
+    if (!canTranslate) {
+      return;
+    }
+    if (contentState.status === 'translating' || contentState.status === 'scanning') {
+      await sendToContent({ type: 'CANCEL_TRANSLATION' });
+      setContentState({ status: 'idle', session: contentState.session });
+      return;
+    }
+    setContentState({ status: 'scanning', session: contentState.session });
+    trackProductEvent('translate_started', {
+      provider,
+      executionMode,
+      mode: 'page',
+    });
+    await sendToContent({ type: 'TRANSLATE_PAGE' });
+  }, [
+    canTranslate,
+    contentState.session,
+    contentState.status,
+    executionMode,
+    provider,
+    trackProductEvent,
+  ]);
+
+  const handleHoverSelect = useCallback(async () => {
+    if (!canTranslate) {
+      return;
+    }
+    if (contentState.status === 'hover-select') {
+      await sendToContent({ type: 'EXIT_HOVER_SELECT' });
+      setContentState({ status: 'idle', session: contentState.session });
+      return;
+    }
+    setContentState({ status: 'hover-select', session: contentState.session });
+    trackProductEvent('translate_started', {
+      provider,
+      executionMode,
+      mode: 'hover-select',
+    });
+    await sendToContent({ type: 'ENTER_HOVER_SELECT' });
+    // Close popup so user can interact with page
+    window.close();
+  }, [
+    canTranslate,
+    contentState.session,
+    contentState.status,
+    executionMode,
+    provider,
+    trackProductEvent,
+  ]);
+
+  const handleClearAll = useCallback(async () => {
+    await sendToContent({ type: 'CLEAR_ALL' });
+    setContentState({ status: 'idle', session: createEmptySession() });
+  }, []);
+
+  const handleForceRetranslate = useCallback(async () => {
+    if (!canTranslate) {
+      return;
+    }
+    setContentState({ status: 'scanning', session: createEmptySession() });
+    await sendToContent({ type: 'FORCE_RETRANSLATE_PAGE' });
+  }, [canTranslate]);
+
+  const handleAutoTranslateToggle = useCallback(
+    (checked: boolean) => {
+      setEnabled(checked);
+    },
+    [setEnabled]
+  );
+
+  const openSettings = useCallback(() => {
+    trackProductEvent('settings_opened', {
+      provider,
+      executionMode,
+      source: 'popup',
+    });
+    chrome.runtime.openOptionsPage();
+  }, [executionMode, provider, trackProductEvent]);
+
+  const handleApplyWorkingProfile = useCallback(() => {
+    if (!recommendedProfile) {
+      return;
+    }
+
+    setExecutionMode(recommendedProfile.executionMode);
+    if (recommendedProfile.executionMode === 'server') {
+      updateServerConfig({ enabled: true });
+    } else {
+      updateServerConfig({ enabled: false });
+    }
+    if (recommendedProfile.provider !== 'unknown') {
+      setProvider(recommendedProfile.provider);
+    }
+  }, [
+    recommendedProfile,
+    setExecutionMode,
+    setProvider,
+    updateServerConfig,
+  ]);
 
   // ==================== Render ====================
 
@@ -411,6 +573,104 @@ const PopupApp: React.FC = () => {
         )}
       </AnimatePresence>
 
+      <div className="px-5 pt-4 shrink-0">
+        <div
+          className={`rounded-xl border px-4 py-3 ${
+            !activeTabSupport.supported || needsPageRefresh
+              ? 'border-amber-500/20 bg-amber-500/10'
+              : 'border-emerald-500/20 bg-emerald-500/10'
+          }`}
+        >
+          <div className="flex items-start gap-3">
+            <div
+              className={`mt-0.5 rounded-lg p-1.5 ${
+                !activeTabSupport.supported || needsPageRefresh
+                  ? 'bg-amber-500/15'
+                  : 'bg-emerald-500/15'
+              }`}
+            >
+              {!activeTabSupport.supported || needsPageRefresh ? (
+                <AlertTriangle className="h-4 w-4 text-amber-300" />
+              ) : (
+                <CheckCircle2 className="h-4 w-4 text-emerald-300" />
+              )}
+            </div>
+            <div className="min-w-0 flex-1">
+              <div className="flex items-center gap-2">
+                <span className="text-xs font-semibold text-slate-200">
+                  当前页面
+                </span>
+                <span className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-slate-300">
+                  {activeTabSupport.hostLabel}
+                </span>
+              </div>
+              <p className="mt-1 text-xs text-slate-200">
+                {!activeTabSupport.supported
+                  ? activeTabSupport.reason
+                  : needsPageRefresh
+                    ? '当前网页还没有和插件建立连接。'
+                    : '当前页面已经就绪，可以直接开始翻译。'}
+              </p>
+              <p className="mt-1 text-[11px] text-slate-400">
+                {!activeTabSupport.supported
+                  ? activeTabSupport.advice
+                  : needsPageRefresh
+                    ? '刷新当前网页后，再回来点击“翻译当前页面”。'
+                    : activeTabSupport.advice}
+              </p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-5 pt-4 shrink-0">
+        <div className="rounded-xl border border-white/10 bg-white/[0.03] px-4 py-3">
+          <div className="flex items-center justify-between">
+            <div className="text-xs font-semibold text-slate-200">
+              首用任务流
+            </div>
+            <div className="text-[10px] text-slate-500">
+              {onboardingSteps.filter(step => step.done).length}/3 完成
+            </div>
+          </div>
+          <div className="mt-3 space-y-2">
+            {onboardingSteps.map((step, index) => (
+              <div
+                key={step.key}
+                className="flex items-start gap-3 rounded-lg bg-white/[0.02] px-3 py-2"
+              >
+                <div
+                  className={`mt-0.5 flex h-5 w-5 items-center justify-center rounded-full text-[10px] font-semibold ${
+                    step.done
+                      ? 'bg-emerald-500/20 text-emerald-300'
+                      : 'bg-slate-700 text-slate-300'
+                  }`}
+                >
+                  {step.done ? '✓' : index + 1}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-medium text-slate-200">
+                    {step.title}
+                  </div>
+                  <div className="mt-0.5 text-[11px] text-slate-400">
+                    {step.helper}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+
+          {recommendedProfileMismatch && (
+            <button
+              onClick={handleApplyWorkingProfile}
+              className="mt-3 w-full rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm font-medium text-cyan-200 transition-colors hover:bg-cyan-500/15 cursor-pointer"
+            >
+              切回成功方案
+            </button>
+          )}
+        </div>
+      </div>
+
       {/* ---- Main Action Area ---- */}
       <div className="flex-1 flex flex-col justify-center gap-4 px-5 py-6">
         <div className="flex items-center justify-between rounded-xl border border-white/10 bg-white/[0.04] px-4 py-3">
@@ -492,7 +752,7 @@ const PopupApp: React.FC = () => {
               >
                 <button
                   onClick={handleTranslatePage}
-                  disabled={!isConfigured}
+                  disabled={!canTranslate}
                   className="w-full h-14 flex items-center justify-center gap-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-cyan-600 hover:from-teal-500 hover:to-cyan-500 disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 shadow-lg shadow-teal-900/30 hover:shadow-teal-800/40 cursor-pointer"
                 >
                   <BookOpen className="w-5 h-5 text-white" />
@@ -544,7 +804,7 @@ const PopupApp: React.FC = () => {
             >
               <button
                 onClick={handleHoverSelect}
-                disabled={!isConfigured}
+                disabled={!canTranslate}
                 className="w-full h-12 flex items-center justify-center gap-2.5 rounded-xl border border-white/10 hover:border-white/20 bg-white/[0.03] hover:bg-white/[0.06] disabled:opacity-40 disabled:cursor-not-allowed transition-all duration-200 cursor-pointer"
               >
                 <MousePointer className="w-4 h-4 text-slate-400" />
@@ -608,7 +868,7 @@ const PopupApp: React.FC = () => {
         {!isTranslating && (
           <button
             onClick={handleForceRetranslate}
-            disabled={!isConfigured}
+            disabled={!canTranslate}
             className="w-full h-10 rounded-xl border border-cyan-500/30 bg-cyan-500/10 text-cyan-200 text-sm font-medium hover:bg-cyan-500/15 disabled:opacity-40 disabled:cursor-not-allowed transition-colors cursor-pointer"
           >
             强制重翻全部

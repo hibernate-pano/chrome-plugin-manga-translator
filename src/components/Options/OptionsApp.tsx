@@ -58,7 +58,16 @@ import type { ProviderType } from '@/providers/base';
 import { createProvider } from '@/providers';
 import { useUsageStore } from '@/stores/usage-store';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
+import { useProductMetricsStore } from '@/stores/product-metrics';
 import type { TranslationStylePreset } from '@/utils/translation-style';
+import {
+  getConfigurationNextStep,
+  isExecutionModeConfigured,
+} from '@/utils/product-readiness';
+import {
+  estimateProviderCost,
+  getProviderStrategy,
+} from '@/utils/provider-strategy';
 import { Switch } from '@/components/ui/switch';
 
 // ==================== Types ====================
@@ -72,6 +81,23 @@ interface ServerTestResult {
   success: boolean;
   message: string;
 }
+
+interface DemoTranslationResult {
+  success: boolean;
+  textAreas: number;
+  pipeline?: string;
+  error?: string;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  } | null;
+}
+
+type QuickStartPresetId =
+  | 'fast-cloud'
+  | 'privacy-local'
+  | 'server-compat';
 
 // ==================== Provider Configuration ====================
 
@@ -190,6 +216,7 @@ const DataManagementCard: React.FC = () => {
   const dailyStats = useUsageStore(state => state.getDailyStats(7));
   const clearUsage = useUsageStore(state => state.clearAll);
   const clearCache = useTranslationCacheStore(state => state.clear);
+  const productReport = useProductMetricsStore(state => state.getReport());
   const cacheSize = useTranslationCacheStore(state => state.cache.size);
   const importFileRef = useRef<HTMLInputElement>(null);
   const [importStatus, setImportStatus] = useState<'idle' | 'success' | 'error'>('idle');
@@ -279,6 +306,29 @@ const DataManagementCard: React.FC = () => {
     reader.readAsText(file);
   }, []);
 
+  const handleExportProductReport = useCallback(() => {
+    const reportData = {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      product: productReport,
+      usage: {
+        summary: usageSummary,
+        dailyStats,
+      },
+    };
+    const blob = new Blob([JSON.stringify(reportData, null, 2)], {
+      type: 'application/json',
+    });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `manga-translator-product-report-${new Date()
+      .toLocaleDateString('zh-CN')
+      .replace(/\//g, '-')}.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [dailyStats, productReport, usageSummary]);
+
   return (
     <Card className="border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
       <CardHeader className="pb-4">
@@ -330,6 +380,58 @@ const DataManagementCard: React.FC = () => {
               ))}
             </div>
           )}
+        </div>
+
+        <div className="h-px bg-slate-100 dark:bg-slate-700" />
+
+        <div className="space-y-3">
+          <h3 className="text-sm font-semibold text-slate-700 dark:text-slate-300">
+            产品漏斗
+          </h3>
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+            {[
+              {
+                label: 'Popup 打开',
+                value: String(productReport.summary.popupOpened),
+              },
+              {
+                label: '开始翻译',
+                value: String(productReport.summary.translateStarted),
+              },
+              {
+                label: '翻译成功率',
+                value: `${Math.round(
+                  productReport.summary.activationRate * 100
+                )}%`,
+              },
+              {
+                label: '验证成功率',
+                value: `${Math.round(
+                  productReport.summary.demoSuccessRate * 100
+                )}%`,
+              },
+            ].map(({ label, value }) => (
+              <div
+                key={label}
+                className="p-3 bg-slate-50 dark:bg-slate-700/50 rounded-lg text-center"
+              >
+                <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">
+                  {label}
+                </p>
+                <p className="text-base font-bold text-slate-800 dark:text-slate-100">
+                  {value}
+                </p>
+              </div>
+            ))}
+          </div>
+          <Button
+            variant="outline"
+            onClick={handleExportProductReport}
+            className="h-10 gap-2 border-slate-200 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer"
+          >
+            <Download className="w-4 h-4" />
+            导出产品报告
+          </Button>
         </div>
 
         <div className="h-px bg-slate-100 dark:bg-slate-700" />
@@ -454,6 +556,12 @@ const OptionsApp: React.FC = () => {
   const setFallbackToFullImage = useAppConfigStore(
     (state) => state.setFallbackToFullImage,
   );
+  const usageSummary = useUsageStore(state => state.getSummary());
+  const productSummary = useProductMetricsStore(state => state.getSummary());
+  const recommendedProfile = useProductMetricsStore(
+    state => state.recommendedProfile
+  );
+  const trackProductEvent = useProductMetricsStore(state => state.track);
 
   // Local state
   const [showApiKey, setShowApiKey] = useState<Record<ProviderType, boolean>>({
@@ -488,9 +596,57 @@ const OptionsApp: React.FC = () => {
   const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(
     null,
   );
+  const [demoImageDataUrl, setDemoImageDataUrl] = useState<string | null>(null);
+  const [demoImageName, setDemoImageName] = useState('');
+  const [demoResult, setDemoResult] = useState<DemoTranslationResult | null>(
+    null,
+  );
+  const [isRunningDemo, setIsRunningDemo] = useState(false);
+  const demoInputRef = useRef<HTMLInputElement>(null);
+  const optionsOpenedRef = useRef(false);
 
   // Current provider config
   const currentProviderConfig = PROVIDER_CONFIG[provider];
+  const providerStrategy = useMemo(
+    () => getProviderStrategy(provider),
+    [provider],
+  );
+  const modeReady = useMemo(
+    () =>
+      isExecutionModeConfigured(executionMode, server, provider, providers),
+    [executionMode, provider, providers, server],
+  );
+  const nextStep = useMemo(
+    () => getConfigurationNextStep(executionMode, server, provider, providers),
+    [executionMode, provider, providers, server],
+  );
+  const activePreset = useMemo<QuickStartPresetId | null>(() => {
+    if (executionMode === 'server' && server.enabled) {
+      return 'server-compat';
+    }
+    if (executionMode === 'provider-direct' && provider === 'ollama') {
+      return 'privacy-local';
+    }
+    if (executionMode === 'provider-direct' && provider === 'siliconflow') {
+      return 'fast-cloud';
+    }
+    return null;
+  }, [executionMode, provider, server.enabled]);
+  const averageTokensPerImage = Math.max(
+    usageSummary.avgTokensPerTranslation || 0,
+    executionMode === 'server' ? 800 : 1200,
+  );
+  const estimatedTwentyImageCost = useMemo(() => {
+    if (executionMode === 'server') {
+      return 0;
+    }
+    return estimateProviderCost(provider, averageTokensPerImage, 20);
+  }, [averageTokensPerImage, executionMode, provider]);
+  const recommendedProfileMismatch =
+    recommendedProfile &&
+    (recommendedProfile.executionMode !== executionMode ||
+      (recommendedProfile.provider !== 'unknown' &&
+        recommendedProfile.provider !== provider));
 
   // Fetch Ollama models when base URL changes or on mount
   const fetchOllamaModels = useCallback(
@@ -533,6 +689,16 @@ const OptionsApp: React.FC = () => {
       fetchOllamaModels();
     }
   }, [provider, fetchOllamaModels, providers.ollama.baseUrl]);
+
+  useEffect(() => {
+    if (!optionsOpenedRef.current) {
+      optionsOpenedRef.current = true;
+      trackProductEvent('options_opened', {
+        executionMode,
+        provider,
+      });
+    }
+  }, [executionMode, provider, trackProductEvent]);
 
   // ==================== Handlers ====================
 
@@ -646,6 +812,233 @@ const OptionsApp: React.FC = () => {
       setTestingServer(false);
     }
   }, [server]);
+
+  const handleApplyQuickStartPreset = useCallback(
+    (presetId: QuickStartPresetId) => {
+      setServerTestResult(null);
+      trackProductEvent('quickstart_selected', {
+        presetId,
+        executionMode,
+        provider,
+      });
+
+      switch (presetId) {
+        case 'fast-cloud':
+          updateServerConfig({ enabled: false });
+          setExecutionMode('provider-direct');
+          setProvider('siliconflow');
+          setTargetLanguage('zh-CN');
+          setTranslationStylePreset('natural-zh');
+          setRenderMode('strong-overlay-compat');
+          setTranslationPipeline('full-image-vlm');
+          setRegionBatchSize(10);
+          setFallbackToFullImage(true);
+          updateProviderSettings('siliconflow', {
+            baseUrl:
+              providers.siliconflow.baseUrl ||
+              'https://api.siliconflow.cn/v1',
+            model:
+              providers.siliconflow.model ||
+              'Qwen/Qwen2.5-VL-32B-Instruct',
+          });
+          break;
+        case 'privacy-local':
+          updateServerConfig({ enabled: false });
+          setExecutionMode('provider-direct');
+          setProvider('ollama');
+          setTargetLanguage('zh-CN');
+          setTranslationStylePreset('natural-zh');
+          setRenderMode('strong-overlay-compat');
+          setTranslationPipeline('full-image-vlm');
+          setRegionBatchSize(10);
+          setFallbackToFullImage(true);
+          updateProviderSettings('ollama', {
+            baseUrl: providers.ollama.baseUrl || 'http://localhost:11434',
+            model: providers.ollama.model || 'llava',
+          });
+          break;
+        case 'server-compat':
+          updateServerConfig({
+            enabled: true,
+            baseUrl: server.baseUrl || 'http://127.0.0.1:8000',
+            timeoutMs: server.timeoutMs || 30000,
+          });
+          setExecutionMode('server');
+          setTargetLanguage('zh-CN');
+          setTranslationStylePreset('natural-zh');
+          setRenderMode('strong-overlay-compat');
+          setTranslationPipeline('full-image-vlm');
+          setRegionBatchSize(10);
+          setFallbackToFullImage(true);
+          break;
+      }
+    },
+    [
+      providers.ollama.baseUrl,
+      providers.ollama.model,
+      providers.siliconflow.baseUrl,
+      providers.siliconflow.model,
+      server.baseUrl,
+      server.timeoutMs,
+      executionMode,
+      provider,
+      setExecutionMode,
+      setFallbackToFullImage,
+      setProvider,
+      setRegionBatchSize,
+      setRenderMode,
+      setTargetLanguage,
+      setTranslationPipeline,
+      setTranslationStylePreset,
+      trackProductEvent,
+      updateProviderSettings,
+      updateServerConfig,
+    ],
+  );
+
+  const handleApplyRecommendedModel = useCallback(() => {
+    if (executionMode === 'server') {
+      return;
+    }
+
+    updateProviderSettings(provider, {
+      model: providerStrategy.suggestedModel,
+    });
+  }, [
+    executionMode,
+    provider,
+    providerStrategy.suggestedModel,
+    updateProviderSettings,
+  ]);
+
+  const handleApplySuccessfulProfile = useCallback(() => {
+    if (!recommendedProfile) {
+      return;
+    }
+
+    setExecutionMode(recommendedProfile.executionMode);
+    if (recommendedProfile.executionMode === 'server') {
+      updateServerConfig({ enabled: true });
+    } else {
+      updateServerConfig({ enabled: false });
+    }
+
+    if (recommendedProfile.provider !== 'unknown') {
+      setProvider(recommendedProfile.provider);
+    }
+  }, [
+    recommendedProfile,
+    setExecutionMode,
+    setProvider,
+    updateServerConfig,
+  ]);
+
+  const handleDemoFileChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      if (!file) {
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onload = loadEvent => {
+        const result = loadEvent.target?.result;
+        if (typeof result !== 'string') {
+          return;
+        }
+        setDemoImageDataUrl(result);
+        setDemoImageName(file.name);
+        setDemoResult(null);
+      };
+      reader.readAsDataURL(file);
+    },
+    [],
+  );
+
+  const handleRunDemo = useCallback(async () => {
+    if (!demoImageDataUrl) {
+      return;
+    }
+
+    setIsRunningDemo(true);
+    setDemoResult(null);
+    trackProductEvent('demo_started', {
+      executionMode,
+      provider,
+    });
+
+    try {
+      const [rawHeader, base64 = ''] = demoImageDataUrl.split(',', 2);
+      const header = rawHeader || '';
+      const mimeType = header.match(/data:(.*?);base64/)?.[1] || 'image/jpeg';
+      const settings = providers[provider];
+
+      const response = (await chrome.runtime.sendMessage({
+        action: 'translateImage',
+        imageBase64: base64,
+        mimeType,
+        imageKey: `demo-${Date.now()}`,
+        targetLanguage,
+        provider,
+        apiKey: settings.apiKey,
+        baseUrl: settings.baseUrl,
+        model: settings.model || providerStrategy.suggestedModel,
+        executionMode,
+        server,
+        renderMode,
+        translationStylePreset,
+        forceRefresh: true,
+      })) as {
+        success?: boolean;
+        error?: string;
+        textAreas?: Array<unknown>;
+        pipeline?: string;
+        usage?: {
+          promptTokens: number;
+          completionTokens: number;
+          totalTokens: number;
+        } | null;
+      };
+
+      const result: DemoTranslationResult = {
+        success: !!response?.success,
+        textAreas: response?.textAreas?.length ?? 0,
+        pipeline: response?.pipeline,
+        error: response?.error,
+        usage: response?.usage ?? null,
+      };
+
+      setDemoResult(result);
+      trackProductEvent(result.success ? 'demo_succeeded' : 'demo_failed', {
+        executionMode,
+        provider,
+        textAreas: result.textAreas,
+      });
+    } catch (error) {
+      setDemoResult({
+        success: false,
+        textAreas: 0,
+        error: error instanceof Error ? error.message : '内置验证失败',
+      });
+      trackProductEvent('demo_failed', {
+        executionMode,
+        provider,
+      });
+    } finally {
+      setIsRunningDemo(false);
+    }
+  }, [
+    demoImageDataUrl,
+    executionMode,
+    provider,
+    providerStrategy.suggestedModel,
+    providers,
+    renderMode,
+    server,
+    targetLanguage,
+    trackProductEvent,
+    translationStylePreset,
+  ]);
 
   // ==================== Validation ====================
 
@@ -927,6 +1320,406 @@ const OptionsApp: React.FC = () => {
 
       {/* Main Content */}
       <main className="container mx-auto px-4 sm:px-6 py-8 max-w-3xl space-y-6">
+        <Card className="border-none shadow-lg bg-white/85 dark:bg-slate-800/85 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-gradient-to-br from-sky-500 to-indigo-500 rounded-lg">
+                <BarChart3 className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-slate-900 dark:text-slate-100">
+                  产品健康信号
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">
+                  先看用户是否真的走到成功，而不是只看功能有没有做完。
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-4">
+              {[
+                {
+                  label: 'Popup 打开',
+                  value: String(productSummary.popupOpened),
+                },
+                {
+                  label: '开始翻译',
+                  value: String(productSummary.translateStarted),
+                },
+                {
+                  label: '翻译成功率',
+                  value: `${Math.round(productSummary.activationRate * 100)}%`,
+                },
+                {
+                  label: '内置验证成功率',
+                  value: `${Math.round(productSummary.demoSuccessRate * 100)}%`,
+                },
+              ].map(item => (
+                <div
+                  key={item.label}
+                  className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3"
+                >
+                  <div className="text-xs text-slate-500 dark:text-slate-400">
+                    {item.label}
+                  </div>
+                  <div className="mt-1 text-lg font-semibold text-slate-900 dark:text-slate-100">
+                    {item.value}
+                  </div>
+                </div>
+              ))}
+            </div>
+            <Alert className="border-none bg-slate-50 dark:bg-slate-900/40">
+              <AlertTitle className="text-slate-900 dark:text-slate-100">
+                当前判断
+              </AlertTitle>
+              <AlertDescription className="mt-1 text-slate-700 dark:text-slate-300">
+                {productSummary.firstSuccessAt
+                  ? `已经拿到首个成功样本，时间：${new Date(
+                      productSummary.firstSuccessAt
+                    ).toLocaleString('zh-CN')}`
+                  : '还没有记录到成功样本。优先用下面的内置验证面板，先跑通一张图。'}
+              </AlertDescription>
+            </Alert>
+
+            {productSummary.recommendedProfile && (
+              <Alert className="border-none bg-indigo-50 dark:bg-indigo-950/30">
+                <AlertTitle className="text-slate-900 dark:text-slate-100">
+                  建议先固定成功方案
+                </AlertTitle>
+                <AlertDescription className="mt-1 text-slate-700 dark:text-slate-300">
+                  已记录到可用配置：{productSummary.recommendedProfile}。在新增更多智能切换之前，先把这个方案当作默认主力，避免把已经可用的路径改坏。
+                </AlertDescription>
+                {recommendedProfileMismatch && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={handleApplySuccessfulProfile}
+                    className="mt-3 cursor-pointer"
+                  >
+                    切回成功方案
+                  </Button>
+                )}
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-lg bg-white/85 dark:bg-slate-800/85 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-gradient-to-br from-violet-500 to-fuchsia-500 rounded-lg">
+                <Rocket className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-slate-900 dark:text-slate-100">
+                  快速开始方案
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">
+                  先选一个适合你的方案，再补齐必要信息。不要让用户先面对一整页参数。
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              {[
+                {
+                  id: 'fast-cloud' as const,
+                  title: '极速上手',
+                  description: '适合大多数用户，默认走云端视觉模型。',
+                  accent: 'from-teal-500 to-cyan-500',
+                },
+                {
+                  id: 'privacy-local' as const,
+                  title: '隐私优先',
+                  description: '适合本地模型用户，默认走 Ollama。',
+                  accent: 'from-slate-500 to-slate-700',
+                },
+                {
+                  id: 'server-compat' as const,
+                  title: '高兼容服务端',
+                  description: '适合已经部署 OCR-First 服务端的用户。',
+                  accent: 'from-emerald-500 to-lime-500',
+                },
+              ].map((preset) => {
+                const selected = activePreset === preset.id;
+                return (
+                  <button
+                    key={preset.id}
+                    type="button"
+                    onClick={() => handleApplyQuickStartPreset(preset.id)}
+                    className={`rounded-2xl border p-4 text-left transition-all ${
+                      selected
+                        ? 'border-teal-400 bg-teal-50 shadow-md dark:border-teal-500 dark:bg-teal-950/30'
+                        : 'border-slate-200 bg-white hover:border-teal-300 hover:bg-teal-50/60 dark:border-slate-700 dark:bg-slate-900/40 dark:hover:border-teal-700'
+                    }`}
+                  >
+                    <div
+                      className={`inline-flex rounded-lg bg-gradient-to-r px-2 py-1 text-xs font-semibold text-white ${preset.accent}`}
+                    >
+                      {selected ? '当前方案' : '应用方案'}
+                    </div>
+                    <div className="mt-3 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {preset.title}
+                    </div>
+                    <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-400">
+                      {preset.description}
+                    </p>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  当前执行模式
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {executionMode === 'server' ? '服务端 OCR-First' : '插件直连 Provider'}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  当前 Provider
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {PROVIDER_CONFIG[provider].name}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  当前就绪度
+                </div>
+                <div className="mt-1 flex items-center gap-2 text-sm font-semibold">
+                  {modeReady ? (
+                    <>
+                      <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                      <span className="text-emerald-700 dark:text-emerald-400">
+                        已满足基础条件
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <AlertCircle className="h-4 w-4 text-amber-500" />
+                      <span className="text-amber-700 dark:text-amber-400">
+                        还差一步
+                      </span>
+                    </>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <Alert
+              variant={modeReady ? 'default' : 'destructive'}
+              className={`border-none ${
+                modeReady
+                  ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                  : 'bg-amber-50 dark:bg-amber-900/20'
+              }`}
+            >
+              <AlertTitle className="text-slate-900 dark:text-slate-100">
+                {modeReady ? '下一步就去测试或开翻' : '推荐下一步'}
+              </AlertTitle>
+              <AlertDescription className="mt-1 text-slate-700 dark:text-slate-300">
+                {nextStep}
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-lg bg-white/85 dark:bg-slate-800/85 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-gradient-to-br from-amber-500 to-orange-500 rounded-lg">
+                <Sparkles className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-slate-900 dark:text-slate-100">
+                  成本与质量策略
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">
+                  不是所有 Provider 都该默认给所有用户。这里给出更产品化的建议。
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  推荐定位
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {providerStrategy.recommendation}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  速度 / 质量 / 成本
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {providerStrategy.speedLabel} / {providerStrategy.qualityLabel} /{' '}
+                  {providerStrategy.costLabel}
+                </div>
+              </div>
+              <div className="rounded-xl border border-slate-200 dark:border-slate-700 px-4 py-3">
+                <div className="text-xs text-slate-500 dark:text-slate-400">
+                  估算 20 张图成本
+                </div>
+                <div className="mt-1 text-sm font-semibold text-slate-900 dark:text-slate-100">
+                  {executionMode === 'server'
+                    ? '取决于服务端实现'
+                    : `$${estimatedTwentyImageCost.toFixed(4)}`}
+                </div>
+              </div>
+            </div>
+
+            <div className="rounded-2xl border border-slate-200 dark:border-slate-700 p-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    推荐模型
+                  </div>
+                  <div className="mt-1 text-xs text-slate-600 dark:text-slate-400">
+                    {providerStrategy.suggestedModel}
+                  </div>
+                  <div className="mt-2 text-xs text-slate-500 dark:text-slate-400">
+                    {providerStrategy.tradeoff}
+                  </div>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={handleApplyRecommendedModel}
+                  disabled={executionMode === 'server'}
+                  className="cursor-pointer"
+                >
+                  应用推荐模型
+                </Button>
+              </div>
+            </div>
+
+            <Alert className="border-none bg-amber-50 dark:bg-amber-900/20">
+              <AlertTitle className="text-slate-900 dark:text-slate-100">
+                回退建议
+              </AlertTitle>
+              <AlertDescription className="mt-1 text-slate-700 dark:text-slate-300">
+                {providerStrategy.fallbackAdvice}
+                {fallbackToFullImage
+                  ? ' 当前已开启 full-image fallback。'
+                  : ' 当前未开启 full-image fallback，复杂页面更容易直接失败。'}
+              </AlertDescription>
+            </Alert>
+          </CardContent>
+        </Card>
+
+        <Card className="border-none shadow-lg bg-white/85 dark:bg-slate-800/85 backdrop-blur-sm">
+          <CardHeader className="pb-4">
+            <div className="flex items-center gap-3 mb-2">
+              <div className="p-2 bg-gradient-to-br from-emerald-500 to-teal-500 rounded-lg">
+                <CheckCircle2 className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <CardTitle className="text-slate-900 dark:text-slate-100">
+                  内置验证面板
+                </CardTitle>
+                <CardDescription className="text-slate-600 dark:text-slate-400">
+                  上传一张本地漫画图，直接验证当前配置，不依赖外部网站。
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col gap-3 md:flex-row md:items-center">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => demoInputRef.current?.click()}
+                className="cursor-pointer"
+              >
+                <Upload className="mr-2 h-4 w-4" />
+                选择测试图片
+              </Button>
+              <input
+                ref={demoInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleDemoFileChange}
+                className="hidden"
+              />
+              <div className="text-xs text-slate-500 dark:text-slate-400">
+                {demoImageName || '建议使用一张有对白气泡的漫画截图。'}
+              </div>
+            </div>
+
+            {demoImageDataUrl && (
+              <div className="overflow-hidden rounded-2xl border border-slate-200 dark:border-slate-700">
+                <img
+                  src={demoImageDataUrl}
+                  alt="Demo preview"
+                  className="max-h-72 w-full object-contain bg-slate-100 dark:bg-slate-900"
+                />
+              </div>
+            )}
+
+            <div className="flex flex-col gap-3 md:flex-row">
+              <Button
+                type="button"
+                onClick={handleRunDemo}
+                disabled={!demoImageDataUrl || !modeReady || isRunningDemo}
+                className="cursor-pointer"
+              >
+                {isRunningDemo ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    正在验证...
+                  </>
+                ) : (
+                  <>
+                    <Zap className="mr-2 h-4 w-4" />
+                    运行内置验证
+                  </>
+                )}
+              </Button>
+              {!modeReady && (
+                <div className="flex items-center text-xs text-amber-600 dark:text-amber-400">
+                  当前配置未完成，先按上面的推荐下一步补齐。
+                </div>
+              )}
+            </div>
+
+            {demoResult && (
+              <Alert
+                variant={demoResult.success ? 'default' : 'destructive'}
+                className={`border-none ${
+                  demoResult.success
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'bg-red-50 dark:bg-red-900/20'
+                }`}
+              >
+                <AlertTitle className="text-slate-900 dark:text-slate-100">
+                  {demoResult.success ? '验证成功' : '验证失败'}
+                </AlertTitle>
+                <AlertDescription className="mt-2 space-y-1 text-slate-700 dark:text-slate-300">
+                  <div>识别并返回 {demoResult.textAreas} 个文本区域。</div>
+                  {demoResult.pipeline && <div>Pipeline: {demoResult.pipeline}</div>}
+                  {demoResult.usage && (
+                    <div>
+                      Token: {demoResult.usage.totalTokens}（prompt{' '}
+                      {demoResult.usage.promptTokens} / completion{' '}
+                      {demoResult.usage.completionTokens}）
+                    </div>
+                  )}
+                  {demoResult.error && <div>{demoResult.error}</div>}
+                </AlertDescription>
+              </Alert>
+            )}
+          </CardContent>
+        </Card>
+
         {/* Provider Configuration */}
         <Card className="border-none shadow-lg bg-white/80 dark:bg-slate-800/80 backdrop-blur-sm">
           <CardHeader className="pb-4">
