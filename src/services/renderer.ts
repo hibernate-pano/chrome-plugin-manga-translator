@@ -198,17 +198,22 @@ function computeAdaptiveOverlayLayout(
 
   const originalTextLength = Math.max(area.originalText.trim().length, 1);
   const translatedTextLength = Math.max(area.translatedText.trim().length, 1);
-  const textExpansionRatio = Math.max(
-    1,
-    Math.sqrt(translatedTextLength / originalTextLength)
-  );
+  const textGrowthRatio = translatedTextLength / originalTextLength;
+  const widthExpansionFactor =
+    textGrowthRatio > 1
+      ? 1 + Math.min(0.9, Math.sqrt(textGrowthRatio) * 0.4)
+      : 1;
+  const heightExpansionFactor =
+    textGrowthRatio > 1
+      ? 1 + Math.min(0.8, Math.sqrt(textGrowthRatio) * 0.3)
+      : 1;
   const maxWidth = Math.min(
     imageWidth * 0.78,
-    Math.max(areaWidth * (1.7 + textExpansionRatio * 0.55), 120)
+    Math.max(areaWidth * widthExpansionFactor, Math.min(areaWidth, 120))
   );
   const maxHeight = Math.min(
     imageHeight * 0.58,
-    Math.max(areaHeight * (2.1 + textExpansionRatio * 0.65), 54)
+    Math.max(areaHeight * heightExpansionFactor, Math.min(areaHeight, 54))
   );
   const visualPaddingX = Math.max(style.padding * 2, 12);
   const visualPaddingY = Math.max(style.padding * 1.5, 10);
@@ -236,17 +241,15 @@ function computeAdaptiveOverlayLayout(
     ) + style.padding * 2;
 
     if (textHeight <= maxHeight && textWidth <= maxWidth) {
+      const minimumWidth = Math.min(maxWidth, Math.max(fontSize * 2.4, 48));
+      const minimumHeight = Math.min(maxHeight, Math.max(lineHeight + style.padding * 2, 28));
       const width = Math.min(
         maxWidth,
-        Math.max(textWidth + visualPaddingX, fontSize * 3.2, areaWidth * 1.15)
+        Math.max(textWidth + visualPaddingX, minimumWidth)
       );
       const height = Math.min(
         maxHeight,
-        Math.max(
-          textHeight + visualPaddingY,
-          lineHeight + style.padding * 3,
-          areaHeight * 1.12
-        )
+        Math.max(textHeight + visualPaddingY, minimumHeight)
       );
       const left = Math.min(
         Math.max(0, areaLeft + (areaWidth - width) / 2),
@@ -290,11 +293,14 @@ function computeAdaptiveOverlayLayout(
   );
   const width = Math.min(
     maxWidth,
-    Math.max(textWidth + visualPaddingX, style.minFontSize * 3.2, areaWidth * 1.15)
+    Math.max(textWidth + visualPaddingX, Math.min(maxWidth, Math.max(style.minFontSize * 2.4, 48)))
   );
   const height = Math.min(
     maxHeight,
-    Math.max(textHeight + visualPaddingY, areaHeight * 1.12)
+    Math.max(
+      textHeight + visualPaddingY,
+      Math.min(maxHeight, Math.max(style.minFontSize * 1.8, 28))
+    )
   );
   const left = Math.min(
     Math.max(0, areaLeft + (areaWidth - width) / 2),
