@@ -105,53 +105,53 @@ const PopupApp: React.FC = () => {
     };
   }, []);
 
-  useEffect(() => {
-    const initialize = async () => {
-      setLoading(true);
-      setErrorMessage(null);
+  const refreshContentState = async (): Promise<void> => {
+    setLoading(true);
+    setErrorMessage(null);
 
-      try {
-        const [tab] = await chrome.tabs.query({
-          active: true,
-          currentWindow: true,
+    try {
+      const [tab] = await chrome.tabs.query({
+        active: true,
+        currentWindow: true,
+      });
+
+      const tabId = tab?.id ?? null;
+      const url = tab?.url ?? '';
+
+      setActiveTabId(tabId);
+      setActiveTabUrl(url);
+
+      if (!tabId || !isSupportedTabUrl(url)) {
+        setContentState({
+          ...EMPTY_STATE,
+          message: '仅支持 ManhwaRead 章节阅读页',
+          support: {
+            supported: false,
+            site: null,
+            reason: '仅支持 ManhwaRead 章节阅读页',
+          },
         });
-
-        const tabId = tab?.id ?? null;
-        const url = tab?.url ?? '';
-
-        setActiveTabId(tabId);
-        setActiveTabUrl(url);
-
-        if (!tabId || !isSupportedTabUrl(url)) {
-          setContentState({
-            ...EMPTY_STATE,
-            message: '仅支持 ManhwaRead 章节阅读页',
-            support: {
-              supported: false,
-              site: null,
-              reason: '仅支持 ManhwaRead 章节阅读页',
-            },
-          });
-          return;
-        }
-
-        const response = await sendToTab(tabId, {
-          type: 'GET_CONTENT_STATE',
-        });
-
-        if (response.state) {
-          setContentState(response.state);
-        }
-      } catch (error) {
-        setErrorMessage(
-          error instanceof Error ? error.message : '无法连接到页面内容脚本'
-        );
-      } finally {
-        setLoading(false);
+        return;
       }
-    };
 
-    void initialize();
+      const response = await sendToTab(tabId, {
+        type: 'GET_CONTENT_STATE',
+      });
+
+      if (response.state) {
+        setContentState(response.state);
+      }
+    } catch (error) {
+      setErrorMessage(
+        error instanceof Error ? error.message : '无法连接到页面内容脚本'
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void refreshContentState();
   }, []);
 
   const primaryAction = getPrimaryAction(contentState);
@@ -273,7 +273,7 @@ const PopupApp: React.FC = () => {
             </Button>
             <Button
               variant='ghost'
-              onClick={() => window.location.reload()}
+              onClick={() => void refreshContentState()}
             >
               <RefreshCw className='mr-2 h-4 w-4' />
               刷新
