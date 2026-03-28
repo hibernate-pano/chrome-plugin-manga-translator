@@ -1,41 +1,29 @@
-/**
- * Config Store v2 - Simplified configuration for Manga Translator v2
- * 
- * This is a streamlined version that removes OCR-related settings
- * and focuses on Vision LLM providers.
- * 
- * Requirements: 1.4, 6.2
- */
-
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType } from '@/providers/base';
+import {
+  APP_CONFIG_STORAGE_KEY,
+  DEFAULT_RUNTIME_APP_CONFIG,
+  type RuntimeAppConfig,
+  type ServerConfig as RuntimeServerConfig,
+} from '@/shared/app-config';
 import {
   DEFAULT_TRANSLATION_STYLE_PRESET,
   type TranslationStylePreset,
 } from '@/utils/translation-style';
 
-// ==================== Type Definitions ====================
-
-/**
- * Provider-specific configuration
- */
 export interface ProviderSettings {
   apiKey: string;
   baseUrl: string;
   model: string;
 }
 
-export interface ServerConfig {
+export interface AppServerConfig extends RuntimeServerConfig {
   enabled: boolean;
-  baseUrl: string;
-  authToken: string;
-  timeoutMs: number;
 }
 
-/**
- * All provider configurations
- */
+export type ServerConfig = AppServerConfig;
+
 export interface ProvidersConfig {
   siliconflow: ProviderSettings;
   dashscope: ProviderSettings;
@@ -45,75 +33,33 @@ export interface ProvidersConfig {
   ollama: ProviderSettings;
 }
 
-/**
- * Application configuration state
- */
-export interface AppConfigState {
-  /** Translation toggle state */
-  enabled: boolean;
-
-  /** Translation execution mode */
+export interface AppConfigState extends RuntimeAppConfig {
   executionMode: 'server' | 'provider-direct';
-  
-  /** Current active provider */
   provider: ProviderType;
-
-  /** Self-hosted OCR-first server configuration */
-  server: ServerConfig;
-  
-  /** Provider-specific configurations */
+  server: AppServerConfig;
   providers: ProvidersConfig;
-  
-  /** Target language for translation (default: 'zh-CN') */
-  targetLanguage: string;
-  
-  /** Maximum image size in pixels before compression */
   maxImageSize: number;
-  
-  /** Maximum parallel translation requests */
   parallelLimit: number;
-  
-  /** Whether caching is enabled */
   cacheEnabled: boolean;
-
-  /** Prompt style preset for manga translation */
-  translationStylePreset: TranslationStylePreset;
-
-  /** Reading UI mode */
   readingMode: 'panel';
-
-  /** Render mode for translated content */
   renderMode: 'anchors-only' | 'strong-overlay-compat';
-
-  /** Translation pipeline mode */
   translationPipeline: 'hybrid-regions' | 'full-image-vlm';
-
-  /** Region batch size for hybrid pipeline */
   regionBatchSize: number;
-
-  /** Whether to fallback to full-image VLM translation */
   fallbackToFullImage: boolean;
 }
 
-/**
- * Configuration actions
- */
 export interface AppConfigActions {
-  // Toggle operations
   setEnabled: (enabled: boolean) => void;
   toggleEnabled: () => void;
   setExecutionMode: (mode: 'server' | 'provider-direct') => void;
-  updateServerConfig: (config: Partial<ServerConfig>) => void;
-  
-  // Provider operations
+  updateServerConfig: (config: Partial<AppServerConfig>) => void;
   setProvider: (provider: ProviderType) => void;
-  updateProviderSettings: (provider: ProviderType, settings: Partial<ProviderSettings>) => void;
+  updateProviderSettings: (
+    provider: ProviderType,
+    settings: Partial<ProviderSettings>
+  ) => void;
   setProviderApiKey: (provider: ProviderType, apiKey: string) => void;
-  
-  // Language operations
   setTargetLanguage: (language: string) => void;
-  
-  // Performance settings
   setMaxImageSize: (size: number) => void;
   setParallelLimit: (limit: number) => void;
   setCacheEnabled: (enabled: boolean) => void;
@@ -125,15 +71,12 @@ export interface AppConfigActions {
   ) => void;
   setRegionBatchSize: (size: number) => void;
   setFallbackToFullImage: (enabled: boolean) => void;
-  
-  // Utility operations
   getActiveProviderSettings: () => ProviderSettings;
   isProviderConfigured: (provider?: ProviderType) => boolean;
   isServerConfigured: () => boolean;
+  getRuntimeConfig: () => RuntimeAppConfig;
   resetToDefaults: () => void;
 }
-
-// ==================== Default Configuration ====================
 
 const DEFAULT_PROVIDERS: ProvidersConfig = {
   siliconflow: {
@@ -169,21 +112,21 @@ const DEFAULT_PROVIDERS: ProvidersConfig = {
 };
 
 const DEFAULT_CONFIG: AppConfigState = {
-  enabled: false,
+  enabled: DEFAULT_RUNTIME_APP_CONFIG.enabled,
   executionMode: 'server',
   provider: 'siliconflow',
   server: {
     enabled: true,
-    baseUrl: 'http://127.0.0.1:8000',
-    authToken: '',
-    timeoutMs: 30000,
+    ...DEFAULT_RUNTIME_APP_CONFIG.server,
   },
   providers: DEFAULT_PROVIDERS,
-  targetLanguage: 'zh-CN',
+  targetLanguage: DEFAULT_RUNTIME_APP_CONFIG.targetLanguage,
   maxImageSize: 1920,
   parallelLimit: 3,
   cacheEnabled: true,
-  translationStylePreset: DEFAULT_TRANSLATION_STYLE_PRESET,
+  translationStylePreset:
+    DEFAULT_RUNTIME_APP_CONFIG.translationStylePreset ??
+    DEFAULT_TRANSLATION_STYLE_PRESET,
   readingMode: 'panel',
   renderMode: 'strong-overlay-compat',
   translationPipeline: 'full-image-vlm',
@@ -191,16 +134,9 @@ const DEFAULT_CONFIG: AppConfigState = {
   fallbackToFullImage: true,
 };
 
-// ==================== Chrome Storage Adapter ====================
-
-/**
- * Chrome Storage adapter for Zustand persist middleware
- * Uses chrome.storage.sync for cross-device synchronization
- */
 const chromeStorage = {
   getItem: async (name: string): Promise<string | null> => {
     try {
-      // Check if chrome.storage is available (extension context)
       if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
         const result = await chrome.storage.sync.get([name]);
         return result[name] ? JSON.stringify(result[name]) : null;
@@ -237,26 +173,12 @@ const chromeStorage = {
   },
 };
 
-// ==================== Store Creation ====================
-
-/**
- * App Configuration Store (v2)
- * 
- * Simplified store for Manga Translator v2 that focuses on:
- * - Translation toggle state
- * - Vision LLM provider configuration
- * - Target language settings
- * - Performance settings
- */
 export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
   persist(
     (set, get) => ({
-      // Initial state
       ...DEFAULT_CONFIG,
-
-      // Toggle operations
       setEnabled: (enabled) => set({ enabled }),
-      toggleEnabled: () => set((state) => ({ enabled: !state.enabled })),
+      toggleEnabled: () => set(state => ({ enabled: !state.enabled })),
       setExecutionMode: executionMode => set({ executionMode }),
       updateServerConfig: server =>
         set(state => ({
@@ -265,12 +187,9 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
             ...server,
           },
         })),
-
-      // Provider operations
       setProvider: (provider) => set({ provider }),
-      
       updateProviderSettings: (provider, settings) =>
-        set((state) => ({
+        set(state => ({
           providers: {
             ...state.providers,
             [provider]: {
@@ -279,9 +198,8 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
             },
           },
         })),
-      
       setProviderApiKey: (provider, apiKey) =>
-        set((state) => ({
+        set(state => ({
           providers: {
             ...state.providers,
             [provider]: {
@@ -290,11 +208,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
             },
           },
         })),
-
-      // Language operations
       setTargetLanguage: (targetLanguage) => set({ targetLanguage }),
-
-      // Performance settings
       setMaxImageSize: (maxImageSize) => set({ maxImageSize }),
       setParallelLimit: (parallelLimit) => set({ parallelLimit }),
       setCacheEnabled: (cacheEnabled) => set({ cacheEnabled }),
@@ -306,39 +220,38 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       setRegionBatchSize: regionBatchSize => set({ regionBatchSize }),
       setFallbackToFullImage: fallbackToFullImage =>
         set({ fallbackToFullImage }),
-
-      // Utility operations
       getActiveProviderSettings: () => {
         const state = get();
         return state.providers[state.provider];
       },
-      
       isProviderConfigured: (provider?: ProviderType) => {
         const state = get();
         const targetProvider = provider || state.provider;
         const settings = state.providers[targetProvider];
-        
-        // Ollama doesn't require API key
         if (targetProvider === 'ollama') {
           return !!settings.baseUrl;
         }
-        
-        // Cloud providers require API key
         return !!settings.apiKey;
       },
-
       isServerConfigured: () => {
         const state = get();
-        return state.server.enabled && !!state.server.baseUrl.trim();
+        return !!state.server.baseUrl.trim();
       },
-      
+      getRuntimeConfig: () => {
+        const state = get();
+        return {
+          enabled: state.enabled,
+          server: state.server,
+          targetLanguage: state.targetLanguage,
+          translationStylePreset: state.translationStylePreset,
+        };
+      },
       resetToDefaults: () => set(DEFAULT_CONFIG),
     }),
     {
-      name: 'manga-translator-config-v2',
+      name: APP_CONFIG_STORAGE_KEY,
       storage: createJSONStorage(() => chromeStorage),
-      // Only persist essential configuration, not derived state
-      partialize: (state) => ({
+      partialize: state => ({
         enabled: state.enabled,
         executionMode: state.executionMode,
         provider: state.provider,
@@ -359,28 +272,17 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
   )
 );
 
-// ==================== Selector Hooks ====================
+export const useTranslationEnabled = () =>
+  useAppConfigStore(state => state.enabled);
 
-/**
- * Get current enabled state
- */
-export const useTranslationEnabled = () => useAppConfigStore((state) => state.enabled);
+export const useCurrentProvider = () =>
+  useAppConfigStore(state => state.provider);
 
-/**
- * Get current provider type
- */
-export const useCurrentProvider = () => useAppConfigStore((state) => state.provider);
+export const useTargetLanguage = () =>
+  useAppConfigStore(state => state.targetLanguage);
 
-/**
- * Get target language
- */
-export const useTargetLanguage = () => useAppConfigStore((state) => state.targetLanguage);
-
-/**
- * Get active provider settings
- */
 export const useActiveProviderSettings = () => {
-  const provider = useAppConfigStore((state) => state.provider);
-  const providers = useAppConfigStore((state) => state.providers);
+  const provider = useAppConfigStore(state => state.provider);
+  const providers = useAppConfigStore(state => state.providers);
   return providers[provider];
 };

@@ -14,6 +14,7 @@ export interface ImageFilterOptions {
   debug?: boolean;
   allowIncomplete?: boolean;
   siteAdapter?: SiteAdapter | null;
+  allowImage?: (img: HTMLImageElement) => boolean;
 }
 
 // ==================== 图片可翻译性判断 ====================
@@ -29,6 +30,7 @@ export function isTranslatableImage(
     debug = false,
     allowIncomplete = false,
     siteAdapter = null,
+    allowImage,
   } = options;
 
   // 检查尺寸
@@ -95,6 +97,11 @@ export function isTranslatableImage(
     return false;
   }
 
+  if (allowImage && !allowImage(img)) {
+    if (debug) console.log('[Filter] 未通过自定义站点过滤:', img.src);
+    return false;
+  }
+
   return true;
 }
 
@@ -115,6 +122,7 @@ export function isTranslatableImage(
 export class HoverSelector {
   private isActive = false;
   private clickCallback: ((img: HTMLImageElement) => void) | null = null;
+  private filterOptions: ImageFilterOptions;
 
   // 当前高亮的图片和相关 DOM
   private highlightedImg: HTMLImageElement | null = null;
@@ -124,6 +132,10 @@ export class HoverSelector {
   private boundMouseover = this.handleMouseover.bind(this);
   private boundClick = this.handleClick.bind(this);
   private boundKeydown = this.handleKeydown.bind(this);
+
+  constructor(filterOptions: ImageFilterOptions = {}) {
+    this.filterOptions = filterOptions;
+  }
 
   /**
    * 注册图片点击回调
@@ -187,7 +199,7 @@ export class HoverSelector {
 
     this.clearHighlight();
 
-    if (isTranslatableImage(img)) {
+    if (isTranslatableImage(img, this.filterOptions)) {
       this.showHighlight(img);
     }
   }
@@ -205,7 +217,10 @@ export class HoverSelector {
       const img = this.highlightedImg;
       this.exit();
       this.clickCallback?.(img);
-    } else if (target instanceof HTMLImageElement && isTranslatableImage(target)) {
+    } else if (
+      target instanceof HTMLImageElement &&
+      isTranslatableImage(target, this.filterOptions)
+    ) {
       e.preventDefault();
       e.stopPropagation();
 

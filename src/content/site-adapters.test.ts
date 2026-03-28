@@ -1,147 +1,175 @@
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it } from 'vitest';
+
 import {
-  collectSiteCandidateImages,
-  getRealImageSource,
   matchSiteAdapter,
-  prepareImageForTranslation,
+  waitForRenderablePages,
 } from './site-adapters';
 
+const CHAPTER_PAGES_BASE64 =
+  'W3sic3JjIjoiNTMwODcvbXJfMDAxLmpwZyIsInciOjEwODAsImgiOjUwMDB9LHsic3JjIjoiNTMwODcvbXJfMDAyLmpwZyIsInciOjEwODAsImgiOjUwMDB9XQ==';
+
+function getAdapter() {
+  const adapter = matchSiteAdapter(
+    'https://manhwaread.com/manhwa/outro/chapter-1/'
+  );
+
+  expect(adapter).not.toBeNull();
+
+  return adapter;
+}
+
+function createChapterWindow() {
+  return {
+    chapterData: {
+      base: 'https://manread.xyz/1268',
+      data: CHAPTER_PAGES_BASE64,
+    },
+    location: {
+      href: 'https://manhwaread.com/manhwa/outro/chapter-1/',
+    },
+  } as unknown as Window & typeof globalThis;
+}
+
+function installChapterData() {
+  Object.defineProperty(window, 'chapterData', {
+    configurable: true,
+    value: {
+      base: 'https://manread.xyz/1268',
+      data: CHAPTER_PAGES_BASE64,
+    },
+    writable: true,
+  });
+}
+
 describe('site-adapters', () => {
-  it('matches configured sites', () => {
-    expect(matchSiteAdapter('https://mangadex.org/chapter/demo')?.id).toBe(
-      'mangadex'
-    );
-    expect(
-      matchSiteAdapter('https://comic-walker.com/detail/KC_005312_S')?.id
-    ).toBe('comic-walker');
-    expect(
-      matchSiteAdapter('https://web-ace.jp/youngaceup/contents/100')
-    ).toEqual(expect.objectContaining({ id: 'web-ace' }));
-    expect(
-      matchSiteAdapter(
-        'https://manhwaread.com/manhwa/milf-hunter-in-another-world/chapter-109/'
-      )?.id
-    ).toBe('manhwaread');
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    delete (window as Window & { chapterData?: unknown }).chapterData;
   });
 
-  it('returns null for unsupported sites', () => {
+  it('matches only ManhwaRead chapter pages', () => {
+    expect(
+      matchSiteAdapter(
+        'https://manhwaread.com/manhwa/outro/chapter-1/'
+      )?.id
+    ).toBe('manhwaread');
+    expect(
+      matchSiteAdapter('https://manhwaread.com/manhwa/outro/')
+    ).toBeNull();
     expect(matchSiteAdapter('https://example.com')).toBeNull();
   });
 
-  it('collects candidates from adapter selectors and excludes ignored nodes', () => {
-    document.body.innerHTML = `
-      <header><img id="header-image" src="/ui.jpg" /></header>
-      <main>
-        <div data-testid="reader-container">
-          <img id="page-image" src="/page.jpg" />
-        </div>
-      </main>
-    `;
+  it('parses canonical chapter image URLs from chapterData', () => {
+    const adapter = getAdapter();
+    const bootstrap = adapter?.getChapterBootstrap(createChapterWindow());
 
-    const adapter = matchSiteAdapter('https://mangadex.org/chapter/demo');
-    const images = collectSiteCandidateImages(adapter);
-
-    expect(images.map(image => image.id)).toEqual(['page-image']);
+    expect(bootstrap).not.toBeNull();
+    expect(bootstrap?.pages.map(page => page.src)).toEqual([
+      'https://manread.xyz/1268/53087/mr_001.jpg',
+      'https://manread.xyz/1268/53087/mr_002.jpg',
+    ]);
   });
 
-  it('prefers real lazy-load source attributes', () => {
-    const image = document.createElement('img');
-    image.src = 'https://example.com/placeholder.jpg';
-    image.setAttribute('data-src', 'https://cdn.example.com/page-1.jpg');
-
-    expect(getRealImageSource(image)).toBe(
-      'https://cdn.example.com/page-1.jpg'
-    );
-  });
-
-  it('collects chapter images from manhwaread reader container', () => {
+  it('lists only chapter images inside #reader #imagesList', () => {
     document.body.innerHTML = `
-      <div id="reader">
-        <div id="imagesList">
-          <div class="reading-page">
-            <img id="page-1" class="reading-image" width="720" height="5000" />
-          </div>
-          <div class="reading-page">
-            <img id="page-2" class="reading-image" width="720" height="5000" />
-          </div>
+      <div id='reader'>
+        <div id='readingNavTop'><img id='nav-top' /></div>
+        <div id='imagesList'>
+          <div class='reading-page'><img id='page-1' class='reading-image' /></div>
+          <div class='reading-page'><img id='page-2' class='reading-image' /></div>
         </div>
       </div>
-      <div class="manga-item__img-inner">
-        <img id="cover-image" src="/cover.jpg" />
+      <div class='manga-item__img-inner'>
+        <img id='cover' />
       </div>
     `;
 
-    const adapter = matchSiteAdapter(
-      'https://manhwaread.com/manhwa/demo/chapter-1/'
-    );
-    const images = collectSiteCandidateImages(adapter);
+    const adapter = getAdapter();
+    const bootstrap = adapter?.getChapterBootstrap(createChapterWindow());
 
-    expect(images.map(image => image.id)).toEqual(['page-1', 'page-2']);
+    expect(bootstrap).not.toBeNull();
+
+    if (!adapter || !bootstrap) {
+      throw new Error('expected adapter bootstrap');
+    }
+
+    const pages = adapter.listRenderablePages(document, bootstrap);
+
+    expect(pages?.map(page => page.image.id)).toEqual(['page-1', 'page-2']);
+    expect(pages?.map(page => page.canonicalUrl)).toEqual([
+      'https://manread.xyz/1268/53087/mr_001.jpg',
+      'https://manread.xyz/1268/53087/mr_002.jpg',
+    ]);
   });
 
-  it('resolves manhwaread chapter image source from chapterData and reading-page metadata', () => {
+  it('resolves the canonical URL for a hydrated chapter image', () => {
     document.body.innerHTML = `
-      <div class="reading-page" id="page-wrapper">
-        <img id="page-image" class="reading-image" width="720" height="5000" />
+      <div id='reader'>
+        <div id='imagesList'>
+          <div class='reading-page'><img id='page-1' class='reading-image' /></div>
+          <div class='reading-page'><img id='page-2' class='reading-image' /></div>
+        </div>
       </div>
     `;
 
-    const pageWrapper = document.getElementById('page-wrapper') as HTMLElement & {
-      img?: { src?: string };
-    };
-    pageWrapper.img = { src: '132557/mr_001.jpg' };
+    const adapter = getAdapter();
+    const bootstrap = adapter?.getChapterBootstrap(createChapterWindow());
+    const pageImage = document.getElementById('page-2') as HTMLImageElement;
 
-    Object.assign(window, {
-      chapterData: {
-        base: 'https://manread.xyz/1628',
-      },
-    });
+    expect(bootstrap).not.toBeNull();
+    if (!adapter || !bootstrap) {
+      throw new Error('expected adapter bootstrap');
+    }
 
-    const image = document.getElementById('page-image') as HTMLImageElement;
-    const adapter = matchSiteAdapter(
-      'https://manhwaread.com/manhwa/demo/chapter-1/'
-    );
-
-    expect(getRealImageSource(image, adapter)).toBe(
-      'https://manread.xyz/1628/132557/mr_001.jpg'
+    expect(adapter.resolveCanonicalImage(pageImage, bootstrap)).toBe(
+      'https://manread.xyz/1268/53087/mr_002.jpg'
     );
   });
 
-  it('prepares manhwaread image by assigning resolved source', async () => {
+  it('waits for chapter images to appear after DOM hydration', async () => {
+    installChapterData();
     document.body.innerHTML = `
-      <div class="reading-page" id="page-wrapper">
-        <img id="page-image" class="reading-image" width="720" height="5000" />
+      <div id='reader'>
+        <div id='imagesList'></div>
       </div>
     `;
 
-    const pageWrapper = document.getElementById('page-wrapper') as HTMLElement & {
-      img?: { src?: string };
-    };
-    pageWrapper.img = { src: '132557/mr_002.jpg' };
+    const adapter = getAdapter();
 
-    Object.assign(window, {
-      chapterData: {
-        base: 'https://manread.xyz/1628',
-      },
-    });
+    if (!adapter) {
+      throw new Error('expected adapter');
+    }
 
-    const image = document.getElementById('page-image') as HTMLImageElement;
-    const adapter = matchSiteAdapter(
-      'https://manhwaread.com/manhwa/demo/chapter-1/'
-    );
+    const pagesPromise = waitForRenderablePages(adapter, 1000);
 
-    setTimeout(() => {
-      Object.defineProperty(image, 'complete', { configurable: true, value: true });
-      Object.defineProperty(image, 'naturalWidth', {
-        configurable: true,
-        value: 720,
-      });
-      image.dispatchEvent(new Event('load'));
+    window.setTimeout(() => {
+      const container = document.querySelector('#imagesList');
+
+      if (!container) {
+        return;
+      }
+
+      container.innerHTML = `
+        <div class='reading-page'><img id='page-1' class='reading-image' /></div>
+        <div class='reading-page'><img id='page-2' class='reading-image' /></div>
+      `;
     }, 0);
 
-    await prepareImageForTranslation(image, adapter);
+    const pages = await pagesPromise;
 
-    expect(image.src).toBe('https://manread.xyz/1628/132557/mr_002.jpg');
-    expect(image.crossOrigin).toBe('anonymous');
+    expect(pages.map(page => page.image.id)).toEqual(['page-1', 'page-2']);
+  });
+
+  it('returns null when chapter bootstrap data is missing', () => {
+    const adapter = getAdapter();
+    const bootstrap = adapter?.getChapterBootstrap(
+      {
+        location: {
+          href: 'https://manhwaread.com/manhwa/outro/chapter-1/',
+        },
+      } as unknown as Window & typeof globalThis
+    );
+
+    expect(bootstrap).toBeNull();
   });
 });
