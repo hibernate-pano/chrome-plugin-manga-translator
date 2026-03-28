@@ -2,15 +2,22 @@ import { getRenderer } from '@/services/renderer';
 import type {
   ContentRequest,
   ContentResponse,
+  ContentStatus,
   ContentRuntimeState,
   ContentStateUpdateMessage,
-  PageSupportState,
+  TestServerConnectionResponse,
   TranslateViaServerRequest,
   TranslateViaServerResponse,
 } from '@/shared/runtime-contracts';
 import { loadRuntimeAppConfig } from '@/shared/app-config';
 import { parseTranslationError } from '@/utils/error-handler';
 import { HoverSelector } from './hover-selector';
+import {
+  createPageContext,
+  getPageContextKey,
+  hasPageContextChanged,
+  type ContentPageContext,
+} from './page-context';
 import {
   matchSiteAdapter,
   prepareImageForTranslation,
@@ -20,38 +27,40 @@ import {
 } from './site-adapters';
 
 const renderer = getRenderer();
+const PAGE_SYNC_EVENT = 'manga-translator:page-sync';
 
 let adapter: SiteAdapter | null = null;
 let hoverSelector: HoverSelector | null = null;
 let renderablePages: RenderablePage[] = [];
+let pageContext = readPageContext();
+let restoreHistoryHooks: Array<() => void> = [];
 
-function createSupportState(siteAdapter: SiteAdapter | null): PageSupportState {
-  if (!siteAdapter) {
-    return {
-      supported: false,
-      site: null,
-      reason: '当前页面不是 ManhwaRead 章节阅读页',
-    };
-  }
+function readPageContext(): ContentPageContext {
+  const nextAdapter = matchSiteAdapter(window.location.href);
+  const bootstrap = nextAdapter?.getChapterBootstrap(window) ?? null;
 
+  return createPageContext(window.location.href, nextAdapter, bootstrap);
+}
+
+function createRuntimeStateFromContext(
+  context: ContentPageContext,
+  status?: ContentStatus,
+  message?: string | null
+): ContentRuntimeState {
   return {
-    supported: true,
-    site: siteAdapter.id,
-    reason: null,
+    status:
+      status ?? (context.support.supported ? 'idle' : 'unsupported'),
+    support: context.support,
+    message: message ?? context.support.reason,
+    selectedImageUrl: null,
+    translatedCount: 0,
   };
 }
 
 function createInitialState(): ContentRuntimeState {
-  adapter = matchSiteAdapter(window.location.href);
-  const support = createSupportState(adapter);
-
-  return {
-    status: support.supported ? 'idle' : 'unsupported',
-    support,
-    message: support.reason,
-    selectedImageUrl: null,
-    translatedCount: 0,
-  };
+  pageContext = readPageContext();
+  adapter = pageContext.adapter;
+  return createRuntimeStateFromContext(pageContext);
 }
 
 let currentState = createInitialState();
@@ -83,6 +92,25 @@ function patchState(
   });
 }
 
+function syncPageContext(): boolean {
+  const nextContext = readPageContext();
+  const changed = hasPageContextChanged(pageContext, nextContext);
+
+  pageContext = nextContext;
+  adapter = nextContext.adapter;
+
+  if (!changed) {
+    return false;
+  }
+
+  renderablePages = [];
+  exitPicking();
+  renderer.removeAll();
+  setState(createRuntimeStateFromContext(nextContext));
+
+  return true;
+}
+
 async function ensureRenderableImages(): Promise<RenderablePage[]> {
   if (!adapter) {
     throw new Error('当前页面不受支持');
@@ -107,7 +135,25 @@ function findRenderablePage(image: HTMLImageElement): RenderablePage | null {
   return existing ?? null;
 }
 
+async function ensureServerReady(): Promise<void> {
+  const config = await loadRuntimeAppConfig();
+
+  if (!config.server.baseUrl.trim()) {
+    throw new Error('请先在设置页配置服务端地址');
+  }
+
+  const response = (await chrome.runtime.sendMessage({
+    type: 'TEST_SERVER_CONNECTION',
+  })) as TestServerConnectionResponse;
+
+  if (!response?.success) {
+    throw new Error(response?.message || '无法连接到服务端');
+  }
+}
+
 async function translateRenderablePage(page: RenderablePage): Promise<void> {
+  const requestPageContextKey = getPageContextKey(pageContext);
+
   patchState(
     {
       message: '正在请求服务端翻译',
@@ -135,6 +181,10 @@ async function translateRenderablePage(page: RenderablePage): Promise<void> {
       request
     )) as TranslateViaServerResponse;
 
+    if (requestPageContextKey !== getPageContextKey(pageContext)) {
+      return;
+    }
+
     if (!response?.success) {
       throw new Error(response?.error || '服务端翻译失败');
     }
@@ -152,6 +202,10 @@ async function translateRenderablePage(page: RenderablePage): Promise<void> {
       translatedCount: response.textAreas.length,
     });
   } catch (error) {
+    if (requestPageContextKey !== getPageContextKey(pageContext)) {
+      return;
+    }
+
     const friendly = parseTranslationError(error);
     setState({
       status: 'error',
@@ -166,6 +220,8 @@ async function translateRenderablePage(page: RenderablePage): Promise<void> {
 }
 
 async function startPicking(): Promise<void> {
+  syncPageContext();
+
   if (!currentState.support.supported || !adapter) {
     throw new Error(currentState.support.reason || '当前页面不受支持');
   }
@@ -174,6 +230,10 @@ async function startPicking(): Promise<void> {
     throw new Error('翻译进行中，请稍后再试');
   }
 
+  patchState({ message: '正在检查服务端连接' });
+  await ensureServerReady();
+
+  patchState({ message: '正在查找章节图片' });
   const pages = await ensureRenderableImages();
   const allowedImages = new Set(pages.map(page => page.image));
 
@@ -212,14 +272,10 @@ async function startPicking(): Promise<void> {
 
 function clearOverlays(): void {
   exitPicking();
+  renderablePages = [];
   renderer.removeAll();
-  setState({
-    status: currentState.support.supported ? 'idle' : 'unsupported',
-    support: currentState.support,
-    message: currentState.support.reason,
-    selectedImageUrl: null,
-    translatedCount: 0,
-  });
+  syncPageContext();
+  setState(createRuntimeStateFromContext(pageContext));
 }
 
 function cancelPicking(): void {
@@ -242,6 +298,8 @@ function handleMessage(
   _sender: chrome.runtime.MessageSender,
   sendResponse: (response: ContentResponse) => void
 ): boolean {
+  syncPageContext();
+
   switch (request.type) {
     case 'GET_CONTENT_STATE':
       sendResponse({ success: true, state: currentState });
@@ -283,16 +341,61 @@ function handleMessage(
   }
 }
 
+function handlePageSync(): void {
+  syncPageContext();
+}
+
+function handleVisibilityChange(): void {
+  if (document.visibilityState === 'visible') {
+    syncPageContext();
+  }
+}
+
+function installHistoryHook(
+  method: 'pushState' | 'replaceState'
+): () => void {
+  const original = window.history[method];
+
+  window.history[method] = function (
+    ...args: Parameters<History[typeof method]>
+  ) {
+    const result = original.apply(this, args);
+    window.dispatchEvent(new Event(PAGE_SYNC_EVENT));
+    return result;
+  };
+
+  return () => {
+    window.history[method] = original;
+  };
+}
+
 function initialize(): void {
   currentState = createInitialState();
+  restoreHistoryHooks = [
+    installHistoryHook('pushState'),
+    installHistoryHook('replaceState'),
+  ];
   chrome.runtime.onMessage.addListener(handleMessage);
   window.addEventListener('beforeunload', cleanup);
+  window.addEventListener('popstate', handlePageSync);
+  window.addEventListener('pageshow', handlePageSync);
+  window.addEventListener('focus', handlePageSync);
+  window.addEventListener(PAGE_SYNC_EVENT, handlePageSync);
+  document.addEventListener('visibilitychange', handleVisibilityChange);
   broadcastState();
 }
 
 function cleanup(): void {
   exitPicking();
+  renderablePages = [];
   renderer.removeAll();
+  restoreHistoryHooks.forEach(restore => restore());
+  restoreHistoryHooks = [];
+  window.removeEventListener('popstate', handlePageSync);
+  window.removeEventListener('pageshow', handlePageSync);
+  window.removeEventListener('focus', handlePageSync);
+  window.removeEventListener(PAGE_SYNC_EVENT, handlePageSync);
+  document.removeEventListener('visibilitychange', handleVisibilityChange);
 }
 
 initialize();
