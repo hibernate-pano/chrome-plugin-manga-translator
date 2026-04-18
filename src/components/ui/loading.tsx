@@ -12,10 +12,10 @@ interface LoadingProps {
   className?: string;
 }
 
-export const Loading: React.FC<LoadingProps> = ({ 
-  size = 'md', 
+export const Loading: React.FC<LoadingProps> = ({
+  size = 'md',
   color = 'primary',
-  className 
+  className,
 }) => {
   const sizeClasses = {
     sm: 'w-4 h-4',
@@ -30,24 +30,27 @@ export const Loading: React.FC<LoadingProps> = ({
   };
 
   return (
-    <div className={cn('animate-spin', sizeClasses[size], colorClasses[color], className)}>
-      <svg
-        className="w-full h-full"
-        fill="none"
-        viewBox="0 0 24 24"
-      >
+    <div
+      className={cn(
+        'animate-spin',
+        sizeClasses[size],
+        colorClasses[color],
+        className
+      )}
+    >
+      <svg className='h-full w-full' fill='none' viewBox='0 0 24 24'>
         <circle
-          className="opacity-25"
-          cx="12"
-          cy="12"
-          r="10"
-          stroke="currentColor"
-          strokeWidth="4"
+          className='opacity-25'
+          cx='12'
+          cy='12'
+          r='10'
+          stroke='currentColor'
+          strokeWidth='4'
         />
         <path
-          className="opacity-75"
-          fill="currentColor"
-          d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+          className='opacity-75'
+          fill='currentColor'
+          d='M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z'
         />
       </svg>
     </div>
@@ -73,11 +76,11 @@ export const Skeleton: React.FC<SkeletonProps> = ({
   rounded = false,
 }) => {
   const style: React.CSSProperties = {};
-  
+
   if (width) {
     style.width = typeof width === 'number' ? `${width}px` : width;
   }
-  
+
   if (height) {
     style.height = typeof height === 'number' ? `${height}px` : height;
   }
@@ -102,9 +105,9 @@ interface TextSkeletonProps {
   className?: string;
 }
 
-export const TextSkeleton: React.FC<TextSkeletonProps> = ({ 
-  lines = 1, 
-  className 
+export const TextSkeleton: React.FC<TextSkeletonProps> = ({
+  lines = 1,
+  className,
 }) => {
   return (
     <div className={cn('space-y-2', className)}>
@@ -112,10 +115,7 @@ export const TextSkeleton: React.FC<TextSkeletonProps> = ({
         <Skeleton
           key={index}
           height={16}
-          className={cn(
-            'w-full',
-            index === lines - 1 ? 'w-3/4' : 'w-full'
-          )}
+          className={cn('w-full', index === lines - 1 ? 'w-3/4' : 'w-full')}
         />
       ))}
     </div>
@@ -139,22 +139,10 @@ export const CardSkeleton: React.FC<CardSkeletonProps> = ({
   showContent = true,
 }) => {
   return (
-    <div className={cn('p-4 border rounded-lg', className)}>
-      {showImage && (
-        <Skeleton
-          height={200}
-          className="w-full mb-4 rounded"
-        />
-      )}
-      {showTitle && (
-        <Skeleton
-          height={24}
-          className="w-3/4 mb-2"
-        />
-      )}
-      {showContent && (
-        <TextSkeleton lines={3} />
-      )}
+    <div className={cn('rounded-lg border p-4', className)}>
+      {showImage && <Skeleton height={200} className='mb-4 w-full rounded' />}
+      {showTitle && <Skeleton height={24} className='mb-2 w-3/4' />}
+      {showContent && <TextSkeleton lines={3} />}
     </div>
   );
 };
@@ -198,14 +186,22 @@ export const Progress: React.FC<ProgressProps> = ({
 
   return (
     <div className={cn('w-full', className)}>
-      <div className={cn('bg-gray-200 rounded-full overflow-hidden', sizeClasses[size])}>
+      <div
+        className={cn(
+          'overflow-hidden rounded-full bg-gray-200',
+          sizeClasses[size]
+        )}
+      >
         <div
-          className={cn('transition-all duration-300 ease-out', colorClasses[color])}
+          className={cn(
+            'transition-all duration-300 ease-out',
+            colorClasses[color]
+          )}
           style={{ width: `${percentage}%` }}
         />
       </div>
       {showLabel && (
-        <div className="mt-1 text-sm text-gray-600 dark:text-gray-400">
+        <div className='mt-1 text-sm text-gray-600 dark:text-gray-400'>
           {Math.round(percentage)}%
         </div>
       )}
@@ -234,7 +230,7 @@ export const LoadingContainer: React.FC<LoadingContainerProps> = ({
   if (loading) {
     return (
       <div className={cn('flex items-center justify-center p-4', className)}>
-        {fallback || <Loading size="lg" />}
+        {fallback || <Loading size='lg' />}
       </div>
     );
   }
@@ -281,33 +277,33 @@ export const TranslationProgress: React.FC<TranslationProgressProps> = ({
   } as const;
 
   return (
-    <div className={cn('p-4 bg-white rounded-lg shadow-lg', className)}>
-      <div className="flex items-center justify-between mb-2">
-        <span className="text-sm font-medium text-gray-700">
+    <div className={cn('rounded-lg bg-white p-4 shadow-lg', className)}>
+      <div className='mb-2 flex items-center justify-between'>
+        <span className='text-sm font-medium text-gray-700'>
           {statusMessages[status]}
         </span>
-        <span className="text-sm text-gray-500">
+        <span className='text-sm text-gray-500'>
           {current} / {total}
         </span>
       </div>
-      
+
       <Progress
         value={current}
         max={total}
         color={statusColors[status]}
-        size="md"
-        className="mb-3"
+        size='md'
+        className='mb-3'
       />
-      
-      <div className="flex items-center justify-between">
-        <span className="text-xs text-gray-500">
+
+      <div className='flex items-center justify-between'>
+        <span className='text-xs text-gray-500'>
           {Math.round(percentage)}% 完成
         </span>
-        
+
         {onCancel && status !== 'complete' && (
           <button
             onClick={onCancel}
-            className="text-xs text-red-600 hover:text-red-700"
+            className='text-xs text-red-600 hover:text-red-700'
           >
             取消
           </button>
@@ -336,13 +332,15 @@ export const GlobalLoading: React.FC<GlobalLoadingProps> = ({
   if (!visible) return null;
 
   return (
-    <div className={cn(
-      'fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50',
-      className
-    )}>
-      <div className="bg-white rounded-lg p-6 flex flex-col items-center">
-        <Loading size="lg" className="mb-4" />
-        <p className="text-gray-600">{message}</p>
+    <div
+      className={cn(
+        'fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50',
+        className
+      )}
+    >
+      <div className='flex flex-col items-center rounded-lg bg-white p-6'>
+        <Loading size='lg' className='mb-4' />
+        <p className='text-gray-600'>{message}</p>
       </div>
     </div>
   );

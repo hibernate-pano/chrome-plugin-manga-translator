@@ -90,44 +90,44 @@ export class ErrorBoundary extends Component<Props, State> {
 
       // 默认错误界面
       return (
-        <div className="min-h-screen flex items-center justify-center bg-gray-50">
-          <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-6">
-            <div className="flex items-center justify-center w-12 h-12 mx-auto bg-red-100 rounded-full">
+        <div className='flex min-h-screen items-center justify-center bg-gray-50'>
+          <div className='w-full max-w-md rounded-lg bg-white p-6 shadow-lg'>
+            <div className='mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-red-100'>
               <svg
-                className="w-6 h-6 text-red-600"
-                fill="none"
-                stroke="currentColor"
-                viewBox="0 0 24 24"
+                className='h-6 w-6 text-red-600'
+                fill='none'
+                stroke='currentColor'
+                viewBox='0 0 24 24'
               >
                 <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
+                  strokeLinecap='round'
+                  strokeLinejoin='round'
                   strokeWidth={2}
-                  d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+                  d='M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z'
                 />
               </svg>
             </div>
-            <div className="mt-4 text-center">
-              <h3 className="text-lg font-medium text-gray-900">
+            <div className='mt-4 text-center'>
+              <h3 className='text-lg font-medium text-gray-900'>
                 出现了一个错误
               </h3>
-              <p className="mt-2 text-sm text-gray-500">
+              <p className='mt-2 text-sm text-gray-500'>
                 抱歉，应用程序遇到了一个意外错误。我们已经记录了这个错误，并将尽快修复。
               </p>
               {import.meta.env.DEV && this.state.error && (
-                <details className="mt-4 text-left">
-                  <summary className="cursor-pointer text-sm font-medium text-gray-700">
+                <details className='mt-4 text-left'>
+                  <summary className='cursor-pointer text-sm font-medium text-gray-700'>
                     错误详情 (开发模式)
                   </summary>
-                  <div className="mt-2 p-3 bg-gray-100 rounded text-xs font-mono text-gray-800 overflow-auto max-h-40">
-                    <div className="mb-2">
+                  <div className='mt-2 max-h-40 overflow-auto rounded bg-gray-100 p-3 font-mono text-xs text-gray-800'>
+                    <div className='mb-2'>
                       <strong>错误信息:</strong>
-                      <div className="mt-1">{this.state.error.message}</div>
+                      <div className='mt-1'>{this.state.error.message}</div>
                     </div>
                     {this.state.error.stack && (
-                      <div className="mb-2">
+                      <div className='mb-2'>
                         <strong>错误堆栈:</strong>
-                        <div className="mt-1 whitespace-pre-wrap">
+                        <div className='mt-1 whitespace-pre-wrap'>
                           {this.state.error.stack}
                         </div>
                       </div>
@@ -135,7 +135,7 @@ export class ErrorBoundary extends Component<Props, State> {
                     {this.state.errorInfo && (
                       <div>
                         <strong>组件堆栈:</strong>
-                        <div className="mt-1 whitespace-pre-wrap">
+                        <div className='mt-1 whitespace-pre-wrap'>
                           {this.state.errorInfo.componentStack}
                         </div>
                       </div>
@@ -144,16 +144,16 @@ export class ErrorBoundary extends Component<Props, State> {
                 </details>
               )}
             </div>
-            <div className="mt-6 flex space-x-3">
+            <div className='mt-6 flex space-x-3'>
               <button
                 onClick={this.handleRetry}
-                className="flex-1 px-4 py-2 bg-blue-600 text-white text-sm font-medium rounded-md hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+                className='flex-1 rounded-md bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2'
               >
                 重试
               </button>
               <button
                 onClick={this.handleReset}
-                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 text-sm font-medium rounded-md hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-gray-500"
+                className='flex-1 rounded-md bg-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-400 focus:outline-none focus:ring-2 focus:ring-gray-500 focus:ring-offset-2'
               >
                 重置应用
               </button>
@@ -199,4 +199,4 @@ export function useErrorHandler() {
     handleError,
     clearError,
   };
-} 
+}

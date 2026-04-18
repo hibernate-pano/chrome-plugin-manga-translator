@@ -1,6 +1,6 @@
 /**
  * DeepSeek VL Vision Provider
- * 
+ *
  * Uses DeepSeek's Vision Language Model API for manga image analysis and translation.
  * DeepSeek VL offers good quality at a competitive price point.
  */
@@ -13,7 +13,6 @@ import {
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';
-import type { TranslationStylePreset } from '@/utils/translation-style';
 
 const DEFAULT_MODEL = 'deepseek-chat';
 const DEFAULT_BASE_URL = 'https://api.deepseek.com/v1';
@@ -47,7 +46,7 @@ interface DeepSeekResponse {
 export class DeepSeekProvider implements VisionProvider {
   readonly name = 'DeepSeek VL';
   readonly type = 'deepseek' as const;
-  
+
   private config: ProviderConfig = {};
 
   async initialize(config: ProviderConfig): Promise<void> {
@@ -60,16 +59,15 @@ export class DeepSeekProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset
+    targetLanguage: string
   ): Promise<VisionResponse> {
-    this.ensureConfigured();
+    const validation = await this.validateConfig();
+    if (!validation.valid) {
+      throw new Error(validation.message);
+    }
 
-    const prompt = getMangaTranslationPrompt(
-      targetLanguage,
-      translationStylePreset
-    );
-    
+    const prompt = getMangaTranslationPrompt(targetLanguage);
+
     // Ensure proper base64 data URL format
     const imageUrl = imageBase64.startsWith('data:')
       ? imageBase64
@@ -97,7 +95,7 @@ export class DeepSeekProvider implements VisionProvider {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'Authorization': `Bearer ${this.config.apiKey}`,
+        Authorization: `Bearer ${this.config.apiKey}`,
       },
       body: JSON.stringify({
         model: this.config.model,
@@ -109,12 +107,13 @@ export class DeepSeekProvider implements VisionProvider {
 
     if (!response.ok) {
       const errorData = await response.json().catch(() => ({}));
-      const errorMessage = (errorData as DeepSeekResponse).error?.message || response.statusText;
+      const errorMessage =
+        (errorData as DeepSeekResponse).error?.message || response.statusText;
       throw new Error(`DeepSeek API error: ${errorMessage}`);
     }
 
-    const data = await response.json() as DeepSeekResponse;
-    
+    const data = (await response.json()) as DeepSeekResponse;
+
     if (data.error) {
       throw new Error(`DeepSeek API error: ${data.error.message}`);
     }
@@ -146,14 +145,5 @@ export class DeepSeekProvider implements VisionProvider {
       valid: true,
       message: 'DeepSeek 配置有效',
     };
-  }
-
-  private ensureConfigured(): void {
-    if (!this.config.apiKey) {
-      throw new Error('请配置 DeepSeek API 密钥');
-    }
-    if (this.config.apiKey.length < 10) {
-      throw new Error('DeepSeek API 密钥格式无效');
-    }
   }
 }

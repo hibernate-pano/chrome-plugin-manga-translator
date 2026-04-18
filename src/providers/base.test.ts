@@ -1,6 +1,6 @@
 /**
  * Base Provider Tests
- * 
+ *
  * Tests for the base provider utilities including:
  * - Response parsing (Property 5: API 响应解析)
  * - Prompt generation
@@ -25,7 +25,7 @@ describe('parseVisionResponse', () => {
     });
 
     const result = parseVisionResponse(response);
-    
+
     expect(result.textAreas).toHaveLength(1);
     expect(result.textAreas[0]).toEqual({
       x: 0.1,
@@ -54,7 +54,7 @@ describe('parseVisionResponse', () => {
 \`\`\``;
 
     const result = parseVisionResponse(response);
-    
+
     expect(result.textAreas).toHaveLength(1);
     expect(result.textAreas[0]?.translatedText).toBe('你好');
   });
@@ -62,7 +62,7 @@ describe('parseVisionResponse', () => {
   it('should return empty array for response with no text areas', () => {
     const response = JSON.stringify({ textAreas: [] });
     const result = parseVisionResponse(response);
-    
+
     expect(result.textAreas).toHaveLength(0);
   });
 
@@ -82,7 +82,7 @@ describe('parseVisionResponse', () => {
 
     const result = parseVisionResponse(response);
     const firstArea = result.textAreas[0];
-    
+
     expect(firstArea?.x).toBe(0);
     expect(firstArea?.y).toBe(1);
     expect(firstArea?.width).toBe(1);
@@ -93,13 +93,19 @@ describe('parseVisionResponse', () => {
     const response = JSON.stringify({
       textAreas: [
         { x: 0.1, y: 0.2, width: 0.3, height: 0.1, translatedText: '有效' },
-        { x: 'invalid', y: 0.2, width: 0.3, height: 0.1, translatedText: '无效' },
+        {
+          x: 'invalid',
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          translatedText: '无效',
+        },
         { x: 0.1, y: 0.2, width: 0.3, height: 0.1 }, // missing translatedText
       ],
     });
 
     const result = parseVisionResponse(response);
-    
+
     expect(result.textAreas).toHaveLength(1);
     expect(result.textAreas[0]?.translatedText).toBe('有效');
   });
@@ -125,7 +131,7 @@ describe('parseVisionResponse', () => {
 Hope this helps!`;
 
     const result = parseVisionResponse(response);
-    
+
     expect(result.textAreas).toHaveLength(1);
   });
 });
@@ -133,7 +139,7 @@ Hope this helps!`;
 describe('getMangaTranslationPrompt', () => {
   it('should include target language in prompt', () => {
     const prompt = getMangaTranslationPrompt('简体中文');
-    
+
     expect(prompt).toContain('简体中文');
     expect(prompt).toContain('textAreas');
     expect(prompt).toContain('JSON');

@@ -554,7 +554,7 @@ export class OverlayRenderer {
     const toggleBtn = document.createElement('button');
     toggleBtn.title = '切换翻译显示';
     toggleBtn.textContent = '📌';
-    toggleBtn.addEventListener('click', (e) => {
+    toggleBtn.addEventListener('click', e => {
       e.stopPropagation();
       const rendered = this.renderedOverlays.get(image);
       if (rendered) {
@@ -569,7 +569,7 @@ export class OverlayRenderer {
     const closeBtn = document.createElement('button');
     closeBtn.title = '移除翻译';
     closeBtn.textContent = '✕';
-    closeBtn.addEventListener('click', (e) => {
+    closeBtn.addEventListener('click', e => {
       e.stopPropagation();
       this.remove(image);
     });

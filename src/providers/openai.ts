@@ -109,7 +109,10 @@ export class OpenAIProvider implements VisionProvider {
       );
     }
 
-    const data = httpResponse.data!;
+    const data = httpResponse.data;
+    if (!data) {
+      throw new Error('OpenAI API returned no data');
+    }
 
     if (data.error) {
       throw new Error(`OpenAI API error: ${data.error.message}`);

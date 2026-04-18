@@ -172,7 +172,9 @@ describe('FloatingHud', () => {
 
       const host = getHudHost() as HTMLElement;
       const shadow = host.shadowRoot;
-      const cancelBtn = shadow?.getElementById('cancel-btn') as HTMLElement | null;
+      const cancelBtn = shadow?.getElementById(
+        'cancel-btn'
+      ) as HTMLElement | null;
 
       const listener = vi.fn();
       host.addEventListener('hud-cancel', listener);

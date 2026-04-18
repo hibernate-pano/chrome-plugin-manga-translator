@@ -46,7 +46,7 @@ export class FloatingHud {
     });
 
     this.shadow = this.container.attachShadow({ mode: 'open' });
-    this.shadow.innerHTML = `${this.buildStyles()  }<div id="hud" style="display:none"></div>`;
+    this.shadow.innerHTML = `${this.buildStyles()}<div id="hud" style="display:none"></div>`;
 
     document.body.appendChild(this.container);
 
@@ -80,7 +80,9 @@ export class FloatingHud {
     const cancelBtn = hud.querySelector('#cancel-btn');
     if (cancelBtn) {
       cancelBtn.addEventListener('click', () => {
-        this.shadow.dispatchEvent(new CustomEvent('hud-cancel', { bubbles: true }));
+        this.shadow.dispatchEvent(
+          new CustomEvent('hud-cancel', { bubbles: true })
+        );
       });
     }
 
@@ -112,7 +114,8 @@ export class FloatingHud {
   private renderState(state: HudState): string {
     switch (state.status) {
       case 'translating': {
-        const pct = state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
+        const pct =
+          state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
         return `
           <div class="hud-card">
             <div class="hud-title">翻译中...</div>

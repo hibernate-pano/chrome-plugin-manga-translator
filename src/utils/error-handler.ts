@@ -1,9 +1,9 @@
 /**
  * 统一错误处理机制
- * 
+ *
  * 漫画翻译助手 v2 错误处理模块
  * 提供错误解析、友好消息转换和指数退避重试逻辑
- * 
+ *
  * Requirements: 8.1, 8.2, 8.3, 4.4
  */
 
@@ -17,29 +17,29 @@
  */
 export enum TranslationErrorCode {
   // 配置错误
-  CONFIG_MISSING = 'CONFIG_MISSING',       // API 密钥未配置
-  AUTH_ERROR = 'AUTH_ERROR',               // API 密钥无效
-  
+  CONFIG_MISSING = 'CONFIG_MISSING', // API 密钥未配置
+  AUTH_ERROR = 'AUTH_ERROR', // API 密钥无效
+
   // 网络错误
-  NETWORK_ERROR = 'NETWORK_ERROR',         // 网络连接失败
-  TIMEOUT_ERROR = 'TIMEOUT_ERROR',         // 请求超时
-  RATE_LIMIT = 'RATE_LIMIT',               // 请求过于频繁
-  
+  NETWORK_ERROR = 'NETWORK_ERROR', // 网络连接失败
+  TIMEOUT_ERROR = 'TIMEOUT_ERROR', // 请求超时
+  RATE_LIMIT = 'RATE_LIMIT', // 请求过于频繁
+
   // Ollama 错误
   OLLAMA_NOT_RUNNING = 'OLLAMA_NOT_RUNNING', // Ollama 服务未启动
-  MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',       // 模型不存在
-  
+  MODEL_NOT_FOUND = 'MODEL_NOT_FOUND', // 模型不存在
+
   // 参数错误
-  PARAM_ERROR = 'PARAM_ERROR',             // 请求参数超出限制
+  PARAM_ERROR = 'PARAM_ERROR', // 请求参数超出限制
 
   // 模型不兼容
   MODEL_INCOMPATIBLE = 'MODEL_INCOMPATIBLE', // 模型不支持结构化输出
 
   // 解析错误
-  PARSE_ERROR = 'PARSE_ERROR',             // 翻译结果解析失败
+  PARSE_ERROR = 'PARSE_ERROR', // 翻译结果解析失败
 
   // 其他错误
-  UNKNOWN_ERROR = 'UNKNOWN_ERROR',         // 未知错误
+  UNKNOWN_ERROR = 'UNKNOWN_ERROR', // 未知错误
 }
 
 /**
@@ -47,16 +47,19 @@ export enum TranslationErrorCode {
  */
 export interface FriendlyError {
   code: TranslationErrorCode;
-  message: string;      // 用户友好的中文消息
+  message: string; // 用户友好的中文消息
   retryable: boolean;
-  suggestion?: string;  // 解决建议
+  suggestion?: string; // 解决建议
 }
 
 /**
  * 错误消息映射表
  * 对应设计文档中的错误类型与用户提示
  */
-const ERROR_MESSAGES: Record<TranslationErrorCode, { message: string; suggestion: string; retryable: boolean }> = {
+const ERROR_MESSAGES: Record<
+  TranslationErrorCode,
+  { message: string; suggestion: string; retryable: boolean }
+> = {
   [TranslationErrorCode.CONFIG_MISSING]: {
     message: '请先配置 API 密钥',
     suggestion: '请在设置页面配置您的 API 密钥',
@@ -99,7 +102,8 @@ const ERROR_MESSAGES: Record<TranslationErrorCode, { message: string; suggestion
   },
   [TranslationErrorCode.MODEL_INCOMPATIBLE]: {
     message: '当前模型不支持翻译任务',
-    suggestion: '请更换为支持指令跟随的视觉语言模型，如 Qwen2.5-VL-32B-Instruct',
+    suggestion:
+      '请更换为支持指令跟随的视觉语言模型，如 Qwen2.5-VL-32B-Instruct',
     retryable: false,
   },
   [TranslationErrorCode.PARSE_ERROR]: {
@@ -125,7 +129,7 @@ const ERROR_MESSAGES: Record<TranslationErrorCode, { message: string; suggestion
 export class TranslationErrorHandler {
   /**
    * 解析错误并返回友好消息
-   * 
+   *
    * @param error - 原始错误对象
    * @returns FriendlyError - 用户友好的错误信息
    */
@@ -135,12 +139,16 @@ export class TranslationErrorHandler {
       return error;
     }
 
-    const errorMessage = error instanceof Error ? error.message.toLowerCase() : String(error).toLowerCase();
+    const errorMessage =
+      error instanceof Error
+        ? error.message.toLowerCase()
+        : String(error).toLowerCase();
     const statusCode = TranslationErrorHandler.extractStatusCode(error);
 
     // 根据状态码判断
     if (statusCode) {
-      const codeFromStatus = TranslationErrorHandler.getCodeFromStatusCode(statusCode);
+      const codeFromStatus =
+        TranslationErrorHandler.getCodeFromStatusCode(statusCode);
       if (codeFromStatus) {
         return TranslationErrorHandler.createFriendlyError(codeFromStatus);
       }
@@ -161,7 +169,9 @@ export class TranslationErrorHandler {
       'code' in error &&
       'message' in error &&
       'retryable' in error &&
-      Object.values(TranslationErrorCode).includes((error as FriendlyError).code)
+      Object.values(TranslationErrorCode).includes(
+        (error as FriendlyError).code
+      )
     );
   }
 
@@ -184,7 +194,9 @@ export class TranslationErrorHandler {
   /**
    * 根据 HTTP 状态码获取错误码
    */
-  private static getCodeFromStatusCode(statusCode: number): TranslationErrorCode | null {
+  private static getCodeFromStatusCode(
+    statusCode: number
+  ): TranslationErrorCode | null {
     switch (statusCode) {
       case 401:
         return TranslationErrorCode.AUTH_ERROR;
@@ -209,70 +221,124 @@ export class TranslationErrorHandler {
    */
   private static getCodeFromMessage(message: string): TranslationErrorCode {
     // API 密钥相关
-    if (message.includes('api key') || message.includes('apikey') || message.includes('密钥')) {
-      if (message.includes('missing') || message.includes('未配置') || message.includes('not configured')) {
+    if (
+      message.includes('api key') ||
+      message.includes('apikey') ||
+      message.includes('密钥')
+    ) {
+      if (
+        message.includes('missing') ||
+        message.includes('未配置') ||
+        message.includes('not configured')
+      ) {
         return TranslationErrorCode.CONFIG_MISSING;
       }
       return TranslationErrorCode.AUTH_ERROR;
     }
 
     // 认证错误
-    if (message.includes('unauthorized') || message.includes('invalid') && message.includes('key')) {
+    if (
+      message.includes('unauthorized') ||
+      (message.includes('invalid') && message.includes('key'))
+    ) {
       return TranslationErrorCode.AUTH_ERROR;
     }
 
     // 网络错误
-    if (message.includes('network') || message.includes('fetch') || message.includes('failed to fetch')) {
+    if (
+      message.includes('network') ||
+      message.includes('fetch') ||
+      message.includes('failed to fetch')
+    ) {
       return TranslationErrorCode.NETWORK_ERROR;
     }
 
     // 连接错误（可能是 Ollama）
-    if (message.includes('connection') || message.includes('econnrefused') || message.includes('连接')) {
-      if (message.includes('ollama') || message.includes('11434') || message.includes('localhost')) {
+    if (
+      message.includes('connection') ||
+      message.includes('econnrefused') ||
+      message.includes('连接')
+    ) {
+      if (
+        message.includes('ollama') ||
+        message.includes('11434') ||
+        message.includes('localhost')
+      ) {
         return TranslationErrorCode.OLLAMA_NOT_RUNNING;
       }
       return TranslationErrorCode.NETWORK_ERROR;
     }
 
     // 超时错误
-    if (message.includes('timeout') || message.includes('超时') || message.includes('timed out')) {
+    if (
+      message.includes('timeout') ||
+      message.includes('超时') ||
+      message.includes('timed out')
+    ) {
       return TranslationErrorCode.TIMEOUT_ERROR;
     }
 
     // 限流错误
-    if (message.includes('rate limit') || message.includes('too many') || message.includes('频繁')) {
+    if (
+      message.includes('rate limit') ||
+      message.includes('too many') ||
+      message.includes('频繁')
+    ) {
       return TranslationErrorCode.RATE_LIMIT;
     }
 
     // Ollama 相关
     if (message.includes('ollama')) {
-      if (message.includes('not running') || message.includes('未启动') || message.includes('connection refused')) {
+      if (
+        message.includes('not running') ||
+        message.includes('未启动') ||
+        message.includes('connection refused')
+      ) {
         return TranslationErrorCode.OLLAMA_NOT_RUNNING;
       }
     }
 
     // 模型不存在
-    if (message.includes('model') && (message.includes('not found') || message.includes('不存在') || message.includes('does not exist'))) {
+    if (
+      message.includes('model') &&
+      (message.includes('not found') ||
+        message.includes('不存在') ||
+        message.includes('does not exist'))
+    ) {
       return TranslationErrorCode.MODEL_NOT_FOUND;
     }
 
     // 参数超出限制 (e.g. "max_tokens exceeded max_seq_len limit")
-    if (message.includes('exceeded') || (message.includes('max_tokens') && message.includes('limit'))) {
+    if (
+      message.includes('exceeded') ||
+      (message.includes('max_tokens') && message.includes('limit'))
+    ) {
       return TranslationErrorCode.PARAM_ERROR;
     }
 
     // 模型不兼容（返回截断或纯文本，无法产生 JSON）
-    if (message.includes('truncated response') || message.includes('does not follow instruction') || message.includes('not support structured')) {
+    if (
+      message.includes('truncated response') ||
+      message.includes('does not follow instruction') ||
+      message.includes('not support structured')
+    ) {
       return TranslationErrorCode.MODEL_INCOMPATIBLE;
     }
 
     // 解析错误
-    if (message.includes('parse') || message.includes('json') || message.includes('解析')) {
+    if (
+      message.includes('parse') ||
+      message.includes('json') ||
+      message.includes('解析')
+    ) {
       return TranslationErrorCode.PARSE_ERROR;
     }
 
     // API 返回空响应
-    if (message.includes('empty response') || message.includes('empty content')) {
+    if (
+      message.includes('empty response') ||
+      message.includes('empty content')
+    ) {
       return TranslationErrorCode.PARSE_ERROR;
     }
 
@@ -282,7 +348,11 @@ export class TranslationErrorHandler {
     }
 
     // 配置缺失
-    if (message.includes('未配置') || message.includes('not configured') || message.includes('missing config')) {
+    if (
+      message.includes('未配置') ||
+      message.includes('not configured') ||
+      message.includes('missing config')
+    ) {
       return TranslationErrorCode.CONFIG_MISSING;
     }
 
@@ -292,7 +362,9 @@ export class TranslationErrorHandler {
   /**
    * 创建 FriendlyError 对象
    */
-  private static createFriendlyError(code: TranslationErrorCode): FriendlyError {
+  private static createFriendlyError(
+    code: TranslationErrorCode
+  ): FriendlyError {
     const errorInfo = ERROR_MESSAGES[code];
     return {
       code,
@@ -304,7 +376,7 @@ export class TranslationErrorHandler {
 
   /**
    * 判断是否可重试
-   * 
+   *
    * @param error - FriendlyError 或原始错误
    * @returns boolean - 是否可重试
    */
@@ -318,7 +390,7 @@ export class TranslationErrorHandler {
 
   /**
    * 重试逻辑（指数退避）
-   * 
+   *
    * @param fn - 要重试的异步函数
    * @param maxRetries - 最大重试次数（默认 3）
    * @param baseDelay - 基础延迟毫秒数（默认 1000）
@@ -337,9 +409,9 @@ export class TranslationErrorHandler {
         return await fn();
       } catch (error) {
         lastError = error;
-        
+
         const friendlyError = TranslationErrorHandler.parseError(error);
-        
+
         // 如果错误不可重试，直接抛出
         if (!friendlyError.retryable) {
           throw friendlyError;
@@ -423,7 +495,7 @@ export function getFriendlyErrorMessage(error: unknown): string {
  */
 export function getFullFriendlyErrorMessage(error: unknown): string {
   const friendlyError = TranslationErrorHandler.parseError(error);
-  return friendlyError.suggestion 
+  return friendlyError.suggestion
     ? `${friendlyError.message}。${friendlyError.suggestion}`
     : friendlyError.message;
-} 
+}

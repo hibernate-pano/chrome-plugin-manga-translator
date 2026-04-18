@@ -1,10 +1,10 @@
 /**
  * Image Priority and Parallel Processing Utilities
- * 
+ *
  * Implements performance optimizations for manga translation:
  * - Viewport-first image processing (Requirements 9.4)
  * - Parallel processing with limits (Requirements 9.2)
- * 
+ *
  * Requirements: 9.2, 9.4
  */
 
@@ -36,14 +36,18 @@ export interface ParallelProcessingOptions {
 
 /**
  * Check if an element is in the viewport
- * 
+ *
  * @param element Element to check
  * @param margin Extra margin around viewport (in pixels)
  * @returns True if element is in or near viewport
  */
-export function isInViewport(element: HTMLElement, margin: number = 100): boolean {
+export function isInViewport(
+  element: HTMLElement,
+  margin: number = 100
+): boolean {
   const rect = element.getBoundingClientRect();
-  const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+  const windowHeight =
+    window.innerHeight || document.documentElement.clientHeight;
   const windowWidth = window.innerWidth || document.documentElement.clientWidth;
 
   // Check if element is within viewport + margin
@@ -57,13 +61,14 @@ export function isInViewport(element: HTMLElement, margin: number = 100): boolea
 
 /**
  * Calculate distance from viewport center
- * 
+ *
  * @param element Element to measure
  * @returns Distance in pixels from viewport center
  */
 export function getDistanceFromViewportCenter(element: HTMLElement): number {
   const rect = element.getBoundingClientRect();
-  const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+  const windowHeight =
+    window.innerHeight || document.documentElement.clientHeight;
   const windowWidth = window.innerWidth || document.documentElement.clientWidth;
 
   // Calculate element center
@@ -83,12 +88,12 @@ export function getDistanceFromViewportCenter(element: HTMLElement): number {
 
 /**
  * Calculate priority score for an image
- * 
+ *
  * Higher score = higher priority
  * - Images in viewport get highest priority
  * - Closer to viewport center = higher priority
  * - Larger images get slightly higher priority
- * 
+ *
  * @param img Image element
  * @returns Priority score
  */
@@ -110,7 +115,8 @@ export function calculateImagePriority(img: HTMLImageElement): number {
   priority += distanceScore;
 
   // Size bonus (larger images slightly higher priority, max 100 points)
-  const area = (img.naturalWidth || img.width) * (img.naturalHeight || img.height);
+  const area =
+    (img.naturalWidth || img.width) * (img.naturalHeight || img.height);
   const sizeScore = Math.min(100, area / 10000);
   priority += sizeScore;
 
@@ -121,13 +127,15 @@ export function calculateImagePriority(img: HTMLImageElement): number {
 
 /**
  * Sort images by priority (viewport-first)
- * 
+ *
  * Requirements: 9.4 - Prioritize viewport images
- * 
+ *
  * @param images Array of image elements
  * @returns Sorted array with priority information
  */
-export function sortImagesByPriority(images: HTMLImageElement[]): ImageWithPriority[] {
+export function sortImagesByPriority(
+  images: HTMLImageElement[]
+): ImageWithPriority[] {
   const imagesWithPriority: ImageWithPriority[] = images.map(img => ({
     image: img,
     priority: calculateImagePriority(img),
@@ -141,11 +149,13 @@ export function sortImagesByPriority(images: HTMLImageElement[]): ImageWithPrior
 
 /**
  * Get images sorted by viewport priority
- * 
+ *
  * @param images Array of image elements
  * @returns Sorted array of image elements (viewport first)
  */
-export function getViewportFirstImages(images: HTMLImageElement[]): HTMLImageElement[] {
+export function getViewportFirstImages(
+  images: HTMLImageElement[]
+): HTMLImageElement[] {
   return sortImagesByPriority(images).map(item => item.image);
 }
 
@@ -153,9 +163,9 @@ export function getViewportFirstImages(images: HTMLImageElement[]): HTMLImageEle
 
 /**
  * Process items in parallel with a concurrency limit
- * 
+ *
  * Requirements: 9.2 - Support parallel processing with limits
- * 
+ *
  * @param items Array of items to process
  * @param processor Function to process each item
  * @param options Processing options
@@ -193,7 +203,10 @@ export async function processInParallel<T, R>(
         completedCount++;
         onItemComplete?.(completedCount, total);
       } catch (error) {
-        onError?.(error instanceof Error ? error : new Error(String(error)), index);
+        onError?.(
+          error instanceof Error ? error : new Error(String(error)),
+          index
+        );
         // Store undefined for failed items
         results[index] = undefined as unknown as R;
         completedCount++;
@@ -215,11 +228,11 @@ export async function processInParallel<T, R>(
 
 /**
  * Process images with viewport priority and parallel limits
- * 
+ *
  * This is the main function for optimized image processing:
  * 1. Sorts images by viewport priority
  * 2. Processes in parallel with concurrency limit
- * 
+ *
  * @param images Array of image elements
  * @param processor Function to process each image
  * @param options Processing options
@@ -241,7 +254,7 @@ export async function processImagesOptimized<R>(
 
 /**
  * Split array into batches
- * 
+ *
  * @param items Array to split
  * @param batchSize Size of each batch
  * @returns Array of batches
@@ -256,10 +269,10 @@ export function splitIntoBatches<T>(items: T[], batchSize: number): T[][] {
 
 /**
  * Process items in sequential batches with parallel processing within each batch
- * 
+ *
  * Useful for rate-limited APIs where you want some parallelism
  * but need to avoid overwhelming the server
- * 
+ *
  * @param items Array of items
  * @param processor Processing function
  * @param batchSize Items per batch
@@ -315,7 +328,7 @@ export async function processInBatches<T, R>(
 
 /**
  * Create an intersection observer for lazy loading images
- * 
+ *
  * @param onEnterViewport Callback when image enters viewport
  * @param options Observer options
  * @returns IntersectionObserver instance
@@ -331,7 +344,7 @@ export function createViewportObserver(
     ...options,
   };
 
-  return new IntersectionObserver((entries) => {
+  return new IntersectionObserver(entries => {
     entries.forEach(entry => {
       if (entry.isIntersecting && entry.target instanceof HTMLImageElement) {
         onEnterViewport(entry.target);

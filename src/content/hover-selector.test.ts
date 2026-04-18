@@ -9,17 +9,19 @@ import { isTranslatableImage } from './hover-selector';
 
 // ==================== 测试工具函数 ====================
 
-function makeImg(overrides: Partial<{
-  naturalWidth: number;
-  naturalHeight: number;
-  width: number;
-  height: number;
-  complete: boolean;
-  src: string;
-  className: string;
-  id: string;
-  parentTagName?: string;
-}>): HTMLImageElement {
+function makeImg(
+  overrides: Partial<{
+    naturalWidth: number;
+    naturalHeight: number;
+    width: number;
+    height: number;
+    complete: boolean;
+    src: string;
+    className: string;
+    id: string;
+    parentTagName?: string;
+  }>
+): HTMLImageElement {
   const img = document.createElement('img');
 
   const props = {
@@ -34,11 +36,26 @@ function makeImg(overrides: Partial<{
     ...overrides,
   };
 
-  Object.defineProperty(img, 'naturalWidth', { value: props.naturalWidth, configurable: true });
-  Object.defineProperty(img, 'naturalHeight', { value: props.naturalHeight, configurable: true });
-  Object.defineProperty(img, 'width', { value: props.width, configurable: true });
-  Object.defineProperty(img, 'height', { value: props.height, configurable: true });
-  Object.defineProperty(img, 'complete', { value: props.complete, configurable: true });
+  Object.defineProperty(img, 'naturalWidth', {
+    value: props.naturalWidth,
+    configurable: true,
+  });
+  Object.defineProperty(img, 'naturalHeight', {
+    value: props.naturalHeight,
+    configurable: true,
+  });
+  Object.defineProperty(img, 'width', {
+    value: props.width,
+    configurable: true,
+  });
+  Object.defineProperty(img, 'height', {
+    value: props.height,
+    configurable: true,
+  });
+  Object.defineProperty(img, 'complete', {
+    value: props.complete,
+    configurable: true,
+  });
   img.src = props.src;
   img.className = props.className;
   img.id = props.id;

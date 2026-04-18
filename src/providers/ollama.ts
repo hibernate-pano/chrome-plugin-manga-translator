@@ -1,9 +1,9 @@
 /**
  * Ollama Vision Provider
- * 
+ *
  * Uses locally deployed Ollama service for manga image analysis and translation.
  * Supports vision models like llava, bakllava, etc.
- * 
+ *
  * Benefits:
  * - Privacy-friendly: data stays local
  * - No API costs
@@ -18,7 +18,6 @@ import {
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';
-import type { TranslationStylePreset } from '@/utils/translation-style';
 
 const DEFAULT_MODEL = 'llava';
 const DEFAULT_BASE_URL = 'http://localhost:11434';
@@ -51,7 +50,7 @@ interface OllamaTagsResponse {
 export class OllamaProvider implements VisionProvider {
   readonly name = 'Ollama';
   readonly type = 'ollama' as const;
-  
+
   private config: ProviderConfig = {};
 
   async initialize(config: ProviderConfig): Promise<void> {
@@ -64,16 +63,15 @@ export class OllamaProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset
+    targetLanguage: string
   ): Promise<VisionResponse> {
-    this.ensureConfigured();
+    const validation = await this.validateConfig();
+    if (!validation.valid) {
+      throw new Error(validation.message);
+    }
 
-    const prompt = getMangaTranslationPrompt(
-      targetLanguage,
-      translationStylePreset
-    );
-    
+    const prompt = getMangaTranslationPrompt(targetLanguage);
+
     // Extract pure base64 data (remove data URL prefix if present)
     let base64Data = imageBase64;
     if (imageBase64.startsWith('data:')) {
@@ -105,14 +103,16 @@ export class OllamaProvider implements VisionProvider {
 
     if (!response.ok) {
       if (response.status === 404) {
-        throw new Error(`模型 ${this.config.model} 未安装，请先运行: ollama pull ${this.config.model}`);
+        throw new Error(
+          `模型 ${this.config.model} 未安装，请先运行: ollama pull ${this.config.model}`
+        );
       }
       const errorText = await response.text().catch(() => response.statusText);
       throw new Error(`Ollama API error: ${errorText}`);
     }
 
-    const data = await response.json() as OllamaGenerateResponse;
-    
+    const data = (await response.json()) as OllamaGenerateResponse;
+
     if (data.error) {
       throw new Error(`Ollama error: ${data.error}`);
     }
@@ -149,15 +149,6 @@ export class OllamaProvider implements VisionProvider {
     };
   }
 
-  private ensureConfigured(): void {
-    if (!this.config.baseUrl) {
-      throw new Error('请配置 Ollama 服务地址');
-    }
-    if (!this.config.model) {
-      throw new Error('请配置 Ollama 模型');
-    }
-  }
-
   /**
    * Check if Ollama service is running and accessible
    */
@@ -187,7 +178,10 @@ export class OllamaProvider implements VisionProvider {
             message: 'Ollama 服务连接超时，请检查服务是否启动',
           };
         }
-        if (error.message.includes('fetch') || error.message.includes('network')) {
+        if (
+          error.message.includes('fetch') ||
+          error.message.includes('network')
+        ) {
           return {
             healthy: false,
             message: '无法连接到 Ollama 服务，请先启动 Ollama',
@@ -207,7 +201,7 @@ export class OllamaProvider implements VisionProvider {
   async checkModel(): Promise<{ available: boolean; message: string }> {
     try {
       const response = await fetch(`${this.config.baseUrl}/api/tags`);
-      
+
       if (!response.ok) {
         return {
           available: false,
@@ -215,15 +209,16 @@ export class OllamaProvider implements VisionProvider {
         };
       }
 
-      const data = await response.json() as OllamaTagsResponse;
+      const data = (await response.json()) as OllamaTagsResponse;
       const models = data.models || [];
-      
+
       // Check if the model exists (handle both 'llava' and 'llava:latest' formats)
       const configModelName = this.config.model ?? DEFAULT_MODEL;
-      const modelExists = models.some(m => 
-        m.name === configModelName || 
-        m.name === `${configModelName}:latest` ||
-        m.name.startsWith(`${configModelName}:`)
+      const modelExists = models.some(
+        m =>
+          m.name === configModelName ||
+          m.name === `${configModelName}:latest` ||
+          m.name.startsWith(`${configModelName}:`)
       );
 
       if (!modelExists) {
@@ -271,7 +266,7 @@ export class OllamaProvider implements VisionProvider {
       const response = await fetch(`${this.config.baseUrl}/api/tags`);
       if (!response.ok) return [];
 
-      const data = await response.json() as OllamaTagsResponse;
+      const data = (await response.json()) as OllamaTagsResponse;
       return (data.models || [])
         .filter(m => this.isVisionModel(m.name))
         .map(m => m.name);

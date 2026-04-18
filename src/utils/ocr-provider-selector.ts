@@ -62,26 +62,26 @@ export function analyzeImageFeatures(image: HTMLImageElement): ImageFeatures {
     const canvas = document.createElement('canvas');
     canvas.width = image.naturalWidth || image.width;
     canvas.height = image.naturalHeight || image.height;
-    
+
     const ctx = canvas.getContext('2d');
     if (!ctx) {
       // 返回默认特征
       return getDefaultFeatures(canvas.width, canvas.height);
     }
-    
+
     ctx.drawImage(image, 0, 0);
     const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
     const data = imageData.data;
-    
+
     const width = canvas.width;
     const height = canvas.height;
     const pixelCount = width * height;
-    
+
     // 采样分析（每4个像素采样一次以提高性能）
     const sampleStep = 4;
     const samples: number[] = [];
     const colorSamples: Array<{ r: number; g: number; b: number }> = [];
-    
+
     for (let i = 0; i < data.length; i += sampleStep * 4) {
       const r = data[i] ?? 0;
       const g = data[i + 1] ?? 0;
@@ -90,21 +90,23 @@ export function analyzeImageFeatures(image: HTMLImageElement): ImageFeatures {
       samples.push(brightness);
       colorSamples.push({ r, g, b });
     }
-    
+
     if (samples.length === 0) {
       return getDefaultFeatures(width, height);
     }
-    
+
     // 计算平均亮度
-    const avgBrightness = samples.reduce((sum, val) => sum + val, 0) / samples.length;
-    
+    const avgBrightness =
+      samples.reduce((sum, val) => sum + val, 0) / samples.length;
+
     // 计算对比度（标准差）
-    const variance = samples.reduce((sum, val) => {
-      const diff = val - avgBrightness;
-      return sum + diff * diff;
-    }, 0) / samples.length;
+    const variance =
+      samples.reduce((sum, val) => {
+        const diff = val - avgBrightness;
+        return sum + diff * diff;
+      }, 0) / samples.length;
     const contrast = Math.sqrt(variance);
-    
+
     // 估算噪声水平
     let noiseSum = 0;
     const noiseSamples = Math.min(200, samples.length);
@@ -116,56 +118,60 @@ export function analyzeImageFeatures(image: HTMLImageElement): ImageFeatures {
       }
     }
     const noiseLevel = noiseSamples > 1 ? noiseSum / (noiseSamples - 1) : 0;
-    
+
     // 计算图像复杂度（基于颜色变化和边缘）
     let colorVariance = 0;
     let edgeCount = 0;
     const edgeThreshold = 30; // 边缘检测阈值
-    
+
     for (let i = 0; i < Math.min(1000, colorSamples.length - 1); i++) {
       const current = colorSamples[i];
       const next = colorSamples[i + 1];
-      
+
       if (!current || !next) continue;
-      
+
       // 颜色方差
       const colorDiff = Math.sqrt(
         Math.pow(current.r - next.r, 2) +
-        Math.pow(current.g - next.g, 2) +
-        Math.pow(current.b - next.b, 2)
+          Math.pow(current.g - next.g, 2) +
+          Math.pow(current.b - next.b, 2)
       );
       colorVariance += colorDiff;
-      
+
       // 边缘检测
       const brightnessDiff = Math.abs(
-        (current.r + current.g + current.b) / 3 -
-        (next.r + next.g + next.b) / 3
+        (current.r + current.g + current.b) / 3 - (next.r + next.g + next.b) / 3
       );
       if (brightnessDiff > edgeThreshold) {
         edgeCount++;
       }
     }
-    
-    const avgColorVariance = colorVariance / Math.min(1000, colorSamples.length - 1);
+
+    const avgColorVariance =
+      colorVariance / Math.min(1000, colorSamples.length - 1);
     const edgeDensity = edgeCount / Math.min(1000, colorSamples.length - 1);
     const complexity = Math.min(1, (avgColorVariance / 100 + edgeDensity) / 2);
-    
+
     // 判断是否为漫画风格
     // 漫画特征：高对比度、清晰的边缘、相对简单的颜色
-    const isMangaStyle = 
-      contrast > 50 && 
-      edgeDensity > 0.1 && 
+    const isMangaStyle =
+      contrast > 50 &&
+      edgeDensity > 0.1 &&
       avgColorVariance < 80 &&
       avgBrightness > 150;
-    
+
     // 计算图像质量评分
     // 综合考虑对比度、噪声水平、亮度分布
-    const qualityScore = Math.min(1, Math.max(0,
-      (contrast / 100) * 0.4 +
-      (1 - Math.min(noiseLevel / 50, 1)) * 0.3 +
-      (Math.abs(avgBrightness - 128) < 50 ? 1 : 0.5) * 0.3
-    ));
-    
+    const qualityScore = Math.min(
+      1,
+      Math.max(
+        0,
+        (contrast / 100) * 0.4 +
+          (1 - Math.min(noiseLevel / 50, 1)) * 0.3 +
+          (Math.abs(avgBrightness - 128) < 50 ? 1 : 0.5) * 0.3
+      )
+    );
+
     return {
       width,
       height,
@@ -175,7 +181,7 @@ export function analyzeImageFeatures(image: HTMLImageElement): ImageFeatures {
       noiseLevel,
       complexity,
       isMangaStyle,
-      qualityScore
+      qualityScore,
     };
   } catch (error) {
     console.warn('图像特征分析失败:', error);
@@ -199,7 +205,7 @@ function getDefaultFeatures(width: number, height: number): ImageFeatures {
     noiseLevel: 10,
     complexity: 0.5,
     isMangaStyle: false,
-    qualityScore: 0.7
+    qualityScore: 0.7,
   };
 }
 
@@ -220,59 +226,64 @@ export function selectOptimalOCRProvider(
     apiAvailable = true,
     tesseractAvailable = true,
     largeImageThreshold = 2000000, // 200万像素
-    lowQualityThreshold = 0.5
+    lowQualityThreshold = 0.5,
   } = config;
-  
+
   // 如果用户明确指定了方法，直接返回
   if (preferredMethod !== 'auto') {
-    const available = preferredMethod === 'api' ? apiAvailable : tesseractAvailable;
+    const available =
+      preferredMethod === 'api' ? apiAvailable : tesseractAvailable;
     return {
-      provider: available ? preferredMethod : (apiAvailable ? 'api' : 'tesseract'),
-      reason: available 
+      provider: available
+        ? preferredMethod
+        : apiAvailable
+          ? 'api'
+          : 'tesseract',
+      reason: available
         ? `使用用户指定的方法: ${preferredMethod}`
         : `用户指定的方法不可用，使用备选方法`,
       confidence: available ? 1.0 : 0.7,
-      expectedPerformance: 0.8
+      expectedPerformance: 0.8,
     };
   }
-  
+
   // 分析图像特征
   const features = analyzeImageFeatures(image);
-  
+
   // 检查提供者可用性
   if (!apiAvailable && !tesseractAvailable) {
     return {
       provider: 'tesseract',
       reason: '没有可用的OCR提供者，使用默认方法',
       confidence: 0.5,
-      expectedPerformance: 0.5
+      expectedPerformance: 0.5,
     };
   }
-  
+
   if (!apiAvailable) {
     return {
       provider: 'tesseract',
       reason: 'API OCR不可用，使用Tesseract',
       confidence: 0.9,
-      expectedPerformance: 0.7
+      expectedPerformance: 0.7,
     };
   }
-  
+
   if (!tesseractAvailable) {
     return {
       provider: 'api',
       reason: 'Tesseract不可用，使用API OCR',
       confidence: 0.9,
-      expectedPerformance: 0.8
+      expectedPerformance: 0.8,
     };
   }
-  
+
   // 根据图像特征和配置进行智能选择
   let provider: 'tesseract' | 'api' = 'tesseract';
   let reason = '';
   let confidence = 0.7;
   let expectedPerformance = 0.7;
-  
+
   // 1. 图像大小考虑
   if (features.pixelCount > largeImageThreshold) {
     // 大图像：API通常更快且更准确
@@ -281,7 +292,7 @@ export function selectOptimalOCRProvider(
     confidence = 0.8;
     expectedPerformance = 0.85;
   }
-  
+
   // 2. 图像质量考虑
   else if (features.qualityScore < lowQualityThreshold) {
     // 低质量图像：API通常更准确
@@ -290,7 +301,7 @@ export function selectOptimalOCRProvider(
     confidence = 0.85;
     expectedPerformance = 0.8;
   }
-  
+
   // 3. 漫画风格考虑
   else if (features.isMangaStyle) {
     // 漫画图像：Tesseract通常表现更好（针对日文优化）
@@ -299,7 +310,7 @@ export function selectOptimalOCRProvider(
     confidence = 0.8;
     expectedPerformance = 0.85;
   }
-  
+
   // 4. 复杂度考虑
   else if (features.complexity > 0.7) {
     // 高复杂度图像：API通常更准确
@@ -308,7 +319,7 @@ export function selectOptimalOCRProvider(
     confidence = 0.75;
     expectedPerformance = 0.8;
   }
-  
+
   // 5. 噪声水平考虑
   else if (features.noiseLevel > 20) {
     // 高噪声图像：API通常更准确
@@ -317,7 +328,7 @@ export function selectOptimalOCRProvider(
     confidence = 0.8;
     expectedPerformance = 0.75;
   }
-  
+
   // 6. 速度和准确率优先级
   else {
     if (prioritizeSpeed) {
@@ -354,12 +365,12 @@ export function selectOptimalOCRProvider(
       }
     }
   }
-  
+
   return {
     provider,
     reason,
     confidence,
-    expectedPerformance
+    expectedPerformance,
   };
 }
 
@@ -377,19 +388,16 @@ export function getOCRProviderSelectionInfo(
     api: { pros: string[]; cons: string[]; score: number };
   };
 } {
-  const {
-    largeImageThreshold = 2000000,
-    lowQualityThreshold = 0.5
-  } = config;
-  
+  const { largeImageThreshold = 2000000, lowQualityThreshold = 0.5 } = config;
+
   const features = analyzeImageFeatures(image);
   const recommendation = selectOptimalOCRProvider(image, config);
-  
+
   // Tesseract评估
   const tesseractPros: string[] = [];
   const tesseractCons: string[] = [];
   let tesseractScore = 0.5;
-  
+
   if (features.isMangaStyle) {
     tesseractPros.push('对日文漫画识别准确');
     tesseractScore += 0.2;
@@ -414,12 +422,12 @@ export function getOCRProviderSelectionInfo(
     tesseractCons.push('高噪声图像识别效果差');
     tesseractScore -= 0.15;
   }
-  
+
   // API评估
   const apiPros: string[] = [];
   const apiCons: string[] = [];
   let apiScore = 0.5;
-  
+
   if (features.pixelCount > largeImageThreshold) {
     apiPros.push('大图像处理速度快');
     apiScore += 0.2;
@@ -444,7 +452,7 @@ export function getOCRProviderSelectionInfo(
     apiCons.push('API不可用');
     apiScore = 0;
   }
-  
+
   return {
     recommendation,
     features,
@@ -452,14 +460,13 @@ export function getOCRProviderSelectionInfo(
       tesseract: {
         pros: tesseractPros.length > 0 ? tesseractPros : ['无特殊优势'],
         cons: tesseractCons.length > 0 ? tesseractCons : ['无特殊劣势'],
-        score: Math.max(0, Math.min(1, tesseractScore))
+        score: Math.max(0, Math.min(1, tesseractScore)),
       },
       api: {
         pros: apiPros.length > 0 ? apiPros : ['无特殊优势'],
         cons: apiCons.length > 0 ? apiCons : ['无特殊劣势'],
-        score: Math.max(0, Math.min(1, apiScore))
-      }
-    }
+        score: Math.max(0, Math.min(1, apiScore)),
+      },
+    },
   };
 }
-

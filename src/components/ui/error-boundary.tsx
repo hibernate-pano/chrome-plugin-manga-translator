@@ -26,7 +26,10 @@ export interface ErrorFallbackProps {
   resetError: () => void;
 }
 
-export class ErrorBoundary extends React.Component<ErrorBoundaryProps, ErrorBoundaryState> {
+export class ErrorBoundary extends React.Component<
+  ErrorBoundaryProps,
+  ErrorBoundaryState
+> {
   constructor(props: ErrorBoundaryProps) {
     super(props);
     this.state = {
@@ -96,50 +99,52 @@ export const DefaultErrorFallback: React.FC<ErrorFallbackProps> = ({
   resetError,
 }) => {
   return (
-    <div className="min-h-[200px] flex items-center justify-center p-6">
-      <div className="text-center max-w-md">
-        <div className="mb-4">
+    <div className='flex min-h-[200px] items-center justify-center p-6'>
+      <div className='max-w-md text-center'>
+        <div className='mb-4'>
           <svg
-            className="mx-auto h-12 w-12 text-red-500"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
+            className='mx-auto h-12 w-12 text-red-500'
+            fill='none'
+            viewBox='0 0 24 24'
+            stroke='currentColor'
           >
             <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
+              strokeLinecap='round'
+              strokeLinejoin='round'
               strokeWidth={2}
-              d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+              d='M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z'
             />
           </svg>
         </div>
-        <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+        <h3 className='mb-2 text-lg font-medium text-gray-900 dark:text-white'>
           出现了错误
         </h3>
-        <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+        <p className='mb-4 text-sm text-gray-500 dark:text-gray-400'>
           抱歉，应用程序遇到了意外错误。请尝试刷新页面或联系支持。
         </p>
-        <details className="text-left mb-4">
-          <summary className="cursor-pointer text-sm text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100">
+        <details className='mb-4 text-left'>
+          <summary className='cursor-pointer text-sm text-gray-600 hover:text-gray-800 dark:text-gray-300 dark:hover:text-gray-100'>
             查看错误详情
           </summary>
-          <div className="mt-2 p-3 bg-gray-100 dark:bg-gray-800 rounded text-xs font-mono text-gray-700 dark:text-gray-300 overflow-auto max-h-32">
-            <div className="mb-2">
+          <div className='mt-2 max-h-32 overflow-auto rounded bg-gray-100 p-3 font-mono text-xs text-gray-700 dark:bg-gray-800 dark:text-gray-300'>
+            <div className='mb-2'>
               <strong>错误信息:</strong> {error.message}
             </div>
-            <div className="mb-2">
+            <div className='mb-2'>
               <strong>错误堆栈:</strong>
-              <pre className="whitespace-pre-wrap">{error.stack}</pre>
+              <pre className='whitespace-pre-wrap'>{error.stack}</pre>
             </div>
             {errorInfo.componentStack && (
               <div>
                 <strong>组件堆栈:</strong>
-                <pre className="whitespace-pre-wrap">{errorInfo.componentStack}</pre>
+                <pre className='whitespace-pre-wrap'>
+                  {errorInfo.componentStack}
+                </pre>
               </div>
             )}
           </div>
         </details>
-        <Button onClick={resetError} variant="outline">
+        <Button onClick={resetError} variant='outline'>
           重试
         </Button>
       </div>
@@ -165,38 +170,40 @@ export const ErrorMessage: React.FC<ErrorMessageProps> = ({
   className,
 }) => {
   return (
-    <div className={cn(
-      'bg-red-50 dark:bg-red-900/20 border border-red-200 dark:border-red-800 rounded-md p-4',
-      className
-    )}>
-      <div className="flex">
-        <div className="flex-shrink-0">
+    <div
+      className={cn(
+        'rounded-md border border-red-200 bg-red-50 p-4 dark:border-red-800 dark:bg-red-900/20',
+        className
+      )}
+    >
+      <div className='flex'>
+        <div className='flex-shrink-0'>
           <svg
-            className="h-5 w-5 text-red-400"
-            viewBox="0 0 20 20"
-            fill="currentColor"
+            className='h-5 w-5 text-red-400'
+            viewBox='0 0 20 20'
+            fill='currentColor'
           >
             <path
-              fillRule="evenodd"
-              d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z"
-              clipRule="evenodd"
+              fillRule='evenodd'
+              d='M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z'
+              clipRule='evenodd'
             />
           </svg>
         </div>
-        <div className="ml-3 flex-1">
-          <h3 className="text-sm font-medium text-red-800 dark:text-red-200">
+        <div className='ml-3 flex-1'>
+          <h3 className='text-sm font-medium text-red-800 dark:text-red-200'>
             {title}
           </h3>
-          <div className="mt-2 text-sm text-red-700 dark:text-red-300">
+          <div className='mt-2 text-sm text-red-700 dark:text-red-300'>
             {message}
           </div>
           {action && (
-            <div className="mt-3">
+            <div className='mt-3'>
               <Button
-                variant="outline"
-                size="sm"
+                variant='outline'
+                size='sm'
                 onClick={action.onClick}
-                className="text-red-800 border-red-300 hover:bg-red-100 dark:text-red-200 dark:border-red-600 dark:hover:bg-red-800"
+                className='border-red-300 text-red-800 hover:bg-red-100 dark:border-red-600 dark:text-red-200 dark:hover:bg-red-800'
               >
                 {action.label}
               </Button>
@@ -219,33 +226,30 @@ export const NetworkError: React.FC<NetworkErrorProps> = ({
   className,
 }) => {
   return (
-    <div className={cn(
-      'text-center py-8 px-4',
-      className
-    )}>
-      <div className="mb-4">
+    <div className={cn('px-4 py-8 text-center', className)}>
+      <div className='mb-4'>
         <svg
-          className="mx-auto h-12 w-12 text-gray-400"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+          className='mx-auto h-12 w-12 text-gray-400'
+          fill='none'
+          viewBox='0 0 24 24'
+          stroke='currentColor'
         >
           <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            strokeLinecap='round'
+            strokeLinejoin='round'
             strokeWidth={2}
-            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            d='M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
           />
         </svg>
       </div>
-      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+      <h3 className='mb-2 text-lg font-medium text-gray-900 dark:text-white'>
         网络连接错误
       </h3>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">
+      <p className='mb-4 text-sm text-gray-500 dark:text-gray-400'>
         无法连接到服务器，请检查您的网络连接。
       </p>
       {onRetry && (
-        <Button onClick={onRetry} variant="outline">
+        <Button onClick={onRetry} variant='outline'>
           重试
         </Button>
       )}
@@ -304,37 +308,34 @@ export const APIError: React.FC<APIErrorProps> = ({
   };
 
   return (
-    <div className={cn(
-      'text-center py-6 px-4',
-      className
-    )}>
-      <div className="mb-4">
+    <div className={cn('px-4 py-6 text-center', className)}>
+      <div className='mb-4'>
         <svg
-          className="mx-auto h-10 w-10 text-red-500"
-          fill="none"
-          viewBox="0 0 24 24"
-          stroke="currentColor"
+          className='mx-auto h-10 w-10 text-red-500'
+          fill='none'
+          viewBox='0 0 24 24'
+          stroke='currentColor'
         >
           <path
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            strokeLinecap='round'
+            strokeLinejoin='round'
             strokeWidth={2}
-            d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
+            d='M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z'
           />
         </svg>
       </div>
-      <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-2">
+      <h3 className='mb-2 text-lg font-medium text-gray-900 dark:text-white'>
         {getErrorTitle(error.status)}
       </h3>
-      <p className="text-sm text-gray-500 dark:text-gray-400 mb-2">
+      <p className='mb-2 text-sm text-gray-500 dark:text-gray-400'>
         {getErrorDescription(error.status)}
       </p>
-      <p className="text-xs text-gray-400 dark:text-gray-500 mb-4">
+      <p className='mb-4 text-xs text-gray-400 dark:text-gray-500'>
         {error.message}
         {error.code && ` (${error.code})`}
       </p>
       {onRetry && (
-        <Button onClick={onRetry} variant="outline" size="sm">
+        <Button onClick={onRetry} variant='outline' size='sm'>
           重试
         </Button>
       )}

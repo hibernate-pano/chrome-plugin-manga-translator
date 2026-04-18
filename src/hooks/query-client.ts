@@ -1,5 +1,7 @@
 import { QueryClient } from '@tanstack/react-query';
 
+type QueryObject = Record<string, unknown>;
+
 /**
  * React Query客户端配置
  * 针对Chrome扩展环境优化
@@ -21,7 +23,7 @@ export const queryClient = new QueryClient({
         return failureCount < 3;
       },
       // 重试延迟：指数退避
-      retryDelay: (attemptIndex) => Math.min(1000 * 2 ** attemptIndex, 30000),
+      retryDelay: attemptIndex => Math.min(1000 * 2 ** attemptIndex, 30000),
       // 后台重新获取
       refetchOnWindowFocus: false,
       refetchOnReconnect: true,
@@ -56,7 +58,7 @@ export const queryKeys = {
     all: ['ocr'] as const,
     detect: (imageHash: string) =>
       [...queryKeys.ocr.all, 'detect', imageHash] as const,
-    extract: (imageHash: string, area: any) =>
+    extract: (imageHash: string, area: QueryObject) =>
       [...queryKeys.ocr.all, 'extract', imageHash, area] as const,
   },
 
@@ -65,7 +67,7 @@ export const queryKeys = {
     all: ['config'] as const,
     provider: (providerType: string) =>
       [...queryKeys.config.all, 'provider', providerType] as const,
-    validation: (providerType: string, config: any) =>
+    validation: (providerType: string, config: QueryObject) =>
       [...queryKeys.config.all, 'validation', providerType, config] as const,
   },
 
@@ -76,7 +78,8 @@ export const queryKeys = {
     entries: (type?: string) =>
       [...queryKeys.cache.all, 'entries', type] as const,
     intelligent: () => [...queryKeys.cache.all, 'intelligent'] as const,
-    offline: (type?: string) => [...queryKeys.cache.all, 'offline', type] as const,
+    offline: (type?: string) =>
+      [...queryKeys.cache.all, 'offline', type] as const,
     networkStatus: () => [...queryKeys.cache.all, 'networkStatus'] as const,
     performance: () => [...queryKeys.cache.all, 'performance'] as const,
     config: () => [...queryKeys.cache.all, 'config'] as const,
