@@ -103,7 +103,12 @@ function setState(state: ContentState): void {
         });
         break;
       case 'complete':
-        hud.update({ status: 'complete', count: state.count });
+        hud.update({
+          status: 'complete',
+          translatedCount: state.count,
+          failedCount: 0,
+          cachedCount: 0,
+        });
         break;
       case 'hover-select':
         hud.update({ status: 'hover-select' });
