@@ -2,6 +2,12 @@ import React, { useState, useEffect } from 'react';
 import { cn } from '@/lib/utils';
 import { X, CheckCircle, AlertCircle, Info, AlertTriangle } from 'lucide-react';
 
+declare global {
+  interface Window {
+    showNotification?: (config: NotificationConfig) => void;
+  }
+}
+
 // ==================== 通知类型定义 ====================
 
 export type NotificationType = 'success' | 'error' | 'warning' | 'info';
@@ -72,21 +78,21 @@ export const Notification: React.FC<NotificationProps> = ({
   return (
     <div
       className={cn(
-        'border rounded-lg p-4 transition-all duration-300 ease-in-out',
+        'rounded-lg border p-4 transition-all duration-300 ease-in-out',
         colorMap[type],
-        isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 -translate-y-2',
+        isVisible ? 'translate-y-0 opacity-100' : '-translate-y-2 opacity-0',
         className
       )}
     >
-      <div className="flex items-start">
-        <Icon className="h-5 w-5 mt-0.5 mr-3 flex-shrink-0" />
-        <div className="flex-1 min-w-0">
-          <h3 className="text-sm font-medium">{title}</h3>
-          <p className="text-sm mt-1">{message}</p>
+      <div className='flex items-start'>
+        <Icon className='mr-3 mt-0.5 h-5 w-5 flex-shrink-0' />
+        <div className='min-w-0 flex-1'>
+          <h3 className='text-sm font-medium'>{title}</h3>
+          <p className='mt-1 text-sm'>{message}</p>
           {action && (
             <button
               onClick={action.onClick}
-              className="text-sm font-medium mt-2 hover:underline"
+              className='mt-2 text-sm font-medium hover:underline'
             >
               {action.label}
             </button>
@@ -94,9 +100,9 @@ export const Notification: React.FC<NotificationProps> = ({
         </div>
         <button
           onClick={handleClose}
-          className="ml-3 flex-shrink-0 text-gray-400 hover:text-gray-600"
+          className='ml-3 flex-shrink-0 text-gray-400 hover:text-gray-600'
         >
-          <X className="h-4 w-4" />
+          <X className='h-4 w-4' />
         </button>
       </div>
     </div>
@@ -113,7 +119,9 @@ interface NotificationManagerProps {
   className?: string;
 }
 
-export const NotificationManager: React.FC<NotificationManagerProps> = ({ className }) => {
+export const NotificationManager: React.FC<NotificationManagerProps> = ({
+  className,
+}) => {
   const [notifications, setNotifications] = useState<NotificationItem[]>([]);
 
   const addNotification = (config: NotificationConfig) => {
@@ -128,14 +136,14 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ classN
 
   // 暴露给全局使用
   useEffect(() => {
-    (window as any).showNotification = addNotification;
+    window.showNotification = addNotification;
     return () => {
-      delete (window as any).showNotification;
+      delete window.showNotification;
     };
   }, []);
 
   return (
-    <div className={cn('fixed top-4 right-4 z-50 space-y-2', className)}>
+    <div className={cn('fixed right-4 top-4 z-50 space-y-2', className)}>
       {notifications.map(notification => (
         <Notification
           key={notification.id}
@@ -150,12 +158,16 @@ export const NotificationManager: React.FC<NotificationManagerProps> = ({ classN
 // ==================== 便捷通知函数 ====================
 
 export const showNotification = (config: NotificationConfig) => {
-  if (typeof window !== 'undefined' && (window as any).showNotification) {
-    (window as any).showNotification(config);
+  if (typeof window !== 'undefined' && window.showNotification) {
+    window.showNotification(config);
   }
 };
 
-export const showSuccess = (title: string, message: string, options?: Partial<NotificationConfig>) => {
+export const showSuccess = (
+  title: string,
+  message: string,
+  options?: Partial<NotificationConfig>
+) => {
   showNotification({
     type: 'success',
     title,
@@ -164,7 +176,11 @@ export const showSuccess = (title: string, message: string, options?: Partial<No
   });
 };
 
-export const showError = (title: string, message: string, options?: Partial<NotificationConfig>) => {
+export const showError = (
+  title: string,
+  message: string,
+  options?: Partial<NotificationConfig>
+) => {
   showNotification({
     type: 'error',
     title,
@@ -173,7 +189,11 @@ export const showError = (title: string, message: string, options?: Partial<Noti
   });
 };
 
-export const showWarning = (title: string, message: string, options?: Partial<NotificationConfig>) => {
+export const showWarning = (
+  title: string,
+  message: string,
+  options?: Partial<NotificationConfig>
+) => {
   showNotification({
     type: 'warning',
     title,
@@ -182,7 +202,11 @@ export const showWarning = (title: string, message: string, options?: Partial<No
   });
 };
 
-export const showInfo = (title: string, message: string, options?: Partial<NotificationConfig>) => {
+export const showInfo = (
+  title: string,
+  message: string,
+  options?: Partial<NotificationConfig>
+) => {
   showNotification({
     type: 'info',
     title,
@@ -225,22 +249,27 @@ export const ConfirmDialog: React.FC<ConfirmDialogProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-      <div className={cn('bg-white rounded-lg p-6 max-w-md w-full mx-4', className)}>
-        <h3 className="text-lg font-medium text-gray-900 mb-2">{title}</h3>
-        <p className="text-sm text-gray-600 mb-6">{message}</p>
-        
-        <div className="flex justify-end space-x-3">
+    <div className='fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50'>
+      <div
+        className={cn(
+          'mx-4 w-full max-w-md rounded-lg bg-white p-6',
+          className
+        )}
+      >
+        <h3 className='mb-2 text-lg font-medium text-gray-900'>{title}</h3>
+        <p className='mb-6 text-sm text-gray-600'>{message}</p>
+
+        <div className='flex justify-end space-x-3'>
           <button
             onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-gray-100 rounded-md hover:bg-gray-200"
+            className='rounded-md bg-gray-100 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-200'
           >
             {cancelText}
           </button>
           <button
             onClick={onConfirm}
             className={cn(
-              'px-4 py-2 text-sm font-medium text-white rounded-md',
+              'rounded-md px-4 py-2 text-sm font-medium text-white',
               colorMap[type]
             )}
           >
@@ -278,7 +307,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
 
   return (
     <div
-      className="relative inline-block"
+      className='relative inline-block'
       onMouseEnter={() => setIsVisible(true)}
       onMouseLeave={() => setIsVisible(false)}
     >
@@ -286,7 +315,7 @@ export const Tooltip: React.FC<TooltipProps> = ({
       {isVisible && (
         <div
           className={cn(
-            'absolute z-50 px-2 py-1 text-xs text-white bg-gray-900 rounded shadow-lg whitespace-nowrap',
+            'absolute z-50 whitespace-nowrap rounded bg-gray-900 px-2 py-1 text-xs text-white shadow-lg',
             positionClasses[position],
             className
           )}
@@ -294,11 +323,15 @@ export const Tooltip: React.FC<TooltipProps> = ({
           {content}
           <div
             className={cn(
-              'absolute w-0 h-0 border-4 border-transparent',
-              position === 'top' && 'top-full left-1/2 transform -translate-x-1/2 border-t-gray-900',
-              position === 'bottom' && 'bottom-full left-1/2 transform -translate-x-1/2 border-b-gray-900',
-              position === 'left' && 'left-full top-1/2 transform -translate-y-1/2 border-l-gray-900',
-              position === 'right' && 'right-full top-1/2 transform -translate-y-1/2 border-r-gray-900'
+              'absolute h-0 w-0 border-4 border-transparent',
+              position === 'top' &&
+                'left-1/2 top-full -translate-x-1/2 transform border-t-gray-900',
+              position === 'bottom' &&
+                'bottom-full left-1/2 -translate-x-1/2 transform border-b-gray-900',
+              position === 'left' &&
+                'left-full top-1/2 -translate-y-1/2 transform border-l-gray-900',
+              position === 'right' &&
+                'right-full top-1/2 -translate-y-1/2 transform border-r-gray-900'
             )}
           />
         </div>
@@ -307,4 +340,4 @@ export const Tooltip: React.FC<TooltipProps> = ({
   );
 };
 
-// 所有组件已经在上面导出，这里不需要重复导出 
+// 所有组件已经在上面导出，这里不需要重复导出

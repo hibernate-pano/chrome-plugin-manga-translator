@@ -17,7 +17,6 @@ import {
 } from './base';
 import { DEFAULT_MODELS, API_URLS, REQUEST_LIMITS } from './constants';
 import { httpRequest } from '@/utils/http-client';
-import type { TranslationStylePreset } from '@/utils/translation-style';
 
 interface OpenAICompatibleResponse {
   choices: Array<{
@@ -48,15 +47,14 @@ export class DashScopeProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset
+    targetLanguage: string
   ): Promise<VisionResponse> {
-    this.ensureConfigured();
+    const validation = await this.validateConfig();
+    if (!validation.valid) {
+      throw new Error(validation.message);
+    }
 
-    const prompt = getMangaTranslationPrompt(
-      targetLanguage,
-      translationStylePreset
-    );
+    const prompt = getMangaTranslationPrompt(targetLanguage);
     const imageData = parseImageData(imageBase64);
     const imageUrl = `data:${imageData.mediaType};base64,${imageData.base64}`;
 
@@ -96,7 +94,7 @@ export class DashScopeProvider implements VisionProvider {
 
     const data = httpResponse.data;
     if (!data) {
-      throw new Error('DashScope API returned empty payload');
+      throw new Error('DashScope API returned no data');
     }
 
     if (data.error) {
@@ -154,15 +152,6 @@ export class DashScopeProvider implements VisionProvider {
         valid: false,
         message: '无法连接到阿里云百炼服务',
       };
-    }
-  }
-
-  private ensureConfigured(): void {
-    if (!this.config.apiKey) {
-      throw new Error('请配置阿里云百炼 API 密钥');
-    }
-    if (this.config.apiKey.length < 10) {
-      throw new Error('阿里云百炼 API 密钥格式无效');
     }
   }
 }

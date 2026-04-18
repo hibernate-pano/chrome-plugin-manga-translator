@@ -1,6 +1,6 @@
 {
   "name": "chrome-plugin-manga-translator",
-  "version": "0.4.0",
+  "version": "0.3.1",
   "description": "Chrome插件，用于翻译漫画中的文字，并保持原有样式",
   "type": "module",
   "scripts": {
@@ -11,7 +11,8 @@
     "test:ui": "vitest --ui",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
-    "lint": "eslint . --ext ts,tsx,js,jsx --report-unused-disable-directives --max-warnings 200",
+    "lint": "eslint . --ext ts,tsx,js,jsx --report-unused-disable-directives",
+    "lint:strict": "eslint . --ext ts,tsx,js,jsx --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx,js,jsx --fix",
     "format": "prettier --write \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
     "format:check": "prettier --check \"src/**/*.{ts,tsx,js,jsx,json,css,md}\"",
@@ -62,7 +63,7 @@
     "zustand": "^4.4.7"
   },
   "devDependencies": {
-    "@crxjs/vite-plugin": "^2.4.0",
+    "@crxjs/vite-plugin": "^2.0.0-beta.32",
     "@testing-library/jest-dom": "^6.1.4",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.5.1",

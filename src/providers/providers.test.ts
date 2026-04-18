@@ -1,6 +1,6 @@
 /**
  * Provider Validation Tests
- * 
+ *
  * Tests for provider configuration validation (Property 8: 云端 Provider 需要 API 密钥)
  * Validates: Requirements 4.2, 6.3
  */
@@ -26,7 +26,7 @@ describe('OpenAIProvider', () => {
   it('should reject empty API key', async () => {
     await provider.initialize({ apiKey: '' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(false);
     expect(result.message).toContain('API');
   });
@@ -34,7 +34,7 @@ describe('OpenAIProvider', () => {
   it('should reject short API key', async () => {
     await provider.initialize({ apiKey: 'short' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(false);
     expect(result.message).toContain('无效');
   });
@@ -42,7 +42,7 @@ describe('OpenAIProvider', () => {
   it('should accept valid API key', async () => {
     await provider.initialize({ apiKey: 'sk-1234567890abcdefghijklmnop' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(true);
   });
 });
@@ -62,7 +62,7 @@ describe('ClaudeProvider', () => {
   it('should reject empty API key', async () => {
     await provider.initialize({ apiKey: '' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(false);
     expect(result.message).toContain('API');
   });
@@ -70,15 +70,17 @@ describe('ClaudeProvider', () => {
   it('should reject short API key', async () => {
     await provider.initialize({ apiKey: 'short' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(false);
     expect(result.message).toContain('无效');
   });
 
   it('should accept valid API key', async () => {
-    await provider.initialize({ apiKey: 'sk-ant-api03-1234567890abcdefghijklmnop' });
+    await provider.initialize({
+      apiKey: 'sk-ant-api03-1234567890abcdefghijklmnop',
+    });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(true);
   });
 });
@@ -98,7 +100,7 @@ describe('DeepSeekProvider', () => {
   it('should reject empty API key', async () => {
     await provider.initialize({ apiKey: '' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(false);
     expect(result.message).toContain('API');
   });
@@ -106,7 +108,7 @@ describe('DeepSeekProvider', () => {
   it('should reject short API key', async () => {
     await provider.initialize({ apiKey: 'short' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(false);
     expect(result.message).toContain('无效');
   });
@@ -114,7 +116,7 @@ describe('DeepSeekProvider', () => {
   it('should accept valid API key', async () => {
     await provider.initialize({ apiKey: 'sk-1234567890' });
     const result = await provider.validateConfig();
-    
+
     expect(result.valid).toBe(true);
   });
 });

@@ -41,6 +41,13 @@ export interface QualityIssue {
   severity: 'critical' | 'high' | 'medium' | 'low';
 }
 
+interface PerformanceWithMemory extends Performance {
+  memory?: {
+    usedJSHeapSize: number;
+    totalJSHeapSize: number;
+  };
+}
+
 /**
  * 代码质量检查器
  */
@@ -62,7 +69,7 @@ class CodeQualityChecker {
    */
   async performFullCheck(): Promise<QualityCheckResult> {
     console.log('开始代码质量检查...');
-    
+
     this.resetMetrics();
 
     // 并行执行各种检查
@@ -114,7 +121,7 @@ class CodeQualityChecker {
     try {
       // 模拟TypeScript检查（实际应该调用tsc或类似工具）
       const typeIssues = this.detectTypeIssues();
-      
+
       typeIssues.forEach(issue => {
         this.addIssue({
           type: 'error',
@@ -138,7 +145,7 @@ class CodeQualityChecker {
     try {
       // 模拟ESLint检查
       const lintIssues = this.detectLintIssues();
-      
+
       lintIssues.forEach(issue => {
         this.addIssue({
           type: issue.severity === 'error' ? 'error' : 'warning',
@@ -167,7 +174,7 @@ class CodeQualityChecker {
     try {
       // 检查性能问题
       const performanceIssues = this.detectPerformanceIssues();
-      
+
       performanceIssues.forEach(issue => {
         this.addIssue({
           type: 'warning',
@@ -187,9 +194,11 @@ class CodeQualityChecker {
    */
   private async checkMemoryUsage(): Promise<void> {
     try {
-      if ('memory' in performance) {
-        const memory = (performance as any).memory;
-        const usagePercent = (memory.usedJSHeapSize / memory.totalJSHeapSize) * 100;
+      const performanceWithMemory = performance as PerformanceWithMemory;
+      if (performanceWithMemory.memory) {
+        const memory = performanceWithMemory.memory;
+        const usagePercent =
+          (memory.usedJSHeapSize / memory.totalJSHeapSize) * 100;
 
         if (usagePercent > 80) {
           this.addIssue({
@@ -246,7 +255,7 @@ class CodeQualityChecker {
   private async checkSecurity(): Promise<void> {
     try {
       const securityIssues = this.detectSecurityIssues();
-      
+
       securityIssues.forEach(issue => {
         this.addIssue({
           type: 'error',
@@ -286,7 +295,9 @@ class CodeQualityChecker {
     }
 
     // 安全问题严重扣分
-    const criticalIssues = this.issues.filter(i => i.severity === 'critical').length;
+    const criticalIssues = this.issues.filter(
+      i => i.severity === 'critical'
+    ).length;
     score -= criticalIssues * 10;
 
     return Math.max(0, Math.min(100, score));
@@ -318,7 +329,9 @@ class CodeQualityChecker {
       recommendations.push('提高测试覆盖率，添加单元测试和集成测试');
     }
 
-    const criticalIssues = this.issues.filter(i => i.severity === 'critical').length;
+    const criticalIssues = this.issues.filter(
+      i => i.severity === 'critical'
+    ).length;
     if (criticalIssues > 0) {
       recommendations.push('立即修复安全漏洞，更新依赖包');
     }
@@ -333,7 +346,11 @@ class CodeQualityChecker {
   /**
    * 检测类型问题（模拟）
    */
-  private detectTypeIssues(): Array<{ message: string; file: string; line: number }> {
+  private detectTypeIssues(): Array<{
+    message: string;
+    file: string;
+    line: number;
+  }> {
     // 实际实现应该解析TypeScript编译器输出
     return [];
   }
@@ -341,11 +358,11 @@ class CodeQualityChecker {
   /**
    * 检测Lint问题（模拟）
    */
-  private detectLintIssues(): Array<{ 
-    message: string; 
-    file: string; 
-    line: number; 
-    severity: 'error' | 'warning' 
+  private detectLintIssues(): Array<{
+    message: string;
+    file: string;
+    line: number;
+    severity: 'error' | 'warning';
   }> {
     // 实际实现应该解析ESLint输出
     return [];
@@ -354,11 +371,14 @@ class CodeQualityChecker {
   /**
    * 检测性能问题
    */
-  private detectPerformanceIssues(): Array<{ 
-    message: string; 
-    severity: 'critical' | 'high' | 'medium' | 'low' 
+  private detectPerformanceIssues(): Array<{
+    message: string;
+    severity: 'critical' | 'high' | 'medium' | 'low';
   }> {
-    const issues: Array<{ message: string; severity: 'critical' | 'high' | 'medium' | 'low' }> = [];
+    const issues: Array<{
+      message: string;
+      severity: 'critical' | 'high' | 'medium' | 'low';
+    }> = [];
 
     // 检查长任务
     if ('PerformanceObserver' in window) {
@@ -375,8 +395,8 @@ class CodeQualityChecker {
     const leaks: Array<{ message: string }> = [];
 
     // 检查全局变量
-    const globalVars = Object.keys(window).filter(key => 
-      key.startsWith('manga') || key.startsWith('translation')
+    const globalVars = Object.keys(window).filter(
+      key => key.startsWith('manga') || key.startsWith('translation')
     );
 
     if (globalVars.length > 5) {
@@ -421,10 +441,15 @@ export const codeQualityChecker = new CodeQualityChecker();
 /**
  * 快速质量检查
  */
-export async function quickQualityCheck(): Promise<{ score: number; criticalIssues: number }> {
+export async function quickQualityCheck(): Promise<{
+  score: number;
+  criticalIssues: number;
+}> {
   const result = await codeQualityChecker.performFullCheck();
-  const criticalIssues = result.issues.filter(i => i.severity === 'critical').length;
-  
+  const criticalIssues = result.issues.filter(
+    i => i.severity === 'critical'
+  ).length;
+
   return {
     score: result.score,
     criticalIssues,

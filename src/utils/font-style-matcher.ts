@@ -42,14 +42,18 @@ export function matchFontStyle(
   const {
     styleLevel = 50,
     preferSystemFonts = true,
-    language = 'zh-CN'
+    language = 'zh-CN',
   } = options;
 
   // 分析原始样式
   const originalStyle = analyzeOriginalStyle(image, textArea);
 
   // 匹配字体族
-  const fontFamily = matchFontFamily(originalStyle, language, preferSystemFonts);
+  const fontFamily = matchFontFamily(
+    originalStyle,
+    language,
+    preferSystemFonts
+  );
 
   // 匹配字体大小
   const fontSize = matchFontSize(originalStyle, textArea, styleLevel);
@@ -80,7 +84,7 @@ export function matchFontStyle(
     backgroundColor,
     fontStyle,
     letterSpacing,
-    lineHeight
+    lineHeight,
   };
 }
 
@@ -118,7 +122,9 @@ function analyzeOriginalStyle(
   const data = imageData.data;
 
   // 分析颜色和亮度
-  let rSum = 0, gSum = 0, bSum = 0;
+  let rSum = 0,
+    gSum = 0,
+    bSum = 0;
   let pixelCount = 0;
   let brightnessSum = 0;
 
@@ -128,10 +134,12 @@ function analyzeOriginalStyle(
     { x: width - 1, y: 0 },
     { x: 0, y: height - 1 },
     { x: width - 1, y: height - 1 },
-    { x: Math.floor(width / 2), y: Math.floor(height / 2) }
+    { x: Math.floor(width / 2), y: Math.floor(height / 2) },
   ];
 
-  let bgR = 0, bgG = 0, bgB = 0;
+  let bgR = 0,
+    bgG = 0,
+    bgB = 0;
   samplePoints.forEach(point => {
     const idx = (point.y * width + point.x) * 4;
     const r = data[idx];
@@ -156,9 +164,9 @@ function analyzeOriginalStyle(
     const r = data[i];
     const g = data[i + 1];
     const b = data[i + 2];
-    
+
     if (r === undefined || g === undefined || b === undefined) continue;
-    
+
     const brightness = (r + g + b) / 3;
     const diff = Math.abs(r - bgR) + Math.abs(g - bgG) + Math.abs(b - bgB);
 
@@ -173,31 +181,32 @@ function analyzeOriginalStyle(
   }
 
   // 计算前景色
-  const fontR: number = pixelCount > 0 
-    ? Math.round(rSum / pixelCount)
-    : (255 - (bgR ?? 255));
-  const fontG: number = pixelCount > 0
-    ? Math.round(gSum / pixelCount)
-    : (255 - (bgG ?? 255));
-  const fontB: number = pixelCount > 0
-    ? Math.round(bSum / pixelCount)
-    : (255 - (bgB ?? 255));
+  const fontR: number =
+    pixelCount > 0 ? Math.round(rSum / pixelCount) : 255 - (bgR ?? 255);
+  const fontG: number =
+    pixelCount > 0 ? Math.round(gSum / pixelCount) : 255 - (bgG ?? 255);
+  const fontB: number =
+    pixelCount > 0 ? Math.round(bSum / pixelCount) : 255 - (bgB ?? 255);
 
   // 计算平均亮度
   const avgBrightness = pixelCount > 0 ? brightnessSum / pixelCount : 128;
 
   // 计算对比度（标准差）
-  const variance = foregroundPixels.reduce((sum, val) => {
-    const diff = val - avgBrightness;
-    return sum + diff * diff;
-  }, 0) / (foregroundPixels.length || 1);
+  const variance =
+    foregroundPixels.reduce((sum, val) => {
+      const diff = val - avgBrightness;
+      return sum + diff * diff;
+    }, 0) / (foregroundPixels.length || 1);
   const contrast = Math.sqrt(variance);
 
   // 估算文本密度（文本像素占总像素的比例）
   const textDensity = pixelCount / (width * height);
 
   // 估算笔画宽度（基于文本密度和区域大小）
-  const strokeWidth = Math.max(1, Math.round(Math.sqrt(width * height) * textDensity * 0.1));
+  const strokeWidth = Math.max(
+    1,
+    Math.round(Math.sqrt(width * height) * textDensity * 0.1)
+  );
 
   return {
     avgBrightness,
@@ -205,7 +214,7 @@ function analyzeOriginalStyle(
     dominantColor: { r: fontR, g: fontG, b: fontB },
     backgroundColor: { r: bgR, g: bgG, b: bgB },
     textDensity,
-    strokeWidth
+    strokeWidth,
   };
 }
 
@@ -229,33 +238,23 @@ function matchFontFamily(
       'Hiragino Sans GB',
       'WenQuanYi Micro Hei',
       'SimHei',
-      'sans-serif'
+      'sans-serif',
     ],
     'zh-TW': [
       'Microsoft JhengHei',
       'PingFang TC',
       'Hiragino Sans GB',
-      'sans-serif'
+      'sans-serif',
     ],
-    'ja': [
+    ja: [
       'Hiragino Kaku Gothic ProN',
       'Hiragino Sans',
       'Yu Gothic',
       'Meiryo',
-      'sans-serif'
+      'sans-serif',
     ],
-    'ko': [
-      'Malgun Gothic',
-      'Apple SD Gothic Neo',
-      'Nanum Gothic',
-      'sans-serif'
-    ],
-    'en': [
-      'Arial',
-      'Helvetica',
-      'Verdana',
-      'sans-serif'
-    ]
+    ko: ['Malgun Gothic', 'Apple SD Gothic Neo', 'Nanum Gothic', 'sans-serif'],
+    en: ['Arial', 'Helvetica', 'Verdana', 'sans-serif'],
   };
 
   const fonts = fontMap[language] || fontMap['zh-CN'] || ['sans-serif'];
@@ -285,7 +284,10 @@ function matchFontSize(
   const baseSize = Math.min(textArea.width, textArea.height) * 0.6;
 
   // 根据文本密度调整
-  const densityFactor = Math.max(0.5, Math.min(1.5, originalStyle.textDensity * 10));
+  const densityFactor = Math.max(
+    0.5,
+    Math.min(1.5, originalStyle.textDensity * 10)
+  );
   const adjustedSize = baseSize * densityFactor;
 
   // 根据styleLevel调整（0-100，50为基准）
@@ -344,7 +346,7 @@ function matchFontColor(
   return {
     r: Math.round(defaultColor.r * (1 - ratio) + originalColor.r * ratio),
     g: Math.round(defaultColor.g * (1 - ratio) + originalColor.g * ratio),
-    b: Math.round(defaultColor.b * (1 - ratio) + originalColor.b * ratio)
+    b: Math.round(defaultColor.b * (1 - ratio) + originalColor.b * ratio),
   };
 }
 
@@ -424,7 +426,6 @@ function getDefaultStyle(): ReturnType<typeof analyzeOriginalStyle> {
     dominantColor: { r: 0, g: 0, b: 0 },
     backgroundColor: { r: 255, g: 255, b: 255 },
     textDensity: 0.3,
-    strokeWidth: 1
+    strokeWidth: 1,
   };
 }
-

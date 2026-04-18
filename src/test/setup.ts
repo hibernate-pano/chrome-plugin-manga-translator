@@ -1,6 +1,6 @@
 /**
  * Vitest Test Setup
- * 
+ *
  * This file is loaded before each test file runs.
  * It sets up the testing environment with necessary mocks and configurations.
  */
@@ -14,7 +14,7 @@ const createStorageMock = () => ({
   get: vi.fn((keys: string | string[]) => {
     const keyArray = Array.isArray(keys) ? keys : [keys];
     const result: Record<string, unknown> = {};
-    keyArray.forEach((key) => {
+    keyArray.forEach(key => {
       if (key in mockStorage) {
         result[key] = mockStorage[key];
       }
@@ -27,13 +27,13 @@ const createStorageMock = () => ({
   }),
   remove: vi.fn((keys: string | string[]) => {
     const keyArray = Array.isArray(keys) ? keys : [keys];
-    keyArray.forEach((key) => {
+    keyArray.forEach(key => {
       delete mockStorage[key];
     });
     return Promise.resolve();
   }),
   clear: vi.fn(() => {
-    Object.keys(mockStorage).forEach((key) => delete mockStorage[key]);
+    Object.keys(mockStorage).forEach(key => delete mockStorage[key]);
     return Promise.resolve();
   }),
 });
@@ -76,7 +76,7 @@ Object.defineProperty(HTMLCanvasElement.prototype, 'getContext', {
 // Reset mocks before each test
 beforeEach(() => {
   vi.clearAllMocks();
-  Object.keys(mockStorage).forEach((key) => delete mockStorage[key]);
+  Object.keys(mockStorage).forEach(key => delete mockStorage[key]);
 });
 
 // Export for use in tests

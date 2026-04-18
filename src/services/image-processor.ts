@@ -20,8 +20,6 @@ export interface ImageProcessingOptions {
   format?: 'jpeg' | 'png' | 'webp' | 'auto';
   /** Whether to preserve original format when possible */
   preserveFormat?: boolean;
-  /** Whether to crop the image to only the visible viewport part (useful for very long images) */
-  viewportCrop?: boolean;
 }
 
 export interface ProcessedImage {
@@ -41,34 +39,16 @@ export interface ProcessedImage {
   wasCompressed: boolean;
   /** Hash of the processed image for caching */
   hash: string;
-  /** Start Y coordinate of crop in original image (0 if not cropped) */
-  cropY?: number;
-  /** Height of the cropped area in original image (equal to originalHeight if not cropped) */
-  cropHeight?: number;
 }
 
 // ==================== Default Configuration ====================
 
-export const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
-  maxSize: 2048,
+const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
+  maxSize: 1920,
   quality: 0.85,
   format: 'jpeg',
-  preserveFormat: true,
-  viewportCrop: false,
+  preserveFormat: false,
 };
-
-export function shouldPreserveTallMangaPage(
-  width: number,
-  height: number,
-  maxSize: number = DEFAULT_OPTIONS.maxSize
-): boolean {
-  if (width <= 0 || height <= 0) {
-    return false;
-  }
-
-  const aspectRatio = height / width;
-  return width <= Math.min(maxSize, 1400) && height > maxSize && aspectRatio >= 2.4;
-}
 
 // ==================== Core Functions ====================
 
@@ -138,60 +118,22 @@ export function imageToBase64(
 export function compressImage(
   image: HTMLImageElement,
   maxSize: number = DEFAULT_OPTIONS.maxSize,
-  quality: number = DEFAULT_OPTIONS.quality,
-  viewportCrop: boolean = false,
-  format: string = 'jpeg'
-): { base64: string; width: number; height: number; wasCompressed: boolean; cropY: number; cropHeight: number } {
-  let sourceY = 0;
-  let sourceHeight = image.naturalHeight;
-  const sourceWidth = image.naturalWidth;
+  quality: number = DEFAULT_OPTIONS.quality
+): { base64: string; width: number; height: number; wasCompressed: boolean } {
+  const originalWidth = image.naturalWidth;
+  const originalHeight = image.naturalHeight;
 
-  // 1. 如果需要视口裁剪，计算当前视口中图片的范围
-  if (viewportCrop) {
-    const rect = image.getBoundingClientRect();
-    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+  // Check if compression is needed
+  const needsCompression = originalWidth > maxSize || originalHeight > maxSize;
 
-    // 如果图片完全不在视口中，就不裁剪了（或给一个默认行为），但通常我们只有在 hover/click 时才调用这个
-    if (rect.bottom >= 0 && rect.top <= windowHeight) {
-      const scaleY = image.naturalHeight / rect.height;
-
-      // 在 DOM 像素下的可见顶部和底部
-      const visibleTopDOM = Math.max(0, -rect.top);
-      const visibleBottomDOM = Math.min(rect.height, windowHeight - rect.top);
-
-      // 上下增加一些 margin 以提供上下文给大模型 (比如 300 DOM 像素)
-      const marginDOM = 300;
-
-      const cropTopDOM = Math.max(0, visibleTopDOM - marginDOM);
-      const cropBottomDOM = Math.min(rect.height, visibleBottomDOM + marginDOM);
-
-      // 映射回 naturalHeight
-      sourceY = Math.floor(cropTopDOM * scaleY);
-      sourceHeight = Math.floor((cropBottomDOM - cropTopDOM) * scaleY);
-
-      // 确保不越界
-      sourceY = Math.max(0, sourceY);
-      sourceHeight = Math.min(image.naturalHeight - sourceY, sourceHeight);
-    }
-  }
-
-  // 2. 判断是否需要压缩这部分图像
-  const preserveTallPage = shouldPreserveTallMangaPage(
-    sourceWidth,
-    sourceHeight,
-    maxSize
-  );
-  const needsCompression =
-    !preserveTallPage && (sourceWidth > maxSize || sourceHeight > maxSize);
-
-  let targetWidth = sourceWidth;
-  let targetHeight = sourceHeight;
+  let targetWidth = originalWidth;
+  let targetHeight = originalHeight;
 
   if (needsCompression) {
     // Calculate new dimensions maintaining aspect ratio
-    const ratio = Math.min(maxSize / sourceWidth, maxSize / sourceHeight);
-    targetWidth = Math.round(sourceWidth * ratio);
-    targetHeight = Math.round(sourceHeight * ratio);
+    const ratio = Math.min(maxSize / originalWidth, maxSize / originalHeight);
+    targetWidth = Math.round(originalWidth * ratio);
+    targetHeight = Math.round(originalHeight * ratio);
   }
 
   // Create canvas and draw image
@@ -209,12 +151,10 @@ export function compressImage(
   ctx.imageSmoothingEnabled = true;
   ctx.imageSmoothingQuality = 'high';
 
-  // ctx.drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
-  ctx.drawImage(image, 0, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+  ctx.drawImage(image, 0, 0, targetWidth, targetHeight);
 
-  // Compress to base64
-  const mimeType = format === 'webp' ? 'image/webp' : 'image/jpeg';
-  const dataUrl = canvas.toDataURL(mimeType, quality);
+  // Convert to base64 JPEG
+  const dataUrl = canvas.toDataURL('image/jpeg', quality);
   const base64 = dataUrl.replace(/^data:image\/\w+;base64,/, '');
 
   return {
@@ -222,8 +162,6 @@ export function compressImage(
     width: targetWidth,
     height: targetHeight,
     wasCompressed: needsCompression,
-    cropY: sourceY,
-    cropHeight: sourceHeight,
   };
 }
 
@@ -250,31 +188,29 @@ export async function processImage(
 
   try {
     // Try canvas path first (same-origin or CORS-enabled images)
-    const { base64, width, height, wasCompressed, cropY, cropHeight } = compressImage(
+    const { base64, width, height, wasCompressed } = compressImage(
       image,
       opts.maxSize,
-      opts.quality,
-      opts.viewportCrop,
-      opts.format
+      opts.quality
     );
 
     const hash = await calculateHash(base64);
 
     return {
       base64,
-      mimeType: opts.format === 'webp' ? 'image/webp' : 'image/jpeg',
+      mimeType: 'image/jpeg',
       originalWidth,
       originalHeight,
       width,
       height,
       wasCompressed,
       hash,
-      cropY,
-      cropHeight,
     };
   } catch {
     // Canvas tainted by CORS — fallback to background proxy
-    console.log('[ImageProcessor] Canvas tainted, falling back to background proxy');
+    console.log(
+      '[ImageProcessor] Canvas tainted, falling back to background proxy'
+    );
     return processImageViaBackground(image.src, originalWidth, originalHeight);
   }
 }
@@ -293,7 +229,9 @@ async function processImageViaBackground(
   });
 
   if (!response?.success || !response.base64) {
-    throw new Error(`Failed to fetch image via background: ${response?.error || 'Unknown error'}`);
+    throw new Error(
+      `Failed to fetch image via background: ${response?.error || 'Unknown error'}`
+    );
   }
 
   const base64: string = response.base64;
@@ -309,8 +247,6 @@ async function processImageViaBackground(
     height: originalHeight,
     wasCompressed: false,
     hash,
-    cropY: 0,
-    cropHeight: originalHeight,
   };
 }
 
@@ -416,19 +352,6 @@ export interface CropRegion {
   height: number;
 }
 
-export interface CombinedRegionSegment {
-  index: number;
-  top: number;
-  height: number;
-}
-
-export interface CombinedCroppedRegions {
-  base64: string;
-  width: number;
-  height: number;
-  segments: CombinedRegionSegment[];
-}
-
 /**
  * Crop regions from an image
  *
@@ -451,9 +374,11 @@ export async function cropRegions(
   // Ensure we have an image element
   const imgElement = await ensureImageElement(image);
 
-  // Regions are expected to be in the coordinate space of the provided image.
-  const scaleX = 1;
-  const scaleY = 1;
+  // Calculate scale factors (in case image was resized)
+  const scaleX =
+    imgElement.naturalWidth / (opts.maxSize || imgElement.naturalWidth);
+  const scaleY =
+    imgElement.naturalHeight / (opts.maxSize || imgElement.naturalHeight);
 
   const croppedImages: string[] = [];
 
@@ -467,10 +392,23 @@ export async function cropRegions(
     // Ensure valid dimensions
     const cropX = Math.max(0, Math.min(x, imgElement.naturalWidth - 1));
     const cropY = Math.max(0, Math.min(y, imgElement.naturalHeight - 1));
-    const cropWidth = Math.max(1, Math.min(width, imgElement.naturalWidth - cropX));
-    const cropHeight = Math.max(1, Math.min(height, imgElement.naturalHeight - cropY));
+    const cropWidth = Math.max(
+      1,
+      Math.min(width, imgElement.naturalWidth - cropX)
+    );
+    const cropHeight = Math.max(
+      1,
+      Math.min(height, imgElement.naturalHeight - cropY)
+    );
 
-    const cropped = cropImageElement(imgElement, cropX, cropY, cropWidth, cropHeight, opts);
+    const cropped = cropImageElement(
+      imgElement,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      opts
+    );
     croppedImages.push(cropped);
   }
 
@@ -488,7 +426,9 @@ async function ensureImageElement(
   }
 
   // It's a base64 string, load it into an image
-  return loadImage(image.startsWith('data:') ? image : `data:image/png;base64,${image}`);
+  return loadImage(
+    image.startsWith('data:') ? image : `data:image/png;base64,${image}`
+  );
 }
 
 /**
@@ -530,22 +470,16 @@ function cropImageElement(
  * @param options Processing options
  * @returns Combined image as base64
  */
-export async function combineCroppedRegions(
+export function combineCroppedRegions(
   croppedImages: string[],
   options: ImageProcessingOptions = {}
-): Promise<CombinedCroppedRegions> {
+): string {
   if (croppedImages.length === 0) {
     throw new Error('No images to combine');
   }
 
   if (croppedImages.length === 1) {
-    const single = await imageFromBase64(croppedImages[0] ?? '');
-    return {
-      base64: croppedImages[0] ?? '',
-      width: single.width,
-      height: single.height,
-      segments: [{ index: 0, top: 0, height: single.height }],
-    };
+    return croppedImages[0] ?? '';
   }
 
   const opts = { ...DEFAULT_OPTIONS, ...options };
@@ -556,7 +490,7 @@ export async function combineCroppedRegions(
   let maxWidth = 0;
 
   for (const base64 of croppedImages) {
-    const img = await imageFromBase64(base64);
+    const img = imageFromBase64(base64);
     images.push(img);
     totalHeight += img.height;
     maxWidth = Math.max(maxWidth, img.width);
@@ -582,37 +516,33 @@ export async function combineCroppedRegions(
 
   // Draw each image
   let currentY = 0;
-  const segments: CombinedRegionSegment[] = [];
-  for (let index = 0; index < images.length; index += 1) {
-    const img = images[index];
-    if (!img) continue;
+  for (const img of images) {
     const x = Math.round((maxWidth - img.width) / 2); // Center horizontally
     ctx.drawImage(img, x, currentY);
-    segments.push({
-      index,
-      top: currentY,
-      height: img.height,
-    });
     currentY += img.height + spacing;
   }
 
   // Convert to base64
   const mimeType = `image/${opts.format}`;
   const dataUrl = canvas.toDataURL(mimeType, opts.quality);
-  return {
-    base64: dataUrl.replace(/^data:image\/\w+;base64,/, ''),
-    width: canvas.width,
-    height: canvas.height,
-    segments,
-  };
+  return dataUrl.replace(/^data:image\/\w+;base64,/, '');
 }
 
 /**
  * Create an Image element from base64 string
  */
-async function imageFromBase64(base64: string): Promise<HTMLImageElement> {
+function imageFromBase64(base64: string): HTMLImageElement {
+  const img = new Image();
   const dataUrl = base64.startsWith('data:')
     ? base64
     : `data:image/png;base64,${base64}`;
-  return loadImage(dataUrl);
+  img.src = dataUrl;
+
+  // Synchronously available if already loaded
+  if (img.complete) {
+    return img;
+  }
+
+  // This shouldn't happen in practice since we just created the base64
+  throw new Error('Image not immediately available');
 }

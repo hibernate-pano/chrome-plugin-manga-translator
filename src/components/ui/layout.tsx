@@ -27,16 +27,10 @@ const LayoutHeader: React.FC<LayoutHeaderProps> = ({
       className={cn('flex items-center justify-between', className)}
     >
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
-        {subtitle && (
-          <p className="text-muted-foreground mt-1">{subtitle}</p>
-        )}
+        <h1 className='text-2xl font-bold tracking-tight'>{title}</h1>
+        {subtitle && <p className='mt-1 text-muted-foreground'>{subtitle}</p>}
       </div>
-      {actions && (
-        <div className="flex items-center gap-2">
-          {actions}
-        </div>
-      )}
+      {actions && <div className='flex items-center gap-2'>{actions}</div>}
     </motion.div>
   );
 };
@@ -58,11 +52,7 @@ const LayoutSection: React.FC<LayoutSectionProps> = ({
   contentClassName,
   variant = 'default',
 }) => {
-  const content = (
-    <div className={cn(contentClassName)}>
-      {children}
-    </div>
-  );
+  const content = <div className={cn(contentClassName)}>{children}</div>;
 
   if (variant === 'card') {
     return (
@@ -77,13 +67,11 @@ const LayoutSection: React.FC<LayoutSectionProps> = ({
             <CardHeader>
               {title && <CardTitle>{title}</CardTitle>}
               {description && (
-                <p className="text-sm text-muted-foreground">{description}</p>
+                <p className='text-sm text-muted-foreground'>{description}</p>
               )}
             </CardHeader>
           )}
-          <CardContent>
-            {content}
-          </CardContent>
+          <CardContent>{content}</CardContent>
         </Card>
       </motion.div>
     );
@@ -99,11 +87,11 @@ const LayoutSection: React.FC<LayoutSectionProps> = ({
       >
         {(title || description) && (
           <div>
-            {title && (
-              <h3 className="text-lg font-medium">{title}</h3>
-            )}
+            {title && <h3 className='text-lg font-medium'>{title}</h3>}
             {description && (
-              <p className="text-sm text-muted-foreground mt-1">{description}</p>
+              <p className='mt-1 text-sm text-muted-foreground'>
+                {description}
+              </p>
             )}
           </div>
         )}
@@ -121,13 +109,11 @@ const LayoutSection: React.FC<LayoutSectionProps> = ({
     >
       {(title || description) && (
         <div>
-          {title && (
-            <h2 className="text-xl font-semibold">{title}</h2>
-          )}
+          {title && <h2 className='text-xl font-semibold'>{title}</h2>}
           {description && (
-            <p className="text-muted-foreground mt-1">{description}</p>
+            <p className='mt-1 text-muted-foreground'>{description}</p>
           )}
-          <Separator className="mt-4" />
+          <Separator className='mt-4' />
         </div>
       )}
       {content}
@@ -165,11 +151,7 @@ const LayoutGrid: React.FC<LayoutGridProps> = ({
     return `grid ${columnClasses[columns]} ${gapClasses[gap]}`;
   };
 
-  return (
-    <div className={cn(getGridClasses(), className)}>
-      {children}
-    </div>
-  );
+  return <div className={cn(getGridClasses(), className)}>{children}</div>;
 };
 
 interface LayoutStackProps {
@@ -243,12 +225,14 @@ const LayoutContainer: React.FC<LayoutContainerProps> = ({
   };
 
   return (
-    <div className={cn(
-      'mx-auto w-full',
-      getMaxWidthClass(),
-      getPaddingClass(),
-      className
-    )}>
+    <div
+      className={cn(
+        'mx-auto w-full',
+        getMaxWidthClass(),
+        getPaddingClass(),
+        className
+      )}
+    >
       {children}
     </div>
   );
@@ -308,33 +292,39 @@ const ResponsiveSidebarLayout: React.FC<ResponsiveSidebarLayoutProps> = ({
       <motion.aside
         initial={false}
         animate={{
-          width: isMobile ? 0 : isCollapsed ? 64 : sidebarWidth === 'sm' ? 192 : sidebarWidth === 'lg' ? 320 : 256,
+          width: isMobile
+            ? 0
+            : isCollapsed
+              ? 64
+              : sidebarWidth === 'sm'
+                ? 192
+                : sidebarWidth === 'lg'
+                  ? 320
+                  : 256,
         }}
         transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
         className={cn(
-          'hidden md:flex flex-col border-r bg-card overflow-hidden',
+          'hidden flex-col overflow-hidden border-r bg-card md:flex',
           getSidebarWidth()
         )}
       >
-        <div className="flex-1 overflow-y-auto">
-          {sidebar}
-        </div>
+        <div className='flex-1 overflow-y-auto'>{sidebar}</div>
 
         {collapsible && (
-          <div className="p-2 border-t">
+          <div className='border-t p-2'>
             <Button
-              variant="ghost"
-              size="sm"
+              variant='ghost'
+              size='sm'
               onClick={() => setIsCollapsed(!isCollapsed)}
-              className="w-full"
+              className='w-full'
             >
               <motion.div
                 animate={{ rotate: isCollapsed ? 180 : 0 }}
                 transition={{ duration: 0.2 }}
               >
-                <ChevronUp className="w-4 h-4" />
+                <ChevronUp className='h-4 w-4' />
               </motion.div>
-              {!isCollapsed && <span className="ml-2">收起</span>}
+              {!isCollapsed && <span className='ml-2'>收起</span>}
             </Button>
           </div>
         )}
@@ -349,7 +339,7 @@ const ResponsiveSidebarLayout: React.FC<ResponsiveSidebarLayoutProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               transition={{ duration: 0.2 }}
-              className="fixed inset-0 bg-black/50 z-40 md:hidden"
+              className='fixed inset-0 z-40 bg-black/50 md:hidden'
               onClick={() => setIsMobileMenuOpen(false)}
             />
             <motion.aside
@@ -357,47 +347,43 @@ const ResponsiveSidebarLayout: React.FC<ResponsiveSidebarLayoutProps> = ({
               animate={{ x: 0 }}
               exit={{ x: -320 }}
               transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
-              className="fixed left-0 top-0 h-full w-80 bg-card border-r z-50 md:hidden"
+              className='fixed left-0 top-0 z-50 h-full w-80 border-r bg-card md:hidden'
             >
-              <div className="flex items-center justify-between p-4 border-b">
-                <h2 className="font-semibold">菜单</h2>
+              <div className='flex items-center justify-between border-b p-4'>
+                <h2 className='font-semibold'>菜单</h2>
                 <Button
-                  variant="ghost"
-                  size="sm"
+                  variant='ghost'
+                  size='sm'
                   onClick={() => setIsMobileMenuOpen(false)}
                 >
-                  <X className="w-4 h-4" />
+                  <X className='h-4 w-4' />
                 </Button>
               </div>
-              <div className="flex-1 overflow-y-auto p-4">
-                {sidebar}
-              </div>
+              <div className='flex-1 overflow-y-auto p-4'>{sidebar}</div>
             </motion.aside>
           </>
         )}
       </AnimatePresence>
 
       {/* 主内容区域 */}
-      <div className="flex-1 flex flex-col overflow-hidden">
+      <div className='flex flex-1 flex-col overflow-hidden'>
         {/* 移动端顶部栏 */}
         {isMobile && (
-          <div className="flex items-center justify-between p-4 border-b bg-card md:hidden">
+          <div className='flex items-center justify-between border-b bg-card p-4 md:hidden'>
             <Button
-              variant="ghost"
-              size="sm"
+              variant='ghost'
+              size='sm'
               onClick={() => setIsMobileMenuOpen(true)}
             >
-              <Menu className="w-4 h-4" />
+              <Menu className='h-4 w-4' />
             </Button>
-            <h1 className="font-semibold">漫画翻译助手</h1>
-            <div className="w-8" /> {/* 占位符保持居中 */}
+            <h1 className='font-semibold'>漫画翻译助手</h1>
+            <div className='w-8' /> {/* 占位符保持居中 */}
           </div>
         )}
 
         {/* 主内容 */}
-        <main className="flex-1 overflow-y-auto">
-          {children}
-        </main>
+        <main className='flex-1 overflow-y-auto'>{children}</main>
       </div>
     </div>
   );
@@ -417,21 +403,30 @@ interface BreadcrumbProps {
 
 const Breadcrumb: React.FC<BreadcrumbProps> = ({ items, className }) => {
   return (
-    <nav className={cn('flex items-center space-x-1 text-sm text-muted-foreground', className)}>
+    <nav
+      className={cn(
+        'flex items-center space-x-1 text-sm text-muted-foreground',
+        className
+      )}
+    >
       {items.map((item, index) => (
         <React.Fragment key={index}>
-          {index > 0 && <span className="mx-2">/</span>}
+          {index > 0 && <span className='mx-2'>/</span>}
           {item.href || item.onClick ? (
             <motion.button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               onClick={item.onClick}
-              className="hover:text-foreground transition-colors"
+              className='transition-colors hover:text-foreground'
             >
               {item.label}
             </motion.button>
           ) : (
-            <span className={index === items.length - 1 ? 'text-foreground font-medium' : ''}>
+            <span
+              className={
+                index === items.length - 1 ? 'font-medium text-foreground' : ''
+              }
+            >
               {item.label}
             </span>
           )}

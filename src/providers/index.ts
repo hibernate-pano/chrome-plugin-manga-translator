@@ -68,12 +68,15 @@ export async function createProvider(
 /**
  * Get display information for all available providers
  */
-export const PROVIDER_INFO: Record<ProviderType, {
-  name: string;
-  description: string;
-  requiresApiKey: boolean;
-  defaultModel: string;
-}> = {
+export const PROVIDER_INFO: Record<
+  ProviderType,
+  {
+    name: string;
+    description: string;
+    requiresApiKey: boolean;
+    defaultModel: string;
+  }
+> = {
   siliconflow: {
     name: '硅基流动',
     description: '国内首选，支持 Qwen VL 系列，性价比高',

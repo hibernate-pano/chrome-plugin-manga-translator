@@ -195,9 +195,12 @@ export class MigrationManager {
     return currentData;
   }
 
-  private getMigrationsToRun(fromVersion: string, toVersion: string): Array<[string, (data: any) => any]> {
+  private getMigrationsToRun(
+    fromVersion: string,
+    toVersion: string
+  ): Array<[string, (data: any) => any]> {
     const migrations: Array<[string, (data: any) => any]> = [];
-    
+
     for (const [version, migration] of this.migrations) {
       if (this.isVersionBetween(version, fromVersion, toVersion)) {
         migrations.push([version, migration]);
@@ -208,24 +211,30 @@ export class MigrationManager {
     return migrations.sort(([a], [b]) => this.compareVersions(a, b));
   }
 
-  private isVersionBetween(version: string, fromVersion: string, toVersion: string): boolean {
-    return this.compareVersions(version, fromVersion) > 0 && 
-           this.compareVersions(version, toVersion) <= 0;
+  private isVersionBetween(
+    version: string,
+    fromVersion: string,
+    toVersion: string
+  ): boolean {
+    return (
+      this.compareVersions(version, fromVersion) > 0 &&
+      this.compareVersions(version, toVersion) <= 0
+    );
   }
 
   private compareVersions(a: string, b: string): number {
     const aParts = a.split('.').map(Number);
     const bParts = b.split('.').map(Number);
-    
+
     for (let i = 0; i < Math.max(aParts.length, bParts.length); i++) {
       const aPart = aParts[i] || 0;
       const bPart = bParts[i] || 0;
-      
+
       if (aPart !== bPart) {
         return aPart - bPart;
       }
     }
-    
+
     return 0;
   }
 }
@@ -261,7 +270,7 @@ export class BackupManager {
   async restoreBackup(key: string, timestamp?: string): Promise<any | null> {
     try {
       const backupKeys = await this.getBackupKeys(key);
-      
+
       if (backupKeys.length === 0) {
         return null;
       }
@@ -287,7 +296,9 @@ export class BackupManager {
     }
   }
 
-  async listBackups(key: string): Promise<Array<{ timestamp: string; version: string }>> {
+  async listBackups(
+    key: string
+  ): Promise<Array<{ timestamp: string; version: string }>> {
     try {
       const backupKeys = await this.getBackupKeys(key);
       const backups: Array<{ timestamp: string; version: string }> = [];
@@ -303,7 +314,10 @@ export class BackupManager {
         }
       }
 
-      return backups.sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+      return backups.sort(
+        (a, b) =>
+          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+      );
     } catch (error) {
       console.error('Backup listing failed:', error);
       return [];
@@ -318,10 +332,10 @@ export class BackupManager {
   private async cleanupOldBackups(key: string): Promise<void> {
     try {
       const backupKeys = await this.getBackupKeys(key);
-      
+
       if (backupKeys.length > this.maxBackups) {
         const keysToRemove = backupKeys.slice(this.maxBackups);
-        
+
         for (const keyToRemove of keysToRemove) {
           await this.storage.removeItem(keyToRemove);
         }
@@ -349,7 +363,7 @@ export class PersistenceManager {
 
   async save(key: string, data: any): Promise<void> {
     try {
-      let serializedData = this.config.serialize 
+      let serializedData = this.config.serialize
         ? this.config.serialize(data)
         : JSON.stringify(data);
 
@@ -375,7 +389,7 @@ export class PersistenceManager {
   async load(key: string): Promise<any | null> {
     try {
       const serializedData = await this.storage.getItem(key);
-      
+
       if (!serializedData) {
         return null;
       }
@@ -390,7 +404,7 @@ export class PersistenceManager {
         data = CompressionUtil.decompress(data);
       }
 
-      const parsedData = this.config.deserialize 
+      const parsedData = this.config.deserialize
         ? this.config.deserialize(data)
         : JSON.parse(data);
 
@@ -401,7 +415,7 @@ export class PersistenceManager {
           parsedData.version,
           this.config.version
         );
-        
+
         // 保存迁移后的数据
         await this.save(key, migratedData);
         return migratedData;
@@ -410,7 +424,7 @@ export class PersistenceManager {
       return parsedData.data || parsedData;
     } catch (error) {
       console.error('Load failed:', error);
-      
+
       // 尝试从备份恢复
       if (this.config.backup) {
         console.log('Attempting to restore from backup...');
@@ -420,7 +434,7 @@ export class PersistenceManager {
           return backupData;
         }
       }
-      
+
       return null;
     }
   }
@@ -457,9 +471,11 @@ export class PersistenceManager {
     return this.backupManager.restoreBackup(key, timestamp);
   }
 
-  async listBackups(key: string): Promise<Array<{ timestamp: string; version: string }>> {
+  async listBackups(
+    key: string
+  ): Promise<Array<{ timestamp: string; version: string }>> {
     return this.backupManager.listBackups(key);
   }
 }
 
-// ==================== 导出工具 ==================== 
+// ==================== 导出工具 ====================

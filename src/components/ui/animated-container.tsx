@@ -146,13 +146,13 @@ const SlideTransition: React.FC<SlideTransitionProps> = ({
   };
 
   return (
-    <AnimatePresence mode="wait">
+    <AnimatePresence mode='wait'>
       {isVisible && (
         <motion.div
           variants={getVariants()}
-          initial="hidden"
-          animate="visible"
-          exit="exit"
+          initial='hidden'
+          animate='visible'
+          exit='exit'
           transition={{
             duration: 0.3,
             ease: [0.25, 0.46, 0.45, 0.94],
@@ -199,9 +199,9 @@ const PageTransition: React.FC<PageTransitionProps> = ({
   return (
     <motion.div
       variants={variants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+      initial='initial'
+      animate='animate'
+      exit='exit'
       transition={{
         duration: 0.4,
         ease: [0.25, 0.46, 0.45, 0.94],
@@ -334,7 +334,7 @@ const Typewriter: React.FC<TypewriterProps> = ({
         <motion.span
           animate={{ opacity: showCursor ? 1 : 0 }}
           transition={{ duration: 0.1 }}
-          className="inline-block w-0.5 h-5 bg-current ml-1"
+          className='ml-1 inline-block h-5 w-0.5 bg-current'
         />
       )}
     </span>

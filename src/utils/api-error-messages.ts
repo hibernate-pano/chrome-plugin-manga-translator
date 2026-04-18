@@ -1,8 +1,8 @@
 /**
  * API 错误消息工具
- * 
+ *
  * 提供用户友好的错误消息，确保错误正确传递到 Popup
- * 
+ *
  * Requirements:
  * - 5.1: API 密钥无效时显示"API 密钥无效"错误
  * - 5.2: API 调用失败时显示具体的错误原因
@@ -16,33 +16,36 @@ export enum APIErrorCode {
   API_KEY_INVALID = 'API_KEY_INVALID',
   API_KEY_EXPIRED = 'API_KEY_EXPIRED',
   API_ACCESS_DENIED = 'API_ACCESS_DENIED',
-  
+
   // 网络错误
   NETWORK_ERROR = 'NETWORK_ERROR',
   TIMEOUT_ERROR = 'TIMEOUT_ERROR',
   CONNECTION_FAILED = 'CONNECTION_FAILED',
-  
+
   // 服务器错误
   SERVER_ERROR = 'SERVER_ERROR',
   SERVICE_UNAVAILABLE = 'SERVICE_UNAVAILABLE',
-  
+
   // 请求错误
   RATE_LIMIT_EXCEEDED = 'RATE_LIMIT_EXCEEDED',
   QUOTA_EXCEEDED = 'QUOTA_EXCEEDED',
   INVALID_REQUEST = 'INVALID_REQUEST',
   MODEL_NOT_FOUND = 'MODEL_NOT_FOUND',
   CONTENT_FILTERED = 'CONTENT_FILTERED',
-  
+
   // Provider 错误
   PROVIDER_NOT_CONFIGURED = 'PROVIDER_NOT_CONFIGURED',
   PROVIDER_NOT_REGISTERED = 'PROVIDER_NOT_REGISTERED',
-  
+
   // 未知错误
   UNKNOWN_ERROR = 'UNKNOWN_ERROR',
 }
 
 // 用户友好的错误消息映射
-const USER_FRIENDLY_MESSAGES: Record<APIErrorCode, { title: string; message: string; suggestion: string }> = {
+const USER_FRIENDLY_MESSAGES: Record<
+  APIErrorCode,
+  { title: string; message: string; suggestion: string }
+> = {
   [APIErrorCode.API_KEY_MISSING]: {
     title: 'API 密钥未配置',
     message: '请先配置 API 密钥',
@@ -152,9 +155,9 @@ export class UserFriendlyAPIError extends Error {
   ) {
     const errorInfo = USER_FRIENDLY_MESSAGES[code];
     const message = options?.customMessage || errorInfo.message;
-    
+
     super(message);
-    
+
     this.name = 'UserFriendlyAPIError';
     this.code = code;
     this.userTitle = errorInfo.title;
@@ -162,7 +165,7 @@ export class UserFriendlyAPIError extends Error {
     this.suggestion = errorInfo.suggestion;
     this.statusCode = options?.statusCode;
     this.originalError = options?.originalError;
-    
+
     // 判断是否可重试
     this.retryable = [
       APIErrorCode.NETWORK_ERROR,
@@ -212,87 +215,155 @@ export function parseAPIError(error: unknown): UserFriendlyAPIError {
     return error;
   }
 
-  const originalError = error instanceof Error ? error : new Error(String(error));
+  const originalError =
+    error instanceof Error ? error : new Error(String(error));
   const errorMessage = originalError.message.toLowerCase();
-  
+
   // 获取状态码（如果有）
-  const statusCode = (error as { status?: number; statusCode?: number })?.status 
-    || (error as { status?: number; statusCode?: number })?.statusCode;
+  const statusCode =
+    (error as { status?: number; statusCode?: number })?.status ||
+    (error as { status?: number; statusCode?: number })?.statusCode;
 
   // 根据状态码判断
   if (statusCode) {
     switch (statusCode) {
       case 401:
-        return new UserFriendlyAPIError(APIErrorCode.API_KEY_INVALID, { statusCode, originalError });
+        return new UserFriendlyAPIError(APIErrorCode.API_KEY_INVALID, {
+          statusCode,
+          originalError,
+        });
       case 403:
-        return new UserFriendlyAPIError(APIErrorCode.API_ACCESS_DENIED, { statusCode, originalError });
+        return new UserFriendlyAPIError(APIErrorCode.API_ACCESS_DENIED, {
+          statusCode,
+          originalError,
+        });
       case 404:
-        return new UserFriendlyAPIError(APIErrorCode.MODEL_NOT_FOUND, { statusCode, originalError });
+        return new UserFriendlyAPIError(APIErrorCode.MODEL_NOT_FOUND, {
+          statusCode,
+          originalError,
+        });
       case 429:
-        return new UserFriendlyAPIError(APIErrorCode.RATE_LIMIT_EXCEEDED, { statusCode, originalError });
+        return new UserFriendlyAPIError(APIErrorCode.RATE_LIMIT_EXCEEDED, {
+          statusCode,
+          originalError,
+        });
       case 500:
       case 502:
       case 503:
       case 504:
-        return new UserFriendlyAPIError(APIErrorCode.SERVER_ERROR, { statusCode, originalError });
+        return new UserFriendlyAPIError(APIErrorCode.SERVER_ERROR, {
+          statusCode,
+          originalError,
+        });
     }
   }
 
   // 根据错误消息关键词判断
-  if (errorMessage.includes('api key') || errorMessage.includes('apikey') || errorMessage.includes('密钥')) {
+  if (
+    errorMessage.includes('api key') ||
+    errorMessage.includes('apikey') ||
+    errorMessage.includes('密钥')
+  ) {
     if (errorMessage.includes('invalid') || errorMessage.includes('无效')) {
-      return new UserFriendlyAPIError(APIErrorCode.API_KEY_INVALID, { originalError });
+      return new UserFriendlyAPIError(APIErrorCode.API_KEY_INVALID, {
+        originalError,
+      });
     }
     if (errorMessage.includes('expired') || errorMessage.includes('过期')) {
-      return new UserFriendlyAPIError(APIErrorCode.API_KEY_EXPIRED, { originalError });
+      return new UserFriendlyAPIError(APIErrorCode.API_KEY_EXPIRED, {
+        originalError,
+      });
     }
     if (errorMessage.includes('missing') || errorMessage.includes('未配置')) {
-      return new UserFriendlyAPIError(APIErrorCode.API_KEY_MISSING, { originalError });
+      return new UserFriendlyAPIError(APIErrorCode.API_KEY_MISSING, {
+        originalError,
+      });
     }
   }
 
-  if (errorMessage.includes('network') || errorMessage.includes('fetch') || errorMessage.includes('failed to fetch')) {
-    return new UserFriendlyAPIError(APIErrorCode.NETWORK_ERROR, { originalError });
+  if (
+    errorMessage.includes('network') ||
+    errorMessage.includes('fetch') ||
+    errorMessage.includes('failed to fetch')
+  ) {
+    return new UserFriendlyAPIError(APIErrorCode.NETWORK_ERROR, {
+      originalError,
+    });
   }
 
   if (errorMessage.includes('timeout') || errorMessage.includes('超时')) {
-    return new UserFriendlyAPIError(APIErrorCode.TIMEOUT_ERROR, { originalError });
+    return new UserFriendlyAPIError(APIErrorCode.TIMEOUT_ERROR, {
+      originalError,
+    });
   }
 
   if (errorMessage.includes('connection') || errorMessage.includes('连接')) {
-    return new UserFriendlyAPIError(APIErrorCode.CONNECTION_FAILED, { originalError });
+    return new UserFriendlyAPIError(APIErrorCode.CONNECTION_FAILED, {
+      originalError,
+    });
   }
 
-  if (errorMessage.includes('rate limit') || errorMessage.includes('too many') || errorMessage.includes('频繁')) {
-    return new UserFriendlyAPIError(APIErrorCode.RATE_LIMIT_EXCEEDED, { originalError });
+  if (
+    errorMessage.includes('rate limit') ||
+    errorMessage.includes('too many') ||
+    errorMessage.includes('频繁')
+  ) {
+    return new UserFriendlyAPIError(APIErrorCode.RATE_LIMIT_EXCEEDED, {
+      originalError,
+    });
   }
 
-  if (errorMessage.includes('quota') || errorMessage.includes('配额') || errorMessage.includes('余额')) {
-    return new UserFriendlyAPIError(APIErrorCode.QUOTA_EXCEEDED, { originalError });
+  if (
+    errorMessage.includes('quota') ||
+    errorMessage.includes('配额') ||
+    errorMessage.includes('余额')
+  ) {
+    return new UserFriendlyAPIError(APIErrorCode.QUOTA_EXCEEDED, {
+      originalError,
+    });
   }
 
-  if (errorMessage.includes('model') && (errorMessage.includes('not found') || errorMessage.includes('不存在'))) {
-    return new UserFriendlyAPIError(APIErrorCode.MODEL_NOT_FOUND, { originalError });
+  if (
+    errorMessage.includes('model') &&
+    (errorMessage.includes('not found') || errorMessage.includes('不存在'))
+  ) {
+    return new UserFriendlyAPIError(APIErrorCode.MODEL_NOT_FOUND, {
+      originalError,
+    });
   }
 
   if (errorMessage.includes('content') && errorMessage.includes('filter')) {
-    return new UserFriendlyAPIError(APIErrorCode.CONTENT_FILTERED, { originalError });
+    return new UserFriendlyAPIError(APIErrorCode.CONTENT_FILTERED, {
+      originalError,
+    });
   }
 
   if (errorMessage.includes('provider') && errorMessage.includes('未注册')) {
-    return new UserFriendlyAPIError(APIErrorCode.PROVIDER_NOT_REGISTERED, { originalError });
+    return new UserFriendlyAPIError(APIErrorCode.PROVIDER_NOT_REGISTERED, {
+      originalError,
+    });
   }
 
-  if (errorMessage.includes('未配置') || errorMessage.includes('not configured')) {
-    return new UserFriendlyAPIError(APIErrorCode.PROVIDER_NOT_CONFIGURED, { originalError });
+  if (
+    errorMessage.includes('未配置') ||
+    errorMessage.includes('not configured')
+  ) {
+    return new UserFriendlyAPIError(APIErrorCode.PROVIDER_NOT_CONFIGURED, {
+      originalError,
+    });
   }
 
-  if (errorMessage.includes('unauthorized') || errorMessage.includes('未授权')) {
-    return new UserFriendlyAPIError(APIErrorCode.API_KEY_INVALID, { originalError });
+  if (
+    errorMessage.includes('unauthorized') ||
+    errorMessage.includes('未授权')
+  ) {
+    return new UserFriendlyAPIError(APIErrorCode.API_KEY_INVALID, {
+      originalError,
+    });
   }
 
   // 默认返回未知错误
-  return new UserFriendlyAPIError(APIErrorCode.UNKNOWN_ERROR, { 
+  return new UserFriendlyAPIError(APIErrorCode.UNKNOWN_ERROR, {
     originalError,
     customMessage: originalError.message || '发生未知错误',
   });

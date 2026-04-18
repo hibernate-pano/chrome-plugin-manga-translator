@@ -4,16 +4,16 @@ import PopupApp from './components/Popup/PopupApp';
 import { ThemeProvider } from './components/theme-provider';
 import './index.css';
 
-const popupRoot = document.getElementById('app');
+const appRoot = document.getElementById('app');
 
-if (!popupRoot) {
-  throw new Error('Popup root element not found');
+if (!appRoot) {
+  throw new Error('App root element not found');
 }
 
-ReactDOM.createRoot(popupRoot).render(
+ReactDOM.createRoot(appRoot).render(
   <React.StrictMode>
-    <ThemeProvider defaultTheme="system" storageKey="manga-translator-theme">
+    <ThemeProvider defaultTheme='system' storageKey='manga-translator-theme'>
       <PopupApp />
     </ThemeProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 );

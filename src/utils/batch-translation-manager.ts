@@ -85,7 +85,11 @@ export class BatchTranslationManager {
     // 尝试恢复之前的状态
     if (this.config.enablePersistence) {
       const savedState = await this.loadState();
-      if (savedState && savedState.pageUrl === pageUrl && savedState.tasks.length > 0) {
+      if (
+        savedState &&
+        savedState.pageUrl === pageUrl &&
+        savedState.tasks.length > 0
+      ) {
         // 合并新任务和已保存的任务
         const existingTaskMap = new Map(savedState.tasks.map(t => [t.id, t]));
         const newTasks = tasks.map(task => {
@@ -96,8 +100,15 @@ export class BatchTranslationManager {
               return existing;
             }
             // 保留失败的任务，但重置为pending以便重试
-            if (existing.status === 'failed' && existing.retryCount < this.config.maxRetries) {
-              return { ...existing, status: 'pending' as const, error: undefined };
+            if (
+              existing.status === 'failed' &&
+              existing.retryCount < this.config.maxRetries
+            ) {
+              return {
+                ...existing,
+                status: 'pending' as const,
+                error: undefined,
+              };
             }
           }
           return {
@@ -211,7 +222,9 @@ export class BatchTranslationManager {
       }
 
       // 并发处理批次中的任务
-      const batchPromises = batch.map(task => this.processTask(task, processTaskFn));
+      const batchPromises = batch.map(task =>
+        this.processTask(task, processTaskFn)
+      );
       await Promise.allSettled(batchPromises);
 
       // 更新进度
@@ -246,13 +259,16 @@ export class BatchTranslationManager {
       this.config.onTaskComplete(task);
     } catch (error) {
       task.retryCount++;
-      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorMessage =
+        error instanceof Error ? error.message : String(error);
       task.error = errorMessage;
 
       if (task.retryCount < this.config.maxRetries) {
         // 重试
         task.status = 'pending';
-        await new Promise(resolve => setTimeout(resolve, this.config.retryDelay * task.retryCount));
+        await new Promise(resolve =>
+          setTimeout(resolve, this.config.retryDelay * task.retryCount)
+        );
         this.processingQueue.delete(task.id);
         await this.processTask(task, processTaskFn);
         return;
@@ -471,4 +487,3 @@ export class BatchTranslationManager {
     return this.state.tasks.filter(t => t.status === 'pending');
   }
 }
-

@@ -1,6 +1,6 @@
 /**
  * Services Index
- * 
+ *
  * Exports all service modules for manga translation.
  */
 

@@ -12,7 +12,7 @@ import {
   Zap,
   Eye,
   ChevronRight,
-  ChevronDown
+  ChevronDown,
 } from 'lucide-react';
 
 interface NavigationItem {
@@ -103,11 +103,11 @@ const Navigation: React.FC<NavigationProps> = ({
         <motion.div
           whileHover={{ scale: 1.02 }}
           whileTap={{ scale: 0.98 }}
-          className="relative"
+          className='relative'
         >
           <Button
-            variant="ghost"
-            size="sm"
+            variant='ghost'
+            size='sm'
             disabled={item.disabled}
             onClick={() => {
               if (hasChildren) {
@@ -117,17 +117,17 @@ const Navigation: React.FC<NavigationProps> = ({
               }
             }}
             className={cn(
-              'relative flex items-center gap-2 transition-all duration-200 w-full justify-start',
+              'relative flex w-full items-center justify-start gap-2 transition-all duration-200',
               styles.item,
               isActive && styles.activeItem,
-              item.disabled && 'opacity-50 cursor-not-allowed',
+              item.disabled && 'cursor-not-allowed opacity-50',
               level > 0 && 'ml-4 text-sm'
             )}
             title={showTooltips ? item.description || item.label : undefined}
           >
-            <div className="flex items-center gap-2 flex-1">
+            <div className='flex flex-1 items-center gap-2'>
               {item.icon}
-              <AnimatePresence mode="wait">
+              <AnimatePresence mode='wait'>
                 {(!collapsed || variant !== 'sidebar') && (
                   <motion.span
                     initial={{ opacity: 0, width: 0 }}
@@ -144,14 +144,14 @@ const Navigation: React.FC<NavigationProps> = ({
               </AnimatePresence>
             </div>
 
-            <div className="flex items-center gap-1">
+            <div className='flex items-center gap-1'>
               {item.shortcut && (!collapsed || variant !== 'sidebar') && (
-                <Badge variant="outline" className="text-xs font-mono">
+                <Badge variant='outline' className='font-mono text-xs'>
                   {item.shortcut}
                 </Badge>
               )}
               {item.badge && (
-                <Badge variant="secondary" className="text-xs">
+                <Badge variant='secondary' className='text-xs'>
                   {item.badge}
                 </Badge>
               )}
@@ -160,16 +160,16 @@ const Navigation: React.FC<NavigationProps> = ({
                   animate={{ rotate: isExpanded ? 90 : 0 }}
                   transition={{ duration: 0.2 }}
                 >
-                  <ChevronRight className="w-4 h-4" />
+                  <ChevronRight className='h-4 w-4' />
                 </motion.div>
               )}
             </div>
 
             {isActive && variant === 'underline' && (
               <motion.div
-                className="absolute bottom-0 left-0 right-0 h-0.5 bg-primary"
-                layoutId="activeIndicator"
-                transition={{ type: "spring", stiffness: 300, damping: 30 }}
+                className='absolute bottom-0 left-0 right-0 h-0.5 bg-primary'
+                layoutId='activeIndicator'
+                transition={{ type: 'spring', stiffness: 300, damping: 30 }}
               />
             )}
           </Button>
@@ -183,10 +183,12 @@ const Navigation: React.FC<NavigationProps> = ({
               animate={{ height: 'auto', opacity: 1 }}
               exit={{ height: 0, opacity: 0 }}
               transition={{ duration: 0.3, ease: [0.25, 0.46, 0.45, 0.94] }}
-              className="overflow-hidden"
+              className='overflow-hidden'
             >
-              <div className="py-1 space-y-1">
-                {item.children?.map((child) => renderNavigationItem(child, level + 1))}
+              <div className='space-y-1 py-1'>
+                {item.children?.map(child =>
+                  renderNavigationItem(child, level + 1)
+                )}
               </div>
             </motion.div>
           )}
@@ -206,27 +208,24 @@ const Navigation: React.FC<NavigationProps> = ({
       )}
     >
       {collapsible && variant === 'sidebar' && (
-        <motion.div
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-        >
+        <motion.div whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}>
           <Button
-            variant="ghost"
-            size="sm"
+            variant='ghost'
+            size='sm'
             onClick={() => setCollapsed(!collapsed)}
-            className="w-full justify-center mb-2"
+            className='mb-2 w-full justify-center'
           >
             <motion.div
               animate={{ rotate: collapsed ? 180 : 0 }}
               transition={{ duration: 0.2 }}
             >
-              <ChevronDown className="w-4 h-4" />
+              <ChevronDown className='h-4 w-4' />
             </motion.div>
           </Button>
         </motion.div>
       )}
 
-      {items.map((item) => renderNavigationItem(item))}
+      {items.map(item => renderNavigationItem(item))}
     </nav>
   );
 };
@@ -236,14 +235,14 @@ export const popupNavigationItems: NavigationItem[] = [
   {
     id: 'main',
     label: '主要设置',
-    icon: <Settings className="w-4 h-4" />,
+    icon: <Settings className='h-4 w-4' />,
     description: '配置基本翻译参数和API设置',
     shortcut: 'Alt+S',
   },
   {
     id: 'history',
     label: '翻译历史',
-    icon: <History className="w-4 h-4" />,
+    icon: <History className='h-4 w-4' />,
     description: '查看和管理翻译历史记录',
     shortcut: 'Alt+H',
   },
@@ -253,26 +252,26 @@ export const optionsNavigationItems: NavigationItem[] = [
   {
     id: 'api',
     label: 'API设置',
-    icon: <Zap className="w-4 h-4" />,
+    icon: <Zap className='h-4 w-4' />,
     description: '配置各种AI服务提供者',
     shortcut: 'Ctrl+1',
     children: [
       {
         id: 'api-openai',
         label: 'OpenAI',
-        icon: <Database className="w-3 h-3" />,
+        icon: <Database className='h-3 w-3' />,
         description: 'OpenAI GPT模型配置',
       },
       {
         id: 'api-deepseek',
         label: 'DeepSeek',
-        icon: <Database className="w-3 h-3" />,
+        icon: <Database className='h-3 w-3' />,
         description: 'DeepSeek模型配置',
       },
       {
         id: 'api-claude',
         label: 'Claude',
-        icon: <Database className="w-3 h-3" />,
+        icon: <Database className='h-3 w-3' />,
         description: 'Anthropic Claude模型配置',
       },
     ],
@@ -280,42 +279,42 @@ export const optionsNavigationItems: NavigationItem[] = [
   {
     id: 'history',
     label: '翻译历史',
-    icon: <History className="w-4 h-4" />,
+    icon: <History className='h-4 w-4' />,
     description: '查看和管理翻译历史记录',
     shortcut: 'Ctrl+2',
   },
   {
     id: 'style',
     label: '样式设置',
-    icon: <Palette className="w-4 h-4" />,
+    icon: <Palette className='h-4 w-4' />,
     description: '自定义翻译文本的外观样式',
     shortcut: 'Ctrl+3',
   },
   {
     id: 'ocr',
     label: 'OCR设置',
-    icon: <Eye className="w-4 h-4" />,
+    icon: <Eye className='h-4 w-4' />,
     description: '配置文字识别相关参数',
     shortcut: 'Ctrl+4',
   },
   {
     id: 'shortcuts',
     label: '快捷键',
-    icon: <Keyboard className="w-4 h-4" />,
+    icon: <Keyboard className='h-4 w-4' />,
     description: '自定义键盘快捷键',
     shortcut: 'Ctrl+5',
   },
   {
     id: 'cache',
     label: '缓存管理',
-    icon: <Database className="w-4 h-4" />,
+    icon: <Database className='h-4 w-4' />,
     description: '管理翻译缓存',
     shortcut: 'Ctrl+6',
   },
   {
     id: 'advanced',
     label: '高级设置',
-    icon: <Settings className="w-4 h-4" />,
+    icon: <Settings className='h-4 w-4' />,
     description: '高级功能和实验性特性',
     shortcut: 'Ctrl+7',
   },
@@ -336,7 +335,7 @@ interface QuickActionsProps {
 const QuickActions: React.FC<QuickActionsProps> = ({ actions, className }) => {
   return (
     <div className={cn('flex gap-2', className)}>
-      {actions.map((action) => (
+      {actions.map(action => (
         <motion.div
           key={action.id}
           whileHover={{ scale: 1.05 }}
@@ -344,13 +343,13 @@ const QuickActions: React.FC<QuickActionsProps> = ({ actions, className }) => {
         >
           <Button
             variant={action.variant || 'outline'}
-            size="sm"
+            size='sm'
             onClick={action.onClick}
             disabled={action.disabled}
-            className="flex items-center gap-2"
+            className='flex items-center gap-2'
           >
             {action.icon}
-            <span className="hidden sm:inline">{action.label}</span>
+            <span className='hidden sm:inline'>{action.label}</span>
           </Button>
         </motion.div>
       ))}

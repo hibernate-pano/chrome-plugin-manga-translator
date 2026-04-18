@@ -1,4 +1,3 @@
-
 import { Moon, Sun, Monitor } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -15,32 +14,32 @@ export function ThemeToggle() {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon">
-          <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">切换主题</span>
+        <Button variant='outline' size='icon'>
+          <Sun className='h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0' />
+          <Moon className='absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100' />
+          <span className='sr-only'>切换主题</span>
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align='end'>
         <DropdownMenuItem
           onClick={() => setTheme('light')}
           className={theme === 'light' ? 'bg-accent' : ''}
         >
-          <Sun className="mr-2 h-4 w-4" />
+          <Sun className='mr-2 h-4 w-4' />
           <span>浅色</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => setTheme('dark')}
           className={theme === 'dark' ? 'bg-accent' : ''}
         >
-          <Moon className="mr-2 h-4 w-4" />
+          <Moon className='mr-2 h-4 w-4' />
           <span>深色</span>
         </DropdownMenuItem>
         <DropdownMenuItem
           onClick={() => setTheme('system')}
           className={theme === 'system' ? 'bg-accent' : ''}
         >
-          <Monitor className="mr-2 h-4 w-4" />
+          <Monitor className='mr-2 h-4 w-4' />
           <span>跟随系统</span>
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -65,13 +64,13 @@ export function ThemeToggleSimple() {
   const getIcon = () => {
     switch (theme) {
       case 'light':
-        return <Sun className="h-4 w-4" />;
+        return <Sun className='h-4 w-4' />;
       case 'dark':
-        return <Moon className="h-4 w-4" />;
+        return <Moon className='h-4 w-4' />;
       case 'system':
-        return <Monitor className="h-4 w-4" />;
+        return <Monitor className='h-4 w-4' />;
       default:
-        return <Sun className="h-4 w-4" />;
+        return <Sun className='h-4 w-4' />;
     }
   };
 
@@ -90,14 +89,14 @@ export function ThemeToggleSimple() {
 
   return (
     <Button
-      variant="ghost"
-      size="sm"
+      variant='ghost'
+      size='sm'
       onClick={toggleTheme}
-      className="w-full justify-start"
+      className='w-full justify-start'
       title={getLabel()}
     >
       {getIcon()}
-      <span className="ml-2">{getLabel()}</span>
+      <span className='ml-2'>{getLabel()}</span>
     </Button>
   );
 }

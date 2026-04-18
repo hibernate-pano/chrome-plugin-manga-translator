@@ -4,16 +4,16 @@ import OptionsApp from './components/Options/OptionsApp';
 import { ThemeProvider } from './components/theme-provider';
 import './index.css';
 
-const optionsRoot = document.getElementById('app');
+const appRoot = document.getElementById('app');
 
-if (!optionsRoot) {
-  throw new Error('Options root element not found');
+if (!appRoot) {
+  throw new Error('App root element not found');
 }
 
-ReactDOM.createRoot(optionsRoot).render(
+ReactDOM.createRoot(appRoot).render(
   <React.StrictMode>
-    <ThemeProvider defaultTheme="system" storageKey="manga-translator-theme">
+    <ThemeProvider defaultTheme='system' storageKey='manga-translator-theme'>
       <OptionsApp />
     </ThemeProvider>
-  </React.StrictMode>,
+  </React.StrictMode>
 );
