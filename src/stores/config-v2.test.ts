@@ -41,16 +41,16 @@ describe('AppConfigStore', () => {
     });
   });
 
-  describe('Server Mode', () => {
-    it('should start in server mode with localhost preconfigured', () => {
+  describe('Execution Path Defaults', () => {
+    it('should start in plugin-direct mode with accelerator disabled by default', () => {
       const state = useAppConfigStore.getState();
-      expect(state.executionMode).toBe('server');
-      expect(state.server.enabled).toBe(true);
+      expect(state.executionMode).toBe('provider-direct');
+      expect(state.server.enabled).toBe(false);
       expect(state.server.baseUrl).toBe('http://127.0.0.1:8000');
       expect(state.isServerConfigured()).toBe(true);
     });
 
-    it('should update server configuration', () => {
+    it('should allow explicit switch to accelerator mode', () => {
       const store = useAppConfigStore.getState();
 
       store.setExecutionMode('server');
@@ -121,14 +121,19 @@ describe('AppConfigStore', () => {
       expect(store.isProviderConfigured('openai')).toBe(false);
       expect(store.isProviderConfigured('claude')).toBe(false);
       expect(store.isProviderConfigured('deepseek')).toBe(false);
+      expect(store.isProviderConfigured('nvidia')).toBe(false);
     });
 
     it('should report cloud provider as configured with API key', () => {
       const store = useAppConfigStore.getState();
 
       store.setProviderApiKey('openai', 'test-api-key');
+      store.setProviderApiKey('nvidia', 'nvapi-test-api-key');
 
       expect(useAppConfigStore.getState().isProviderConfigured('openai')).toBe(
+        true
+      );
+      expect(useAppConfigStore.getState().isProviderConfigured('nvidia')).toBe(
         true
       );
     });

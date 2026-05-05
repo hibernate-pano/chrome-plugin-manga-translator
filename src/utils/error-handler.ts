@@ -139,10 +139,9 @@ export class TranslationErrorHandler {
       return error;
     }
 
-    const errorMessage =
-      error instanceof Error
-        ? error.message.toLowerCase()
-        : String(error).toLowerCase();
+    const rawErrorMessage =
+      error instanceof Error ? error.message : String(error);
+    const errorMessage = rawErrorMessage.toLowerCase();
     const statusCode = TranslationErrorHandler.extractStatusCode(error);
 
     // 根据状态码判断
@@ -156,7 +155,20 @@ export class TranslationErrorHandler {
 
     // 根据错误消息关键词判断
     const code = TranslationErrorHandler.getCodeFromMessage(errorMessage);
-    return TranslationErrorHandler.createFriendlyError(code);
+    const friendlyError = TranslationErrorHandler.createFriendlyError(code);
+
+    if (
+      code === TranslationErrorCode.UNKNOWN_ERROR &&
+      rawErrorMessage.trim() &&
+      rawErrorMessage !== friendlyError.message
+    ) {
+      return {
+        ...friendlyError,
+        message: `${friendlyError.message}：${rawErrorMessage}`,
+      };
+    }
+
+    return friendlyError;
   }
 
   /**
@@ -273,7 +285,8 @@ export class TranslationErrorHandler {
     if (
       message.includes('timeout') ||
       message.includes('超时') ||
-      message.includes('timed out')
+      message.includes('timed out') ||
+      message.includes('未在预期时间内出现')
     ) {
       return TranslationErrorCode.TIMEOUT_ERROR;
     }

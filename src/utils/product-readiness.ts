@@ -93,17 +93,17 @@ export function getConfigurationNextStep(
 ): string {
   if (executionMode === 'server') {
     return server.baseUrl.trim()
-      ? '先测试服务端连接，再回到漫画页面点击翻译。'
-      : '先填写服务端地址，再测试连接。';
+      ? '服务端加速已就绪。建议先测试连接，再决定是否切回插件直连。'
+      : '先填写本地加速服务地址，再测试连接。';
   }
 
   if (provider === 'ollama') {
     return providers.ollama.baseUrl.trim()
-      ? '先确认 Ollama 里有视觉模型，再开始翻译。'
+      ? '先确认 Ollama 里有可用视觉模型，再开始本地直连翻译。'
       : '先填写 Ollama 地址，再拉取一个视觉模型。';
   }
 
   return providers[provider].apiKey.trim()
-    ? '建议先测试 Provider 连接，再开始翻译。'
-    : '先填写 API Key，再测试连接。';
+    ? '插件直连已就绪，可以直接开始翻译。'
+    : '先填写 API Key，启用插件直连翻译。';
 }

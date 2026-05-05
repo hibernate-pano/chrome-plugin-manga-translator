@@ -17,6 +17,22 @@ import {
   createAutoTranslateMessage,
   isTranslationEnabled,
 } from './auto-translate';
+import type {
+  QueryJobStatusRequest,
+  TranslateImageJobRequest,
+  TranslateImageJobResponse,
+  TranslateImageBytesViaServerRequest,
+  TranslateViaServerRequest,
+} from '@/shared/runtime-contracts';
+import type { TranslationTransportRequest } from '@/services/translation-transport';
+import {
+  fetchImageBytesResponse,
+  testServerConnection,
+  translateImageBytesViaServer,
+  translateViaServer,
+} from './server-client';
+import { translateImageViaProviderDirect } from './provider-direct-client';
+import { BackgroundJobQueue, createJobStatus } from './job-queue';
 
 // ==================== Types ====================
 
@@ -37,6 +53,10 @@ interface MessageResponse {
   [key: string]: unknown;
 }
 
+function asMessageResponse(value: unknown): MessageResponse {
+  return value as MessageResponse;
+}
+
 interface TranslationState {
   enabled: boolean;
   isProcessing: boolean;
@@ -51,7 +71,14 @@ const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
 const DEFAULT_CONFIG = {
   enabled: false,
+  executionMode: 'provider-direct',
   provider: 'siliconflow',
+  server: {
+    enabled: false,
+    baseUrl: 'http://127.0.0.1:8000',
+    authToken: '',
+    timeoutMs: 30000,
+  },
   providers: {
     siliconflow: {
       apiKey: '',
@@ -78,6 +105,11 @@ const DEFAULT_CONFIG = {
       baseUrl: 'https://api.deepseek.com/v1',
       model: 'deepseek-chat',
     },
+    nvidia: {
+      apiKey: '',
+      baseUrl: 'https://integrate.api.nvidia.com/v1',
+      model: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+    },
     ollama: { apiKey: '', baseUrl: 'http://localhost:11434', model: 'llava' },
   },
   targetLanguage: 'zh-CN',
@@ -85,6 +117,8 @@ const DEFAULT_CONFIG = {
   parallelLimit: 3,
   cacheEnabled: true,
 };
+
+const translationJobQueue = new BackgroundJobQueue(2);
 
 // ==================== Lifecycle Events ====================
 
@@ -269,6 +303,25 @@ async function handleMessage(
     // Handle type-based messages from new content script (v2 protocol)
     if (request['type'] && !request.action) {
       switch (request['type']) {
+        case 'JOB_TRANSLATE_IMAGE':
+          sendResponse(
+            asMessageResponse(
+              await enqueueTranslationJob(
+                request as unknown as TranslateImageJobRequest
+              )
+            )
+          );
+          return;
+        case 'JOB_QUERY_STATUS': {
+          const statusRequest = request as unknown as QueryJobStatusRequest;
+          const job = translationJobQueue.getJob(statusRequest.jobId);
+          sendResponse(
+            job
+              ? { success: true, job }
+              : { success: false, error: 'Job not found' }
+          );
+          return;
+        }
         case 'STATE_UPDATE':
           // Forward state update to popup
           chrome.runtime.sendMessage(request).catch(() => {
@@ -284,6 +337,35 @@ async function handleMessage(
             }
           }
           sendResponse({ received: true });
+          return;
+        case 'FETCH_IMAGE_BYTES': {
+          const imageUrl = request['imageUrl'];
+          if (typeof imageUrl !== 'string') {
+            sendResponse({ success: false, error: 'No image URL provided' });
+            return;
+          }
+          sendResponse(asMessageResponse(await fetchImageBytesResponse(imageUrl)));
+          return;
+        }
+        case 'TRANSLATE_VIA_SERVER':
+          {
+            const serverRequest = request as unknown as TranslateViaServerRequest;
+            sendResponse(
+              asMessageResponse(await translateViaServer(serverRequest))
+            );
+          }
+          return;
+        case 'TRANSLATE_IMAGE_BYTES_VIA_SERVER':
+          sendResponse(
+            asMessageResponse(
+              await translateImageBytesViaServer(
+                request as unknown as TranslateImageBytesViaServerRequest
+              )
+            )
+          );
+          return;
+        case 'TEST_SERVER_CONNECTION':
+          sendResponse(asMessageResponse(await testServerConnection()));
           return;
         default:
           sendResponse({ received: true });
@@ -413,6 +495,125 @@ async function handleMessage(
       error: error instanceof Error ? error.message : 'Unknown error',
     });
   }
+}
+
+function deriveActualPath(
+  request: TranslateImageJobRequest
+): TranslateImageJobRequest['requestedPath'] {
+  if (request.requestedPath === 'accelerator') {
+    return 'accelerator';
+  }
+
+  return request.provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
+}
+
+function getDiagnosticsOrNull(
+  response: unknown
+): TranslateImageJobResponse['job']['diagnostics'] | null {
+  if (
+    response &&
+    typeof response === 'object' &&
+    'diagnostics' in response &&
+    (response as { diagnostics?: unknown }).diagnostics
+  ) {
+    return (response as { diagnostics?: TranslateImageJobResponse['job']['diagnostics'] })
+      .diagnostics ?? null;
+  }
+
+  return null;
+}
+
+async function enqueueTranslationJob(
+  request: TranslateImageJobRequest
+): Promise<TranslateImageJobResponse> {
+  const job = createJobStatus({
+    jobId: request.jobId,
+    pageKey: request.pageKey,
+    priorityClass: request.priorityClass,
+    requestedPath: request.requestedPath,
+    scope: request.scope,
+  });
+
+  return translationJobQueue.enqueue({
+    job,
+    run: async () => {
+      const actualCapabilityUsed = deriveActualPath(request);
+      translationJobQueue.updateJob(request.jobId, {
+        actualCapabilityUsed,
+        state: 'running',
+      });
+
+      const response =
+        request.requestedPath === 'accelerator'
+          ? await translateImageBytesViaServer({
+              type: 'TRANSLATE_IMAGE_BYTES_VIA_SERVER',
+              imageUrl: request.imageUrl || request.pageKey,
+              sourcePageUrl: request.sourcePageUrl,
+              imageBase64: request.imageBase64,
+              mimeType: request.mimeType,
+              targetLanguage: request.targetLanguage,
+              translationStylePreset: request.translationStylePreset,
+              forceRefresh: request.forceRefresh,
+            })
+          : await translateImageViaProviderDirect(
+              request as unknown as TranslationTransportRequest
+            );
+      const diagnostics = getDiagnosticsOrNull(response);
+
+      if (!response.success) {
+        const failureJob = translationJobQueue.updateJob(request.jobId, {
+          actualCapabilityUsed,
+          state: 'failed',
+          fallbackReason:
+            request.requestedPath === 'accelerator'
+              ? 'accelerator-unavailable'
+              : undefined,
+          diagnostics,
+        });
+
+        if (!failureJob) {
+          throw new Error('Background job state missing during failure update');
+        }
+
+        return {
+          success: false,
+          job: failureJob,
+          textAreas: [],
+          pipeline: response.pipeline,
+          cached: response.cached,
+          usage: 'usage' in response ? response.usage ?? null : null,
+          error: response.error,
+        };
+      }
+
+      const successJob = translationJobQueue.updateJob(request.jobId, {
+        actualCapabilityUsed,
+        state: 'succeeded',
+        diagnostics: {
+          detectedRegions: diagnostics?.detectedRegions ?? 0,
+          fallbackRegions: diagnostics?.fallbackRegions ?? 0,
+          ocrMs: diagnostics?.ocrMs ?? 0,
+          translateMs: diagnostics?.translateMs ?? 0,
+          totalMs: diagnostics?.totalMs ?? 0,
+          retryCount: 0,
+          cacheStatus: response.cached ? 'hit' : 'miss',
+        },
+      });
+
+      if (!successJob) {
+        throw new Error('Background job state missing during success update');
+      }
+
+      return {
+        success: true,
+        job: successJob,
+        textAreas: response.textAreas ?? [],
+        pipeline: response.pipeline,
+        cached: response.cached,
+        usage: 'usage' in response ? response.usage ?? null : null,
+      };
+    },
+  });
 }
 
 // ==================== Tab Communication ====================

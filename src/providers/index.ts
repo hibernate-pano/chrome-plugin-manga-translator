@@ -21,6 +21,7 @@ import { VisionProvider, ProviderType, ProviderConfig } from './base';
 import { OpenAIProvider } from './openai';
 import { ClaudeProvider } from './claude';
 import { DeepSeekProvider } from './deepseek';
+import { NVIDIAProvider } from './nvidia';
 import { OllamaProvider } from './ollama';
 import { SiliconFlowProvider } from './siliconflow';
 import { DashScopeProvider } from './dashscope';
@@ -47,6 +48,9 @@ export async function createProvider(
       break;
     case 'deepseek':
       provider = new DeepSeekProvider();
+      break;
+    case 'nvidia':
+      provider = new NVIDIAProvider();
       break;
     case 'ollama':
       provider = new OllamaProvider();
@@ -106,6 +110,12 @@ export const PROVIDER_INFO: Record<
     description: '性价比高的云端服务，需要 API 密钥',
     requiresApiKey: true,
     defaultModel: 'deepseek-chat',
+  },
+  nvidia: {
+    name: 'NVIDIA NIM',
+    description: 'NVIDIA 官方兼容 OpenAI 接口，适合接入视觉模型',
+    requiresApiKey: true,
+    defaultModel: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
   },
   ollama: {
     name: 'Ollama',

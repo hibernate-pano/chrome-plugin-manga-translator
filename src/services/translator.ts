@@ -14,6 +14,10 @@ import {
   type ProviderType,
   type TextArea,
 } from '@/providers';
+import type {
+  JobPriorityClass,
+  RequestedExecutionPath,
+} from '@/shared/runtime-contracts';
 import {
   useTranslationCacheStore,
   type TranslationResult,
@@ -119,6 +123,17 @@ interface TransportTextAreasResponse {
   cached?: boolean;
   pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
   usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
+}
+
+function deriveRequestedPath(
+  executionMode: 'server' | 'provider-direct' | undefined,
+  provider: ProviderType
+): RequestedExecutionPath {
+  if (executionMode === 'server') {
+    return 'accelerator';
+  }
+
+  return provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
 }
 
 const HYBRID_PIPELINE_VERSION = 'hybrid-v1';
@@ -307,6 +322,8 @@ export class TranslatorService {
       imageKey?: string;
       imageUrl?: string;
       pageUrl?: string;
+      priorityClass?: JobPriorityClass;
+      scope?: 'viewport' | 'page' | 'chapter' | 'manual';
     }
   ): Promise<TransportTextAreasResponse> {
     const response = await this.transport.translateImage({
@@ -321,10 +338,17 @@ export class TranslatorService {
       baseUrl: this.config.baseUrl,
       model: this.config.model,
       executionMode: this.config.executionMode,
+      requestedPath: deriveRequestedPath(
+        this.config.executionMode,
+        this.config.provider
+      ),
       server: this.config.server,
       renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
       forceRefresh,
+      pageKey: metadata?.imageKey,
+      priorityClass: metadata?.priorityClass,
+      scope: metadata?.scope,
     });
 
     if (!response.success) {
@@ -340,10 +364,14 @@ export class TranslatorService {
   }
 
   private buildCacheKey(imageHash: string): string {
+    const requestedPath = deriveRequestedPath(
+      this.config.executionMode,
+      this.config.provider
+    );
     const executionScope =
-      this.config.executionMode === 'server' && this.config.server?.baseUrl
-        ? `server::${this.config.server.baseUrl}`
-        : `provider::${this.config.provider}::${this.config.model || 'default'}`;
+      requestedPath === 'accelerator'
+        ? `accelerator::${this.config.server?.baseUrl || 'unset'}`
+        : `provider::${requestedPath}::${this.config.provider}::${this.config.model || 'default'}`;
     return [
       imageHash,
       executionScope,
@@ -892,10 +920,7 @@ export function createTranslatorFromConfig(): TranslatorService {
   const providerSettings = config.providers[config.provider];
 
   return new TranslatorService({
-    executionMode:
-      config.server.enabled && config.server.baseUrl
-        ? 'server'
-        : config.executionMode,
+    executionMode: config.executionMode,
     provider: config.provider,
     server: config.server,
     apiKey: providerSettings.apiKey,

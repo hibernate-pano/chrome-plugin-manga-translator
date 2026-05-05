@@ -1,10 +1,12 @@
 import type {
   FetchImageBytesResponse,
   TestServerConnectionResponse,
+  TranslateImageBytesViaServerRequest,
   TranslateViaServerRequest,
   TranslateViaServerResponse,
 } from '@/shared/runtime-contracts';
 import { loadRuntimeAppConfig, type ServerConfig } from '@/shared/app-config';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 interface ImageBytes {
   buffer: ArrayBuffer;
@@ -163,9 +165,38 @@ function guessFileName(mimeType: string): string {
   return 'page.jpg';
 }
 
-export async function translateViaServer(
-  request: TranslateViaServerRequest
-): Promise<TranslateViaServerResponse> {
+function base64ToUint8Array(base64: string): Uint8Array {
+  const bufferCtor = (
+    globalThis as {
+      Buffer?: {
+        from: (data: string, encoding: string) => Uint8Array;
+      };
+    }
+  ).Buffer;
+
+  if (bufferCtor) {
+    return bufferCtor.from(base64, 'base64');
+  }
+
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+
+  return bytes;
+}
+
+async function postServerTranslation(args: {
+  imageData: BlobPart;
+  mimeType: string;
+  imageUrl: string;
+  sourcePageUrl?: string;
+  targetLanguage: string;
+  translationStylePreset: TranslationStylePreset;
+  forceRefresh?: boolean;
+}): Promise<TranslateViaServerResponse> {
   const config = await loadRuntimeAppConfig();
   const baseUrl = config.server.baseUrl.trim();
 
@@ -180,21 +211,23 @@ export async function translateViaServer(
   }
 
   try {
-    const image = await fetchImageBytes(request.imageUrl);
     const formData = new FormData();
 
     formData.append(
       'image',
-      new Blob([image.buffer], { type: image.mimeType }),
-      guessFileName(image.mimeType)
+      new Blob([args.imageData], { type: args.mimeType }),
+      guessFileName(args.mimeType)
     );
-    formData.append('imageKey', request.imageUrl);
-    formData.append('targetLanguage', request.targetLanguage);
+    formData.append('imageKey', args.imageUrl);
+    if (args.sourcePageUrl?.trim()) {
+      formData.append('sourcePageUrl', args.sourcePageUrl);
+    }
+    formData.append('targetLanguage', args.targetLanguage);
     formData.append(
       'translationStylePreset',
-      request.translationStylePreset
+      args.translationStylePreset
     );
-    formData.append('forceRefresh', String(Boolean(request.forceRefresh)));
+    formData.append('forceRefresh', String(Boolean(args.forceRefresh)));
 
     const response = await withTimeout(
       fetch(`${baseUrl.replace(/\/$/, '')}/api/v1/translate-image`, {
@@ -236,4 +269,49 @@ export async function translateViaServer(
         error instanceof Error ? error.message : '服务端翻译失败',
     };
   }
+}
+
+export async function translateViaServer(
+  request: TranslateViaServerRequest
+): Promise<TranslateViaServerResponse> {
+  try {
+    const image = await fetchImageBytes(request.imageUrl);
+
+    return postServerTranslation({
+      imageData: image.buffer,
+      mimeType: image.mimeType,
+      imageUrl: request.imageUrl,
+      sourcePageUrl: request.sourcePageUrl,
+      targetLanguage: request.targetLanguage,
+      translationStylePreset: request.translationStylePreset,
+      forceRefresh: request.forceRefresh,
+    });
+  } catch (error) {
+    return {
+      success: false,
+      textAreas: [],
+      pipeline: 'full-image-fallback',
+      cached: false,
+      error:
+        error instanceof Error ? error.message : '服务端翻译失败',
+    };
+  }
+}
+
+export async function translateImageBytesViaServer(
+  request: TranslateImageBytesViaServerRequest
+): Promise<TranslateViaServerResponse> {
+  const bytes = base64ToUint8Array(request.imageBase64);
+  const copiedBytes = new Uint8Array(bytes.byteLength);
+  copiedBytes.set(bytes);
+
+  return postServerTranslation({
+    imageData: copiedBytes,
+    mimeType: request.mimeType,
+    imageUrl: request.imageUrl,
+    sourcePageUrl: request.sourcePageUrl,
+    targetLanguage: request.targetLanguage,
+    translationStylePreset: request.translationStylePreset,
+    forceRefresh: request.forceRefresh,
+  });
 }

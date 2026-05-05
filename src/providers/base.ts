@@ -107,6 +107,7 @@ export type ProviderType =
   | 'openai'
   | 'claude'
   | 'deepseek'
+  | 'nvidia'
   | 'ollama'
   | 'siliconflow'
   | 'dashscope';

@@ -237,6 +237,37 @@ describe('Integration Tests: Complete Translation Flow', () => {
       expect(result.textAreas).toHaveLength(2);
       expect(transport.translateImage).toHaveBeenCalledOnce();
     });
+
+    it('should not silently reroute to accelerator when direct path is selected', async () => {
+      const transport = createMockTransport(async request => {
+        expect(request.executionMode).toBe('provider-direct');
+        expect(request.requestedPath).toBe('plugin-direct');
+        return {
+          success: true,
+          textAreas: createMockTextAreas(),
+          cached: false,
+        };
+      });
+      setDefaultTranslationTransport(transport);
+
+      const store = useAppConfigStore.getState();
+      store.setExecutionMode('provider-direct');
+      store.updateServerConfig({
+        enabled: true,
+        baseUrl: 'http://127.0.0.1:8000',
+        authToken: 'token',
+        timeoutMs: 30000,
+      });
+      store.setProvider('openai');
+      store.setProviderApiKey('openai', MOCK_API_KEY);
+
+      const translator = createTranslatorFromConfig();
+      const img = createMockImage();
+      const result = await translator.translateImage(img);
+
+      expect(result.success).toBe(true);
+      expect(transport.translateImage).toHaveBeenCalledOnce();
+    });
   });
 
   describe('Multi-Provider Switching', () => {
@@ -299,7 +330,13 @@ describe('Integration Tests: Complete Translation Flow', () => {
     });
 
     it('should handle provider-specific configurations', () => {
-      const providers: ProviderType[] = ['openai', 'claude', 'deepseek', 'ollama'];
+      const providers: ProviderType[] = [
+        'openai',
+        'claude',
+        'deepseek',
+        'nvidia',
+        'ollama',
+      ];
       
       providers.forEach(provider => {
         useAppConfigStore.getState().setProvider(provider);

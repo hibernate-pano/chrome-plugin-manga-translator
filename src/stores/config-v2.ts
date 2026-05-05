@@ -30,6 +30,7 @@ export interface ProvidersConfig {
   openai: ProviderSettings;
   claude: ProviderSettings;
   deepseek: ProviderSettings;
+  nvidia: ProviderSettings;
   ollama: ProviderSettings;
 }
 
@@ -104,6 +105,11 @@ const DEFAULT_PROVIDERS: ProvidersConfig = {
     baseUrl: 'https://api.deepseek.com/v1',
     model: '',
   },
+  nvidia: {
+    apiKey: '',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    model: '',
+  },
   ollama: {
     apiKey: '', // Not needed for Ollama
     baseUrl: 'http://localhost:11434',
@@ -113,10 +119,10 @@ const DEFAULT_PROVIDERS: ProvidersConfig = {
 
 const DEFAULT_CONFIG: AppConfigState = {
   enabled: DEFAULT_RUNTIME_APP_CONFIG.enabled,
-  executionMode: 'server',
+  executionMode: 'provider-direct',
   provider: 'siliconflow',
   server: {
-    enabled: true,
+    enabled: false,
     ...DEFAULT_RUNTIME_APP_CONFIG.server,
   },
   providers: DEFAULT_PROVIDERS,
@@ -129,7 +135,7 @@ const DEFAULT_CONFIG: AppConfigState = {
     DEFAULT_TRANSLATION_STYLE_PRESET,
   readingMode: 'panel',
   renderMode: 'strong-overlay-compat',
-  translationPipeline: 'full-image-vlm',
+  translationPipeline: 'hybrid-regions',
   regionBatchSize: 10,
   fallbackToFullImage: true,
 };

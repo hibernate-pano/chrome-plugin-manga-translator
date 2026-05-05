@@ -62,6 +62,16 @@ const PROVIDER_STRATEGY: Record<ProviderType, ProviderStrategy> = {
     qualityLabel: '中',
     costLabel: '低',
   },
+  nvidia: {
+    lane: 'compat',
+    recommendation: '适合已经在用 NVIDIA API Catalog，想接入兼容视觉模型的用户。',
+    tradeoff: '接口兼容性好，但模型效果更依赖你选择的具体 NIM 模型。',
+    suggestedModel: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+    fallbackAdvice: '如果结构化 JSON 不稳，优先切回硅基流动或 OpenAI。',
+    speedLabel: '中',
+    qualityLabel: '中高',
+    costLabel: '中',
+  },
   ollama: {
     lane: 'private',
     recommendation: '适合隐私优先或离线环境用户。',
@@ -81,6 +91,7 @@ const PROVIDER_PRICING: Record<ProviderType, { input: number; output: number }> 
     openai: { input: 0.005, output: 0.015 },
     claude: { input: 0.003, output: 0.015 },
     deepseek: { input: 0.00027, output: 0.0011 },
+    nvidia: { input: 0.002, output: 0.006 },
     ollama: { input: 0, output: 0 },
   };
 

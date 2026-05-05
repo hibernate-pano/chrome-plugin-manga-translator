@@ -9,6 +9,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { OpenAIProvider } from './openai';
 import { ClaudeProvider } from './claude';
 import { DeepSeekProvider } from './deepseek';
+import { NVIDIAProvider } from './nvidia';
 import { OllamaProvider } from './ollama';
 
 describe('OpenAIProvider', () => {
@@ -143,5 +144,41 @@ describe('OllamaProvider', () => {
   it('should accept custom base URL', async () => {
     await provider.initialize({ baseUrl: 'http://192.168.1.100:11434' });
     expect(provider.type).toBe('ollama');
+  });
+});
+
+describe('NVIDIAProvider', () => {
+  let provider: NVIDIAProvider;
+
+  beforeEach(() => {
+    provider = new NVIDIAProvider();
+  });
+
+  it('should have correct name and type', () => {
+    expect(provider.name).toBe('NVIDIA NIM');
+    expect(provider.type).toBe('nvidia');
+  });
+
+  it('should reject empty API key', async () => {
+    await provider.initialize({ apiKey: '' });
+    const result = await provider.validateConfig();
+
+    expect(result.valid).toBe(false);
+    expect(result.message).toContain('API');
+  });
+
+  it('should reject short API key', async () => {
+    await provider.initialize({ apiKey: 'short' });
+    const result = await provider.validateConfig();
+
+    expect(result.valid).toBe(false);
+    expect(result.message).toContain('无效');
+  });
+
+  it('should accept valid API key', async () => {
+    await provider.initialize({ apiKey: 'nvapi-1234567890abcdefghijklmnop' });
+    const result = await provider.validateConfig();
+
+    expect(result.valid).toBe(true);
   });
 });
