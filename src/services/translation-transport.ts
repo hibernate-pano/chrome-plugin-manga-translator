@@ -1,4 +1,11 @@
 import type { TextArea } from '@/providers/base';
+import type {
+  JobPriorityClass,
+  RequestedExecutionPath,
+  TranslateImageJobRequest,
+  TranslateImageJobResponse,
+  TranslateViaServerResponse,
+} from '@/shared/runtime-contracts';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 
 export interface ServerExecutionConfig {
@@ -20,10 +27,15 @@ export interface TranslationTransportRequest {
   baseUrl?: string;
   model?: string;
   executionMode?: 'server' | 'provider-direct';
+  requestedPath?: RequestedExecutionPath;
   server?: ServerExecutionConfig;
   renderMode?: 'anchors-only' | 'strong-overlay-compat';
   translationStylePreset: TranslationStylePreset;
   forceRefresh?: boolean;
+  jobId?: string;
+  pageKey?: string;
+  priorityClass?: JobPriorityClass;
+  scope?: 'viewport' | 'page' | 'chapter' | 'manual';
 }
 
 export interface TranslationTransportResponse {
@@ -56,16 +68,81 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
   async translateImage(
     request: TranslationTransportRequest
   ): Promise<TranslationTransportResponse> {
-    const response = (await chrome.runtime.sendMessage({
-      action: 'translateImage',
-      ...request,
-    })) as TranslationTransportResponse | undefined;
+    const requestedPath = this.resolveRequestedPath(request);
+    const pageKey = request.pageKey || request.imageUrl || request.imageKey || 'inline-image';
+
+    const response = this.normalizeJobResponse(
+      (await chrome.runtime.sendMessage({
+        type: 'JOB_TRANSLATE_IMAGE',
+        jobId: request.jobId || crypto.randomUUID(),
+        pageKey,
+        scope: request.scope || 'page',
+        priorityClass: request.priorityClass || 'visible-now',
+        requestedPath,
+        imageBase64: request.imageBase64,
+        mimeType: request.mimeType,
+        imageUrl: request.imageUrl,
+        sourcePageUrl: request.pageUrl,
+        targetLanguage: request.targetLanguage,
+        translationStylePreset: request.translationStylePreset,
+        provider: request.provider,
+        apiKey: request.apiKey,
+        baseUrl: request.baseUrl,
+        model: request.model,
+        forceRefresh: request.forceRefresh,
+      } satisfies TranslateImageJobRequest)) as
+        | TranslateImageJobResponse
+        | TranslateViaServerResponse
+        | undefined
+    );
 
     if (!response) {
       throw new Error('Background script 无响应，请刷新页面后重试');
     }
 
     return response;
+  }
+
+  private resolveRequestedPath(
+    request: TranslationTransportRequest
+  ): RequestedExecutionPath {
+    if (request.requestedPath) {
+      return request.requestedPath;
+    }
+
+    if (request.executionMode === 'server') {
+      return 'accelerator';
+    }
+
+    return request.provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
+  }
+
+  private normalizeJobResponse(
+    response:
+      | TranslateImageJobResponse
+      | TranslateViaServerResponse
+      | undefined
+  ): TranslationTransportResponse | undefined {
+    if (!response) {
+      return undefined;
+    }
+
+    if ('job' in response) {
+      return {
+        success: response.success,
+        error: response.error,
+        textAreas: response.textAreas,
+        pipeline: response.pipeline,
+        cached: response.cached,
+        diagnostics: response.job.diagnostics ?? undefined,
+        usage: response.usage ?? null,
+      };
+    }
+
+    return {
+      ...response,
+      diagnostics: response.diagnostics ?? undefined,
+    };
   }
 }
 

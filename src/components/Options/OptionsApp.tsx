@@ -51,6 +51,7 @@ import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { createProvider } from '@/providers';
 import { OllamaProvider } from '@/providers/ollama';
+import type { TestServerConnectionResponse } from '@/shared/runtime-contracts';
 
 // ==================== Types ====================
 
@@ -126,6 +127,17 @@ const PROVIDER_CONFIG: Record<
     modelPlaceholder: '例如: deepseek-chat',
     color: 'from-violet-500 to-purple-500',
   },
+  nvidia: {
+    name: 'NVIDIA NIM',
+    icon: <Sparkles className='h-4 w-4' />,
+    description: 'NVIDIA 官方 API Catalog，兼容 OpenAI chat completions',
+    placeholder: 'nvapi-...',
+    helpUrl: 'https://build.nvidia.com',
+    requiresApiKey: true,
+    modelPlaceholder: '例如: nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+    color: 'from-green-500 to-emerald-500',
+    badge: '兼容',
+  },
   ollama: {
     name: 'Ollama',
     icon: <Server className='h-4 w-4' />,
@@ -151,9 +163,14 @@ const TARGET_LANGUAGES = [
 
 const OptionsApp: React.FC = () => {
   // Config store - 细粒度 selector 避免全量订阅
+  const executionMode = useAppConfigStore(state => state.executionMode);
   const provider = useAppConfigStore(state => state.provider);
   const providers = useAppConfigStore(state => state.providers);
+  const server = useAppConfigStore(state => state.server);
   const targetLanguage = useAppConfigStore(state => state.targetLanguage);
+  const setExecutionMode = useAppConfigStore(state => state.setExecutionMode);
+  const updateServerConfig = useAppConfigStore(state => state.updateServerConfig);
+  const isServerConfigured = useAppConfigStore(state => state.isServerConfigured);
   const setProvider = useAppConfigStore(state => state.setProvider);
   const updateProviderSettings = useAppConfigStore(
     state => state.updateProviderSettings
@@ -167,6 +184,7 @@ const OptionsApp: React.FC = () => {
     openai: false,
     claude: false,
     deepseek: false,
+    nvidia: false,
     ollama: false,
   });
   const [testingProvider, setTestingProvider] = useState<ProviderType | null>(
@@ -180,6 +198,7 @@ const OptionsApp: React.FC = () => {
     openai: null,
     claude: null,
     deepseek: null,
+    nvidia: null,
     ollama: null,
   });
 
@@ -189,6 +208,10 @@ const OptionsApp: React.FC = () => {
   const [ollamaModelsError, setOllamaModelsError] = useState<string | null>(
     null
   );
+  const [serverTestResult, setServerTestResult] = useState<TestResult | null>(
+    null
+  );
+  const [testingServer, setTestingServer] = useState(false);
 
   // Current provider config
   const currentProviderConfig = PROVIDER_CONFIG[provider];
@@ -276,6 +299,40 @@ const OptionsApp: React.FC = () => {
 
   const toggleShowApiKey = useCallback((providerType: ProviderType) => {
     setShowApiKey(prev => ({ ...prev, [providerType]: !prev[providerType] }));
+  }, []);
+
+  const handleServerFieldChange = useCallback(
+    (
+      key: 'baseUrl' | 'authToken' | 'timeoutMs',
+      value: string | number
+    ) => {
+      updateServerConfig({ [key]: value });
+      setServerTestResult(null);
+    },
+    [updateServerConfig]
+  );
+
+  const handleTestServerConnection = useCallback(async () => {
+    setTestingServer(true);
+    setServerTestResult(null);
+
+    try {
+      const result = (await chrome.runtime.sendMessage({
+        type: 'TEST_SERVER_CONNECTION',
+      })) as TestServerConnectionResponse;
+
+      setServerTestResult({
+        success: result.success,
+        message: result.message,
+      });
+    } catch (error) {
+      setServerTestResult({
+        success: false,
+        message: error instanceof Error ? error.message : '服务端连接测试失败',
+      });
+    } finally {
+      setTestingServer(false);
+    }
   }, []);
 
   const handleTestConnection = useCallback(
@@ -599,6 +656,241 @@ const OptionsApp: React.FC = () => {
 
       {/* Main Content */}
       <main className='container mx-auto max-w-3xl space-y-6 px-4 py-8 sm:px-6'>
+        <Card className='border-none bg-white/80 shadow-lg backdrop-blur-sm dark:bg-slate-800/80'>
+          <CardHeader className='pb-4'>
+            <div className='mb-2 flex items-center gap-3'>
+              <div className='rounded-lg bg-gradient-to-br from-indigo-600 to-cyan-600 p-2 dark:from-indigo-700 dark:to-cyan-700'>
+                <Shield className='h-5 w-5 text-white' />
+              </div>
+              <div className='flex-1'>
+                <CardTitle className='text-slate-900 dark:text-slate-100'>
+                  运行路径
+                </CardTitle>
+                <CardDescription className='text-slate-600 dark:text-slate-400'>
+                  插件直连是默认路径；本地服务是可选加速能力，需要显式切换。
+                </CardDescription>
+              </div>
+            </div>
+          </CardHeader>
+          <CardContent className='space-y-4'>
+            <div className='grid gap-3 sm:grid-cols-2'>
+              <button
+                type='button'
+                onClick={() => setExecutionMode('provider-direct')}
+                className={`rounded-xl border px-4 py-3 text-left transition ${
+                  executionMode === 'provider-direct'
+                    ? 'border-cyan-500 bg-cyan-50 dark:border-cyan-500 dark:bg-cyan-900/20'
+                    : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800'
+                }`}
+              >
+                <div className='flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100'>
+                  <Zap className='h-4 w-4' />
+                  插件直连
+                </div>
+                <p className='mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400'>
+                  默认路径。云端 Provider 和 Ollama 都走这条链路。
+                </p>
+              </button>
+
+              <button
+                type='button'
+                onClick={() => setExecutionMode('server')}
+                className={`rounded-xl border px-4 py-3 text-left transition ${
+                  executionMode === 'server'
+                    ? 'border-teal-500 bg-teal-50 dark:border-teal-500 dark:bg-teal-900/20'
+                    : 'border-slate-200 bg-white hover:border-slate-300 dark:border-slate-700 dark:bg-slate-800'
+                }`}
+              >
+                <div className='flex items-center gap-2 text-sm font-medium text-slate-900 dark:text-slate-100'>
+                  <Server className='h-4 w-4' />
+                  本地加速服务
+                </div>
+                <p className='mt-1 text-xs leading-relaxed text-slate-600 dark:text-slate-400'>
+                  可选能力。仅在你显式选择时启用，不会自动接管插件直连。
+                </p>
+              </button>
+            </div>
+
+            <Alert className='border-none bg-slate-50 shadow-sm dark:bg-slate-900/40'>
+              <div className='flex items-start gap-3'>
+                <div className='rounded-lg bg-slate-100 p-1.5 dark:bg-slate-800'>
+                  <Shield className='h-4 w-4 text-slate-600 dark:text-slate-300' />
+                </div>
+                <div className='flex-1'>
+                  <AlertTitle className='font-semibold text-slate-900 dark:text-slate-100'>
+                    当前路径：{executionMode === 'server' ? '本地加速服务' : '插件直连'}
+                  </AlertTitle>
+                  <AlertDescription className='mt-1 text-slate-700 dark:text-slate-300'>
+                    {executionMode === 'server'
+                      ? '如果本地服务不可用，扩展会显示明确状态，而不是静默改回直连。'
+                      : '当前翻译不会自动改道到本地服务，即使本地服务已经配置。'}
+                  </AlertDescription>
+                </div>
+              </div>
+            </Alert>
+          </CardContent>
+        </Card>
+
+        <Card className='border-none bg-white/80 shadow-lg backdrop-blur-sm dark:bg-slate-800/80'>
+          <CardHeader className='pb-4'>
+            <div className='mb-2 flex items-center gap-3'>
+              <div className='rounded-lg bg-gradient-to-br from-teal-600 to-cyan-600 p-2 dark:from-teal-700 dark:to-cyan-700'>
+                <Server className='h-5 w-5 text-white' />
+              </div>
+              <div className='flex-1'>
+                <CardTitle className='text-slate-900 dark:text-slate-100'>
+                  本地加速服务
+                </CardTitle>
+                <CardDescription className='text-slate-600 dark:text-slate-400'>
+                  可选的 OCR / 批处理加速能力。默认不会接管插件直连。
+                </CardDescription>
+              </div>
+              <Badge className='border-none bg-gradient-to-r from-slate-500 to-slate-700 text-white'>
+                可选能力
+              </Badge>
+            </div>
+          </CardHeader>
+          <CardContent className='space-y-5'>
+            <div className='rounded-lg border border-slate-200/50 bg-gradient-to-r from-slate-50 to-teal-50/50 p-4 dark:border-slate-700/50 dark:from-slate-800/50 dark:to-teal-900/20'>
+              <p className='flex items-start gap-2 text-sm text-slate-700 dark:text-slate-300'>
+                <Sparkles className='mt-0.5 h-4 w-4 flex-shrink-0 text-teal-600 dark:text-teal-400' />
+                <span>
+                  只有当你显式切换到“本地加速服务”时，这里配置的地址才会参与实际翻译。
+                </span>
+              </p>
+            </div>
+
+            <div className='space-y-2'>
+              <Label
+                htmlFor='server-base-url'
+                className='text-sm font-medium text-slate-700 dark:text-slate-300'
+              >
+                服务端地址
+              </Label>
+              <Input
+                id='server-base-url'
+                type='text'
+                placeholder='http://127.0.0.1:8000'
+                value={server.baseUrl}
+                onChange={e =>
+                  handleServerFieldChange('baseUrl', e.target.value)
+                }
+                className='h-11 border-slate-200 bg-white transition-all duration-200 focus:border-teal-400 dark:border-slate-700 dark:bg-slate-800 dark:focus:border-teal-600'
+              />
+            </div>
+
+            <div className='grid gap-4 sm:grid-cols-2'>
+              <div className='space-y-2'>
+                <Label
+                  htmlFor='server-auth-token'
+                  className='text-sm font-medium text-slate-700 dark:text-slate-300'
+                >
+                  鉴权 Token（可选）
+                </Label>
+                <Input
+                  id='server-auth-token'
+                  type='password'
+                  placeholder='与服务端 SERVER_AUTH_TOKEN 保持一致'
+                  value={server.authToken}
+                  onChange={e =>
+                    handleServerFieldChange('authToken', e.target.value)
+                  }
+                  className='h-11 border-slate-200 bg-white transition-all duration-200 focus:border-teal-400 dark:border-slate-700 dark:bg-slate-800 dark:focus:border-teal-600'
+                />
+              </div>
+
+              <div className='space-y-2'>
+                <Label
+                  htmlFor='server-timeout'
+                  className='text-sm font-medium text-slate-700 dark:text-slate-300'
+                >
+                  超时时间（毫秒）
+                </Label>
+                <Input
+                  id='server-timeout'
+                  type='number'
+                  min='1000'
+                  step='1000'
+                  value={String(server.timeoutMs)}
+                  onChange={e =>
+                    handleServerFieldChange(
+                      'timeoutMs',
+                      Number(e.target.value) || 30000
+                    )
+                  }
+                  className='h-11 border-slate-200 bg-white transition-all duration-200 focus:border-teal-400 dark:border-slate-700 dark:bg-slate-800 dark:focus:border-teal-600'
+                />
+              </div>
+            </div>
+
+            {serverTestResult && (
+              <Alert
+                variant={serverTestResult.success ? 'default' : 'destructive'}
+                className={`border-none ${
+                  serverTestResult.success
+                    ? 'bg-emerald-50 dark:bg-emerald-900/20'
+                    : 'bg-red-50 dark:bg-red-900/20'
+                }`}
+              >
+                <div className='flex items-start gap-3'>
+                  {serverTestResult.success ? (
+                    <div className='rounded-lg bg-emerald-100 p-1.5 dark:bg-emerald-900/30'>
+                      <CheckCircle2 className='h-4 w-4 text-emerald-600 dark:text-emerald-400' />
+                    </div>
+                  ) : (
+                    <div className='rounded-lg bg-red-100 p-1.5 dark:bg-red-900/30'>
+                      <AlertCircle className='h-4 w-4 text-red-600 dark:text-red-400' />
+                    </div>
+                  )}
+                  <div className='flex-1'>
+                    <AlertTitle
+                      className={`font-semibold ${
+                        serverTestResult.success
+                          ? 'text-emerald-900 dark:text-emerald-100'
+                          : 'text-red-900 dark:text-red-100'
+                      }`}
+                    >
+                      {serverTestResult.success ? '服务端可用' : '服务端不可用'}
+                    </AlertTitle>
+                    <AlertDescription
+                      className={`mt-1 ${
+                        serverTestResult.success
+                          ? 'text-emerald-700 dark:text-emerald-300'
+                          : 'text-red-700 dark:text-red-300'
+                      }`}
+                    >
+                      {serverTestResult.message}
+                    </AlertDescription>
+                  </div>
+                </div>
+              </Alert>
+            )}
+
+            <div className='flex flex-wrap items-center gap-3'>
+              <Button
+                onClick={handleTestServerConnection}
+                disabled={testingServer || !server.baseUrl.trim()}
+                className='h-11 cursor-pointer bg-teal-600 text-white shadow-md transition-all duration-200 hover:bg-teal-700 hover:shadow-lg dark:bg-teal-600 dark:hover:bg-teal-700'
+              >
+                {testingServer ? (
+                  <>
+                    <Loader2 className='mr-2 h-4 w-4 animate-spin' />
+                    测试服务端中...
+                  </>
+                ) : (
+                  <>
+                    <Server className='mr-2 h-4 w-4' />
+                    测试服务端连接
+                  </>
+                )}
+              </Button>
+              <div className='text-xs text-slate-500 dark:text-slate-400'>
+                当前路径：{executionMode === 'server' ? '本地加速服务' : '插件直连'}
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+
         {/* Provider Configuration */}
         <Card className='border-none bg-white/80 shadow-lg backdrop-blur-sm dark:bg-slate-800/80'>
           <CardHeader className='pb-4'>
@@ -610,10 +902,10 @@ const OptionsApp: React.FC = () => {
               </div>
               <div className='flex-1'>
                 <CardTitle className='text-slate-900 dark:text-slate-100'>
-                  AI 服务配置
+                  插件直连 Provider 配置
                 </CardTitle>
                 <CardDescription className='text-slate-600 dark:text-slate-400'>
-                  选择并配置翻译服务提供者
+                  默认路径。商用模型和 Ollama 都从这里配置。
                 </CardDescription>
               </div>
               {currentProviderConfig.badge && (
@@ -829,8 +1121,26 @@ const OptionsApp: React.FC = () => {
                 </AlertTitle>
                 <AlertDescription className='mt-1 text-amber-700 dark:text-amber-300'>
                   {provider === 'ollama'
-                    ? '请配置 Ollama 服务地址'
-                    : '请配置 API 密钥才能使用翻译功能'}
+                    ? '请配置 Ollama 服务地址与视觉模型，以便本地直连可用'
+                    : '请配置 API 密钥，以便插件直连可用'}
+                </AlertDescription>
+              </div>
+            </div>
+          </Alert>
+        )}
+
+        {executionMode === 'server' && !isServerConfigured() && (
+          <Alert className='border-none bg-amber-50 shadow-md dark:bg-amber-900/20'>
+            <div className='flex items-start gap-3'>
+              <div className='rounded-lg bg-amber-100 p-1.5 dark:bg-amber-900/30'>
+                <AlertCircle className='h-4 w-4 text-amber-600 dark:text-amber-400' />
+              </div>
+              <div className='flex-1'>
+                <AlertTitle className='font-semibold text-amber-900 dark:text-amber-100'>
+                  本地加速服务尚未配置完成
+                </AlertTitle>
+                <AlertDescription className='mt-1 text-amber-700 dark:text-amber-300'>
+                  请先填写并测试服务端地址，或者切回插件直连继续使用。
                 </AlertDescription>
               </div>
             </div>

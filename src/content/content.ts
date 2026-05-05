@@ -32,6 +32,7 @@ import { useAppConfigStore } from '@/stores/config-v2';
 import { isTranslatableImage } from './hover-selector';
 import { HoverSelector } from './hover-selector';
 import { FloatingHud } from './floating-hud';
+import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
   createDebouncedAutoTranslate,
   shouldAutoTranslateFollowUp,
@@ -304,7 +305,9 @@ async function translatePage(): Promise<void> {
     }
 
     const config = useAppConfigStore.getState();
-    const parallelLimit = config.parallelLimit || 3;
+    const parallelLimit = clampPageTranslationConcurrency(
+      config.parallelLimit || 3
+    );
     const total = images.length;
     let current = 0;
     let successCount = 0;

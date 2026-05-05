@@ -8,3 +8,6 @@ dist/
 .trae/
 .idea/
 .omx/
+server/.venv/
+server/.venv311/
+server/data/

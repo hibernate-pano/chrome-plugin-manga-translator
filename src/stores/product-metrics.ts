@@ -14,6 +14,7 @@ const KNOWN_PROVIDERS: ProviderType[] = [
   'openai',
   'claude',
   'deepseek',
+  'nvidia',
   'ollama',
 ];
 

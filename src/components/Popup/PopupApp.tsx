@@ -97,6 +97,11 @@ const PROVIDER_INFO: Record<
     icon: <Cloud className='h-3.5 w-3.5' />,
     color: 'from-violet-500 to-purple-500',
   },
+  nvidia: {
+    name: 'NVIDIA',
+    icon: <Sparkles className='h-3.5 w-3.5' />,
+    color: 'from-green-500 to-emerald-500',
+  },
   ollama: {
     name: 'Ollama',
     icon: <Server className='h-3.5 w-3.5' />,
@@ -143,19 +148,32 @@ const PopupApp: React.FC = () => {
   // Store selectors
   const provider = useAppConfigStore(state => state.provider);
   const providers = useAppConfigStore(state => state.providers);
+  const executionMode = useAppConfigStore(state => state.executionMode);
+  const server = useAppConfigStore(state => state.server);
   const targetLanguage = useAppConfigStore(state => state.targetLanguage);
   const enabled = useAppConfigStore(state => state.enabled);
   const isProviderConfigured = useAppConfigStore(
     state => state.isProviderConfigured
   );
+  const isServerConfigured = useAppConfigStore(state => state.isServerConfigured);
+  const setExecutionMode = useAppConfigStore(state => state.setExecutionMode);
   const setProvider = useAppConfigStore(state => state.setProvider);
   const setTargetLanguage = useAppConfigStore(state => state.setTargetLanguage);
   const setEnabled = useAppConfigStore(state => state.setEnabled);
 
   const currentProviderSettings = providers[provider];
-  const isConfigured = isProviderConfigured();
+  const isServerMode = executionMode === 'server';
+  const isConfigured = isServerMode
+    ? isServerConfigured()
+    : isProviderConfigured();
   const providerInfo = PROVIDER_INFO[provider];
   const modelName = currentProviderSettings?.model || '默认模型';
+  const serverLabel = server.baseUrl.trim() || '未配置服务端地址';
+  const activePathLabel = isServerMode
+    ? `本地加速服务 / ${serverLabel}`
+    : provider === 'ollama'
+      ? `本地直连 / ${providerInfo.name}`
+      : `插件直连 / ${providerInfo.name}`;
 
   const refreshPageStatus = useCallback(async () => {
     const tab = await getActiveTab();
@@ -402,16 +420,11 @@ const PopupApp: React.FC = () => {
               漫画翻译
             </h1>
             <div className='mt-1 flex items-center gap-1'>
-              <div
-                className={`flex items-center gap-1 bg-gradient-to-r ${providerInfo.color} rounded px-1.5 py-0.5`}
-              >
-                <span className='text-white'>{providerInfo.icon}</span>
-                <span className='text-[10px] font-medium leading-none text-white'>
-                  {providerInfo.name}
-                </span>
+              <div className='rounded bg-white/15 px-1.5 py-0.5 text-[10px] font-medium leading-none text-white'>
+                {isServerMode ? '加速能力' : '默认路径'}
               </div>
               <span className='text-[10px] leading-none text-white/60'>
-                {modelName}
+                {isServerMode ? serverLabel : `${providerInfo.name} / ${modelName}`}
               </span>
             </div>
           </div>
@@ -427,7 +440,7 @@ const PopupApp: React.FC = () => {
         </button>
       </div>
 
-      {/* ---- API Key Warning Banner ---- */}
+      {/* ---- Config Warning Banner ---- */}
       <AnimatePresence>
         {!isConfigured && (
           <motion.div
@@ -443,7 +456,11 @@ const PopupApp: React.FC = () => {
             >
               <AlertTriangle className='h-3.5 w-3.5 shrink-0 text-amber-400' />
               <span className='text-xs text-amber-300'>
-                请先配置 API Key 才能使用翻译功能
+                {isServerMode
+                  ? '请先配置本地加速服务地址，或者切回插件直连路径。'
+                  : provider === 'ollama'
+                    ? '请先配置 Ollama 地址与模型，再使用本地直连。'
+                    : '请先配置当前 Provider 的 API Key，启用插件直连。'}
               </span>
               <span className='ml-auto shrink-0 text-xs font-medium text-amber-400'>
                 去设置 →
@@ -519,23 +536,27 @@ const PopupApp: React.FC = () => {
           <div className='border-white/8 rounded-xl border bg-white/[0.03] px-3 py-2.5'>
             <div className='mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-slate-500'>
               <Zap className='h-3 w-3' />
-              Provider
+              路径
             </div>
             <Select
-              value={provider}
-              onValueChange={value => setProvider(value as ProviderType)}
+              value={executionMode}
+              onValueChange={value =>
+                setExecutionMode(value as 'server' | 'provider-direct')
+              }
             >
               <SelectTrigger className='h-8 border-white/10 bg-white/[0.03] px-2.5 text-xs text-slate-200 hover:border-white/20'>
-                <SelectValue placeholder='选择 Provider' />
+                <SelectValue placeholder='选择路径' />
               </SelectTrigger>
               <SelectContent>
-                {(Object.keys(PROVIDER_INFO) as ProviderType[]).map(key => (
-                  <SelectItem key={key} value={key}>
-                    {PROVIDER_INFO[key].name}
-                  </SelectItem>
-                ))}
+                <SelectItem value='provider-direct'>插件直连</SelectItem>
+                <SelectItem value='server'>本地加速服务</SelectItem>
               </SelectContent>
             </Select>
+            <p className='mt-1 text-[11px] leading-relaxed text-slate-500'>
+              {isServerMode
+                ? '当前显式使用本地加速服务。不可用时不会静默改道。'
+                : '当前默认走插件直连；Ollama 也属于插件内直连路径。'}
+            </p>
           </div>
 
           <div className='border-white/8 rounded-xl border bg-white/[0.03] px-3 py-2.5'>
@@ -555,6 +576,49 @@ const PopupApp: React.FC = () => {
                 ))}
               </SelectContent>
             </Select>
+          </div>
+        </div>
+
+        <div className='border-white/8 rounded-xl border bg-white/[0.03] px-3.5 py-3'>
+          <div className='flex items-start justify-between gap-3'>
+            <div>
+              <div className='flex items-center gap-1.5 text-[10px] uppercase tracking-[0.12em] text-slate-500'>
+                {isServerMode ? (
+                  <Server className='h-3 w-3' />
+                ) : (
+                  <Zap className='h-3 w-3' />
+                )}
+                {isServerMode ? '加速服务' : '直连 Provider'}
+              </div>
+              <p className='mt-1 text-xs leading-relaxed text-slate-500'>
+                {isServerMode
+                  ? '服务端是可选加速能力，不会自动覆盖插件直连的选择。'
+                  : `当前活动路径：${activePathLabel}`}
+              </p>
+            </div>
+            <div className='w-[132px]'>
+              {isServerMode ? (
+                <div className='truncate rounded-md border border-white/10 bg-white/[0.03] px-2.5 py-2 text-xs text-slate-200'>
+                  {serverLabel}
+                </div>
+              ) : (
+                <Select
+                  value={provider}
+                  onValueChange={value => setProvider(value as ProviderType)}
+                >
+                  <SelectTrigger className='h-8 border-white/10 bg-white/[0.03] px-2.5 text-xs text-slate-200 hover:border-white/20'>
+                    <SelectValue placeholder='选择 Provider' />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {(Object.keys(PROVIDER_INFO) as ProviderType[]).map(key => (
+                      <SelectItem key={key} value={key}>
+                        {PROVIDER_INFO[key].name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
           </div>
         </div>
 

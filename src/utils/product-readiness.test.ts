@@ -32,6 +32,11 @@ const providers: ProvidersConfig = {
     baseUrl: 'https://api.deepseek.com/v1',
     model: 'deepseek-chat',
   },
+  nvidia: {
+    apiKey: '',
+    baseUrl: 'https://integrate.api.nvidia.com/v1',
+    model: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
+  },
   ollama: {
     apiKey: '',
     baseUrl: 'http://localhost:11434',
@@ -101,12 +106,23 @@ describe('getConfigurationNextStep', () => {
         'siliconflow',
         providers
       )
-    ).toContain('填写服务端地址');
+    ).toContain('填写本地加速服务地址');
   });
 
   it('guides direct cloud users to set api key first', () => {
     expect(
       getConfigurationNextStep('provider-direct', server, 'openai', providers)
     ).toContain('填写 API Key');
+  });
+
+  it('tells configured direct users they can start immediately', () => {
+    expect(
+      getConfigurationNextStep(
+        'provider-direct',
+        server,
+        'siliconflow',
+        providers
+      )
+    ).toContain('直接开始翻译');
   });
 });

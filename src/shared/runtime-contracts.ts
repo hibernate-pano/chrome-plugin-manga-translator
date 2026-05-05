@@ -9,39 +9,6 @@ export interface PageSupportState {
   reason: string | null;
 }
 
-export type ContentStatus =
-  | 'unsupported'
-  | 'idle'
-  | 'picking'
-  | 'translating'
-  | 'rendered'
-  | 'error';
-
-export interface ContentRuntimeState {
-  status: ContentStatus;
-  support: PageSupportState;
-  message: string | null;
-  selectedImageUrl: string | null;
-  translatedCount: number;
-}
-
-export type ContentRequest =
-  | { type: 'GET_CONTENT_STATE' }
-  | { type: 'START_PICKING' }
-  | { type: 'CANCEL_PICKING' }
-  | { type: 'CLEAR_OVERLAYS' };
-
-export interface ContentResponse {
-  success: boolean;
-  error?: string;
-  state?: ContentRuntimeState;
-}
-
-export interface ContentStateUpdateMessage {
-  type: 'CONTENT_STATE_UPDATE';
-  state: ContentRuntimeState;
-}
-
 export interface TranslationDiagnostics {
   detectedRegions: number;
   fallbackRegions: number;
@@ -49,6 +16,20 @@ export interface TranslationDiagnostics {
   translateMs: number;
   totalMs: number;
 }
+
+export type RequestedExecutionPath =
+  | 'plugin-direct'
+  | 'ollama-direct'
+  | 'accelerator';
+
+export type JobPriorityClass =
+  | 'visible-now'
+  | 'next-up'
+  | 'warm-cache'
+  | 'manual-retry'
+  | 'deferred-failure';
+
+export type JobScope = 'viewport' | 'page' | 'chapter' | 'manual';
 
 export interface FetchImageBytesRequest {
   type: 'FETCH_IMAGE_BYTES';
@@ -62,9 +43,87 @@ export interface FetchImageBytesResponse {
   mimeType?: string;
 }
 
+export interface JobStatusPayload {
+  jobId: string;
+  pageKey: string;
+  priorityClass: JobPriorityClass;
+  requestedPath: RequestedExecutionPath;
+  actualCapabilityUsed?: RequestedExecutionPath;
+  scope: JobScope;
+  state:
+    | 'queued'
+    | 'running'
+    | 'partial'
+    | 'succeeded'
+    | 'failed'
+    | 'cancelled';
+  fallbackReason?: string;
+  diagnostics?: (TranslationDiagnostics & {
+    retryCount?: number;
+    cacheStatus?: 'hit' | 'miss' | 'bypass';
+  }) | null;
+}
+
+export interface TranslateImageJobRequest {
+  type: 'JOB_TRANSLATE_IMAGE';
+  jobId: string;
+  pageKey: string;
+  scope: JobScope;
+  priorityClass: JobPriorityClass;
+  requestedPath: RequestedExecutionPath;
+  imageBase64: string;
+  mimeType: string;
+  imageUrl?: string;
+  sourcePageUrl?: string;
+  targetLanguage: string;
+  translationStylePreset: TranslationStylePreset;
+  provider: string;
+  apiKey?: string;
+  baseUrl?: string;
+  model?: string;
+  forceRefresh?: boolean;
+}
+
+export interface TranslateImageJobResponse {
+  success: boolean;
+  job: JobStatusPayload;
+  textAreas: TextArea[];
+  pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
+  cached?: boolean;
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  } | null;
+  error?: string;
+}
+
+export interface QueryJobStatusRequest {
+  type: 'JOB_QUERY_STATUS';
+  jobId: string;
+}
+
+export interface QueryJobStatusResponse {
+  success: boolean;
+  job?: JobStatusPayload;
+  error?: string;
+}
+
 export interface TranslateViaServerRequest {
   type: 'TRANSLATE_VIA_SERVER';
   imageUrl: string;
+  sourcePageUrl?: string;
+  targetLanguage: string;
+  translationStylePreset: TranslationStylePreset;
+  forceRefresh?: boolean;
+}
+
+export interface TranslateImageBytesViaServerRequest {
+  type: 'TRANSLATE_IMAGE_BYTES_VIA_SERVER';
+  imageUrl: string;
+  sourcePageUrl?: string;
+  imageBase64: string;
+  mimeType: string;
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
   forceRefresh?: boolean;
@@ -90,24 +149,15 @@ export interface TestServerConnectionResponse {
 
 export type BackgroundRequest =
   | FetchImageBytesRequest
+  | TranslateImageJobRequest
   | TranslateViaServerRequest
+  | TranslateImageBytesViaServerRequest
+  | QueryJobStatusRequest
   | TestServerConnectionRequest;
 
 export type BackgroundResponse =
   | FetchImageBytesResponse
+  | TranslateImageJobResponse
   | TranslateViaServerResponse
+  | QueryJobStatusResponse
   | TestServerConnectionResponse;
-
-export function createUnsupportedState(reason: string): ContentRuntimeState {
-  return {
-    status: 'unsupported',
-    support: {
-      supported: false,
-      site: null,
-      reason,
-    },
-    message: reason,
-    selectedImageUrl: null,
-    translatedCount: 0,
-  };
-}
