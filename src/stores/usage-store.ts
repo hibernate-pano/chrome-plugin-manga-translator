@@ -78,11 +78,7 @@ export interface UsageStoreActions {
 // ==================== Provider Token 估算定价 (USD/1K tokens) ====================
 
 const PROVIDER_PRICING: Partial<Record<ProviderType, { input: number; output: number }>> = {
-    siliconflow: { input: 0.001, output: 0.002 },
-    dashscope: { input: 0.0015, output: 0.002 },
-    openai: { input: 0.005, output: 0.015 },
-    claude: { input: 0.003, output: 0.015 },
-    deepseek: { input: 0.00027, output: 0.0011 },
+    'openai-compatible': { input: 0.005, output: 0.015 },
     ollama: { input: 0, output: 0 },
 };
 
@@ -192,7 +188,10 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
                         };
                     }
 
-                    const day = byDate[record.date]!;
+                    const day = byDate[record.date];
+                    if (!day) {
+                        continue;
+                    }
                     day.translationCount++;
 
                     if (record.cached) {

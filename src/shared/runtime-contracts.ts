@@ -19,8 +19,7 @@ export interface TranslationDiagnostics {
 
 export type RequestedExecutionPath =
   | 'plugin-direct'
-  | 'ollama-direct'
-  | 'accelerator';
+  | 'ollama-direct';
 
 export type JobPriorityClass =
   | 'visible-now'
@@ -109,55 +108,12 @@ export interface QueryJobStatusResponse {
   error?: string;
 }
 
-export interface TranslateViaServerRequest {
-  type: 'TRANSLATE_VIA_SERVER';
-  imageUrl: string;
-  sourcePageUrl?: string;
-  targetLanguage: string;
-  translationStylePreset: TranslationStylePreset;
-  forceRefresh?: boolean;
-}
-
-export interface TranslateImageBytesViaServerRequest {
-  type: 'TRANSLATE_IMAGE_BYTES_VIA_SERVER';
-  imageUrl: string;
-  sourcePageUrl?: string;
-  imageBase64: string;
-  mimeType: string;
-  targetLanguage: string;
-  translationStylePreset: TranslationStylePreset;
-  forceRefresh?: boolean;
-}
-
-export interface TranslateViaServerResponse {
-  success: boolean;
-  textAreas: TextArea[];
-  pipeline: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
-  cached: boolean;
-  diagnostics?: TranslationDiagnostics | null;
-  error?: string;
-}
-
-export interface TestServerConnectionRequest {
-  type: 'TEST_SERVER_CONNECTION';
-}
-
-export interface TestServerConnectionResponse {
-  success: boolean;
-  message: string;
-}
-
 export type BackgroundRequest =
   | FetchImageBytesRequest
   | TranslateImageJobRequest
-  | TranslateViaServerRequest
-  | TranslateImageBytesViaServerRequest
-  | QueryJobStatusRequest
-  | TestServerConnectionRequest;
+  | QueryJobStatusRequest;
 
 export type BackgroundResponse =
   | FetchImageBytesResponse
   | TranslateImageJobResponse
-  | TranslateViaServerResponse
-  | QueryJobStatusResponse
-  | TestServerConnectionResponse;
+  | QueryJobStatusResponse;

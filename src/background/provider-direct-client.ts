@@ -2,6 +2,7 @@ import { createProvider } from '@/providers';
 import type { ProviderType, TextArea } from '@/providers/base';
 import type { TranslationTransportRequest } from '@/services/translation-transport';
 import type { TranslationStylePreset } from '@/utils/translation-style';
+import { getErrorMessage } from '@/utils/error-message';
 
 interface ProviderDirectTranslationResponse {
   success: boolean;
@@ -17,15 +18,7 @@ interface ProviderDirectTranslationResponse {
 }
 
 function isProviderType(value: unknown): value is ProviderType {
-  return (
-    value === 'openai' ||
-    value === 'claude' ||
-    value === 'deepseek' ||
-    value === 'nvidia' ||
-    value === 'ollama' ||
-    value === 'siliconflow' ||
-    value === 'dashscope'
-  );
+  return value === 'openai-compatible' || value === 'ollama';
 }
 
 function isTranslationStylePreset(
@@ -44,7 +37,7 @@ export async function translateImageViaProviderDirect(
   if (!isProviderType(request.provider)) {
     return {
       success: false,
-      error: '未知 Provider，无法执行兼容翻译',
+      error: '未知 Provider，无法执行直连翻译',
     };
   }
 
@@ -77,7 +70,7 @@ export async function translateImageViaProviderDirect(
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : '兼容翻译失败',
+      error: getErrorMessage(error),
     };
   }
 }

@@ -15,6 +15,17 @@ describe('background auto translate helpers', () => {
     expect(isTranslationEnabled({ state: { enabled: false } })).toBe(false);
   });
 
+  it('respects auto continuation switches in both config shapes', () => {
+    expect(
+      isTranslationEnabled({ enabled: true, autoContinueEnabled: false })
+    ).toBe(false);
+    expect(
+      isTranslationEnabled({
+        state: { enabled: true, autoContinueEnabled: false },
+      })
+    ).toBe(false);
+  });
+
   it('defaults to disabled for invalid config', () => {
     expect(isTranslationEnabled(null)).toBe(false);
     expect(isTranslationEnabled(undefined)).toBe(false);

@@ -8,7 +8,6 @@
  * - hidden: 不显示
  * - translating: 显示进度条
  * - complete: 显示完成信息（2 秒后自动隐藏）
- * - hover-select: 显示 hover 选图提示
  * - error: 显示错误信息
  */
 
@@ -23,7 +22,6 @@ export type HudState =
       failedCount: number;
       cachedCount: number;
     }
-  | { status: 'hover-select' }
   | { status: 'error'; message: string };
 
 // ==================== FloatingHud 类 ====================
@@ -133,16 +131,6 @@ export class FloatingHud {
           <div class="hud-card">
             <div class="hud-title">翻译完成</div>
             <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
-          </div>
-        `;
-      }
-
-      case 'hover-select': {
-        return `
-          <div class="hud-card">
-            <div class="hud-title">点击选图翻译</div>
-            <div class="hud-sub">将鼠标悬停在图片上，点击开始翻译</div>
-            <button id="cancel-btn" class="hud-cancel">退出</button>
           </div>
         `;
       }

@@ -8,30 +8,14 @@
 
 export const API_URLS = {
   OPENAI: 'https://api.openai.com/v1',
-  CLAUDE: 'https://api.anthropic.com/v1',
-  DEEPSEEK: 'https://api.deepseek.com/v1',
-  NVIDIA: 'https://integrate.api.nvidia.com/v1',
   OLLAMA: 'http://localhost:11434',
-  SILICONFLOW: 'https://api.siliconflow.cn/v1',
-  DASHSCOPE: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
 } as const;
 
 // ==================== Default Models ====================
 
 export const DEFAULT_MODELS = {
   OPENAI: 'gpt-4o',
-  CLAUDE: 'claude-sonnet-4-20250514',
-  DEEPSEEK: 'deepseek-chat',
-  NVIDIA: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
   OLLAMA: 'llava:7b',
-  SILICONFLOW: 'Qwen/Qwen2.5-VL-32B-Instruct',
-  DASHSCOPE: 'qwen-vl-max',
-} as const;
-
-// ==================== API Versions ====================
-
-export const API_VERSIONS = {
-  CLAUDE: '2023-06-01',
 } as const;
 
 // ==================== Request Limits ====================

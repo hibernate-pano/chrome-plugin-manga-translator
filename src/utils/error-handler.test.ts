@@ -21,4 +21,22 @@ describe('parseTranslationError', () => {
 
     expect(result.code).toBe(TranslationErrorCode.TIMEOUT_ERROR);
   });
+
+  it('treats known Chinese model incompatibility as a first-class error', () => {
+    const result = parseTranslationError(new Error('当前模型不支持翻译任务'));
+
+    expect(result.code).toBe(TranslationErrorCode.MODEL_INCOMPATIBLE);
+    expect(result.message).toBe('当前模型不支持翻译任务');
+  });
+
+  it('maps ollama extension origin rejection to a specific error', () => {
+    const result = parseTranslationError(
+      new Error(
+        'Ollama rejected the extension origin. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.'
+      )
+    );
+
+    expect(result.code).toBe(TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED);
+    expect(result.message).toBe('Ollama 未允许当前浏览器扩展访问');
+  });
 });

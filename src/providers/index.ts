@@ -19,12 +19,7 @@ export {
 // Provider implementations (static imports for Chrome extension compatibility)
 import { VisionProvider, ProviderType, ProviderConfig } from './base';
 import { OpenAIProvider } from './openai';
-import { ClaudeProvider } from './claude';
-import { DeepSeekProvider } from './deepseek';
-import { NVIDIAProvider } from './nvidia';
 import { OllamaProvider } from './ollama';
-import { SiliconFlowProvider } from './siliconflow';
-import { DashScopeProvider } from './dashscope';
 
 /**
  * Create a Vision Provider instance by type
@@ -40,26 +35,11 @@ export async function createProvider(
   let provider: VisionProvider;
 
   switch (type) {
-    case 'openai':
+    case 'openai-compatible':
       provider = new OpenAIProvider();
-      break;
-    case 'claude':
-      provider = new ClaudeProvider();
-      break;
-    case 'deepseek':
-      provider = new DeepSeekProvider();
-      break;
-    case 'nvidia':
-      provider = new NVIDIAProvider();
       break;
     case 'ollama':
       provider = new OllamaProvider();
-      break;
-    case 'siliconflow':
-      provider = new SiliconFlowProvider();
-      break;
-    case 'dashscope':
-      provider = new DashScopeProvider();
       break;
     default:
       throw new Error(`Unknown provider type: ${type}`);
@@ -81,41 +61,11 @@ export const PROVIDER_INFO: Record<
     defaultModel: string;
   }
 > = {
-  siliconflow: {
-    name: '硅基流动',
-    description: '国内首选，支持 Qwen VL 系列，性价比高',
-    requiresApiKey: true,
-    defaultModel: 'Qwen/Qwen2.5-VL-32B-Instruct',
-  },
-  dashscope: {
-    name: '阿里云百炼',
-    description: '阿里云官方，支持通义千问 VL 系列',
-    requiresApiKey: true,
-    defaultModel: 'qwen-vl-max',
-  },
-  openai: {
-    name: 'OpenAI GPT-4V',
-    description: '高质量云端服务，需要 API 密钥',
+  'openai-compatible': {
+    name: 'OpenAI-Compatible',
+    description: '兼容 OpenAI Chat Completions 的视觉模型服务',
     requiresApiKey: true,
     defaultModel: 'gpt-4o',
-  },
-  claude: {
-    name: 'Claude Vision',
-    description: '高质量云端服务，需要 API 密钥',
-    requiresApiKey: true,
-    defaultModel: 'claude-sonnet-4-20250514',
-  },
-  deepseek: {
-    name: 'DeepSeek VL',
-    description: '性价比高的云端服务，需要 API 密钥',
-    requiresApiKey: true,
-    defaultModel: 'deepseek-chat',
-  },
-  nvidia: {
-    name: 'NVIDIA NIM',
-    description: 'NVIDIA 官方兼容 OpenAI 接口，适合接入视觉模型',
-    requiresApiKey: true,
-    defaultModel: 'nvidia/llama-3.1-nemotron-nano-vl-8b-v1',
   },
   ollama: {
     name: 'Ollama',

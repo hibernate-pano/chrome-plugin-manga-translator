@@ -9,6 +9,8 @@
  * Requirements: 9.3
  */
 
+import { getErrorMessage } from '@/utils/error-message';
+
 // ==================== Type Definitions ====================
 
 export interface ImageProcessingOptions {
@@ -272,9 +274,12 @@ export async function processImage(
       cropY,
       cropHeight,
     };
-  } catch {
+  } catch (error) {
     // Canvas tainted by CORS — fallback to background proxy
-    console.log('[ImageProcessor] Canvas tainted, falling back to background proxy');
+    console.log(
+      '[ImageProcessor] Canvas path failed, falling back to background proxy:',
+      getErrorMessage(error)
+    );
     return processImageViaBackground(image.src, originalWidth, originalHeight);
   }
 }

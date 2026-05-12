@@ -121,18 +121,6 @@ describe('FloatingHud', () => {
     });
   });
 
-  describe('update - hover-select 状态', () => {
-    it('应显示选图提示', () => {
-      hud.update({ status: 'hover-select' });
-
-      const host = getHudHost() as HTMLElement;
-      const shadow = host.shadowRoot;
-      const hudDiv = shadow?.getElementById('hud');
-
-      expect(hudDiv?.textContent).toContain('点击选图翻译');
-    });
-  });
-
   describe('update - error 状态', () => {
     it('应显示错误信息', () => {
       hud.update({ status: 'error', message: 'API 密钥无效' });

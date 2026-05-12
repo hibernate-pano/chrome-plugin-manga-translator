@@ -1,5 +1,5 @@
 import type { ProviderType } from '@/providers/base';
-import type { ProvidersConfig, ServerConfig } from '@/stores/config-v2';
+import type { ProvidersConfig } from '@/stores/config-v2';
 
 export interface ActiveTabSupport {
   supported: boolean;
@@ -67,16 +67,10 @@ export function getActiveTabSupport(url?: string): ActiveTabSupport {
   }
 }
 
-export function isExecutionModeConfigured(
-  executionMode: 'server' | 'provider-direct',
-  server: ServerConfig,
+export function isProviderConfigured(
   provider: ProviderType,
   providers: ProvidersConfig
 ): boolean {
-  if (executionMode === 'server') {
-    return server.enabled && !!server.baseUrl.trim();
-  }
-
   const settings = providers[provider];
   if (provider === 'ollama') {
     return !!settings.baseUrl.trim();
@@ -86,17 +80,9 @@ export function isExecutionModeConfigured(
 }
 
 export function getConfigurationNextStep(
-  executionMode: 'server' | 'provider-direct',
-  server: ServerConfig,
   provider: ProviderType,
   providers: ProvidersConfig
 ): string {
-  if (executionMode === 'server') {
-    return server.baseUrl.trim()
-      ? '服务端加速已就绪。建议先测试连接，再决定是否切回插件直连。'
-      : '先填写本地加速服务地址，再测试连接。';
-  }
-
   if (provider === 'ollama') {
     return providers.ollama.baseUrl.trim()
       ? '先确认 Ollama 里有可用视觉模型，再开始本地直连翻译。'
@@ -104,6 +90,6 @@ export function getConfigurationNextStep(
   }
 
   return providers[provider].apiKey.trim()
-    ? '插件直连已就绪，可以直接开始翻译。'
-    : '先填写 API Key，启用插件直连翻译。';
+    ? 'OpenAI-compatible 直连已就绪，可以直接开始翻译。'
+    : '先填写 OpenAI-compatible API Key，启用直连翻译。';
 }

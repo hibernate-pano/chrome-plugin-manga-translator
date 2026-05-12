@@ -8,6 +8,7 @@
 
 import { createWorker } from 'tesseract.js';
 import type { Worker } from 'tesseract.js';
+import { getErrorMessage } from '@/utils/error-message';
 
 // ==================== Type Definitions ====================
 
@@ -165,7 +166,7 @@ export async function detectTextRegions(
       processingTime,
     };
   } catch (error) {
-    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    const errorMessage = getErrorMessage(error);
     console.error('[TextDetector] 文字检测失败:', errorMessage);
     throw new Error(`文字检测失败: ${errorMessage}`);
   }

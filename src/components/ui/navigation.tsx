@@ -257,22 +257,16 @@ export const optionsNavigationItems: NavigationItem[] = [
     shortcut: 'Ctrl+1',
     children: [
       {
-        id: 'api-openai',
-        label: 'OpenAI',
+        id: 'api-openai-compatible',
+        label: 'OpenAI-compatible',
         icon: <Database className='h-3 w-3' />,
-        description: 'OpenAI GPT模型配置',
+        description: '兼容 OpenAI 接口的视觉模型配置',
       },
       {
-        id: 'api-deepseek',
-        label: 'DeepSeek',
+        id: 'api-ollama',
+        label: 'Ollama',
         icon: <Database className='h-3 w-3' />,
-        description: 'DeepSeek模型配置',
-      },
-      {
-        id: 'api-claude',
-        label: 'Claude',
-        icon: <Database className='h-3 w-3' />,
-        description: 'Anthropic Claude模型配置',
+        description: '本地视觉模型配置',
       },
     ],
   },

@@ -27,6 +27,7 @@ export enum TranslationErrorCode {
 
   // Ollama 错误
   OLLAMA_NOT_RUNNING = 'OLLAMA_NOT_RUNNING', // Ollama 服务未启动
+  OLLAMA_ORIGIN_NOT_ALLOWED = 'OLLAMA_ORIGIN_NOT_ALLOWED', // Ollama 未放行扩展来源
   MODEL_NOT_FOUND = 'MODEL_NOT_FOUND', // 模型不存在
 
   // 参数错误
@@ -88,6 +89,12 @@ const ERROR_MESSAGES: Record<
   [TranslationErrorCode.OLLAMA_NOT_RUNNING]: {
     message: '请先启动 Ollama 服务',
     suggestion: '请确保 Ollama 已安装并运行：ollama serve',
+    retryable: false,
+  },
+  [TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED]: {
+    message: 'Ollama 未允许当前浏览器扩展访问',
+    suggestion:
+      '请设置 OLLAMA_ORIGINS=chrome-extension://* 并重启 Ollama；macOS 可先执行 launchctl setenv OLLAMA_ORIGINS "chrome-extension://*"',
     retryable: false,
   },
   [TranslationErrorCode.MODEL_NOT_FOUND]: {
@@ -281,6 +288,22 @@ export class TranslationErrorHandler {
       return TranslationErrorCode.NETWORK_ERROR;
     }
 
+    if (
+      (message.includes('chrome-extension://') ||
+        message.includes('ollama_origins') ||
+        message.includes('access-control-allow-origin')) &&
+      message.includes('ollama')
+    ) {
+      return TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED;
+    }
+
+    if (
+      message.includes('origin not allowed') ||
+      (message.includes('forbidden') && message.includes('ollama'))
+    ) {
+      return TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED;
+    }
+
     // 超时错误
     if (
       message.includes('timeout') ||
@@ -333,7 +356,9 @@ export class TranslationErrorHandler {
     if (
       message.includes('truncated response') ||
       message.includes('does not follow instruction') ||
-      message.includes('not support structured')
+      message.includes('not support structured') ||
+      message.includes('当前模型不支持翻译任务') ||
+      message.includes('模型不支持翻译任务')
     ) {
       return TranslationErrorCode.MODEL_INCOMPATIBLE;
     }

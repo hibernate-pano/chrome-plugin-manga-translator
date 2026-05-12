@@ -7,7 +7,7 @@ import {
 /**
  * Vision Provider Base Interface
  *
- * Defines the contract for all Vision LLM providers (OpenAI, Claude, DeepSeek, Ollama)
+ * Defines the contract for the surviving Vision LLM providers
  * that can analyze manga images and return translation results.
  */
 
@@ -104,13 +104,8 @@ export interface ValidationResult {
  * Supported provider types
  */
 export type ProviderType =
-  | 'openai'
-  | 'claude'
-  | 'deepseek'
-  | 'nvidia'
-  | 'ollama'
-  | 'siliconflow'
-  | 'dashscope';
+  | 'openai-compatible'
+  | 'ollama';
 
 /**
  * Vision Provider Interface

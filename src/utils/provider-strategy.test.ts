@@ -1,27 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import {
-  estimateProviderCost,
-  getProviderStrategy,
-} from './provider-strategy';
 
-describe('getProviderStrategy', () => {
-  it('returns the expected recommendation for siliconflow', () => {
-    expect(getProviderStrategy('siliconflow').suggestedModel).toBe(
-      'Qwen/Qwen2.5-VL-32B-Instruct'
-    );
-  });
+import { estimateProviderCost, getProviderStrategy } from './provider-strategy';
 
-  it('marks ollama as local cost', () => {
+describe('provider strategy', () => {
+  it('returns the expected local cost label for ollama', () => {
     expect(getProviderStrategy('ollama').costLabel).toBe('本地');
   });
-});
 
-describe('estimateProviderCost', () => {
-  it('estimates non-zero cost for cloud providers', () => {
-    expect(estimateProviderCost('openai', 1200, 20)).toBeGreaterThan(0);
-  });
-
-  it('estimates zero cost for ollama', () => {
-    expect(estimateProviderCost('ollama', 1200, 20)).toBe(0);
+  it('estimates a positive cost for openai-compatible', () => {
+    expect(estimateProviderCost('openai-compatible', 1200, 5)).toBeGreaterThan(0);
   });
 });
