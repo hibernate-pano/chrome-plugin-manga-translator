@@ -45,9 +45,9 @@ import {
 import {
   getDefaultTranslationTransport,
   type TranslationTransport,
-  type ServerExecutionConfig,
 } from '@/services/translation-transport';
 import { retryWithBackoff } from '@/utils/error-handler';
+import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 import { splitIntoBatches } from '@/utils/image-priority';
 
@@ -71,8 +71,6 @@ function _logError(message: string, ...args: unknown[]): void {
 // ==================== Type Definitions ====================
 
 export interface TranslatorConfig {
-  /** Whether to use self-hosted server or direct provider mode */
-  executionMode?: 'server' | 'provider-direct';
   /** Provider type to use */
   provider: ProviderType;
   /** API key for cloud providers */
@@ -87,8 +85,6 @@ export interface TranslatorConfig {
   cacheEnabled: boolean;
   /** Prompt style preset */
   translationStylePreset: TranslationStylePreset;
-  /** Self-hosted server configuration */
-  server?: ServerExecutionConfig;
   /** Render mode for translated content */
   renderMode?: 'anchors-only' | 'strong-overlay-compat';
   /** Image processing options */
@@ -126,13 +122,8 @@ interface TransportTextAreasResponse {
 }
 
 function deriveRequestedPath(
-  executionMode: 'server' | 'provider-direct' | undefined,
   provider: ProviderType
 ): RequestedExecutionPath {
-  if (executionMode === 'server') {
-    return 'accelerator';
-  }
-
   return provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
 }
 
@@ -182,17 +173,6 @@ export class TranslatorService {
       baseUrl: this.config.baseUrl,
       model: this.config.model,
     };
-
-    // 检查必要的配置
-    const useServer =
-      this.config.executionMode === 'server' &&
-      !!this.config.server?.enabled &&
-      !!this.config.server.baseUrl.trim();
-
-    if (useServer) {
-      this.isInitialized = true;
-      return;
-    }
 
     if (this.config.provider !== 'ollama' && !providerConfig.apiKey) {
       throw new Error(
@@ -293,8 +273,7 @@ export class TranslatorService {
 
       return result;
     } catch (error) {
-      const errorMessage =
-        error instanceof Error ? error.message : 'Unknown error';
+      const errorMessage = getErrorMessage(error);
       console.warn('[Translator] 翻译失败:', errorMessage);
       if (isDevelopment && error instanceof Error && error.stack) {
         _logError('错误堆栈:', error.stack);
@@ -337,12 +316,7 @@ export class TranslatorService {
       apiKey: this.config.apiKey,
       baseUrl: this.config.baseUrl,
       model: this.config.model,
-      executionMode: this.config.executionMode,
-      requestedPath: deriveRequestedPath(
-        this.config.executionMode,
-        this.config.provider
-      ),
-      server: this.config.server,
+      requestedPath: deriveRequestedPath(this.config.provider),
       renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
       forceRefresh,
@@ -364,14 +338,8 @@ export class TranslatorService {
   }
 
   private buildCacheKey(imageHash: string): string {
-    const requestedPath = deriveRequestedPath(
-      this.config.executionMode,
-      this.config.provider
-    );
-    const executionScope =
-      requestedPath === 'accelerator'
-        ? `accelerator::${this.config.server?.baseUrl || 'unset'}`
-        : `provider::${requestedPath}::${this.config.provider}::${this.config.model || 'default'}`;
+    const requestedPath = deriveRequestedPath(this.config.provider);
+    const executionScope = `provider::${requestedPath}::${this.config.provider}::${this.config.model || 'default'}`;
     return [
       imageHash,
       executionScope,
@@ -390,47 +358,10 @@ export class TranslatorService {
     forceRefresh: boolean
   ): Promise<TranslationResult> {
     const appConfig = useAppConfigStore.getState();
-    const useServer =
-      this.config.executionMode === 'server' &&
-      !!this.config.server?.enabled &&
-      !!this.config.server.baseUrl.trim();
-    const hybridEnabled = appConfig.translationPipeline === 'hybrid-regions';
+    const hybridEnabled =
+      appConfig.translationPipeline === 'hybrid-regions' &&
+      this.config.provider !== 'ollama';
     const allowFallback = appConfig.fallbackToFullImage;
-
-    if (useServer) {
-      const response = await retryWithBackoff(
-        () =>
-          this.callTranslationTransport(
-            processed.base64,
-            processed.mimeType,
-            this.config.targetLanguage,
-            forceRefresh,
-            {
-              imageKey,
-              imageUrl: image.currentSrc || image.src,
-              pageUrl: window.location.href,
-            }
-          ),
-        2,
-        1000
-      );
-
-      const readingResult = this.textAreasToReadingResult(
-        response.textAreas,
-        imageKey,
-        processed,
-        response.pipeline === 'full-image-fallback'
-          ? 'full-image-fallback'
-          : 'hybrid-regions'
-      );
-
-      return {
-        success: true,
-        textAreas: response.textAreas,
-        readingResult,
-        cached: response.cached,
-      };
-    }
 
     if (hybridEnabled) {
       try {
@@ -874,14 +805,6 @@ export class TranslatorService {
    * Check if provider is properly configured
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
-    if (
-      this.config.executionMode === 'server' &&
-      this.config.server?.enabled &&
-      this.config.server.baseUrl.trim()
-    ) {
-      return { valid: true, message: '服务端模式配置有效' };
-    }
-
     if (this.config.provider !== 'ollama' && !this.config.apiKey) {
       return { valid: false, message: `请配置 ${this.config.provider} 的 API Key` };
     }
@@ -920,9 +843,7 @@ export function createTranslatorFromConfig(): TranslatorService {
   const providerSettings = config.providers[config.provider];
 
   return new TranslatorService({
-    executionMode: config.executionMode,
     provider: config.provider,
-    server: config.server,
     apiKey: providerSettings.apiKey,
     baseUrl: providerSettings.baseUrl,
     model: providerSettings.model,

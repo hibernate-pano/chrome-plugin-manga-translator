@@ -5,10 +5,17 @@ export function isTranslationEnabled(config: unknown): boolean {
 
   const maybeConfig = config as {
     enabled?: boolean;
-    state?: { enabled?: boolean };
+    autoContinueEnabled?: boolean;
+    state?: { enabled?: boolean; autoContinueEnabled?: boolean };
   };
 
-  return maybeConfig.state?.enabled ?? maybeConfig.enabled ?? false;
+  const enabled = maybeConfig.state?.enabled ?? maybeConfig.enabled ?? false;
+  const autoContinueEnabled =
+    maybeConfig.state?.autoContinueEnabled ??
+    maybeConfig.autoContinueEnabled ??
+    true;
+
+  return enabled && autoContinueEnabled;
 }
 
 export function createAutoTranslateMessage(enabled: boolean) {

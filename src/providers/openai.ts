@@ -46,8 +46,8 @@ interface OpenAIResponse {
 }
 
 export class OpenAIProvider implements VisionProvider {
-  readonly name = 'OpenAI GPT-4V';
-  readonly type = 'openai' as const;
+  readonly name = 'OpenAI-Compatible';
+  readonly type = 'openai-compatible' as const;
 
   private config: ProviderConfig = {};
 
@@ -130,29 +130,29 @@ export class OpenAIProvider implements VisionProvider {
     if (!this.config.apiKey) {
       return {
         valid: false,
-        message: '请配置 OpenAI API 密钥',
+        message: '请配置 OpenAI-compatible API 密钥',
       };
     }
 
     if (this.config.apiKey.length < 20) {
       return {
         valid: false,
-        message: 'OpenAI API 密钥格式无效',
+        message: 'OpenAI-compatible API 密钥格式无效',
       };
     }
 
     return {
       valid: true,
-      message: 'OpenAI 配置有效',
+      message: 'OpenAI-compatible 配置有效',
     };
   }
 
   private ensureConfigured(): void {
     if (!this.config.apiKey) {
-      throw new Error('请配置 OpenAI API 密钥');
+      throw new Error('请配置 OpenAI-compatible API 密钥');
     }
     if (this.config.apiKey.length < 20) {
-      throw new Error('OpenAI API 密钥格式无效');
+      throw new Error('OpenAI-compatible API 密钥格式无效');
     }
   }
 }

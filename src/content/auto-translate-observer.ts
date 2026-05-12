@@ -3,7 +3,6 @@ export type AutoTranslateStatus =
   | 'scanning'
   | 'translating'
   | 'complete'
-  | 'hover-select'
   | 'error';
 
 export function shouldAutoTranslateFollowUp(args: {

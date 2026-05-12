@@ -4,16 +4,8 @@ import type {
   RequestedExecutionPath,
   TranslateImageJobRequest,
   TranslateImageJobResponse,
-  TranslateViaServerResponse,
 } from '@/shared/runtime-contracts';
 import type { TranslationStylePreset } from '@/utils/translation-style';
-
-export interface ServerExecutionConfig {
-  enabled: boolean;
-  baseUrl: string;
-  authToken: string;
-  timeoutMs: number;
-}
 
 export interface TranslationTransportRequest {
   imageBase64: string;
@@ -26,9 +18,7 @@ export interface TranslationTransportRequest {
   apiKey?: string;
   baseUrl?: string;
   model?: string;
-  executionMode?: 'server' | 'provider-direct';
   requestedPath?: RequestedExecutionPath;
-  server?: ServerExecutionConfig;
   renderMode?: 'anchors-only' | 'strong-overlay-compat';
   translationStylePreset: TranslationStylePreset;
   forceRefresh?: boolean;
@@ -92,7 +82,6 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
         forceRefresh: request.forceRefresh,
       } satisfies TranslateImageJobRequest)) as
         | TranslateImageJobResponse
-        | TranslateViaServerResponse
         | undefined
     );
 
@@ -110,38 +99,24 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
       return request.requestedPath;
     }
 
-    if (request.executionMode === 'server') {
-      return 'accelerator';
-    }
-
     return request.provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
   }
 
   private normalizeJobResponse(
-    response:
-      | TranslateImageJobResponse
-      | TranslateViaServerResponse
-      | undefined
+    response: TranslateImageJobResponse | undefined
   ): TranslationTransportResponse | undefined {
     if (!response) {
       return undefined;
     }
 
-    if ('job' in response) {
-      return {
-        success: response.success,
-        error: response.error,
-        textAreas: response.textAreas,
-        pipeline: response.pipeline,
-        cached: response.cached,
-        diagnostics: response.job.diagnostics ?? undefined,
-        usage: response.usage ?? null,
-      };
-    }
-
     return {
-      ...response,
-      diagnostics: response.diagnostics ?? undefined,
+      success: response.success,
+      error: response.error,
+      textAreas: response.textAreas,
+      pipeline: response.pipeline,
+      cached: response.cached,
+      diagnostics: response.job.diagnostics ?? undefined,
+      usage: response.usage ?? null,
     };
   }
 }

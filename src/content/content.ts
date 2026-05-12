@@ -3,12 +3,12 @@
  *
  * 重构后的 content script，采用清晰的状态机架构：
  * - ContentState 类型驱动所有 UI 和行为
- * - 支持整页翻译、hover 选图翻译、取消、清除
+ * - 支持整页翻译、强制重翻、取消、清除
  * - 通过 FloatingHud 展示页面内状态
  * - 通过消息协议与 Background/Popup 同步状态
  *
  * 消息协议：
- *   PopupToContent: TRANSLATE_PAGE | ENTER_HOVER_SELECT | EXIT_HOVER_SELECT
+ *   PopupToContent: TRANSLATE_PAGE | FORCE_RETRANSLATE_PAGE
  *                   | CANCEL_TRANSLATION | CLEAR_ALL
  *   ContentToPopup: STATE_UPDATE | READY
  */
@@ -29,8 +29,7 @@ import {
   type ParallelProcessingOptions,
 } from '@/utils/image-priority';
 import { useAppConfigStore } from '@/stores/config-v2';
-import { isTranslatableImage } from './hover-selector';
-import { HoverSelector } from './hover-selector';
+import { isTranslatableImage } from './image-filter';
 import { FloatingHud } from './floating-hud';
 import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
@@ -43,8 +42,7 @@ import {
 export type PopupToContentMsg =
   | { type: 'GET_STATE' }
   | { type: 'TRANSLATE_PAGE' }
-  | { type: 'ENTER_HOVER_SELECT' }
-  | { type: 'EXIT_HOVER_SELECT' }
+  | { type: 'FORCE_RETRANSLATE_PAGE' }
   | { type: 'CANCEL_TRANSLATION' }
   | { type: 'CLEAR_ALL' };
 
@@ -59,7 +57,6 @@ export type ContentState =
   | { status: 'scanning' }
   | { status: 'translating'; current: number; total: number }
   | { status: 'complete'; count: number }
-  | { status: 'hover-select' }
   | { status: 'error'; message: string };
 
 // ==================== 常量 ====================
@@ -74,7 +71,6 @@ let abortController: AbortController | null = null;
 let translator: TranslatorService | null = null;
 let renderer: OverlayRenderer | null = null;
 let hud: FloatingHud | null = null;
-let hoverSelector: HoverSelector | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
 const processedImages: Set<string> = new Set();
@@ -110,9 +106,6 @@ function setState(state: ContentState): void {
           failedCount: 0,
           cachedCount: 0,
         });
-        break;
-      case 'hover-select':
-        hud.update({ status: 'hover-select' });
         break;
       case 'error':
         hud.update({ status: 'error', message: state.message });
@@ -171,20 +164,32 @@ function getEnabledFromConfig(config: unknown): boolean {
 
   const maybeConfig = config as {
     enabled?: boolean;
+    autoContinueEnabled?: boolean;
     state?: { enabled?: boolean };
   };
 
-  return maybeConfig.state?.enabled ?? maybeConfig.enabled ?? false;
+  const enabled = maybeConfig.state?.enabled ?? maybeConfig.enabled ?? false;
+  const autoContinueEnabled = maybeConfig.autoContinueEnabled ?? true;
+
+  return enabled && autoContinueEnabled;
 }
 
-async function processSingleImage(img: HTMLImageElement): Promise<void> {
+async function processSingleImage(
+  img: HTMLImageElement,
+  forceRefresh: boolean = false
+): Promise<void> {
   if (!translator || !renderer) {
     throw new Error('Services not initialized');
   }
 
   img.classList.add(PROCESSED_CLASS);
 
-  const result = await translator.translateImage(img);
+  const result = await translator.translateImage(
+    img,
+    false,
+    undefined,
+    forceRefresh
+  );
 
   if (!result.success) {
     throw new Error(result.error || 'Translation failed');
@@ -274,7 +279,7 @@ function stopAutoTranslateObserver(): void {
 /**
  * 整页翻译
  */
-async function translatePage(): Promise<void> {
+async function translatePage(forceRefresh: boolean = false): Promise<void> {
   console.warn('[ContentScript] translatePage 开始执行');
 
   if (
@@ -336,7 +341,7 @@ async function translatePage(): Promise<void> {
           throw new Error('Translation cancelled');
         }
         const beforeCount = processedImages.size;
-        await processSingleImage(img);
+        await processSingleImage(img, forceRefresh);
         // Only count if it wasn't already processed
         if (processedImages.size > beforeCount) {
           successCount++;
@@ -363,55 +368,12 @@ async function translatePage(): Promise<void> {
 }
 
 /**
- * 进入 hover 选图模式
- */
-function enterHoverSelect(): void {
-  if (hoverSelector) {
-    hoverSelector.exit();
-  }
-
-  hoverSelector = new HoverSelector();
-  hoverSelector.onImageClick(async img => {
-    hoverSelector = null;
-    setState({ status: 'translating', current: 0, total: 1 });
-
-    try {
-      await ensureServicesInitialized();
-      await processSingleImage(img);
-      processedImages.add(getImageKey(img));
-      setState({ status: 'complete', count: 1 });
-    } catch (error) {
-      const friendly = parseTranslationError(error);
-      setState({ status: 'error', message: friendly.message });
-    }
-  });
-
-  hoverSelector.enter();
-  setState({ status: 'hover-select' });
-}
-
-/**
- * 退出 hover 选图模式
- */
-function exitHoverSelect(): void {
-  if (hoverSelector) {
-    hoverSelector.exit();
-    hoverSelector = null;
-  }
-  setState({ status: 'idle' });
-}
-
-/**
  * 取消正在进行的翻译
  */
 function cancelTranslation(): void {
   if (abortController) {
     abortController.abort();
     abortController = null;
-  }
-  if (hoverSelector) {
-    hoverSelector.exit();
-    hoverSelector = null;
   }
   setState({ status: 'idle' });
 }
@@ -469,15 +431,12 @@ function handleMessage(
         .catch(err => sendResponse({ success: false, error: String(err) }));
       return true;
 
-    case 'ENTER_HOVER_SELECT':
-      enterHoverSelect();
-      sendResponse({ success: true });
-      break;
-
-    case 'EXIT_HOVER_SELECT':
-      exitHoverSelect();
-      sendResponse({ success: true });
-      break;
+    case 'FORCE_RETRANSLATE_PAGE':
+      clearAll();
+      translatePage(true)
+        .then(() => sendResponse({ success: true }))
+        .catch(err => sendResponse({ success: false, error: String(err) }));
+      return true;
 
     case 'CANCEL_TRANSLATION':
       cancelTranslation();
@@ -568,10 +527,6 @@ function cleanup(): void {
     hud.destroy();
     hud = null;
   }
-  if (hoverSelector) {
-    hoverSelector.exit();
-    hoverSelector = null;
-  }
   stopAutoTranslateObserver();
   processedImages.clear();
 }
@@ -587,8 +542,6 @@ export {
   findTranslatableImages,
   handleMessage,
   translatePage,
-  enterHoverSelect,
-  exitHoverSelect,
   cancelTranslation,
   clearAll,
   setState,

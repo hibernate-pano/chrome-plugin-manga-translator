@@ -5,43 +5,26 @@ import {
   APP_CONFIG_STORAGE_KEY,
   DEFAULT_RUNTIME_APP_CONFIG,
   type RuntimeAppConfig,
-  type ServerConfig as RuntimeServerConfig,
+  type ProviderSettings as RuntimeProviderSettings,
 } from '@/shared/app-config';
 import {
   DEFAULT_TRANSLATION_STYLE_PRESET,
   type TranslationStylePreset,
 } from '@/utils/translation-style';
 
-export interface ProviderSettings {
-  apiKey: string;
-  baseUrl: string;
-  model: string;
-}
-
-export interface AppServerConfig extends RuntimeServerConfig {
-  enabled: boolean;
-}
-
-export type ServerConfig = AppServerConfig;
+export interface ProviderSettings extends RuntimeProviderSettings {}
 
 export interface ProvidersConfig {
-  siliconflow: ProviderSettings;
-  dashscope: ProviderSettings;
-  openai: ProviderSettings;
-  claude: ProviderSettings;
-  deepseek: ProviderSettings;
-  nvidia: ProviderSettings;
+  'openai-compatible': ProviderSettings;
   ollama: ProviderSettings;
 }
 
 export interface AppConfigState extends RuntimeAppConfig {
-  executionMode: 'server' | 'provider-direct';
-  provider: ProviderType;
-  server: AppServerConfig;
   providers: ProvidersConfig;
   maxImageSize: number;
   parallelLimit: number;
   cacheEnabled: boolean;
+  autoContinueEnabled: boolean;
   readingMode: 'panel';
   renderMode: 'anchors-only' | 'strong-overlay-compat';
   translationPipeline: 'hybrid-regions' | 'full-image-vlm';
@@ -52,8 +35,6 @@ export interface AppConfigState extends RuntimeAppConfig {
 export interface AppConfigActions {
   setEnabled: (enabled: boolean) => void;
   toggleEnabled: () => void;
-  setExecutionMode: (mode: 'server' | 'provider-direct') => void;
-  updateServerConfig: (config: Partial<AppServerConfig>) => void;
   setProvider: (provider: ProviderType) => void;
   updateProviderSettings: (
     provider: ProviderType,
@@ -64,6 +45,7 @@ export interface AppConfigActions {
   setMaxImageSize: (size: number) => void;
   setParallelLimit: (limit: number) => void;
   setCacheEnabled: (enabled: boolean) => void;
+  setAutoContinueEnabled: (enabled: boolean) => void;
   setTranslationStylePreset: (preset: TranslationStylePreset) => void;
   setReadingMode: (mode: 'panel') => void;
   setRenderMode: (mode: 'anchors-only' | 'strong-overlay-compat') => void;
@@ -74,62 +56,34 @@ export interface AppConfigActions {
   setFallbackToFullImage: (enabled: boolean) => void;
   getActiveProviderSettings: () => ProviderSettings;
   isProviderConfigured: (provider?: ProviderType) => boolean;
-  isServerConfigured: () => boolean;
   getRuntimeConfig: () => RuntimeAppConfig;
   resetToDefaults: () => void;
 }
 
 const DEFAULT_PROVIDERS: ProvidersConfig = {
-  siliconflow: {
-    apiKey: '',
-    baseUrl: 'https://api.siliconflow.cn/v1',
-    model: '',
-  },
-  dashscope: {
-    apiKey: '',
-    baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
-    model: '',
-  },
-  openai: {
+  'openai-compatible': {
     apiKey: '',
     baseUrl: 'https://api.openai.com/v1',
-    model: '',
-  },
-  claude: {
-    apiKey: '',
-    baseUrl: 'https://api.anthropic.com/v1',
-    model: '',
-  },
-  deepseek: {
-    apiKey: '',
-    baseUrl: 'https://api.deepseek.com/v1',
-    model: '',
-  },
-  nvidia: {
-    apiKey: '',
-    baseUrl: 'https://integrate.api.nvidia.com/v1',
-    model: '',
+    model: 'gpt-4o',
   },
   ollama: {
-    apiKey: '', // Not needed for Ollama
+    apiKey: '',
     baseUrl: 'http://localhost:11434',
-    model: '',
+    model: 'llava',
   },
 };
 
 const DEFAULT_CONFIG: AppConfigState = {
   enabled: DEFAULT_RUNTIME_APP_CONFIG.enabled,
-  executionMode: 'provider-direct',
-  provider: 'siliconflow',
-  server: {
-    enabled: false,
-    ...DEFAULT_RUNTIME_APP_CONFIG.server,
-  },
+  provider: DEFAULT_RUNTIME_APP_CONFIG.provider,
+  openaiCompatible: DEFAULT_RUNTIME_APP_CONFIG.openaiCompatible,
+  ollama: DEFAULT_RUNTIME_APP_CONFIG.ollama,
   providers: DEFAULT_PROVIDERS,
   targetLanguage: DEFAULT_RUNTIME_APP_CONFIG.targetLanguage,
   maxImageSize: 1920,
   parallelLimit: 3,
   cacheEnabled: true,
+  autoContinueEnabled: DEFAULT_RUNTIME_APP_CONFIG.autoContinueEnabled,
   translationStylePreset:
     DEFAULT_RUNTIME_APP_CONFIG.translationStylePreset ??
     DEFAULT_TRANSLATION_STYLE_PRESET,
@@ -185,17 +139,22 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       ...DEFAULT_CONFIG,
       setEnabled: (enabled) => set({ enabled }),
       toggleEnabled: () => set(state => ({ enabled: !state.enabled })),
-      setExecutionMode: executionMode => set({ executionMode }),
-      updateServerConfig: server =>
-        set(state => ({
-          server: {
-            ...state.server,
-            ...server,
-          },
-        })),
       setProvider: (provider) => set({ provider }),
       updateProviderSettings: (provider, settings) =>
         set(state => ({
+          ...(provider === 'openai-compatible'
+            ? {
+                openaiCompatible: {
+                  ...state.openaiCompatible,
+                  ...settings,
+                },
+              }
+            : {
+                ollama: {
+                  ...state.ollama,
+                  ...settings,
+                },
+              }),
           providers: {
             ...state.providers,
             [provider]: {
@@ -206,6 +165,19 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         })),
       setProviderApiKey: (provider, apiKey) =>
         set(state => ({
+          ...(provider === 'openai-compatible'
+            ? {
+                openaiCompatible: {
+                  ...state.openaiCompatible,
+                  apiKey,
+                },
+              }
+            : {
+                ollama: {
+                  ...state.ollama,
+                  apiKey,
+                },
+              }),
           providers: {
             ...state.providers,
             [provider]: {
@@ -218,6 +190,8 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       setMaxImageSize: (maxImageSize) => set({ maxImageSize }),
       setParallelLimit: (parallelLimit) => set({ parallelLimit }),
       setCacheEnabled: (cacheEnabled) => set({ cacheEnabled }),
+      setAutoContinueEnabled: (autoContinueEnabled) =>
+        set({ autoContinueEnabled }),
       setTranslationStylePreset: (translationStylePreset) =>
         set({ translationStylePreset }),
       setReadingMode: readingMode => set({ readingMode }),
@@ -239,17 +213,16 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         }
         return !!settings.apiKey;
       },
-      isServerConfigured: () => {
-        const state = get();
-        return !!state.server.baseUrl.trim();
-      },
       getRuntimeConfig: () => {
         const state = get();
         return {
           enabled: state.enabled,
-          server: state.server,
+          provider: state.provider,
+          openaiCompatible: state.openaiCompatible,
+          ollama: state.ollama,
           targetLanguage: state.targetLanguage,
           translationStylePreset: state.translationStylePreset,
+          autoContinueEnabled: state.autoContinueEnabled,
         };
       },
       resetToDefaults: () => set(DEFAULT_CONFIG),
@@ -259,14 +232,15 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       storage: createJSONStorage(() => chromeStorage),
       partialize: state => ({
         enabled: state.enabled,
-        executionMode: state.executionMode,
         provider: state.provider,
-        server: state.server,
+        openaiCompatible: state.openaiCompatible,
+        ollama: state.ollama,
         providers: state.providers,
         targetLanguage: state.targetLanguage,
         maxImageSize: state.maxImageSize,
         parallelLimit: state.parallelLimit,
         cacheEnabled: state.cacheEnabled,
+        autoContinueEnabled: state.autoContinueEnabled,
         translationStylePreset: state.translationStylePreset,
         readingMode: state.readingMode,
         renderMode: state.renderMode,

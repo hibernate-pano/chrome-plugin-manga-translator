@@ -3,20 +3,11 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType } from '@/providers/base';
 
 export interface RecommendedProfile {
-  executionMode: 'server' | 'provider-direct';
   provider: ProviderType | 'unknown';
   timestamp: number;
 }
 
-const KNOWN_PROVIDERS: ProviderType[] = [
-  'siliconflow',
-  'dashscope',
-  'openai',
-  'claude',
-  'deepseek',
-  'nvidia',
-  'ollama',
-];
+const KNOWN_PROVIDERS: ProviderType[] = ['openai-compatible', 'ollama'];
 
 function toProviderType(value: unknown): ProviderType | 'unknown' {
   return typeof value === 'string' &&
@@ -142,11 +133,8 @@ export const useProductMetricsStore = create<
         const isSuccess =
           type === 'translate_succeeded' || type === 'demo_succeeded';
         const profile =
-          typeof metadata?.['executionMode'] === 'string'
+          typeof metadata?.['provider'] === 'string'
             ? {
-                executionMode: metadata['executionMode'] as
-                  | 'server'
-                  | 'provider-direct',
                 provider: toProviderType(metadata['provider']),
                 timestamp: event.timestamp,
               }
@@ -184,7 +172,7 @@ export const useProductMetricsStore = create<
           demoFailed: count('demo_failed'),
           firstSuccessAt,
           recommendedProfile: recommendedProfile
-            ? `${recommendedProfile.executionMode} / ${recommendedProfile.provider}`
+            ? `${recommendedProfile.provider}`
             : null,
           activationRate:
             popupOpened > 0 ? translateSucceeded / popupOpened : 0,

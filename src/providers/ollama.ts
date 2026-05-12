@@ -102,6 +102,11 @@ export class OllamaProvider implements VisionProvider {
     });
 
     if (!response.ok) {
+      if (response.status === 403) {
+        throw new Error(
+          'Ollama rejected the extension origin. Set OLLAMA_ORIGINS=chrome-extension://* and restart Ollama.'
+        );
+      }
       if (response.status === 404) {
         throw new Error(
           `模型 ${this.config.model} 未安装，请先运行: ollama pull ${this.config.model}`
