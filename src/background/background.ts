@@ -471,8 +471,8 @@ function isValidImageUrl(url: string): boolean {
     }
     // 检查 IPv6 私有地址段
     const ipv6Match = hostname.match(/^\[([\da-fA-f:]+)\]$/);
-    if (ipv6Match) {
-      const ipv6 = ipv6Match[1]!.toLowerCase();
+    if (ipv6Match && ipv6Match[1]) {
+      const ipv6 = ipv6Match[1].toLowerCase();
       // 阻止 ::1 (localhost IPv6)
       if (ipv6 === '::1') return false;
       // fc00::/7 - Unique Local Addresses (fc00:: to fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff)

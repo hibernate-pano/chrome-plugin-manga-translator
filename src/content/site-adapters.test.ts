@@ -315,11 +315,12 @@ describe('site-adapters', () => {
     try {
       const promise = prepareImageForTranslation(img);
 
-      // The timeout function was captured by the mock
-      expect(timeoutCallback).not.toBeNull();
-
-      // Fire the timeout — this calls reject() inside waitForImageLoad
-      timeoutCallback!();
+      // Fire the timeout — this calls reject() inside waitForImageLoad.
+      // The callback was assigned by the setTimeout mock above.
+      if (timeoutCallback === null) {
+        throw new Error('timeout callback was not captured by the mock');
+      }
+      (timeoutCallback as () => void)();
 
       await expect(promise).rejects.toThrow('章节图片加载超时');
     } finally {

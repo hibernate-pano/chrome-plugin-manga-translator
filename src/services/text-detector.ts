@@ -82,7 +82,7 @@ async function getWorker(languages: string[]): Promise<Worker> {
 
   // Create new worker with local scripts in Chrome Extension env
   const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
-  const workerOptions: Record<string, any> = {
+  const workerOptions: Record<string, unknown> = {
     logger: (m: { status: string; progress: number }) => {
       if (import.meta.env.DEV && m.status === 'recognizing text') {
         console.log(`[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`);
@@ -142,8 +142,9 @@ export async function detectTextRegions(
     // Get Tesseract worker
     const tesseractWorker = await getWorker(opts.languages);
 
-    // 配置页面分割模式 (PSM)
+    // 配置页面分割模式 (PSM). tesseract.js 的 setParameters 接受 PSM 枚举值。
     await tesseractWorker.setParameters({
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       tessedit_pageseg_mode: opts.psm as any,
     });
 
