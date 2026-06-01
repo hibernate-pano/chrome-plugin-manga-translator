@@ -1,6 +1,6 @@
 {
   "name": "chrome-plugin-manga-translator",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "Chrome插件，用于翻译漫画中的文字，并保持原有样式",
   "type": "module",
   "scripts": {
