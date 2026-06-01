@@ -20,10 +20,10 @@ export interface ImageProcessingOptions {
   quality?: number;
   /** Output format */
   format?: 'jpeg' | 'png' | 'webp' | 'auto';
-  /** Whether to preserve original format when possible */
-  preserveFormat?: boolean;
   /** Whether to crop the image to only the visible viewport part (useful for very long images) */
   viewportCrop?: boolean;
+  /** Whether to add visual indices for hybrid region stitching */
+  isHybridRegions?: boolean;
 }
 
 export interface ProcessedImage {
@@ -52,11 +52,15 @@ export interface ProcessedImage {
 // ==================== Default Configuration ====================
 
 export const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
-  maxSize: 2048,
+  /**
+   * Default image size for translation.
+   * 1024px is sufficient for text extraction while being ~4x faster than 2048px.
+   */
+  maxSize: 1024,
   quality: 0.85,
   format: 'jpeg',
-  preserveFormat: true,
   viewportCrop: false,
+  isHybridRegions: false,
 };
 
 export function shouldPreserveTallMangaPage(
@@ -77,11 +81,14 @@ export function shouldPreserveTallMangaPage(
 /**
  * Calculate SHA-256 hash of image data
  *
+ * Uses SubtleCrypto SHA-256 for cryptographically secure hashes.
+ * Falls back to a simple string hash only if SubtleCrypto is completely unavailable.
+ *
  * @param data String data to hash
- * @returns Hash string
+ * @returns 64-character hexadecimal hash
  */
 export async function calculateHash(data: string): Promise<string> {
-  // Use SubtleCrypto for hashing if available
+  // Use SubtleCrypto for hashing - available in all modern browsers including Chrome extension content scripts
   if (typeof crypto !== 'undefined' && crypto.subtle) {
     const encoder = new TextEncoder();
     const dataBuffer = encoder.encode(data);
@@ -90,7 +97,9 @@ export async function calculateHash(data: string): Promise<string> {
     return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
   }
 
-  // Fallback: simple string hash (djb2 algorithm)
+  // Fallback: simple string hash using djb2 - NOTE: only used when crypto.subtle is unavailable
+  // WARNING: This produces only 32 bits of entropy and risks hash collisions.
+  // This fallback should rarely trigger in modern browser environments.
   let hash = 5381;
   for (let i = 0; i < data.length; i++) {
     const char = data.charCodeAt(i);
@@ -144,6 +153,19 @@ export function compressImage(
   viewportCrop: boolean = false,
   format: string = 'jpeg'
 ): { base64: string; width: number; height: number; wasCompressed: boolean; cropY: number; cropHeight: number } {
+  // Guard against zero-dimension images (e.g. failed image loads) so we
+  // don't produce NaN canvas dimensions or empty base64.
+  if (
+    !image.naturalWidth ||
+    !image.naturalHeight ||
+    image.naturalWidth <= 0 ||
+    image.naturalHeight <= 0
+  ) {
+    throw new Error(
+      `compressImage: invalid image dimensions (${image.naturalWidth}x${image.naturalHeight})`
+    );
+  }
+
   let sourceY = 0;
   let sourceHeight = image.naturalHeight;
   const sourceWidth = image.naturalWidth;
@@ -188,12 +210,22 @@ export function compressImage(
 
   let targetWidth = sourceWidth;
   let targetHeight = sourceHeight;
+  let wasCompressed = false;
+
+  const maxTallPageHeight = 3000;
 
   if (needsCompression) {
     // Calculate new dimensions maintaining aspect ratio
     const ratio = Math.min(maxSize / sourceWidth, maxSize / sourceHeight);
     targetWidth = Math.round(sourceWidth * ratio);
     targetHeight = Math.round(sourceHeight * ratio);
+    wasCompressed = true;
+  } else if (preserveTallPage && sourceHeight > maxTallPageHeight) {
+    // 为长图引入安全高度上限，等比例缩放至高度等于 3000px
+    const ratio = maxTallPageHeight / sourceHeight;
+    targetWidth = Math.round(sourceWidth * ratio);
+    targetHeight = maxTallPageHeight;
+    wasCompressed = true;
   }
 
   // Create canvas and draw image
@@ -223,7 +255,7 @@ export function compressImage(
     base64,
     width: targetWidth,
     height: targetHeight,
-    wasCompressed: needsCompression,
+    wasCompressed,
     cropY: sourceY,
     cropHeight: sourceHeight,
   };
@@ -285,7 +317,18 @@ export async function processImage(
 }
 
 /**
- * Process an image via background script to bypass CORS
+ * Process an image via background script to bypass CORS.
+ *
+ * NOTE on message protocols: this function uses the legacy
+ * `{ action: 'fetchImage', url }` envelope, which is dispatched by the
+ * background handler's action-based switch. The new envelope protocol
+ * (`{ type: 'JOB_*', ... }`) is reserved for translation jobs handled
+ * by ChromeRuntimeTranslationTransport (see
+ * src/services/translation-transport.ts). The two protocols coexist
+ * because the image-fetch path is a simple binary transport with no
+ * job-queue semantics, while translation requires priority/scope/dedup.
+ * Unifying them is a future refactor; for now, callers must read the
+ * matching response field — `imageBase64` here, `textAreas` there.
  */
 async function processImageViaBackground(
   imageUrl: string,
@@ -297,11 +340,11 @@ async function processImageViaBackground(
     url: imageUrl,
   });
 
-  if (!response?.success || !response.base64) {
+  if (!response?.success || !response.imageBase64) {
     throw new Error(`Failed to fetch image via background: ${response?.error || 'Unknown error'}`);
   }
 
-  const base64: string = response.base64;
+  const base64: string = response.imageBase64;
   const mimeType: string = response.mimeType || 'image/jpeg';
   const hash = await calculateHash(base64);
 
@@ -543,7 +586,9 @@ export async function combineCroppedRegions(
     throw new Error('No images to combine');
   }
 
-  if (croppedImages.length === 1) {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
+  if (croppedImages.length === 1 && !opts.isHybridRegions) {
     const single = await imageFromBase64(croppedImages[0] ?? '');
     return {
       base64: croppedImages[0] ?? '',
@@ -553,16 +598,27 @@ export async function combineCroppedRegions(
     };
   }
 
-  const opts = { ...DEFAULT_OPTIONS, ...options };
+  // First, load all images to get their dimensions (parallel, tolerating individual failures)
+  const settledResults = await Promise.allSettled(
+    croppedImages.map((base64) => imageFromBase64(base64))
+  );
 
-  // First, load all images to get their dimensions
   const images: HTMLImageElement[] = [];
+  for (const result of settledResults) {
+    if (result.status === 'fulfilled') {
+      images.push(result.value);
+    } else {
+      console.error('[ImageProcessor] Failed to load image in combineCroppedRegions:', result.reason);
+    }
+  }
+
+  if (images.length === 0) {
+    throw new Error('No images to combine');
+  }
+
   let totalHeight = 0;
   let maxWidth = 0;
-
-  for (const base64 of croppedImages) {
-    const img = await imageFromBase64(base64);
-    images.push(img);
+  for (const img of images) {
     totalHeight += img.height;
     maxWidth = Math.max(maxWidth, img.width);
   }
@@ -571,9 +627,13 @@ export async function combineCroppedRegions(
   const spacing = 20;
   totalHeight += spacing * (images.length - 1);
 
+  // Width budget for label column on the left
+  const labelWidth = opts.isHybridRegions ? 60 : 0;
+  const canvasWidth = maxWidth + labelWidth;
+
   // Create canvas and draw all images
   const canvas = document.createElement('canvas');
-  canvas.width = maxWidth;
+  canvas.width = canvasWidth;
   canvas.height = totalHeight;
 
   const ctx = canvas.getContext('2d');
@@ -591,7 +651,29 @@ export async function combineCroppedRegions(
   for (let index = 0; index < images.length; index += 1) {
     const img = images[index];
     if (!img) continue;
-    const x = Math.round((maxWidth - img.width) / 2); // Center horizontally
+
+    // Draw index anchor label if isHybridRegions is enabled
+    if (opts.isHybridRegions) {
+      // Vertically center the anchor label alongside the cropped region
+      const labelY = currentY + Math.max(0, (img.height - 40) / 2);
+      ctx.fillStyle = '#1e293b'; // Slate-800
+      ctx.beginPath();
+      if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(10, labelY, 40, 40, 8);
+      } else {
+        ctx.rect(10, labelY, 40, 40);
+      }
+      ctx.fill();
+
+      ctx.fillStyle = '#f8fafc'; // Slate-50
+      ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(`${index + 1}`, 30, labelY + 20);
+    }
+
+    // Shift image drawing by labelWidth, centering horizontally in the remaining area
+    const x = labelWidth + Math.round((maxWidth - img.width) / 2);
     ctx.drawImage(img, x, currentY);
     segments.push({
       index,

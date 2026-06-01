@@ -11,3 +11,6 @@ dist/
 server/.venv/
 server/.venv311/
 server/data/
+.env
+*.env
+server/.env

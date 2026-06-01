@@ -39,23 +39,44 @@ pnpm type-check             # 仅类型检查
 2. **Options** (`src/options.tsx`): 完整设置页面
 3. **Background** (`src/background/background.ts`): Service Worker，消息中继、配置管理、跨标签页状态同步
 4. **Content Script** (`src/content/content.ts`): 注入网页，图像检测、翻译流程控制、覆盖层渲染
-   - `hover-selector.ts`: 鼠标悬停图像选择
+   - `image-filter.ts`: 图像筛选
    - `floating-hud.ts`: 浮动 HUD 控制面板
 
 通信流: Popup ↔ Background ↔ Content Script
+
+### 消息协议（v0.3.2）
+
+后台分发器同时接受两套信封，目前并存不互通：
+
+1. **Action 协议**（旧）：`{ action: 'fetchImage' | 'getConfig' | 'setConfig' | ... }`
+   - 调用方：`image-processor.ts`（CORS 图片代理）、`popup.tsx`、`options.tsx`
+   - 响应字段：`{ success, imageBase64 }` 或 `{ success, config }`
+
+2. **Type 协议**（新）：`{ type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }`
+   - 调用方：`translation-transport.ts`（翻译任务）
+   - 响应字段：`{ success, job: { ... }, textAreas }`（envelope 形态）
+   - 信封类型见 `src/shared/runtime-contracts.ts`
+
+未来重构计划：统一到 type-based 信封。短期不要混用响应字段。
 
 ### 翻译核心流程
 
 图像检测 → 图像处理(压缩/Base64/哈希) → 缓存检查 → Vision LLM 调用 → JSON 响应解析(文字区域+翻译) → 覆盖层渲染
 
+### 翻译管线（Translation Pipeline）
+
+两种翻译模式，默认 `full-image-vlm`：
+- **`full-image-vlm`**（默认）：VLM 直接处理完整图片，稳定性高，适合大多数场景
+- **`hybrid-regions`**：先通过 Tesseract.js 检测文字区域，再分批发送给 VLM 翻译（保留供需要时使用）
+
+`hybrid-regions` 代码仍然可用，用户可手动切换。
+
 ### Vision LLM Provider（策略模式）
 
-`src/providers/` 下的 TypeScript 实现是当前主用代码:
+`src/providers/` 下的 TypeScript 实现:
 - `base.ts`: `VisionProvider` 接口 + `BaseVisionProvider` 抽象基类
-- 具体实现: `openai.ts`, `claude.ts`, `deepseek.ts`, `ollama.ts`, `dashscope.ts`, `siliconflow.ts`
+- 具体实现: `openai.ts`, `ollama.ts`
 - `index.ts`: `createProvider()` 工厂函数
-
-`src/api/` 下的 JS 文件是遗留代码。
 
 ### 状态管理
 
@@ -68,10 +89,6 @@ pnpm type-check             # 仅类型检查
   const store = useAppConfigStore();
   ```
 - **React Query v5**: 服务端状态，hooks 在 `src/hooks/`
-
-### 遗留代码共存
-
-项目中 v1 (JS: `src/api/`, `src/content/content.jsx`) 和 v2 (TS: `src/providers/`, `src/services/`, `src/stores/*-v2.ts`) 并存。新代码应使用 v2 的 TypeScript 模块。
 
 ## Code Style
 

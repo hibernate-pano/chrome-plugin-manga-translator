@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "漫画翻译助手",
-  "version": "0.3.2",
-  "description": "一款帮助翻译外文漫画的Chrome插件，保持原有文字样式",
+  "version": "0.3.3",
+  "description": "AI-powered manga translation with in-place overlay rendering. Detects text in comic images via Vision LLM and overlays translations while preserving the original art style.",
   "permissions": [
     "storage",
     "activeTab",
@@ -38,7 +38,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/*"],
+      "resources": ["icons/*", "tesseract/*"],
       "matches": ["<all_urls>"]
     }
   ]

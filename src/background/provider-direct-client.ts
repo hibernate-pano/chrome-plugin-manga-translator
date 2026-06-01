@@ -18,7 +18,7 @@ interface ProviderDirectTranslationResponse {
 }
 
 function isProviderType(value: unknown): value is ProviderType {
-  return value === 'openai-compatible' || value === 'ollama';
+  return value === 'openai-compatible' || value === 'ollama' || value === 'lm-studio';
 }
 
 function isTranslationStylePreset(
@@ -27,7 +27,8 @@ function isTranslationStylePreset(
   return (
     value === 'faithful' ||
     value === 'natural-zh' ||
-    value === 'concise-bubble'
+    value === 'concise-bubble' ||
+    value === 'preserve-original'
   );
 }
 
@@ -57,7 +58,8 @@ export async function translateImageViaProviderDirect(
     const result = await provider.analyzeAndTranslate(
       request.imageBase64,
       request.targetLanguage,
-      request.translationStylePreset
+      request.translationStylePreset,
+      request.isHybridRegions
     );
 
     return {

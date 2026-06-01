@@ -15,6 +15,14 @@ import type { TextArea } from '@/providers/base';
 
 // ==================== Type Definitions ====================
 
+export interface OverlayStyleConfig {
+  backgroundColor: string;
+  textColor: string;
+  minFontSize: number;
+  maxFontSize: number;
+  verticalText: boolean;
+}
+
 export interface OverlayStyle {
   /** Background color with opacity */
   backgroundColor: string;
@@ -30,6 +38,8 @@ export interface OverlayStyle {
   minFontSize: number;
   /** Maximum font size in pixels */
   maxFontSize: number;
+  /** Vertical text mode for Japanese manga */
+  verticalText: boolean;
 }
 
 export interface RenderedOverlay {
@@ -53,6 +63,9 @@ const OVERLAY_CONTAINER_CLASS = 'manga-translator-overlay-container';
 const CONTROLS_CLASS = 'manga-translator-controls';
 const DATA_ATTR = 'data-manga-translator';
 
+// Hover debounce delay (ms) - prevents flicker when mouse quickly enters/leaves
+const HOVER_HIDE_DELAY = 120; // delay hide on mouseleave to prevent rapid toggle flicker
+
 const DEFAULT_STYLE: OverlayStyle = {
   backgroundColor: 'rgba(240, 240, 235, 0.94)',
   textColor: '#111111',
@@ -61,14 +74,26 @@ const DEFAULT_STYLE: OverlayStyle = {
   padding: 7,
   minFontSize: 10,
   maxFontSize: 22,
+  verticalText: false,
+};
+
+export const DEFAULT_OVERLAY_STYLE_CONFIG: OverlayStyleConfig = {
+  backgroundColor: 'rgba(240, 240, 235, 0.94)',
+  textColor: '#111111',
+  minFontSize: 10,
+  maxFontSize: 22,
+  verticalText: false,
 };
 
 // ==================== Utility Functions ====================
 
+// 全角字符正则表达式：涵盖汉字、日文平假名/片假名、韩文音节、全角标点符号等，实现更精准的多语言宽度估算
+const FULL_WIDTH_REGEX = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f]/g;
+
 /**
  * 计算最优字体大小（感知中文字符宽度）
  *
- * 中文字符（CJK）宽度约为英文字符的 2 倍，需要据此调整排版计算。
+ * 中文字符（CJK）及日韩全角字符宽度约为英文字符的 2 倍，需要据此调整排版计算。
  */
 export function calculateFontSize(
   areaWidth: number,
@@ -80,10 +105,10 @@ export function calculateFontSize(
   const availWidth = Math.max(areaWidth - padding, 1);
   const availHeight = Math.max(areaHeight - padding, 1);
 
-  // 按中文字符计算"等效字符数"（CJK 算 2，ASCII 算 1）
-  const cjkCount = (text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []).length;
-  const asciiCount = text.length - cjkCount;
-  const effectiveLength = cjkCount * 2 + asciiCount;
+  // 按中文字符计算"等效字符数"（全角算 2，ASCII 算 1）
+  const fullWidthCount = (text.match(FULL_WIDTH_REGEX) || []).length;
+  const asciiCount = text.length - fullWidthCount;
+  const effectiveLength = fullWidthCount * 2 + asciiCount;
 
   // 估算单行最大字体：宽度优先
   const fontByWidth = effectiveLength > 0
@@ -131,9 +156,9 @@ function getTextMeasureContext(
 }
 
 function estimateTextWidth(text: string, fontSize: number): number {
-  const cjkCount = (text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []).length;
-  const latinCount = Math.max(0, text.length - cjkCount);
-  return cjkCount * fontSize + latinCount * fontSize * 0.55;
+  const fullWidthCount = (text.match(FULL_WIDTH_REGEX) || []).length;
+  const latinCount = Math.max(0, text.length - fullWidthCount);
+  return fullWidthCount * fontSize + latinCount * fontSize * 0.55;
 }
 
 function measureTextWidth(
@@ -218,10 +243,13 @@ function computeAdaptiveOverlayLayout(
   const visualPaddingX = Math.max(style.padding * 2, 12);
   const visualPaddingY = Math.max(style.padding * 1.5, 10);
 
+  // 引入 5% 的排版折行安全宽度缓冲区，以克服浏览器不同渲染引擎在文字排版上的像素级计算误差
+  const safeContentWidth = Math.max((maxWidth - style.padding * 2) * 0.95, 1);
+
   let fontSize = calculateFontSize(maxWidth, maxHeight, area.translatedText, style);
   let lines = wrapTextToWidth(
     area.translatedText,
-    Math.max(maxWidth - style.padding * 2, 1),
+    safeContentWidth,
     fontSize,
     style
   );
@@ -229,7 +257,7 @@ function computeAdaptiveOverlayLayout(
   while (fontSize > style.minFontSize) {
     lines = wrapTextToWidth(
       area.translatedText,
-      Math.max(maxWidth - style.padding * 2, 1),
+      safeContentWidth,
       fontSize,
       style
     );
@@ -274,7 +302,7 @@ function computeAdaptiveOverlayLayout(
 
   lines = wrapTextToWidth(
     area.translatedText,
-    Math.max(maxWidth - style.padding * 2, 1),
+    safeContentWidth,
     style.minFontSize,
     style
   );
@@ -356,12 +384,12 @@ function createOverlayStyles(): string {
       width: 100%;
       height: 100%;
       opacity: 0;
-      transition: opacity 0.2s ease-in-out;
+      transition: opacity 150ms ease-in-out;
       pointer-events: none;
       z-index: 1000;
     }
 
-    .${WRAPPER_CLASS}:hover .${OVERLAY_CONTAINER_CLASS},
+    .${WRAPPER_CLASS}.manga-translator-hover-active .${OVERLAY_CONTAINER_CLASS},
     .${WRAPPER_CLASS}.manga-translator-pinned .${OVERLAY_CONTAINER_CLASS} {
       opacity: 1;
     }
@@ -381,6 +409,11 @@ function createOverlayStyles(): string {
       text-shadow: 0 1px 2px rgba(255,255,255,0.8);
       box-shadow: 0 1px 4px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.6);
       animation: manga-overlay-fadein 0.3s ease-out;
+      transition: opacity 0.18s ease-in-out;
+    }
+
+    .${OVERLAY_CLASS}:hover {
+      opacity: 0.15 !important;
     }
 
     .${WRAPPER_CLASS}:hover .${OVERLAY_CLASS} {
@@ -498,6 +531,8 @@ function ensureStylesInjected(): void {
 export class OverlayRenderer {
   private style: OverlayStyle;
   private renderedOverlays: Map<HTMLImageElement, RenderedOverlay> = new Map();
+  // Hover debounce timers - keyed by image element
+  private hoverTimers: Map<HTMLImageElement, ReturnType<typeof setTimeout> | null> = new Map();
 
   constructor(style: Partial<OverlayStyle> = {}) {
     this.style = { ...DEFAULT_STYLE, ...style };
@@ -586,6 +621,24 @@ export class OverlayRenderer {
       pinned: autoPinned,
     });
 
+    // Setup hover debounce handlers (CSS :hover alone causes flicker on fast mouse movement)
+    const showOverlay = () => {
+      this.clearHoverTimer(image);
+      wrapper.classList.add('manga-translator-hover-active');
+    };
+    const hideOverlay = () => {
+      // Only hide if not pinned
+      const rendered = this.renderedOverlays.get(image);
+      if (rendered && !rendered.pinned) {
+        const timer = setTimeout(() => {
+          wrapper.classList.remove('manga-translator-hover-active');
+        }, HOVER_HIDE_DELAY);
+        this.hoverTimers.set(image, timer);
+      }
+    };
+    wrapper.addEventListener('mouseenter', showOverlay);
+    wrapper.addEventListener('mouseleave', hideOverlay);
+
     // 点击翻译场景下自动 pin，翻译结果直接显示无需 hover
     if (autoPinned) {
       wrapper.classList.add('manga-translator-pinned');
@@ -593,6 +646,17 @@ export class OverlayRenderer {
     }
 
     return wrapper;
+  }
+
+  /**
+   * Clear hover timer for an image
+   */
+  private clearHoverTimer(image: HTMLImageElement): void {
+    const existing = this.hoverTimers.get(image);
+    if (existing) {
+      clearTimeout(existing);
+      this.hoverTimers.set(image, null);
+    }
   }
 
   /**
@@ -684,56 +748,74 @@ export class OverlayRenderer {
     imageHeight: number
   ): void {
     const spacing = 4;
-    const sorted = [...overlays].sort(
-      (a, b) =>
-        parseFloat(a.style.top || '0') - parseFloat(b.style.top || '0')
-    );
-
-    for (let i = 0; i < sorted.length; i += 1) {
-      const current = sorted[i];
-      if (!current) {
-        continue;
+    const maxIterations = 3; // 采用迭代松弛法，上限 3 次以防止多重重叠场景无法收敛，确保性能无感
+    
+    for (let iter = 0; iter < maxIterations; iter++) {
+      let hasCollision = false;
+      
+      for (let i = 0; i < overlays.length; i++) {
+        const current = overlays[i];
+        if (!current) continue;
+        
+        let currentRect = getStyledRect(current);
+        
+        for (let j = 0; j < overlays.length; j++) {
+          if (i === j) continue;
+          const other = overlays[j];
+          if (!other) continue;
+          
+          const otherRect = getStyledRect(other);
+          if (!overlaps(currentRect, otherRect)) {
+            continue;
+          }
+          
+          hasCollision = true;
+          
+          // 计算 X 和 Y 轴上的重叠像素值
+          const overlapX = Math.min(currentRect.right, otherRect.right) - Math.max(currentRect.left, otherRect.left);
+          const overlapY = Math.min(currentRect.bottom, otherRect.bottom) - Math.max(currentRect.top, otherRect.top);
+          
+          if (overlapX <= 0 || overlapY <= 0) continue;
+          
+          // 计算两翻译文本块的几何中心，决定避让反推的方向
+          const currentCenter = {
+            x: currentRect.left + currentRect.width / 2,
+            y: currentRect.top + currentRect.height / 2
+          };
+          const otherCenter = {
+            x: otherRect.left + otherRect.width / 2,
+            y: otherRect.top + otherRect.height / 2
+          };
+          
+          let dx = 0;
+          let dy = 0;
+          
+          // 选择重叠度最小的维度轴线进行移动（最少干扰避让）
+          if (overlapX < overlapY) {
+            // 水平重叠较小，做左右推移
+            const direction = currentCenter.x >= otherCenter.x ? 1 : -1;
+            dx = direction * (overlapX + spacing);
+          } else {
+            // 垂直重叠较小，做上下推移
+            const direction = currentCenter.y >= otherCenter.y ? 1 : -1;
+            dy = direction * (overlapY + spacing);
+          }
+          
+          // 将避让后的坐标裁剪限制在原图片画布矩形内部
+          const newLeft = Math.max(0, Math.min(imageWidth - currentRect.width, currentRect.left + dx));
+          const newTop = Math.max(0, Math.min(imageHeight - currentRect.height, currentRect.top + dy));
+          
+          current.style.left = `${newLeft}px`;
+          current.style.top = `${newTop}px`;
+          
+          // 更新临时包围盒位置，使后续碰撞检测链路基于新避让位置执行
+          currentRect = getStyledRect(current);
+        }
       }
-
-      for (let j = 0; j < i; j += 1) {
-        const previous = sorted[j];
-        if (!previous) {
-          continue;
-        }
-        const currentRect = getStyledRect(current);
-        const previousRect = getStyledRect(previous);
-
-        if (!overlaps(currentRect, previousRect)) {
-          continue;
-        }
-
-        const currentTop = parseFloat(current.style.top || '0');
-        const currentHeight = parseFloat(current.style.height || '0');
-        const nextTop = previousRect.bottom + spacing;
-        const maxTop = Math.max(0, imageHeight - currentHeight);
-        const adjustedTop = Math.min(nextTop, maxTop);
-
-        current.style.top = `${adjustedTop}px`;
-
-        const updatedRect = getStyledRect(current);
-        if (
-          overlaps(updatedRect, previousRect) &&
-          currentTop > previousRect.height + spacing
-        ) {
-          current.style.top = `${Math.max(0, previousRect.top - currentHeight - spacing)}px`;
-        }
-
-        const overflowRight =
-          parseFloat(current.style.left || '0') +
-            parseFloat(current.style.width || '0') -
-            imageWidth >
-          0;
-        if (overflowRight) {
-          current.style.left = `${Math.max(
-            0,
-            imageWidth - parseFloat(current.style.width || '0')
-          )}px`;
-        }
+      
+      // 如果本轮没有触发任何重合，意味着所有的碰撞已被完全消解，可提前退出
+      if (!hasCollision) {
+        break;
       }
     }
   }
@@ -753,6 +835,10 @@ export class OverlayRenderer {
     if (!rendered) {
       return;
     }
+
+    // Clean up hover timer
+    this.clearHoverTimer(image as HTMLImageElement);
+    this.hoverTimers.delete(image as HTMLImageElement);
 
     const { wrapper, image: originalImage } = rendered;
 
@@ -787,6 +873,20 @@ export class OverlayRenderer {
    */
   getOverlayCount(): number {
     return this.renderedOverlays.size;
+  }
+
+  /**
+   * Update overlay style from config
+   */
+  updateStyleFromConfig(config: OverlayStyleConfig): void {
+    this.style = {
+      ...this.style,
+      backgroundColor: config.backgroundColor,
+      textColor: config.textColor,
+      minFontSize: config.minFontSize,
+      maxFontSize: config.maxFontSize,
+      verticalText: config.verticalText,
+    };
   }
 
   /**

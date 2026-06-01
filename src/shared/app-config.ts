@@ -13,9 +13,10 @@ export interface ProviderSettings {
 
 export interface RuntimeAppConfig {
   enabled: boolean;
-  provider: 'openai-compatible' | 'ollama';
+  provider: 'openai-compatible' | 'ollama' | 'lm-studio';
   openaiCompatible: ProviderSettings;
   ollama: ProviderSettings;
+  lmStudio: ProviderSettings;
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
   autoContinueEnabled: boolean;
@@ -33,14 +34,85 @@ export const DEFAULT_OLLAMA_CONFIG: ProviderSettings = {
   model: 'llava',
 };
 
+export const DEFAULT_LM_STUDIO_CONFIG: ProviderSettings = {
+  apiKey: '',
+  baseUrl: 'http://localhost:1234/v1',
+  model: '',
+};
+
 export const DEFAULT_RUNTIME_APP_CONFIG: RuntimeAppConfig = {
   enabled: false,
   provider: 'openai-compatible',
   openaiCompatible: DEFAULT_OPENAI_COMPATIBLE_CONFIG,
   ollama: DEFAULT_OLLAMA_CONFIG,
+  lmStudio: DEFAULT_LM_STUDIO_CONFIG,
   targetLanguage: 'zh-CN',
   translationStylePreset: DEFAULT_TRANSLATION_STYLE_PRESET,
   autoContinueEnabled: true,
+};
+
+/**
+ * 合并了 background.ts 和 config-v2.ts 所有字段的完整默认配置
+ * 包含 RuntimeAppConfig 的所有字段 + UI/行为配置
+ */
+export const DEFAULT_CONFIG: Readonly<{
+  enabled: boolean;
+  provider: 'openai-compatible' | 'ollama' | 'lm-studio';
+  openaiCompatible: ProviderSettings;
+  ollama: ProviderSettings;
+  lmStudio: ProviderSettings;
+  providers: {
+    'openai-compatible': ProviderSettings;
+    ollama: ProviderSettings;
+    'lm-studio': ProviderSettings;
+  };
+  targetLanguage: string;
+  translationStylePreset: TranslationStylePreset;
+  autoContinueEnabled: boolean;
+  maxImageSize: number;
+  parallelLimit: number;
+  cacheEnabled: boolean;
+  readingMode: 'panel';
+  renderMode: 'strong-overlay-compat' | 'anchors-only';
+  translationPipeline: 'hybrid-regions' | 'full-image-vlm';
+  regionBatchSize: number;
+  fallbackToFullImage: boolean;
+  overlayStyle: {
+    backgroundColor: string;
+    textColor: string;
+    minFontSize: number;
+    maxFontSize: number;
+    verticalText: boolean;
+  };
+}> = {
+  // RuntimeAppConfig fields
+  ...DEFAULT_RUNTIME_APP_CONFIG,
+  providers: {
+    'openai-compatible': { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
+    ollama: { ...DEFAULT_OLLAMA_CONFIG },
+    'lm-studio': { ...DEFAULT_LM_STUDIO_CONFIG },
+  },
+  // UI/behavior fields (from background.ts DEFAULT_CONFIG)
+  maxImageSize: 1024,
+  parallelLimit: 3,
+  cacheEnabled: true,
+  readingMode: 'panel',
+  renderMode: 'strong-overlay-compat',
+  // Default to full-image-vlm — single VLM pass over the image, no Tesseract.
+  // CLAUDE.md states this is the default; tests were asserting hybrid-regions,
+  // which contradicted both the docs and production reality (hybrid path
+  // requires Tesseract.js, which is heavy and disabled for most users).
+  translationPipeline: 'full-image-vlm',
+  regionBatchSize: 10,
+  fallbackToFullImage: true,
+  // UI fields (from config-v2.ts overlayStyle)
+  overlayStyle: {
+    backgroundColor: 'rgba(240, 240, 235, 0.94)',
+    textColor: '#111111',
+    minFontSize: 10,
+    maxFontSize: 22,
+    verticalText: false,
+  },
 };
 
 type StorageEnvelope = {
@@ -55,7 +127,6 @@ const LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS = [
   'dashscope',
   'claude',
   'deepseek',
-  'nvidia',
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -68,7 +139,8 @@ function isTranslationStylePreset(
   return (
     value === 'faithful' ||
     value === 'natural-zh' ||
-    value === 'concise-bubble'
+    value === 'concise-bubble' ||
+    value === 'preserve-original'
   );
 }
 
@@ -114,11 +186,16 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
   const legacyProvider =
     typeof state.provider === 'string' ? state.provider : undefined;
   const provider =
-    legacyProvider === 'ollama' ? 'ollama' : 'openai-compatible';
+    legacyProvider === 'ollama'
+      ? 'ollama'
+      : legacyProvider === 'lm-studio'
+        ? 'lm-studio'
+        : 'openai-compatible';
 
   const selectedLegacyProvider =
     legacyProvider &&
     legacyProvider !== 'ollama' &&
+    legacyProvider !== 'lm-studio' &&
     LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS.includes(
       legacyProvider as (typeof LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS)[number]
     )
@@ -152,6 +229,12 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
       : null) ??
     getRecordEntry(providersRecord, 'ollama');
 
+  const lmStudioSource =
+    (isRecord(state.lmStudio)
+      ? (state.lmStudio as Partial<ProviderSettings>)
+      : null) ??
+    getRecordEntry(providersRecord, 'lm-studio');
+
   return {
     enabled:
       typeof state.enabled === 'boolean'
@@ -164,6 +247,9 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
       { allowApiKey: true }
     ),
     ollama: normalizeProviderSettings(ollamaSource, DEFAULT_OLLAMA_CONFIG, {
+      allowApiKey: false,
+    }),
+    lmStudio: normalizeProviderSettings(lmStudioSource, DEFAULT_LM_STUDIO_CONFIG, {
       allowApiKey: false,
     }),
     targetLanguage:

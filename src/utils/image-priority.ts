@@ -24,6 +24,8 @@ export interface ImageWithPriority {
 export interface ParallelProcessingOptions {
   /** Maximum number of concurrent operations */
   maxConcurrent: number;
+  /** Callback for each started item (called immediately when an item starts processing) */
+  onItemStart?: (index: number) => void;
   /** Callback for each completed item */
   onItemComplete?: (index: number, total: number) => void;
   /** Callback for errors */
@@ -176,11 +178,14 @@ export async function processInParallel<T, R>(
   processor: (item: T, index: number) => Promise<R>,
   options: ParallelProcessingOptions
 ): Promise<R[]> {
-  const { maxConcurrent, onItemComplete, onError, signal } = options;
+  const { maxConcurrent, onItemStart, onItemComplete, onError, signal } = options;
   const results: R[] = new Array(items.length);
   let currentIndex = 0;
   let completedCount = 0;
   const total = items.length;
+
+  // Track the order in which items start processing
+  let startOrder = 0;
 
   // Create a pool of workers
   const workers: Promise<void>[] = [];
@@ -196,6 +201,10 @@ export async function processInParallel<T, R>(
       const item = items[index];
 
       if (item === undefined) continue;
+
+      // Notify that this item is starting (1-indexed for display)
+      onItemStart?.(startOrder + 1);
+      startOrder++;
 
       try {
         const result = await processor(item, index);

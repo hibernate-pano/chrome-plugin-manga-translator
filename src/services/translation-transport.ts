@@ -26,6 +26,7 @@ export interface TranslationTransportRequest {
   pageKey?: string;
   priorityClass?: JobPriorityClass;
   scope?: 'viewport' | 'page' | 'chapter' | 'manual';
+  isHybridRegions?: boolean;
 }
 
 export interface TranslationTransportResponse {
@@ -80,6 +81,7 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
         baseUrl: request.baseUrl,
         model: request.model,
         forceRefresh: request.forceRefresh,
+        isHybridRegions: request.isHybridRegions,
       } satisfies TranslateImageJobRequest)) as
         | TranslateImageJobResponse
         | undefined
@@ -99,7 +101,14 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
       return request.requestedPath;
     }
 
-    return request.provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
+    // Both Ollama and LM Studio are local OpenAI-compatible servers, so
+    // route them to ollama-direct. Must match runtime-contracts.ts
+    // `deriveRequestedPath` so the cache key agrees across the transport
+    // and the background handler.
+    if (request.provider === 'ollama' || request.provider === 'lm-studio') {
+      return 'ollama-direct';
+    }
+    return 'plugin-direct';
   }
 
   private normalizeJobResponse(

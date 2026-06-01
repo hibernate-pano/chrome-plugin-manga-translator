@@ -15,14 +15,14 @@
 
 export type HudState =
   | { status: 'hidden' }
-  | { status: 'translating'; current: number; total: number }
+  | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
   | {
       status: 'complete';
       translatedCount: number;
       failedCount: number;
       cachedCount: number;
     }
-  | { status: 'error'; message: string };
+  | { status: 'error'; message: string; suggestion?: string };
 
 // ==================== FloatingHud 类 ====================
 
@@ -48,12 +48,18 @@ export class FloatingHud {
 
     document.body.appendChild(this.container);
 
-    // 监听取消事件（由 HUD 内部取消按钮分发）
-    this.shadow.addEventListener('hud-cancel', () => {
-      // 将事件冒泡到外部，供 content.ts 监听
-      this.container.dispatchEvent(
-        new CustomEvent('hud-cancel', { bubbles: true, composed: true })
-      );
+    // 事件委托：在 shadow root 上统一处理按钮点击
+    this.shadow.addEventListener('click', (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target.id === 'cancel-btn') {
+        this.container.dispatchEvent(
+          new CustomEvent('hud-cancel', { bubbles: true, composed: true })
+        );
+      } else if (target.id === 'retry-failed-btn') {
+        this.container.dispatchEvent(
+          new CustomEvent('hud-retry-failed', { bubbles: true, composed: true })
+        );
+      }
     });
   }
 
@@ -74,21 +80,18 @@ export class FloatingHud {
     hud.style.display = 'block';
     hud.innerHTML = this.renderState(state);
 
-    // 重新绑定取消按钮
-    const cancelBtn = hud.querySelector('#cancel-btn');
-    if (cancelBtn) {
-      cancelBtn.addEventListener('click', () => {
-        this.shadow.dispatchEvent(
-          new CustomEvent('hud-cancel', { bubbles: true })
-        );
-      });
-    }
-
-    // 完成状态：2 秒后自动隐藏
+    // 完成状态：
+    // - 有失败项：等待用户操作（显示重新翻译按钮），不自动隐藏
+    // - 全部成功：2 秒后自动隐藏
     if (state.status === 'complete') {
-      this.autoHideTimer = setTimeout(() => {
-        this.update({ status: 'hidden' });
-      }, 2000);
+      if (state.failedCount > 0) {
+        // 有失败项，不自动隐藏，等待用户点击按钮或手动关闭
+        // 可选：可以加一个明确的关闭方式
+      } else {
+        this.autoHideTimer = setTimeout(() => {
+          this.update({ status: 'hidden' });
+        }, 2000);
+      }
     }
   }
 
@@ -114,19 +117,31 @@ export class FloatingHud {
       case 'translating': {
         const pct =
           state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
+        const imageLabel = state.currentImageIndex
+          ? `第 ${state.currentImageIndex} 张`
+          : `${state.current}`;
         return `
           <div class="hud-card">
             <div class="hud-title">翻译中...</div>
             <div class="hud-progress-track">
               <div class="hud-progress-bar" style="width:${pct}%"></div>
             </div>
-            <div class="hud-sub">${state.current} / ${state.total}</div>
+            <div class="hud-sub">${imageLabel} / ${state.total}</div>
             <button id="cancel-btn" class="hud-cancel">取消</button>
           </div>
         `;
       }
 
       case 'complete': {
+        if (state.failedCount > 0) {
+          return `
+            <div class="hud-card">
+              <div class="hud-title">翻译完成</div>
+              <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
+              <button id="retry-failed-btn" class="hud-retry">重新翻译失败项</button>
+            </div>
+          `;
+        }
         return `
           <div class="hud-card">
             <div class="hud-title">翻译完成</div>
@@ -139,7 +154,10 @@ export class FloatingHud {
         return `
           <div class="hud-card hud-card--error">
             <div class="hud-title">翻译出错</div>
-            <div class="hud-sub">${escapeHtml(state.message)}</div>
+            <div class="hud-message">${escapeHtml(state.message)}</div>
+            ${state.suggestion ? `
+              <div class="hud-suggestion">${escapeHtml(state.suggestion)}</div>
+            ` : ''}
           </div>
         `;
       }
@@ -184,6 +202,22 @@ export class FloatingHud {
           line-height: 1.4;
         }
 
+        .hud-message {
+          color: rgba(255, 255, 255, 0.9);
+          font-size: 12px;
+          line-height: 1.4;
+          margin-top: 4px;
+        }
+
+        .hud-suggestion {
+          color: rgba(255, 255, 255, 0.6);
+          font-size: 11px;
+          line-height: 1.4;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
         .hud-progress-track {
           background: rgba(255, 255, 255, 0.2);
           border-radius: 4px;
@@ -213,6 +247,23 @@ export class FloatingHud {
 
         .hud-cancel:hover {
           color: #fff;
+        }
+
+        .hud-retry {
+          margin-top: 10px;
+          background: rgba(59, 130, 246, 0.8);
+          border: none;
+          border-radius: 6px;
+          color: #fff;
+          font-size: 12px;
+          cursor: pointer;
+          padding: 6px 12px;
+          display: inline-block;
+          width: 100%;
+        }
+
+        .hud-retry:hover {
+          background: rgba(59, 130, 246, 1);
         }
       </style>
     `;

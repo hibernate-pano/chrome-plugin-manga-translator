@@ -19,11 +19,13 @@ export enum TranslationErrorCode {
   // 配置错误
   CONFIG_MISSING = 'CONFIG_MISSING', // API 密钥未配置
   AUTH_ERROR = 'AUTH_ERROR', // API 密钥无效
+  INVALID_API_KEY_FORMAT = 'INVALID_API_KEY_FORMAT', // API 密钥格式无效
 
   // 网络错误
   NETWORK_ERROR = 'NETWORK_ERROR', // 网络连接失败
   TIMEOUT_ERROR = 'TIMEOUT_ERROR', // 请求超时
   RATE_LIMIT = 'RATE_LIMIT', // 请求过于频繁
+  CONNECTION_REFUSED = 'CONNECTION_REFUSED', // 连接被拒绝
 
   // Ollama 错误
   OLLAMA_NOT_RUNNING = 'OLLAMA_NOT_RUNNING', // Ollama 服务未启动
@@ -70,6 +72,16 @@ const ERROR_MESSAGES: Record<
     message: 'API 密钥无效，请检查配置',
     suggestion: '请确认您的 API 密钥是否正确',
     retryable: false,
+  },
+  [TranslationErrorCode.INVALID_API_KEY_FORMAT]: {
+    message: 'API 密钥格式不正确',
+    suggestion: '请检查 API 密钥格式是否正确，例如 OpenAI 密钥应以 sk- 开头',
+    retryable: false,
+  },
+  [TranslationErrorCode.CONNECTION_REFUSED]: {
+    message: '无法连接到服务器',
+    suggestion: '请检查服务器是否运行，或地址/端口是否正确',
+    retryable: true,
   },
   [TranslationErrorCode.NETWORK_ERROR]: {
     message: '网络连接失败，请检查网络',
@@ -253,6 +265,30 @@ export class TranslationErrorHandler {
         return TranslationErrorCode.CONFIG_MISSING;
       }
       return TranslationErrorCode.AUTH_ERROR;
+    }
+
+    // API 密钥格式验证（OpenAI 风格密钥）
+    if (
+      message.includes('format') ||
+      (message.includes('sk-') && message.includes('invalid')) ||
+      message.includes('格式')
+    ) {
+      if (
+        message.includes('key') ||
+        message.includes('api') ||
+        message.includes('密钥')
+      ) {
+        return TranslationErrorCode.INVALID_API_KEY_FORMAT;
+      }
+    }
+
+    // 连接拒绝错误
+    if (
+      message.includes('econnrefused') ||
+      message.includes('connection refused') ||
+      message.includes('连接被拒绝')
+    ) {
+      return TranslationErrorCode.CONNECTION_REFUSED;
     }
 
     // 认证错误
