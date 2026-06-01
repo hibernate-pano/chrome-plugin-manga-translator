@@ -117,6 +117,20 @@ export type ProviderType =
   | 'lm-studio';
 
 /**
+ * Providers that run a local OpenAI-compatible server and therefore do not
+ * require an API key. Use this in preference to hard-coding `=== 'ollama'`
+ * checks so the list stays in one place when a new local provider lands.
+ */
+const KEYLESS_LOCAL_PROVIDERS: ReadonlySet<ProviderType> = new Set([
+  'ollama',
+  'lm-studio',
+]);
+
+export function providerRequiresApiKey(type: ProviderType): boolean {
+  return !KEYLESS_LOCAL_PROVIDERS.has(type);
+}
+
+/**
  * Vision Provider Interface
  *
  * All Vision LLM providers must implement this interface to be used
