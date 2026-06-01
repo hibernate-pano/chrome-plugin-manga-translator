@@ -23,6 +23,10 @@ export class ReadingLayer {
   private imageResults = new Map<string, StoredImageResult>();
   private highlightEntryId: string | null = null;
   private scheduledRender = 0;
+  // 锚点生命周期管理：entryId → anchor 元素
+  private anchorMap = new Map<string, HTMLElement>();
+  // imageKey → 该图片所有 entryId 的集合
+  private imageAnchorMap = new Map<string, Set<string>>();
 
   constructor() {
     this.host = document.createElement('div');
@@ -62,6 +66,8 @@ export class ReadingLayer {
   clear(): void {
     this.imageResults.clear();
     this.highlightEntryId = null;
+    this.anchorMap.clear();
+    this.imageAnchorMap.clear();
     this.render();
   }
 
@@ -246,6 +252,7 @@ export class ReadingLayer {
           box-shadow: 0 4px 14px rgba(15, 23, 42, 0.28);
           pointer-events: auto;
           cursor: pointer;
+          z-index: 2147483646;
         }
 
         .highlight {
@@ -271,6 +278,20 @@ export class ReadingLayer {
       return;
     }
 
+    // 渲染前清理已有锚点（DOM 随 innerHTML 一起清理）
+    // 先从 Map 中移除，确保旧数据不会残留
+    const existingEntryIds = new Set<string>();
+    for (const entryIds of this.imageAnchorMap.values()) {
+      for (const entryId of entryIds) {
+        existingEntryIds.add(entryId);
+      }
+    }
+    for (const entryId of existingEntryIds) {
+      this.removeOverlay(entryId);
+    }
+    this.anchorMap.clear();
+    this.imageAnchorMap.clear();
+
     overlay.innerHTML = '';
 
     const groups = [...this.imageResults.values()].filter(
@@ -290,11 +311,12 @@ export class ReadingLayer {
         <div class="panel-subtitle">图上编号锚点与右侧译文一一对应</div>
       </div>
       ${groups
-    .map((group, groupIndex) => this.renderGroup(group, groupIndex))
-    .join('')}
+        .map((group, groupIndex) => this.renderGroup(group, groupIndex))
+        .join('')}
     `;
 
     groups.forEach(group => {
+      const imageAnchorIds = new Set<string>();
       group.result.entries.forEach(entry => {
         const rect = this.getDisplayRect(group.image, entry);
         if (!rect) {
@@ -309,6 +331,10 @@ export class ReadingLayer {
         anchor.textContent = String(entry.anchorIndex);
         overlay.appendChild(anchor);
 
+        // 注册锚点
+        this.anchorMap.set(entry.id, anchor);
+        imageAnchorIds.add(entry.id);
+
         if (this.highlightEntryId === entry.id) {
           const highlight = document.createElement('div');
           highlight.className = 'highlight';
@@ -319,6 +345,9 @@ export class ReadingLayer {
           overlay.appendChild(highlight);
         }
       });
+
+      // 记录该图片关联的所有 entryId
+      this.imageAnchorMap.set(group.result.imageKey, imageAnchorIds);
     });
   };
 
@@ -327,9 +356,9 @@ export class ReadingLayer {
       <section class="group" data-image-key="${group.result.imageKey}">
         <div class="group-title">图片 ${groupIndex + 1}</div>
         ${group.result.entries
-    .sort((left, right) => left.order - right.order)
-    .map(entry => this.renderEntry(entry))
-    .join('')}
+          .sort((left, right) => left.order - right.order)
+          .map(entry => this.renderEntry(entry))
+          .join('')}
       </section>
     `;
   }
@@ -344,14 +373,13 @@ export class ReadingLayer {
         </div>
         <div class="entry-text">${escapeHtml(entry.translatedText)}</div>
         ${originalText
-    ? `
-          <details>
-            <summary>查看原文</summary>
-            <div class="original">${escapeHtml(originalText)}</div>
-          </details>
-        `
-    : ''
-}
+          ? `
+            <details>
+              <summary>查看原文</summary>
+              <div class="original">${escapeHtml(originalText)}</div>
+            </details>
+          `
+          : ''}
       </div>
     `;
   }
@@ -460,4 +488,20 @@ export class ReadingLayer {
       this.render();
     });
   };
+
+  /**
+   * 移除指定 entryId 的 overlay 锚点
+   */
+  removeOverlay(entryId: string): void {
+    const anchor = this.anchorMap.get(entryId);
+    if (anchor && anchor.parentElement === this.shadow.getElementById('overlay')) {
+      anchor.remove();
+    }
+    this.anchorMap.delete(entryId);
+
+    // 同时从 imageAnchorMap 中移除
+    for (const entryIds of this.imageAnchorMap.values()) {
+      entryIds.delete(entryId);
+    }
+  }
 }

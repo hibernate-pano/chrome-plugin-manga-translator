@@ -20,6 +20,7 @@ export {
 import { VisionProvider, ProviderType, ProviderConfig } from './base';
 import { OpenAIProvider } from './openai';
 import { OllamaProvider } from './ollama';
+import { LMStudioProvider } from './lm-studio';
 
 /**
  * Create a Vision Provider instance by type
@@ -41,6 +42,9 @@ export async function createProvider(
     case 'ollama':
       provider = new OllamaProvider();
       break;
+    case 'lm-studio':
+      provider = new LMStudioProvider();
+      break;
     default:
       throw new Error(`Unknown provider type: ${type}`);
   }
@@ -50,27 +54,21 @@ export async function createProvider(
 }
 
 /**
- * Get display information for all available providers
+ * Get display information for all available providers.
+ *
+ * NOTE: this was previously a single source of truth for provider display
+ * metadata, but the Options UI and Popup UI ship their own per-provider
+ * display arrays. Until the UI is refactored to consume this, callers
+ * should hard-code the metadata where it is rendered. The block is kept
+ * here as documentation of supported providers and their default model
+ * names — do not import it; it is not part of the public API.
  */
-export const PROVIDER_INFO: Record<
-  ProviderType,
-  {
-    name: string;
-    description: string;
-    requiresApiKey: boolean;
-    defaultModel: string;
-  }
-> = {
-  'openai-compatible': {
-    name: 'OpenAI-Compatible',
-    description: '兼容 OpenAI Chat Completions 的视觉模型服务',
-    requiresApiKey: true,
-    defaultModel: 'gpt-4o',
-  },
-  ollama: {
-    name: 'Ollama',
-    description: '本地部署，隐私友好，免费使用',
-    requiresApiKey: false,
-    defaultModel: 'llava',
-  },
+export type ProviderDisplayInfo = {
+  name: string;
+  description: string;
+  requiresApiKey: boolean;
+  defaultModel: string;
 };
+
+// Unused at the moment but kept as type-only documentation.
+export type _ProviderInfoMap = Record<ProviderType, ProviderDisplayInfo>;

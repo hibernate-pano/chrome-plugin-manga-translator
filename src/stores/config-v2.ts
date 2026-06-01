@@ -4,6 +4,10 @@ import type { ProviderType } from '@/providers/base';
 import {
   APP_CONFIG_STORAGE_KEY,
   DEFAULT_CONFIG as SHARED_DEFAULT_CONFIG,
+  DEFAULT_OPENAI_COMPATIBLE_CONFIG,
+  DEFAULT_OLLAMA_CONFIG,
+  DEFAULT_LM_STUDIO_CONFIG,
+  normalizeRuntimeAppConfig,
   type RuntimeAppConfig,
   type ProviderSettings as RuntimeProviderSettings,
 } from '@/shared/app-config';
@@ -100,6 +104,186 @@ const LOCAL_DEFAULT_CONFIG: AppConfigState = {
   fallbackToFullImage: SHARED_DEFAULT_CONFIG.fallbackToFullImage,
   overlayStyle: SHARED_DEFAULT_CONFIG.overlayStyle,
 };
+
+/**
+ * Legacy v1 (pre-v0.3.2) state had providers keyed by the old provider names
+ * (openai, siliconflow, dashscope, claude, deepseek, nvidia). v0.3.2 consolidates
+ * to openai-compatible / ollama / lm-studio. This set is the source of truth
+ * for the remap step; matches LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS in
+ * src/shared/app-config.ts.
+ */
+const LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS: readonly string[] = [
+  'openai',
+  'siliconflow',
+  'dashscope',
+  'claude',
+  'deepseek',
+];
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function pickLegacyProviderEntry(
+  providersRecord: Record<string, unknown>,
+  preferredKey: string | undefined
+): Record<string, unknown> | null {
+  const candidates = [
+    preferredKey,
+    ...LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS,
+  ].filter((key): key is string => typeof key === 'string');
+
+  for (const key of candidates) {
+    const entry = providersRecord[key];
+    if (isRecord(entry)) {
+      return entry;
+    }
+  }
+  return null;
+}
+
+/**
+ * Migration for persisted config (v0 → v1 → v2).
+ *
+ * v0.3.1 persisted state:
+ *   { provider: 'openai' | 'ollama' | 'siliconflow' | ...,
+ *     providers: { openai: {...}, ollama: {...} }, ... }
+ *
+ * v0.3.2 (current) state:
+ *   { provider: 'openai-compatible' | 'ollama' | 'lm-studio',
+ *     openaiCompatible: {...}, ollama: {...}, lmStudio: {...},
+ *     providers: { 'openai-compatible': {...}, ollama: {...}, 'lm-studio': {...} } }
+ *
+ * We rebuild providers and the top-level provider fields from the legacy
+ * shape so v0.3.1 users do not get undefined on providers['openai-compatible']
+ * / providers['lm-studio'].
+ */
+function migratePersistedConfig(
+  persistedState: unknown,
+  version: number | undefined
+): unknown {
+  if (!isRecord(persistedState)) {
+    return persistedState;
+  }
+
+  // Already on v2 — pass through.
+  if ((version ?? 0) >= 2) {
+    return persistedState;
+  }
+
+  // Zustand wraps the partialized state in { state, version } when writing.
+  // Storage adapters may also return the raw value, so handle both shapes.
+  const innerStateValue = persistedState['state'];
+  const inner: Record<string, unknown> = isRecord(innerStateValue)
+    ? (innerStateValue as Record<string, unknown>)
+    : persistedState;
+
+  // Use the shared normalizer to rebuild the top-level provider fields
+  // (openaiCompatible, ollama, lmStudio, provider, etc.). It already handles
+  // remapping legacy provider names and merging settings.
+  const normalized = normalizeRuntimeAppConfig(inner);
+
+  // Rebuild the `providers` map. The normalizer gives us the new top-level
+  // provider settings, but `providers[provider]` is the map that consumers
+  // (Popup/Options UI) actually read. We must rebuild it from the legacy
+  // shape, not from the partialized v2 state (which is what triggered the bug).
+  const innerProvidersValue = inner['providers'];
+  const legacyProvidersRecord = isRecord(innerProvidersValue)
+    ? (innerProvidersValue as Record<string, unknown>)
+    : {};
+
+  const previousProvider =
+    typeof inner['provider'] === 'string'
+      ? (inner['provider'] as string)
+      : undefined;
+  const openaiEntry = pickLegacyProviderEntry(
+    legacyProvidersRecord,
+    previousProvider
+  );
+
+  function asProviderSettingsOrNull(
+    value: unknown
+  ): ProviderSettings | null {
+    if (!isRecord(value)) return null;
+    return value as unknown as ProviderSettings;
+  }
+
+  const newProviders: ProvidersConfig = {
+    'openai-compatible':
+      asProviderSettingsOrNull(legacyProvidersRecord['openai-compatible']) ??
+      (openaiEntry as ProviderSettings | null) ??
+      normalized.openaiCompatible ??
+      { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
+    ollama:
+      asProviderSettingsOrNull(legacyProvidersRecord['ollama']) ??
+      normalized.ollama ??
+      { ...DEFAULT_OLLAMA_CONFIG },
+    'lm-studio':
+      asProviderSettingsOrNull(legacyProvidersRecord['lm-studio']) ??
+      normalized.lmStudio ??
+      { ...DEFAULT_LM_STUDIO_CONFIG },
+  };
+
+  const migratedState: Record<string, unknown> = {
+    ...inner,
+    ...normalized,
+    providers: newProviders,
+  };
+
+  return isRecord(persistedState['state'])
+    ? { ...persistedState, state: migratedState, version: 2 }
+    : { state: migratedState, version: 2 };
+}
+
+/**
+ * Defensive merge used in addition to `migrate`. If a future code path
+ * writes a partial state missing some provider keys, this guarantees the
+ * three new provider entries always exist.
+ *
+ * Generic in S so zustand can keep its S type inference for the create<>
+ * call. Without the generic, S would narrow to AppConfigState and break the
+ * AppConfigActions inference for the store actions.
+ */
+function mergePersistedConfig<S extends AppConfigState>(
+  persisted: unknown,
+  current: S
+): S {
+  // migratePersistedConfig returns the zustand envelope { state, version }.
+  // Unwrap it so we read from the migrated state, not the envelope.
+  const envelopeState = isRecord(persisted)
+    ? persisted['state']
+    : undefined;
+  const baseCandidate: unknown = isRecord(envelopeState)
+    ? envelopeState
+    : persisted;
+  const base = isRecord(baseCandidate)
+    ? (baseCandidate as Partial<AppConfigState>)
+    : {};
+  const persistedProviders = isRecord(base.providers)
+    ? (base.providers as Partial<ProvidersConfig>)
+    : {};
+
+  const providers: ProvidersConfig = {
+    'openai-compatible':
+      (persistedProviders['openai-compatible'] as ProviderSettings | undefined) ??
+      current.providers['openai-compatible'] ??
+      { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
+    ollama:
+      (persistedProviders['ollama'] as ProviderSettings | undefined) ??
+      current.providers.ollama ??
+      { ...DEFAULT_OLLAMA_CONFIG },
+    'lm-studio':
+      (persistedProviders['lm-studio'] as ProviderSettings | undefined) ??
+      current.providers['lm-studio'] ??
+      { ...DEFAULT_LM_STUDIO_CONFIG },
+  };
+
+  return {
+    ...current,
+    ...base,
+    providers,
+  } as S;
+}
 
 const chromeStorage = {
   getItem: async (name: string): Promise<string | null> => {
@@ -276,6 +460,9 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
     {
       name: APP_CONFIG_STORAGE_KEY,
       storage: createJSONStorage(() => chromeStorage),
+      version: 2,
+      migrate: migratePersistedConfig,
+      merge: mergePersistedConfig,
       partialize: state => ({
         enabled: state.enabled,
         provider: state.provider,

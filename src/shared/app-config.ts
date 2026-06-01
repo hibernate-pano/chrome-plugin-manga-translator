@@ -98,7 +98,11 @@ export const DEFAULT_CONFIG: Readonly<{
   cacheEnabled: true,
   readingMode: 'panel',
   renderMode: 'strong-overlay-compat',
-  translationPipeline: 'hybrid-regions',
+  // Default to full-image-vlm — single VLM pass over the image, no Tesseract.
+  // CLAUDE.md states this is the default; tests were asserting hybrid-regions,
+  // which contradicted both the docs and production reality (hybrid path
+  // requires Tesseract.js, which is heavy and disabled for most users).
+  translationPipeline: 'full-image-vlm',
   regionBatchSize: 10,
   fallbackToFullImage: true,
   // UI fields (from config-v2.ts overlayStyle)
@@ -123,7 +127,6 @@ const LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS = [
   'dashscope',
   'claude',
   'deepseek',
-  'nvidia',
 ] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -247,7 +250,7 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
       allowApiKey: false,
     }),
     lmStudio: normalizeProviderSettings(lmStudioSource, DEFAULT_LM_STUDIO_CONFIG, {
-      allowApiKey: true,
+      allowApiKey: false,
     }),
     targetLanguage:
       typeof state.targetLanguage === 'string'

@@ -32,12 +32,23 @@ const PROVIDER_STRATEGY: Record<ProviderType, ProviderStrategy> = {
     qualityLabel: '中',
     costLabel: '本地',
   },
+  'lm-studio': {
+    lane: 'private',
+    recommendation: '适合使用 LM Studio 进行本地部署，且追求隐私的用户。',
+    tradeoff: '零服务商费用、零数据泄漏，但依赖本地 GPU 算力。',
+    suggestedModel: 'llava',
+    fallbackAdvice: '建议使用带视觉能力的模型，若效果不佳可切至 OpenAI-compatible 尝试。',
+    speedLabel: '中',
+    qualityLabel: '中高',
+    costLabel: '本地',
+  },
 };
 
 const PROVIDER_PRICING: Record<ProviderType, { input: number; output: number }> =
   {
     'openai-compatible': { input: 0.005, output: 0.015 },
     ollama: { input: 0, output: 0 },
+    'lm-studio': { input: 0, output: 0 },
   };
 
 export function getProviderStrategy(provider: ProviderType): ProviderStrategy {

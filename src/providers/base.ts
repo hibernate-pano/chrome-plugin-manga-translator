@@ -4,6 +4,12 @@ import {
   type TranslationStylePreset,
 } from '@/utils/translation-style';
 
+export {
+  DEFAULT_TRANSLATION_STYLE_PRESET,
+  getTranslationStyleInstruction,
+  type TranslationStylePreset,
+};
+
 /**
  * Vision Provider Base Interface
  *
@@ -27,6 +33,8 @@ export interface TextArea {
   originalText: string;
   /** Translated text */
   translatedText: string;
+  /** Optional visual index for hybrid mapping */
+  index?: number;
 }
 
 /**
@@ -105,7 +113,8 @@ export interface ValidationResult {
  */
 export type ProviderType =
   | 'openai-compatible'
-  | 'ollama';
+  | 'ollama'
+  | 'lm-studio';
 
 /**
  * Vision Provider Interface
@@ -141,7 +150,8 @@ export interface VisionProvider {
   analyzeAndTranslate(
     imageBase64: string,
     targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset
+    translationStylePreset?: TranslationStylePreset,
+    isHybridRegions?: boolean
   ): Promise<VisionResponse>;
 
   /**
@@ -159,8 +169,29 @@ export interface VisionProvider {
  */
 export function getMangaTranslationPrompt(
   targetLanguage: string,
-  translationStylePreset: TranslationStylePreset = DEFAULT_TRANSLATION_STYLE_PRESET
+  translationStylePreset: TranslationStylePreset = DEFAULT_TRANSLATION_STYLE_PRESET,
+  isHybridRegions: boolean = false
 ): string {
+  if (isHybridRegions) {
+    return `Extract and translate text from this compiled vertical strip of manga text regions.
+Each region has a bold numeric anchor label (e.g. 1, 2, 3) drawn on its left margin.
+
+Translate the text in each segment to ${targetLanguage}.
+
+Return ONLY valid JSON in this format:
+{"textAreas":[{"index":1,"originalText":"Japanese/English text","translatedText":"Translated text"}]}
+
+RULES:
+1. "index" must match the numeric label on the left of each segment.
+2. For each index, extract the original text from that segment and translate it.
+3. Keep speaker tone (formal/casual) and use \\\\n for line breaks in translatedText.
+4. If a segment contains no text or only graphics, still return it with empty originalText and translatedText.
+5. Do NOT return coordinates (x, y, width, height) in the textAreas - only "index", "originalText", and "translatedText".
+6. Output ONLY valid JSON. No conversational wrapper.
+
+${getTranslationStyleInstruction(translationStylePreset)}`;
+  }
+
   return `Extract ALL visible text from this manga/comic image and translate to ${targetLanguage}.
 
 Return ONLY valid JSON: {"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,"originalText":"原文","translatedText":"翻译"}]}
@@ -263,21 +294,21 @@ function validateAndNormalize(
     .filter((area: unknown): area is Record<string, unknown> => {
       if (typeof area !== 'object' || area === null) return false;
       const a = area as Record<string, unknown>;
-      return (
-        typeof a['x'] === 'number' &&
-        typeof a['y'] === 'number' &&
-        typeof a['width'] === 'number' &&
-        typeof a['height'] === 'number' &&
-        typeof a['translatedText'] === 'string'
-      );
+      const hasTranslatedText = typeof a['translatedText'] === 'string';
+      const isXValid = a['x'] === undefined || typeof a['x'] === 'number';
+      const isYValid = a['y'] === undefined || typeof a['y'] === 'number';
+      const isWValid = a['width'] === undefined || typeof a['width'] === 'number';
+      const isHValid = a['height'] === undefined || typeof a['height'] === 'number';
+      return hasTranslatedText && isXValid && isYValid && isWValid && isHValid;
     })
     .map((area: Record<string, unknown>) => ({
-      x: Math.max(0, Math.min(1, area['x'] as number)),
-      y: Math.max(0, Math.min(1, area['y'] as number)),
-      width: Math.max(0, Math.min(1, area['width'] as number)),
-      height: Math.max(0, Math.min(1, area['height'] as number)),
+      x: typeof area['x'] === 'number' ? Math.max(0, Math.min(1, area['x'])) : 0,
+      y: typeof area['y'] === 'number' ? Math.max(0, Math.min(1, area['y'])) : 0,
+      width: typeof area['width'] === 'number' ? Math.max(0, Math.min(1, area['width'])) : 0,
+      height: typeof area['height'] === 'number' ? Math.max(0, Math.min(1, area['height'])) : 0,
       originalText: (area['originalText'] as string) || '',
       translatedText: area['translatedText'] as string,
+      index: typeof area['index'] === 'number' ? area['index'] : undefined,
     }));
 
   return { textAreas, rawResponse };

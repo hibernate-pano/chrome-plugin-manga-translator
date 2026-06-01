@@ -2,6 +2,24 @@ import {
   createAutoTranslateMessage,
   isTranslationEnabled,
 } from './auto-translate';
+/**
+ * Message protocols handled by this background script.
+ *
+ * The dispatcher accepts TWO coexisting envelopes:
+ *
+ * 1. Action-based (legacy): { action: 'fetchImage' | 'getConfig' | ... }
+ *    Used by:
+ *    - image-processor.ts (CORS-tainted image proxy)
+ *    - popup.tsx and options.tsx (config read/write)
+ *
+ * 2. Type-based (new): { type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }
+ *    Used by:
+ *    - translation-transport.ts (translation job dispatch)
+ *
+ * Response field naming differs: action-based returns `{ success, imageBase64 }`,
+ * type-based returns `{ success, job: { ... }, textAreas }` (envelope shape).
+ * Do NOT unify without also migrating the consumers; see CLAUDE.md.
+ */
 import type {
   QueryJobStatusRequest,
   TranslateImageJobRequest,
@@ -195,6 +213,22 @@ async function handleMessage(
   }
 
   try {
+    // 涉及配置读写（包含 API Key 解混淆结果）的接口仅信任扩展内部页面。
+    // content script 即使被注入到任意 tab 也不应读到去混淆后的 key，
+    // 也不应改写配置。其它 job / fetch / state 接口对两者都开放。
+    const requestAction =
+      typeof request.action === 'string' ? request.action : null;
+    const requestType =
+      typeof request.type === 'string' ? request.type : null;
+    const isSensitiveRequest =
+      requestAction === 'getConfig' || requestAction === 'setConfig';
+    if (isSensitiveRequest && !isExtensionOrigin) {
+      sendResponse({
+        success: false,
+        error: `${requestAction ?? requestType ?? 'request'} requires extension origin`,
+      });
+      return;
+    }
     if (request.type && !request.action) {
       switch (request.type) {
         case 'JOB_TRANSLATE_IMAGE':
