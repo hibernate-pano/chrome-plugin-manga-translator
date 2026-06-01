@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "漫画翻译助手",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "description": "AI-powered manga translation with in-place overlay rendering. Detects text in comic images via Vision LLM and overlays translations while preserving the original art style.",
   "permissions": [
     "storage",
