@@ -5,6 +5,50 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.4] - 2026-06-01
+
+### Added
+
+- **CI pipeline** (`.github/workflows/ci.yml`): every push to `main` and every
+  PR runs `pnpm install --frozen-lockfile`, `pnpm lint:strict`,
+  `pnpm type-check`, `pnpm test:run`, and `pnpm build` with a pnpm cache.
+  Main-branch runs upload the built `dist/` as a 7-day artifact for
+  manual smoke-testing.
+- **README product positioning**: replaced the "two direct paths" intro
+  with a section that names the target user, the unsuitable use cases,
+  and the default translation pipeline (`full-image-vlm`).
+- **CHANGELOG.md**: this file. Future releases document here.
+
+### Changed
+
+- **Cleaned 35 pre-existing lint warnings** so the CI gate can run
+  `lint:strict` (`--max-warnings 0`). Any new warning now fails CI.
+  - `scripts/copy-tesseract.js`: 3 `console.log` calls annotated
+    with `eslint-disable` (intentional build-script output).
+  - `src/background/{background,job-queue}.ts`: 2 non-null assertions
+    replaced with explicit checks.
+  - `src/content/config-snapshot.ts`: `Record<string, any>` →
+    `Record<string, unknown>`, with property accesses switched to
+    bracket notation to satisfy `noPropertyAccessFromIndexSignature`.
+  - `src/content/site-adapters.test.ts`: 1 non-null assertion
+    replaced with a null-check + cast.
+  - `src/services/text-detector.ts`: `Record<string, any>` → `unknown`,
+    the one remaining `any` cast localised with `eslint-disable`.
+  - `src/services/image-processor.test.ts`: introduced a
+    `MockCanvasContext` helper type and `buildCanvasContextMock()`
+    factory; 21 `as any` casts on Image / canvas mocks became
+    `as unknown as typeof Image` / `as unknown as CanvasRenderingContext2D`.
+- **CI gate upgraded**: workflow now runs `pnpm lint:strict` (was
+  `pnpm lint`). With zero warnings in the tree, the strict gate is
+  the new floor.
+
+### Removed
+
+- **`coverage/` from git**: 671 generated test-coverage files removed
+  via `git rm --cached`; `coverage/` is now in `.gitignore`.
+  Coverage can still be generated locally via `pnpm test:coverage`
+  for inspection.
+
 ## [0.3.3] - 2026-06-01
 
 ### Fixed (P0 — must-have for v0.3.1 → v0.3.3 upgrade path)
