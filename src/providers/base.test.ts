@@ -184,3 +184,20 @@ describe('getMangaTranslationPrompt', () => {
     expect(prompt).toContain('Do NOT return coordinates');
   });
 });
+
+describe('providerRequiresApiKey', () => {
+  it('returns true for openai-compatible (cloud provider)', async () => {
+    const { providerRequiresApiKey } = await import('./base');
+    expect(providerRequiresApiKey('openai-compatible')).toBe(true);
+  });
+
+  it('returns false for ollama (local server, no key needed)', async () => {
+    const { providerRequiresApiKey } = await import('./base');
+    expect(providerRequiresApiKey('ollama')).toBe(false);
+  });
+
+  it('returns false for lm-studio (local server, no key needed)', async () => {
+    const { providerRequiresApiKey } = await import('./base');
+    expect(providerRequiresApiKey('lm-studio')).toBe(false);
+  });
+});

@@ -13,6 +13,7 @@
 import {
   type ProviderType,
   type TextArea,
+  providerRequiresApiKey,
 } from '@/providers';
 import type {
   JobPriorityClass,
@@ -174,7 +175,7 @@ export class TranslatorService {
       model: this.config.model,
     };
 
-    if (this.config.provider !== 'ollama' && !providerConfig.apiKey) {
+    if (providerRequiresApiKey(this.config.provider) && !providerConfig.apiKey) {
       throw new Error(
         `${this.config.provider} 需要配置 API Key。请前往设置页面填写。`
       );
@@ -815,7 +816,7 @@ export class TranslatorService {
    * Check if provider is properly configured
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
-    if (this.config.provider !== 'ollama' && !this.config.apiKey) {
+    if (providerRequiresApiKey(this.config.provider) && !this.config.apiKey) {
       return { valid: false, message: `请配置 ${this.config.provider} 的 API Key` };
     }
     return { valid: true, message: '配置有效' };
