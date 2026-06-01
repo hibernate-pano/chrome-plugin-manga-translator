@@ -15,6 +15,26 @@ import {
   cropRegions,
 } from './image-processor';
 
+/**
+ * Helpers for the test mocks below. The shape mirrors the production
+ * CanvasRenderingContext2D surface we exercise; intentionally narrow so
+ * the test fails loudly if production starts depending on a method the
+ * mocks do not provide.
+ */
+type MockCanvasContext = {
+  drawImage: CanvasRenderingContext2D['drawImage'];
+  imageSmoothingEnabled: boolean;
+  imageSmoothingQuality: 'low' | 'medium' | 'high';
+};
+
+function buildCanvasContextMock(): MockCanvasContext {
+  return {
+    drawImage: vi.fn() as unknown as CanvasRenderingContext2D['drawImage'],
+    imageSmoothingEnabled: true,
+    imageSmoothingQuality: 'high',
+  };
+}
+
 describe('image-processor', () => {
   // ================================================================
   // shouldPreserveTallMangaPage
@@ -107,11 +127,13 @@ describe('image-processor', () => {
   // imageToBase64
   // ================================================================
   describe('imageToBase64', () => {
-    let mockCtx: any;
+    let mockCtx: MockCanvasContext;
 
     beforeEach(() => {
-      mockCtx = { drawImage: vi.fn() };
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx);
+      mockCtx = buildCanvasContextMock();
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockCtx as unknown as CanvasRenderingContext2D
+      );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,abc123',
       );
@@ -149,15 +171,13 @@ describe('image-processor', () => {
   // compressImage
   // ================================================================
   describe('compressImage', () => {
-    let mockContext: any;
+    let mockContext: MockCanvasContext;
 
     beforeEach(() => {
-      mockContext = {
-        drawImage: vi.fn(),
-        imageSmoothingEnabled: true,
-        imageSmoothingQuality: 'high',
-      };
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockContext as any);
+      mockContext = buildCanvasContextMock();
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockContext as unknown as CanvasRenderingContext2D
+      );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,mocked_base64_compressed',
       );
@@ -311,7 +331,9 @@ describe('image-processor', () => {
         imageSmoothingEnabled: true,
         imageSmoothingQuality: 'high',
       };
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx as any);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockCtx as unknown as CanvasRenderingContext2D
+      );
       const toDataUrlSpy = vi
         .spyOn(HTMLCanvasElement.prototype, 'toDataURL')
         .mockReturnValue('data:image/webp;base64,webp_mock');
@@ -352,7 +374,9 @@ describe('image-processor', () => {
         imageSmoothingEnabled: true,
         imageSmoothingQuality: 'high',
       };
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx as any);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockCtx as unknown as CanvasRenderingContext2D
+      );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,proc_base64',
       );
@@ -460,14 +484,16 @@ describe('image-processor', () => {
   // loadImage
   // ================================================================
   describe('loadImage', () => {
-    let originalImage: any;
+    let originalImage: typeof Image | undefined;
 
     beforeEach(() => {
       originalImage = globalThis.Image;
     });
 
     afterEach(() => {
-      globalThis.Image = originalImage;
+      if (originalImage) {
+        globalThis.Image = originalImage;
+      }
     });
 
     it('resolves with the loaded HTMLImageElement on success', async () => {
@@ -482,7 +508,7 @@ describe('image-processor', () => {
         get src() {
           return 'https://example.com/ok.jpg';
         }
-      } as any;
+      } as unknown as typeof Image;
 
       const img = await loadImage('https://example.com/ok.jpg');
       expect(img).toBeDefined();
@@ -501,7 +527,7 @@ describe('image-processor', () => {
         get src() {
           return 'https://example.com/bad.jpg';
         }
-      } as any;
+      } as unknown as typeof Image;
 
       await expect(loadImage('https://example.com/bad.jpg')).rejects.toThrow(
         'Failed to load image',
@@ -513,7 +539,7 @@ describe('image-processor', () => {
   // processImageFromUrl
   // ================================================================
   describe('processImageFromUrl', () => {
-    let originalImage: any;
+    let originalImage: typeof Image | undefined;
 
     beforeEach(() => {
       originalImage = globalThis.Image;
@@ -522,14 +548,18 @@ describe('image-processor', () => {
         imageSmoothingEnabled: true,
         imageSmoothingQuality: 'high',
       };
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx as any);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockCtx as unknown as CanvasRenderingContext2D
+      );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,url_processed',
       );
     });
 
     afterEach(() => {
-      globalThis.Image = originalImage;
+      if (originalImage) {
+        globalThis.Image = originalImage;
+      }
       vi.restoreAllMocks();
     });
 
@@ -548,7 +578,7 @@ describe('image-processor', () => {
           return 'https://example.com/manga.jpg';
         }
         getBoundingClientRect = () => ({ top: 0, bottom: 200, height: 200, width: 300 });
-      } as any;
+      } as unknown as typeof Image;
 
       const result = await processImageFromUrl('https://example.com/manga.jpg');
       expect(result.originalWidth).toBe(300);
@@ -569,7 +599,7 @@ describe('image-processor', () => {
         get src() {
           return 'https://example.com/missing.jpg';
         }
-      } as any;
+      } as unknown as typeof Image;
 
       await expect(processImageFromUrl('https://example.com/missing.jpg')).rejects.toThrow(
         'Failed to load image',
@@ -640,12 +670,14 @@ describe('image-processor', () => {
   // cropRegions
   // ================================================================
   describe('cropRegions', () => {
-    let originalImage: any;
+    let originalImage: typeof Image | undefined;
 
     beforeEach(() => {
       originalImage = globalThis.Image;
       const mockCtx = { drawImage: vi.fn() };
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockCtx as any);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockCtx as unknown as CanvasRenderingContext2D
+      );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,cropped_region',
       );
@@ -666,11 +698,13 @@ describe('image-processor', () => {
         get src() {
           return this._src;
         }
-      } as any;
+      } as unknown as typeof Image;
     });
 
     afterEach(() => {
-      globalThis.Image = originalImage;
+      if (originalImage) {
+        globalThis.Image = originalImage;
+      }
       vi.restoreAllMocks();
     });
 
@@ -715,7 +749,8 @@ describe('image-processor', () => {
 
       expect(result).toHaveLength(1);
       // Should crop at (450, 450, 50, 50) — clamped to remaining 50px each way
-      const ctx = HTMLCanvasElement.prototype.getContext('2d')!;
+      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      if (!ctx) throw new Error('canvas context unavailable in test');
       expect(ctx.drawImage).toHaveBeenCalled();
     });
   });
@@ -724,7 +759,7 @@ describe('image-processor', () => {
   // combineCroppedRegions
   // ================================================================
   describe('combineCroppedRegions', () => {
-    let originalImage: any;
+    let originalImage: typeof Image | undefined;
 
     beforeEach(() => {
       originalImage = globalThis.Image;
@@ -749,7 +784,7 @@ describe('image-processor', () => {
         get src() {
           return this._src;
         }
-      } as any;
+      } as unknown as typeof Image;
 
       // Mock canvas functions
       const mockContext = {
@@ -766,14 +801,18 @@ describe('image-processor', () => {
         drawImage: vi.fn(),
       };
 
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(mockContext as any);
+      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
+        mockContext as unknown as CanvasRenderingContext2D
+      );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,mocked_base64',
       );
     });
 
     afterEach(() => {
-      globalThis.Image = originalImage;
+      if (originalImage) {
+        globalThis.Image = originalImage;
+      }
       vi.restoreAllMocks();
     });
 
@@ -797,7 +836,8 @@ describe('image-processor', () => {
       expect(result.segments[1]).toEqual({ index: 1, top: 220, height: 200 });
 
       // Verify canvas draw operations
-      const ctx = HTMLCanvasElement.prototype.getContext('2d')!;
+      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      if (!ctx) throw new Error('canvas context unavailable in test');
       expect(ctx.fillRect).toHaveBeenCalled();
       expect(ctx.drawImage).toHaveBeenCalledTimes(2);
       expect(ctx.fillText).toHaveBeenCalledTimes(2);
@@ -831,7 +871,8 @@ describe('image-processor', () => {
       expect(result.segments).toHaveLength(1);
       expect(result.segments[0]?.index).toBe(0);
 
-      const ctx = HTMLCanvasElement.prototype.getContext('2d')!;
+      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      if (!ctx) throw new Error('canvas context unavailable in test');
       expect(ctx.fillText).toHaveBeenCalledTimes(1);
       expect(ctx.fillText).toHaveBeenNthCalledWith(1, '1', 30, expect.any(Number));
     });
@@ -855,7 +896,7 @@ describe('image-processor', () => {
         get src() {
           return '';
         }
-      } as any;
+      } as unknown as typeof Image;
 
       await expect(combineCroppedRegions(['bad1', 'bad2'])).rejects.toThrow(
         'No images to combine',
@@ -887,7 +928,7 @@ describe('image-processor', () => {
         get src() {
           return '';
         }
-      } as any;
+      } as unknown as typeof Image;
 
       const result = await combineCroppedRegions(['ok1', 'fail', 'ok3'], {
         format: 'jpeg',
@@ -914,13 +955,15 @@ describe('image-processor', () => {
       // No label column, so width should just be maxImgWidth (100px)
       expect(result.width).toBe(100);
 
-      const ctx = HTMLCanvasElement.prototype.getContext('2d')!;
+      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      if (!ctx) throw new Error('canvas context unavailable in test');
       // No fillText calls expected since labels are disabled
       expect(ctx.fillText).not.toHaveBeenCalled();
     });
 
     it('uses roundRect when available, falls back to rect when not', async () => {
-      const ctx = HTMLCanvasElement.prototype.getContext('2d')!;
+      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      if (!ctx) throw new Error('canvas context unavailable in test');
 
       // roundRect IS available by default in our mock
       const resultWithRoundRect = await combineCroppedRegions(['img1'], {
@@ -932,6 +975,9 @@ describe('image-processor', () => {
       // Now remove roundRect to trigger the rect fallback
       vi.clearAllMocks();
       const ctxWithoutRoundRect = {
+        drawImage: vi.fn(),
+        imageSmoothingEnabled: true,
+        imageSmoothingQuality: 'high',
         fillStyle: '',
         font: '',
         textAlign: '',
@@ -942,10 +988,9 @@ describe('image-processor', () => {
         rect: vi.fn(),
         fill: vi.fn(),
         fillText: vi.fn(),
-        drawImage: vi.fn(),
       };
       vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(
-        ctxWithoutRoundRect as any,
+        ctxWithoutRoundRect as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
         'data:image/jpeg;base64,mocked_fallback',

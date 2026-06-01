@@ -85,7 +85,9 @@ export class BackgroundJobQueue {
 
     while (low < high) {
       const mid = (low + high) >>> 1;
-      const midPriority = PRIORITY_ORDER[this.pending[mid]!.job.priorityClass];
+      const midEntry = this.pending[mid];
+      if (!midEntry) break;
+      const midPriority = PRIORITY_ORDER[midEntry.job.priorityClass];
       if (midPriority <= priority) {
         low = mid + 1;
       } else {

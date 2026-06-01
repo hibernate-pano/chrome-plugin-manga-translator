@@ -35,12 +35,9 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # CLAUDE.md mandates these must pass before merge.
-      # We use `pnpm lint` (not lint:strict) for now because 35 pre-existing
-      # warnings remain in test files and historical code. The goal is to
-      # graduate to `pnpm lint:strict` once they are cleared. Track in
-      # the v0.3.4 milestone.
-      - name: Lint
-        run: pnpm lint
+      # lint:strict uses --max-warnings 0; any new warning fails CI.
+      - name: Lint (strict)
+        run: pnpm lint:strict
 
       - name: Type check
         run: pnpm type-check
