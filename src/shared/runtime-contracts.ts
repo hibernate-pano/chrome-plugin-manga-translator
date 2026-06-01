@@ -21,6 +21,19 @@ export type RequestedExecutionPath =
   | 'plugin-direct'
   | 'ollama-direct';
 
+/**
+ * Derive the execution path based on provider type.
+ * Local providers (ollama, lm-studio) use direct execution,
+ * while cloud providers use plugin-mediated execution.
+ */
+export function deriveRequestedPath(
+  provider: string
+): RequestedExecutionPath {
+  return (provider === 'ollama' || provider === 'lm-studio')
+    ? 'ollama-direct'
+    : 'plugin-direct';
+}
+
 export type JobPriorityClass =
   | 'visible-now'
   | 'next-up'
@@ -81,6 +94,7 @@ export interface TranslateImageJobRequest {
   baseUrl?: string;
   model?: string;
   forceRefresh?: boolean;
+  isHybridRegions?: boolean;
 }
 
 export interface TranslateImageJobResponse {

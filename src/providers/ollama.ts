@@ -17,6 +17,7 @@ import {
   ValidationResult,
   getMangaTranslationPrompt,
   parseVisionResponse,
+  TranslationStylePreset,
 } from './base';
 
 const DEFAULT_MODEL = 'llava';
@@ -63,14 +64,20 @@ export class OllamaProvider implements VisionProvider {
 
   async analyzeAndTranslate(
     imageBase64: string,
-    targetLanguage: string
+    targetLanguage: string,
+    translationStylePreset?: TranslationStylePreset,
+    isHybridRegions?: boolean
   ): Promise<VisionResponse> {
     const validation = await this.validateConfig();
     if (!validation.valid) {
       throw new Error(validation.message);
     }
 
-    const prompt = getMangaTranslationPrompt(targetLanguage);
+    const prompt = getMangaTranslationPrompt(
+      targetLanguage,
+      translationStylePreset,
+      isHybridRegions
+    );
 
     // Extract pure base64 data (remove data URL prefix if present)
     let base64Data = imageBase64;
