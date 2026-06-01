@@ -68,6 +68,18 @@ describe('FloatingHud', () => {
       expect(hudDiv?.textContent).toContain('10');
     });
 
+    it('有 currentImageIndex 时显示"第 N 张"格式', () => {
+      const state: HudState = { status: 'translating', current: 3, total: 10, currentImageIndex: 2 };
+      hud.update(state);
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('第 2 张');
+      expect(hudDiv?.textContent).toContain('10');
+    });
+
     it('应显示取消按钮', () => {
       hud.update({ status: 'translating', current: 1, total: 5 });
 
@@ -96,7 +108,7 @@ describe('FloatingHud', () => {
       expect(hudDiv?.textContent).toContain('7');
     });
 
-    it('2 秒后应自动隐藏', () => {
+    it('2 秒后应自动隐藏（无失败时）', () => {
       vi.useFakeTimers();
 
       hud.update({
@@ -116,6 +128,46 @@ describe('FloatingHud', () => {
       // 2 秒后
       vi.advanceTimersByTime(2000);
       expect(hudDiv?.style.display).toBe('none');
+
+      vi.useRealTimers();
+    });
+
+    it('失败数 > 0 时应显示重新翻译按钮', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 2,
+        cachedCount: 0,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const retryBtn = shadow?.getElementById('retry-failed-btn');
+
+      expect(retryBtn).not.toBeNull();
+      expect(retryBtn?.textContent).toContain('重新翻译失败项');
+    });
+
+    it('失败数 > 0 时不应自动隐藏', () => {
+      vi.useFakeTimers();
+
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 2,
+        cachedCount: 0,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud') as HTMLElement | null;
+
+      // 初始可见
+      expect(hudDiv?.style.display).toBe('block');
+
+      // 3 秒后（超过之前的 2 秒阈值）仍应可见
+      vi.advanceTimersByTime(3000);
+      expect(hudDiv?.style.display).toBe('block');
 
       vi.useRealTimers();
     });
@@ -144,6 +196,32 @@ describe('FloatingHud', () => {
       expect(html).not.toContain('<script>');
       expect(html).toContain('&lt;script&gt;');
     });
+
+    it('应显示错误建议', () => {
+      hud.update({
+        status: 'error',
+        message: 'Ollama 服务未启动',
+        suggestion: '请运行 ollama serve 启动服务',
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('Ollama 服务未启动');
+      expect(hudDiv?.textContent).toContain('请运行 ollama serve 启动服务');
+    });
+
+    it('无建议时不显示建议区域', () => {
+      hud.update({ status: 'error', message: '网络错误' });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('网络错误');
+      expect(hudDiv?.textContent).not.toContain('请检查');
+    });
   });
 
   describe('destroy', () => {
@@ -170,6 +248,45 @@ describe('FloatingHud', () => {
       cancelBtn?.click();
 
       expect(listener).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('hud-retry-failed 事件', () => {
+    it('点击重新翻译按钮应分发 hud-retry-failed 事件', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 2,
+        cachedCount: 0,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const retryBtn = shadow?.getElementById(
+        'retry-failed-btn'
+      ) as HTMLElement | null;
+
+      const listener = vi.fn();
+      host.addEventListener('hud-retry-failed', listener);
+
+      retryBtn?.click();
+
+      expect(listener).toHaveBeenCalledTimes(1);
+    });
+
+    it('无失败项时不应有重新翻译按钮', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 0,
+        cachedCount: 0,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const retryBtn = shadow?.getElementById('retry-failed-btn');
+
+      expect(retryBtn).toBeNull();
     });
   });
 });

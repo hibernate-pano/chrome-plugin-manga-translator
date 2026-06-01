@@ -45,6 +45,8 @@ export interface TextDetectionOptions {
   expandMargin?: number;
   /** Minimum confidence threshold (0-1) */
   minConfidence?: number;
+  /** Tesseract Page Segmentation Mode (PSM) */
+  psm?: string;
 }
 
 // ==================== Configuration ====================
@@ -53,6 +55,7 @@ const DEFAULT_OPTIONS: Required<TextDetectionOptions> = {
   languages: ['jpn', 'eng', 'chi_sim'],
   expandMargin: 0.05, // Expand by 5% to capture full text
   minConfidence: 0.3,
+  psm: '11', // Sparse text: Find as much text as possible in no particular order
 };
 
 // ==================== Cached Worker ====================
@@ -77,14 +80,24 @@ async function getWorker(languages: string[]): Promise<Worker> {
     worker = null;
   }
 
-  // Create new worker
-  worker = await createWorker(langKey, 1, {
+  // Create new worker with local scripts in Chrome Extension env
+  const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
+  const workerOptions: Record<string, any> = {
     logger: (m: { status: string; progress: number }) => {
       if (import.meta.env.DEV && m.status === 'recognizing text') {
         console.log(`[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`);
       }
     },
-  });
+  };
+
+  if (isExtension) {
+    workerOptions['workerPath'] = chrome.runtime.getURL('tesseract/worker.min.js');
+    workerOptions['corePath'] = chrome.runtime.getURL('tesseract/tesseract-core-simd-lstm.wasm.js');
+    workerOptions['langPath'] = 'https://npm.elemecdn.com/@tesseract.js/langs/dist/';
+    workerOptions['workerBlobURL'] = false;
+  }
+
+  worker = await createWorker(langKey, 1, workerOptions);
 
   workerLanguages = languages;
 
@@ -129,8 +142,13 @@ export async function detectTextRegions(
     // Get Tesseract worker
     const tesseractWorker = await getWorker(opts.languages);
 
+    // 配置页面分割模式 (PSM)
+    await tesseractWorker.setParameters({
+      tessedit_pageseg_mode: opts.psm as any,
+    });
+
     if (import.meta.env.DEV) {
-      console.log('[TextDetector] 开始检测文字区域...');
+      console.log(`[TextDetector] 开始检测文字区域 (PSM: ${opts.psm})...`);
     }
 
     // Recognize text

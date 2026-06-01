@@ -1,158 +1,25 @@
 /**
  * OpenAI GPT-4V Vision Provider
  *
- * Uses OpenAI's GPT-4 Vision API for manga image analysis and translation.
+ * Uses OpenAI-compatible Vision API for manga image analysis and translation.
  */
 
-import {
-  VisionProvider,
-  ProviderConfig,
-  VisionResponse,
-  ValidationResult,
-  parseImageData,
-  createApiError,
-  getMangaTranslationPrompt,
-  parseVisionResponse,
-} from './base';
-import { DEFAULT_MODELS, API_URLS, REQUEST_LIMITS } from './constants';
-import { httpRequest } from '@/utils/http-client';
-import type { TranslationStylePreset } from '@/utils/translation-style';
+import { OpenAICompatibleProvider } from './openai-compatible-base';
+import { DEFAULT_MODELS, API_URLS } from './constants';
 
-interface OpenAIMessage {
-  role: 'system' | 'user' | 'assistant';
-  content: string | OpenAIContentPart[];
-}
-
-interface OpenAIContentPart {
-  type: 'text' | 'image_url';
-  text?: string;
-  image_url?: {
-    url: string;
-    detail?: 'low' | 'high' | 'auto';
-  };
-}
-
-interface OpenAIResponse {
-  choices: Array<{
-    message: {
-      content: string;
-    };
-  }>;
-  error?: {
-    message: string;
-    type: string;
-    code: string;
-  };
-}
-
-export class OpenAIProvider implements VisionProvider {
+export class OpenAIProvider extends OpenAICompatibleProvider {
   readonly name = 'OpenAI-Compatible';
   readonly type = 'openai-compatible' as const;
 
-  private config: ProviderConfig = {};
-
-  async initialize(config: ProviderConfig): Promise<void> {
-    this.config = {
-      ...config,
-      model: config.model || DEFAULT_MODELS.OPENAI,
-      baseUrl: config.baseUrl || API_URLS.OPENAI,
-    };
+  protected getDefaultModel(): string {
+    return DEFAULT_MODELS.OPENAI;
   }
 
-  async analyzeAndTranslate(
-    imageBase64: string,
-    targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset
-  ): Promise<VisionResponse> {
-    this.ensureConfigured();
-
-    const prompt = getMangaTranslationPrompt(
-      targetLanguage,
-      translationStylePreset
-    );
-    const imageData = parseImageData(imageBase64);
-    const imageUrl = `data:${imageData.mediaType};base64,${imageData.base64}`;
-
-    const messages: OpenAIMessage[] = [
-      {
-        role: 'user',
-        content: [
-          { type: 'text', text: prompt },
-          {
-            type: 'image_url',
-            image_url: { url: imageUrl, detail: 'high' },
-          },
-        ],
-      },
-    ];
-
-    const httpResponse = await httpRequest<OpenAIResponse>(
-      `${this.config.baseUrl}/chat/completions`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${this.config.apiKey}`,
-        },
-        body: {
-          model: this.config.model,
-          messages,
-          max_tokens: REQUEST_LIMITS.MAX_TOKENS,
-          temperature: REQUEST_LIMITS.TEMPERATURE,
-        },
-      }
-    );
-
-    if (!httpResponse.ok) {
-      throw createApiError(
-        httpResponse.error || httpResponse.statusText,
-        this.name
-      );
-    }
-
-    const data = httpResponse.data;
-    if (!data) {
-      throw new Error('OpenAI API returned no data');
-    }
-
-    if (data.error) {
-      throw new Error(`OpenAI API error: ${data.error.message}`);
-    }
-
-    const content = data.choices?.[0]?.message?.content;
-    if (!content) {
-      throw new Error('OpenAI API returned empty response');
-    }
-
-    return parseVisionResponse(content);
+  protected getDefaultBaseUrl(): string {
+    return API_URLS.OPENAI;
   }
 
-  async validateConfig(): Promise<ValidationResult> {
-    if (!this.config.apiKey) {
-      return {
-        valid: false,
-        message: '请配置 OpenAI-compatible API 密钥',
-      };
-    }
-
-    if (this.config.apiKey.length < 20) {
-      return {
-        valid: false,
-        message: 'OpenAI-compatible API 密钥格式无效',
-      };
-    }
-
-    return {
-      valid: true,
-      message: 'OpenAI-compatible 配置有效',
-    };
-  }
-
-  private ensureConfigured(): void {
-    if (!this.config.apiKey) {
-      throw new Error('请配置 OpenAI-compatible API 密钥');
-    }
-    if (this.config.apiKey.length < 20) {
-      throw new Error('OpenAI-compatible API 密钥格式无效');
-    }
+  protected requiresAuth(): boolean {
+    return true;
   }
 }

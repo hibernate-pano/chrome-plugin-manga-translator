@@ -1,7 +1,8 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
   CheckCircle2,
+  ChevronDown,
   Circle,
   Eye,
   EyeOff,
@@ -11,11 +12,14 @@ import {
   Check,
   Server,
   Sparkles,
+  Info,
 } from 'lucide-react';
 
 import { createProvider } from '@/providers';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
+import { cn } from '@/lib/utils';
+import { Slider } from '@/components/ui/slider';
 
 interface TestResult {
   success: boolean;
@@ -54,6 +58,40 @@ const PROVIDERS: Array<{
     helpUrl: 'https://ollama.com/download',
     modelPlaceholder: '例如: llava, minicpm-v',
   },
+  {
+    type: 'lm-studio',
+    name: 'LM Studio',
+    description: '本地 OpenAI 兼容服务器，适合隐私优先或离线使用。',
+    requiresApiKey: false,
+    helpUrl: 'https://lmstudio.ai/download',
+    modelPlaceholder: '在 LM Studio 中加载模型后自动检测',
+  },
+];
+
+const API_PRESETS: Array<{
+  name: string;
+  baseUrl: string;
+  model: string;
+  description: string;
+}> = [
+  {
+    name: 'OpenAI 官方',
+    baseUrl: 'https://api.openai.com/v1',
+    model: 'gpt-4o-mini',
+    description: '标准 OpenAI 视觉模型，响应速度快。',
+  },
+  {
+    name: '硅基流动 (SiliconFlow)',
+    baseUrl: 'https://api.siliconflow.cn/v1',
+    model: 'Qwen/Qwen3-VL-8B-Instruct',
+    description: '国内高性价比大模型托管平台，支持 Qwen VL 系列，注册赠送免费额度。',
+  },
+  {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    model: 'google/gemini-2.5-flash',
+    description: '国外大模型聚合平台，支持 Gemini 等多种多模态模型。',
+  },
 ];
 
 const OptionsApp: React.FC = () => {
@@ -66,6 +104,8 @@ const OptionsApp: React.FC = () => {
   const translationStylePreset = useAppConfigStore(
     state => state.translationStylePreset
   );
+  const overlayStyle = useAppConfigStore(state => state.overlayStyle);
+  const verticalText = useAppConfigStore(state => state.overlayStyle.verticalText);
   const setProvider = useAppConfigStore(state => state.setProvider);
   const updateProviderSettings = useAppConfigStore(
     state => state.updateProviderSettings
@@ -79,10 +119,13 @@ const OptionsApp: React.FC = () => {
   const setTranslationStylePreset = useAppConfigStore(
     state => state.setTranslationStylePreset
   );
+  const setOverlayStyle = useAppConfigStore(state => state.setOverlayStyle);
+  const setVerticalText = useAppConfigStore(state => state.setVerticalText);
 
   const [showApiKey, setShowApiKey] = useState<Record<ProviderType, boolean>>({
     'openai-compatible': false,
     ollama: false,
+    'lm-studio': false,
   });
   const [testingProvider, setTestingProvider] = useState<ProviderType | null>(null);
   const [testResults, setTestResults] = useState<
@@ -90,14 +133,77 @@ const OptionsApp: React.FC = () => {
   >({
     'openai-compatible': null,
     ollama: null,
+    'lm-studio': null,
   });
   const [ollamaModels, setOllamaModels] = useState<string[]>([]);
   const [loadingOllamaModels, setLoadingOllamaModels] = useState(false);
+  const [overlayStyleExpanded, setOverlayStyleExpanded] = useState(false);
+  const [pendingProvider, setPendingProvider] = useState<ProviderType | null>(null);
+  const [providerHealth, setProviderHealth] = useState<Record<ProviderType, 'unknown' | 'healthy' | 'unhealthy'>>({
+    'openai-compatible': 'unknown',
+    ollama: 'unknown',
+    'lm-studio': 'unknown',
+  });
+  const healthCheckTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   const activeProviderMeta = useMemo(
     () => PROVIDERS.find(item => item.type === provider) ?? PROVIDERS[0],
     [provider]
   );
+
+  // Health check polling every 30 seconds
+  const performHealthCheck = useCallback(async () => {
+    for (const providerType of ['openai-compatible', 'ollama', 'lm-studio'] as ProviderType[]) {
+      try {
+        const settings = providers[providerType];
+        const instance = await createProvider(providerType, settings);
+        const result = await instance.validateConfig();
+        setProviderHealth(current => ({
+          ...current,
+          [providerType]: result.valid ? 'healthy' : 'unhealthy',
+        }));
+      } catch {
+        setProviderHealth(current => ({
+          ...current,
+          [providerType]: 'unhealthy',
+        }));
+      }
+    }
+  }, [providers]);
+
+  useEffect(() => {
+    // Initial health check
+    void performHealthCheck();
+    // Poll every 30 seconds
+    healthCheckTimerRef.current = setInterval(() => {
+      void performHealthCheck();
+    }, 30000);
+    return () => {
+      if (healthCheckTimerRef.current) {
+        clearInterval(healthCheckTimerRef.current);
+      }
+    };
+  }, [performHealthCheck]);
+
+  // Provider switch confirmation handler
+  const handleProviderSwitch = useCallback((providerType: ProviderType) => {
+    if (pendingProvider) {
+      // Already pending - confirm switch
+      setProvider(providerType);
+      setPendingProvider(null);
+    } else {
+      // Start pending confirmation
+      setPendingProvider(providerType);
+      setTimeout(() => {
+        setPendingProvider(current => {
+          if (current === providerType) {
+            return null;
+          }
+          return current;
+        });
+      }, 3000);
+    }
+  }, [pendingProvider, setProvider]);
 
   const fetchOllamaModels = useCallback(async () => {
     const url = providers.ollama.baseUrl;
@@ -160,24 +266,26 @@ const OptionsApp: React.FC = () => {
     }
     const settings = providers[providerType];
     const result = testResults[providerType];
+    const isPending = pendingProvider === providerType;
+    const health = providerHealth[providerType];
 
     return (
       <div
         key={providerType}
         role='button'
         tabIndex={0}
-        onClick={() => setProvider(providerType)}
+        onClick={() => handleProviderSwitch(providerType)}
         onKeyDown={event => {
           if (event.key === 'Enter' || event.key === ' ') {
             event.preventDefault();
-            setProvider(providerType);
+            handleProviderSwitch(providerType);
           }
         }}
         className={`rounded-xl border p-4 ${
           provider === providerType
             ? 'border-cyan-500/40 bg-cyan-500/10'
             : 'border-white/10 bg-white/[0.03]'
-        }`}
+        } ${isPending ? 'ring-2 ring-yellow-500/50' : ''}`}
       >
         <div className='flex items-start justify-between gap-4'>
           <div>
@@ -206,8 +314,18 @@ const OptionsApp: React.FC = () => {
                   : 'border-white/10 text-slate-400'
               }`}
             >
-              {provider === providerType ? '当前使用中' : '点击切换'}
+              {provider === providerType ? '当前使用中' : isPending ? '确认切换？' : '点击切换'}
             </span>
+            {health !== 'unknown' && (
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  health === 'healthy'
+                    ? 'bg-emerald-400'
+                    : 'bg-amber-400'
+                }`}
+                title={health === 'healthy' ? '连接正常' : '连接异常'}
+              />
+            )}
             <a
               href={meta.helpUrl}
               target='_blank'
@@ -280,6 +398,41 @@ const OptionsApp: React.FC = () => {
             />
           </label>
 
+          {providerType === 'openai-compatible' && (
+            <div className='rounded-lg border border-white/5 bg-slate-950/40 p-3'>
+              <div className='mb-2 text-xs font-medium text-slate-300'>服务商快捷预设</div>
+              <div className='flex flex-wrap gap-2'>
+                {API_PRESETS.map(preset => {
+                  const isActive =
+                    settings.baseUrl === preset.baseUrl &&
+                    settings.model === preset.model;
+                  return (
+                    <button
+                      key={preset.name}
+                      type='button'
+                      onClick={event => {
+                        event.stopPropagation();
+                        updateProviderSettings('openai-compatible', {
+                          baseUrl: preset.baseUrl,
+                          model: preset.model,
+                        });
+                      }}
+                      className={cn(
+                        'rounded border px-2 py-1 text-xs transition',
+                        isActive
+                          ? 'border-cyan-500 bg-cyan-500/20 text-cyan-200 ring-2 ring-cyan-500/50'
+                          : 'border-cyan-500/20 bg-cyan-500/5 text-cyan-200 hover:bg-cyan-500/20 hover:border-cyan-500/40'
+                      )}
+                      title={preset.description}
+                    >
+                      {preset.name}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
           {providerType === 'ollama' && (
             <div className='rounded-lg border border-white/10 bg-slate-950/70 p-3 text-xs text-slate-400'>
               <div className='flex items-center justify-between'>
@@ -346,12 +499,73 @@ const OptionsApp: React.FC = () => {
   return (
     <div className='min-h-screen bg-slate-950 px-6 py-8 text-slate-100'>
       <div className='mx-auto max-w-5xl space-y-6'>
-        <div>
-          <h1 className='text-2xl font-semibold'>Manga Translator Settings</h1>
-          <p className='mt-2 text-sm text-slate-400'>
-            只保留两条直连路径：OpenAI-compatible 与 Ollama。
-          </p>
+        <div className='flex items-start justify-between'>
+          <div>
+            <h1 className='text-2xl font-semibold'>Manga Translator Settings</h1>
+            <p className='mt-2 text-sm text-slate-400'>
+              三条直连路径：OpenAI-compatible、Ollama 与 LM Studio。
+            </p>
+          </div>
+          <div className='flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5'>
+            {provider === 'ollama' ? (
+              <Server className='h-4 w-4 text-slate-300' />
+            ) : (
+              <Sparkles className='h-4 w-4 text-cyan-300' />
+            )}
+            <span className='text-sm font-medium text-cyan-100'>
+              {activeProviderMeta?.name ?? 'OpenAI-compatible'}
+            </span>
+          </div>
         </div>
+
+        {/* First-time usage guide - only show when no provider is configured */}
+        {!(
+          providers['openai-compatible'].apiKey ||
+          providers['openai-compatible'].baseUrl ||
+          providers.ollama.baseUrl
+        ) && (
+          <div className='rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4'>
+            <div className='flex items-start gap-3'>
+              <Info className='mt-0.5 h-5 w-5 shrink-0 text-cyan-400' />
+              <div className='flex-1'>
+                <h3 className='text-sm font-semibold text-cyan-100'>开始使用</h3>
+                <p className='mt-1 text-sm text-slate-400'>
+                  选择一个 Provider 并配置测试后即可开始翻译。
+                </p>
+                <div className='mt-3 flex flex-wrap gap-2'>
+                  <button
+                    type='button'
+                    onClick={() => {
+                      void updateProviderSettings('openai-compatible', {
+                        baseUrl: 'https://api.openai.com/v1',
+                        model: 'gpt-4o-mini',
+                      });
+                      void setProvider('openai-compatible');
+                    }}
+                    className='inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
+                  >
+                    <Sparkles className='h-4 w-4' />
+                    使用 OpenAI-compatible
+                  </button>
+                  <button
+                    type='button'
+                    onClick={() => {
+                      void updateProviderSettings('ollama', {
+                        baseUrl: 'http://localhost:11434',
+                        model: '',
+                      });
+                      void setProvider('ollama');
+                    }}
+                    className='inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
+                  >
+                    <Server className='h-4 w-4' />
+                    使用 Ollama
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
 
         <div className='grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]'>
           <div className='space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-4'>
@@ -428,8 +642,102 @@ const OptionsApp: React.FC = () => {
               </select>
             </label>
 
-            <div className='rounded-lg border border-cyan-500/20 bg-cyan-500/10 p-3 text-sm text-cyan-100'>
-              当前默认后端：{activeProviderMeta?.name ?? 'OpenAI-compatible'}
+            {/* 覆盖层样式折叠面板 */}
+            <div className='rounded-lg border border-white/10 bg-slate-950/70 overflow-hidden'>
+              <button
+                type='button'
+                onClick={() => setOverlayStyleExpanded(!overlayStyleExpanded)}
+                className='flex w-full items-center justify-between px-3 py-3 text-left transition hover:bg-white/[0.02]'
+              >
+                <div>
+                  <div className='text-sm font-medium'>覆盖层样式</div>
+                  <div className='text-xs text-slate-400'>
+                    背景色、文字颜色、字号等
+                  </div>
+                </div>
+                <ChevronDown
+                  className={`h-4 w-4 text-slate-400 transition-transform duration-200 ${
+                    overlayStyleExpanded ? 'rotate-180' : ''
+                  }`}
+                />
+              </button>
+
+              <div
+                className={`transition-all duration-200 ease-out ${
+                  overlayStyleExpanded
+                    ? 'max-h-[500px] opacity-100'
+                    : 'max-h-0 opacity-0'
+                }`}
+              >
+                <div className='space-y-3 border-t border-white/10 px-3 py-3'>
+                  <label className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-950/70 px-3 py-3'>
+                    <div>
+                      <div className='text-sm font-medium'>竖排文字</div>
+                      <div className='text-xs text-slate-400'>日文漫画竖向排版时启用</div>
+                    </div>
+                    <input
+                      type='checkbox'
+                      checked={verticalText}
+                      onChange={e => setVerticalText(e.target.checked)}
+                      className='h-4 w-4'
+                    />
+                  </label>
+
+                  <label className='block'>
+                    <div className='mb-1.5 text-xs text-slate-400'>背景色</div>
+                    <div className='flex items-center gap-2'>
+                      <input
+                        type='color'
+                        value={overlayStyle.backgroundColor.startsWith('rgba')
+                          ? '#f0f0eb'
+                          : overlayStyle.backgroundColor}
+                        onChange={e => setOverlayStyle({ backgroundColor: e.target.value })}
+                        className='h-8 w-12 cursor-pointer rounded border border-white/10 bg-transparent'
+                      />
+                      <input
+                        type='text'
+                        value={overlayStyle.backgroundColor}
+                        onChange={e => setOverlayStyle({ backgroundColor: e.target.value })}
+                        className='flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-1.5 text-sm outline-none'
+                      />
+                    </div>
+                  </label>
+
+                  <label className='block'>
+                    <div className='mb-1.5 text-xs text-slate-400'>文字颜色</div>
+                    <div className='flex items-center gap-2'>
+                      <input
+                        type='color'
+                        value={overlayStyle.textColor}
+                        onChange={e => setOverlayStyle({ textColor: e.target.value })}
+                        className='h-8 w-12 cursor-pointer rounded border border-white/10 bg-transparent'
+                      />
+                      <input
+                        type='text'
+                        value={overlayStyle.textColor}
+                        onChange={e => setOverlayStyle({ textColor: e.target.value })}
+                        className='flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-1.5 text-sm outline-none'
+                      />
+                    </div>
+                  </label>
+
+                  <label className='block'>
+                    <div className='mb-3 text-xs text-slate-400'>字号范围</div>
+                    <div className='flex items-center gap-4'>
+                      <span className='w-8 text-xs text-slate-400'>{overlayStyle.minFontSize}</span>
+                      <Slider
+                        min={8}
+                        max={48}
+                        step={1}
+                        value={[overlayStyle.minFontSize, overlayStyle.maxFontSize]}
+                        onValueChange={([min, max]) => setOverlayStyle({ minFontSize: min, maxFontSize: max })}
+                        className='flex-1'
+                      />
+                      <span className='w-8 text-right text-xs text-slate-400'>{overlayStyle.maxFontSize}</span>
+                    </div>
+                  </label>
+                </div>
+              </div>
             </div>
           </div>
 

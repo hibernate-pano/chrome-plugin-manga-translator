@@ -2,19 +2,42 @@ import {
   createAutoTranslateMessage,
   isTranslationEnabled,
 } from './auto-translate';
+/**
+ * Message protocols handled by this background script.
+ *
+ * The dispatcher accepts TWO coexisting envelopes:
+ *
+ * 1. Action-based (legacy): { action: 'fetchImage' | 'getConfig' | ... }
+ *    Used by:
+ *    - image-processor.ts (CORS-tainted image proxy)
+ *    - popup.tsx and options.tsx (config read/write)
+ *
+ * 2. Type-based (new): { type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }
+ *    Used by:
+ *    - translation-transport.ts (translation job dispatch)
+ *
+ * Response field naming differs: action-based returns `{ success, imageBase64 }`,
+ * type-based returns `{ success, job: { ... }, textAreas }` (envelope shape).
+ * Do NOT unify without also migrating the consumers; see CLAUDE.md.
+ */
 import type {
   QueryJobStatusRequest,
   TranslateImageJobRequest,
   TranslateImageJobResponse,
+  RequestedExecutionPath,
 } from '@/shared/runtime-contracts';
 import type { TranslationTransportRequest } from '@/services/translation-transport';
 import {
-  DEFAULT_RUNTIME_APP_CONFIG,
+  DEFAULT_CONFIG,
   normalizeRuntimeAppConfig,
+  APP_CONFIG_STORAGE_KEY,
 } from '@/shared/app-config';
 import { getErrorMessage } from '@/utils/error-message';
+import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
+
 import { translateImageViaProviderDirect } from './provider-direct-client';
 import { BackgroundJobQueue, createJobStatus } from './job-queue';
+import { deriveRequestedPath } from '@/shared/runtime-contracts';
 
 interface MessageRequest {
   action?: string;
@@ -37,23 +60,36 @@ interface MessageResponse {
 
 const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
-const DEFAULT_CONFIG = {
-  ...DEFAULT_RUNTIME_APP_CONFIG,
-  providers: {
-    'openai-compatible': { ...DEFAULT_RUNTIME_APP_CONFIG.openaiCompatible },
-    ollama: { ...DEFAULT_RUNTIME_APP_CONFIG.ollama },
-  },
-  maxImageSize: 1920,
-  parallelLimit: 3,
-  cacheEnabled: true,
-  readingMode: 'panel',
-  renderMode: 'strong-overlay-compat',
-  translationPipeline: 'hybrid-regions',
-  regionBatchSize: 10,
-  fallbackToFullImage: true,
-};
+// 默认并发度使用 DEFAULT_CONFIG.parallelLimit 
+const translationJobQueue = new BackgroundJobQueue(DEFAULT_CONFIG.parallelLimit, 500);
 
-const translationJobQueue = new BackgroundJobQueue(2);
+// 同步并发度配置
+function syncQueueLimit(config: Record<string, unknown>): void {
+  const state = (config['state'] || config) as Record<string, unknown>;
+  const limit = (typeof state['parallelLimit'] === 'number' ? state['parallelLimit'] : null)
+    || (typeof config['parallelLimit'] === 'number' ? config['parallelLimit'] : null)
+    || DEFAULT_CONFIG.parallelLimit;
+  translationJobQueue.updateMaxConcurrent(limit);
+}
+
+// 启动时自动同步一次并发度配置
+void getConfig().then(config => {
+  syncQueueLimit(config);
+}).catch(err => {
+  console.error('[Background] 无法在启动时同步队列限制:', err);
+});
+
+// 监听外部配置变更，自动同步并发度
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'sync') {
+    return;
+  }
+  const configChange = changes[APP_CONFIG_STORAGE_KEY];
+  if (!configChange) {
+    return;
+  }
+  syncQueueLimit(configChange.newValue || {});
+});
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
@@ -84,6 +120,10 @@ function normalizeStoredConfigSnapshot(value: unknown): Record<string, unknown> 
         ...DEFAULT_CONFIG.providers.ollama,
         ...normalizedRuntime.ollama,
       },
+      'lm-studio': {
+        ...DEFAULT_CONFIG.providers['lm-studio'],
+        ...normalizedRuntime.lmStudio,
+      },
     },
   };
 }
@@ -108,7 +148,7 @@ chrome.runtime.onStartup.addListener(() => {
 });
 
 async function initializeDefaultSettings(): Promise<void> {
-  await chrome.storage.sync.set({ [CONFIG_STORAGE_KEY]: DEFAULT_CONFIG });
+  await setConfig(DEFAULT_CONFIG);
 }
 
 async function migrateSettings(): Promise<void> {
@@ -119,9 +159,7 @@ async function migrateSettings(): Promise<void> {
     return;
   }
 
-  await chrome.storage.sync.set({
-    [CONFIG_STORAGE_KEY]: normalizeStoredConfigSnapshot(currentConfig),
-  });
+  await setConfig(normalizeStoredConfigSnapshot(currentConfig));
 }
 
 async function checkAndSetDefaultConfig(): Promise<void> {
@@ -133,11 +171,16 @@ async function checkAndSetDefaultConfig(): Promise<void> {
 
 async function getConfig(): Promise<Record<string, unknown>> {
   const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
-  return normalizeStoredConfigSnapshot(result[CONFIG_STORAGE_KEY]);
+  const config = normalizeStoredConfigSnapshot(result[CONFIG_STORAGE_KEY]);
+  deobfuscateAllApiKeys(config);
+  return config;
 }
 
 async function setConfig(config: Record<string, unknown>): Promise<void> {
-  await chrome.storage.sync.set({ [CONFIG_STORAGE_KEY]: config });
+  const cloned = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
+  obfuscateAllApiKeys(cloned);
+  await chrome.storage.sync.set({ [CONFIG_STORAGE_KEY]: cloned });
+  syncQueueLimit(cloned);
 }
 
 async function requestAutoTranslateForTab(tabId?: number): Promise<void> {
@@ -161,7 +204,31 @@ async function handleMessage(
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: MessageResponse) => void
 ): Promise<void> {
+  // 验证消息发送者：扩展内部页面或已注入 content script 的标签页
+  const isExtensionOrigin = sender.id === chrome.runtime.id;
+  const isContentScript = !!sender.tab?.id;
+  if (!isExtensionOrigin && !isContentScript) {
+    sendResponse({ success: false, error: 'Unauthorized sender' });
+    return;
+  }
+
   try {
+    // 涉及配置读写（包含 API Key 解混淆结果）的接口仅信任扩展内部页面。
+    // content script 即使被注入到任意 tab 也不应读到去混淆后的 key，
+    // 也不应改写配置。其它 job / fetch / state 接口对两者都开放。
+    const requestAction =
+      typeof request.action === 'string' ? request.action : null;
+    const requestType =
+      typeof request.type === 'string' ? request.type : null;
+    const isSensitiveRequest =
+      requestAction === 'getConfig' || requestAction === 'setConfig';
+    if (isSensitiveRequest && !isExtensionOrigin) {
+      sendResponse({
+        success: false,
+        error: `${requestAction ?? requestType ?? 'request'} requires extension origin`,
+      });
+      return;
+    }
     if (request.type && !request.action) {
       switch (request.type) {
         case 'JOB_TRANSLATE_IMAGE':
@@ -198,6 +265,10 @@ async function handleMessage(
           sendResponse(await fetchImageBytesResponse(imageUrl));
           return;
         }
+        case 'HUD_CANCELLED':
+          void chrome.runtime.sendMessage(request).catch(() => undefined);
+          sendResponse({ received: true });
+          return;
         default:
           sendResponse({ received: true });
           return;
@@ -259,8 +330,8 @@ async function handleMessage(
 
 function deriveActualPath(
   request: TranslateImageJobRequest
-): TranslateImageJobRequest['requestedPath'] {
-  return request.provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
+): RequestedExecutionPath {
+  return deriveRequestedPath(request.provider);
 }
 
 async function enqueueTranslationJob(
@@ -375,7 +446,55 @@ async function sendToTab(
   return chrome.tabs.sendMessage(tabId, message);
 }
 
+function isValidImageUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    // 阻止 SSRF：拒绝内网/本地地址
+    const hostname = parsed.hostname.toLowerCase();
+    const privateHosts = [
+      'localhost', '127.0.0.1', '0.0.0.0', '::1',
+      '[::1]', '169.254.169.254',
+    ];
+    if (privateHosts.includes(hostname)) {
+      return false;
+    }
+    // 检查私有 IP 段
+    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    if (ipv4Match) {
+      const [, a, b] = ipv4Match.map(Number) as [string, number, number];
+      if (a === 10) return false;
+      if (a === 172 && b >= 16 && b <= 31) return false;
+      if (a === 192 && b === 168) return false;
+    }
+    // 检查 IPv6 私有地址段
+    const ipv6Match = hostname.match(/^\[([\da-fA-f:]+)\]$/);
+    if (ipv6Match) {
+      const ipv6 = ipv6Match[1]!.toLowerCase();
+      // 阻止 ::1 (localhost IPv6)
+      if (ipv6 === '::1') return false;
+      // fc00::/7 - Unique Local Addresses (fc00:: to fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff)
+      if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return false;
+      // fe80::/10 - Link-Local (first nibble: fe, second nibble: 8-f)
+      if (/^fe[89a-f]/i.test(ipv6)) return false;
+      // 2001:db8::/32 - Documentation
+      if (ipv6.startsWith('2001:db8')) return false;
+      // ::ffff:0:0:0/96 - IPv4-mapped (多种写法)
+      if (ipv6.startsWith('::ffff:0') || ipv6.startsWith('::ffff:')) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function fetchImageBytesResponse(imageUrl: string): Promise<MessageResponse> {
+  if (!isValidImageUrl(imageUrl)) {
+    return { success: false, error: 'Invalid or blocked image URL' };
+  }
+
   try {
     const response = await fetch(imageUrl);
     if (!response.ok) {

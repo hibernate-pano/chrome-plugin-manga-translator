@@ -305,6 +305,16 @@ export class TranslatorService {
       scope?: 'viewport' | 'page' | 'chapter' | 'manual';
     }
   ): Promise<TransportTextAreasResponse> {
+    // pageKey is used by BackgroundJobQueue for PAGE-LEVEL dedup, so it must
+    // identify the page, not the image. Prefer the explicit pageUrl; if the
+    // caller didn't supply one, fall back to the current window location
+    // (the content script always has it). Never use imageKey here —
+    // using it would collapse all images on a page into one job slot.
+    const pageKey =
+      metadata?.pageUrl ||
+      (typeof window !== 'undefined' ? window.location.href : undefined) ||
+      'inline-image';
+
     const response = await this.transport.translateImage({
       imageBase64,
       mimeType,
@@ -320,7 +330,7 @@ export class TranslatorService {
       renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
       forceRefresh,
-      pageKey: metadata?.imageKey,
+      pageKey,
       priorityClass: metadata?.priorityClass,
       scope: metadata?.scope,
     });

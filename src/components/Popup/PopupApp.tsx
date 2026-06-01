@@ -4,7 +4,9 @@ import {
   CheckCircle2,
   Loader2,
   RefreshCw,
+  Server,
   Settings,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 
@@ -37,6 +39,7 @@ const TARGET_LANGUAGES = [
 const PROVIDER_OPTIONS: Array<{ value: ProviderType; label: string }> = [
   { value: 'openai-compatible', label: '商用 LLM' },
   { value: 'ollama', label: 'Ollama' },
+  { value: 'lm-studio', label: 'LM Studio' },
 ];
 
 async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
@@ -74,11 +77,16 @@ const PopupApp: React.FC = () => {
   const setTargetLanguage = useAppConfigStore(state => state.setTargetLanguage);
   const setEnabled = useAppConfigStore(state => state.setEnabled);
 
-  const providerLabel = provider === 'ollama' ? 'Ollama' : 'OpenAI-compatible';
+  const providerLabel =
+    provider === 'ollama'
+      ? 'Ollama'
+      : provider === 'lm-studio'
+      ? 'LM Studio'
+      : 'OpenAI-compatible';
   const providerSettings = providers[provider];
   const isConfigured = isProviderConfigured(provider);
   const pathLabel =
-    provider === 'ollama'
+    provider === 'ollama' || provider === 'lm-studio'
       ? `本地直连 / ${providerSettings.baseUrl || '未配置地址'}`
       : `API 直连 / ${providerSettings.baseUrl || '未配置端点'}`;
 
@@ -117,10 +125,53 @@ const PopupApp: React.FC = () => {
         setIsLoading(false);
       }
     })();
+
+    const handleTabActivated = (activeInfo: chrome.tabs.TabActiveInfo) => {
+      void chrome.tabs.get(activeInfo.tabId).then(tab => {
+        if (tab.active && tab.windowId === chrome.windows.WINDOW_ID_CURRENT) {
+          void refreshPageStatus();
+        }
+      });
+    };
+
+    const handleTabUpdated = (
+      tabId: number,
+      changeInfo: chrome.tabs.TabChangeInfo
+    ) => {
+      if (changeInfo.status === 'complete' || changeInfo.url) {
+        void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
+          if (tab?.id === tabId) {
+            void refreshPageStatus();
+          }
+        });
+      }
+    };
+
+    // Store handlers in refs to ensure removeListener receives the same reference as addListener
+    const activeListenerRef = { current: handleTabActivated };
+    const updatedListenerRef = { current: handleTabUpdated };
+
+    chrome.tabs.onActivated.addListener(activeListenerRef.current);
+    chrome.tabs.onUpdated.addListener(updatedListenerRef.current);
+
+    return () => {
+      chrome.tabs.onActivated.removeListener(activeListenerRef.current);
+      chrome.tabs.onUpdated.removeListener(updatedListenerRef.current);
+    };
   }, [refreshPageStatus]);
 
   useEffect(() => {
     const handleMessage = (msg: { type: string; state?: ContentState }) => {
+      if (msg.type === 'HUD_CANCELLED') {
+        setContentState({ status: 'idle' });
+        return;
+      }
+      if (msg.type === 'CONFIG_UPDATED') {
+        // Provider or config changed in Options/background — re-sync from store
+        const currentProvider = useAppConfigStore.getState().provider;
+        setProvider(currentProvider);
+        return;
+      }
       if (msg.type !== 'STATE_UPDATE' || !msg.state) return;
       setContentState(msg.state);
       if (msg.state.status === 'complete') {
@@ -136,7 +187,7 @@ const PopupApp: React.FC = () => {
       chrome.runtime.onMessage.removeListener(handleMessage);
       if (completeTimerRef.current) clearTimeout(completeTimerRef.current);
     };
-  }, []);
+  }, [setProvider]);
 
   const handleTranslate = useCallback(async () => {
     await sendToContent({ type: 'TRANSLATE_PAGE' });
@@ -184,17 +235,29 @@ const PopupApp: React.FC = () => {
         <div className='flex items-center justify-between'>
           <div>
             <div className='text-sm font-semibold'>Manga Translator</div>
-            <div className='mt-1 text-xs text-slate-400'>
-              当前页翻译 / 自动续翻 / 强制重翻
+            <div className='mt-1 flex items-center gap-2 text-xs text-slate-400'>
+              <span>当前页翻译 / 自动续翻 / 强制重翻</span>
             </div>
           </div>
-          <button
-            type='button'
-            onClick={() => chrome.runtime.openOptionsPage()}
-            className='rounded-md border border-white/10 p-2 text-slate-300 transition hover:border-white/20 hover:text-white'
-          >
-            <Settings className='h-4 w-4' />
-          </button>
+          <div className='flex items-center gap-3'>
+            <div className='flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1'>
+              {provider === 'ollama' ? (
+                <Server className='h-3.5 w-3.5 text-slate-300' />
+              ) : (
+                <Sparkles className='h-3.5 w-3.5 text-cyan-300' />
+              )}
+              <span className='text-xs font-medium text-cyan-100'>
+                {providerLabel}
+              </span>
+            </div>
+            <button
+              type='button'
+              onClick={() => chrome.runtime.openOptionsPage()}
+              className='rounded-md border border-white/10 p-2 text-slate-300 transition hover:border-white/20 hover:text-white'
+            >
+              <Settings className='h-4 w-4' />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -219,14 +282,18 @@ const PopupApp: React.FC = () => {
               {providerLabel}
             </span>
           </div>
-          <div className='mt-3 grid grid-cols-2 gap-2'>
+          <div className='mt-3 grid grid-cols-3 gap-2'>
             {PROVIDER_OPTIONS.map(option => {
               const active = provider === option.value;
               return (
                 <button
                   key={option.value}
                   type='button'
-                  onClick={() => setProvider(option.value)}
+                  onClick={() => {
+                    if (provider === option.value) return;
+                    setProvider(option.value);
+                    void chrome.runtime.sendMessage({ type: 'CONFIG_UPDATED' }).catch(() => undefined);
+                  }}
                   className={`rounded-lg border px-3 py-2 text-sm transition ${
                     active
                       ? 'border-cyan-500/40 bg-cyan-500/10 text-cyan-100'
@@ -289,49 +356,58 @@ const PopupApp: React.FC = () => {
         </div>
 
         <div className='space-y-2'>
-          <button
-            type='button'
-            onClick={handleTranslate}
-            disabled={!isConfigured || pageAvailability.state !== 'ready'}
-            className='flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40'
-          >
-            {contentState.status === 'translating' || contentState.status === 'scanning' ? (
-              <Loader2 className='h-4 w-4 animate-spin' />
-            ) : (
-              <RefreshCw className='h-4 w-4' />
-            )}
-            翻译当前页面
-          </button>
-
-          <div className='grid grid-cols-2 gap-2'>
-            <button
-              type='button'
-              onClick={handleReset}
-              className='flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07]'
-            >
-              <Trash2 className='h-4 w-4' />
-              彻底重置
-            </button>
-            <button
-              type='button'
-              onClick={handleResetAndRerun}
-              disabled={!isConfigured || pageAvailability.state !== 'ready'}
-              className='flex items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40'
-            >
-              <RefreshCw className='h-4 w-4' />
-              强制重翻
-            </button>
-          </div>
-
-          {(contentState.status === 'translating' || contentState.status === 'scanning') && (
+          {contentState.status === 'translating' || contentState.status === 'scanning' ? (
             <button
               type='button'
               onClick={handleCancel}
-              className='w-full rounded-lg border border-rose-500/30 bg-rose-500/10 px-3 py-2 text-sm text-rose-100 transition hover:bg-rose-500/20'
+              className='flex w-full items-center justify-center gap-2 rounded-lg border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm font-medium text-rose-100 transition hover:bg-rose-500/20'
             >
+              <Loader2 className='h-4 w-4 animate-spin' />
               取消当前翻译
             </button>
+          ) : (
+            <button
+              type='button'
+              onClick={handleTranslate}
+              disabled={!isConfigured || pageAvailability.state !== 'ready'}
+              className='flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-3 text-sm font-medium text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-40'
+            >
+              <RefreshCw className='h-4 w-4' />
+              翻译当前页面
+            </button>
           )}
+
+          <div className='grid grid-cols-2 gap-2'>
+            <div className='group relative'>
+              <button
+                type='button'
+                onClick={handleReset}
+                className='flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07]'
+              >
+                <Trash2 className='h-4 w-4' />
+                彻底重置
+              </button>
+              <div className='absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-200 opacity-0 shadow-xl pointer-events-none group-hover:opacity-100 transition-opacity z-10'>
+                清除所有覆盖层+缓存+状态
+                <div className='absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-800' />
+              </div>
+            </div>
+            <div className='group relative'>
+              <button
+                type='button'
+                onClick={handleResetAndRerun}
+                disabled={!isConfigured || pageAvailability.state !== 'ready'}
+                className='flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40'
+              >
+                <RefreshCw className='h-4 w-4' />
+                强制重翻
+              </button>
+              <div className='absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-200 opacity-0 shadow-xl pointer-events-none group-hover:opacity-100 transition-opacity z-10'>
+                忽略缓存，重新翻译所有图片
+                <div className='absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-800' />
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

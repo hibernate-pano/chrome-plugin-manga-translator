@@ -36,6 +36,10 @@ import {
   createDebouncedAutoTranslate,
   shouldAutoTranslateFollowUp,
 } from './auto-translate-observer';
+import {
+  getEnabledFromConfig,
+  getOverlayStyleFromConfig,
+} from './config-snapshot';
 
 // ==================== 消息类型定义 ====================
 
@@ -48,16 +52,17 @@ export type PopupToContentMsg =
 
 export type ContentToPopupMsg =
   | { type: 'STATE_UPDATE'; state: ContentState }
-  | { type: 'READY' };
+  | { type: 'READY' }
+  | { type: 'HUD_CANCELLED' };
 
 // ==================== 状态类型定义 ====================
 
 export type ContentState =
   | { status: 'idle' }
   | { status: 'scanning' }
-  | { status: 'translating'; current: number; total: number }
-  | { status: 'complete'; count: number }
-  | { status: 'error'; message: string };
+  | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
+  | { status: 'complete'; count: number; failedCount?: number; cachedCount?: number }
+  | { status: 'error'; message: string; suggestion?: string };
 
 // ==================== 常量 ====================
 
@@ -73,7 +78,11 @@ let renderer: OverlayRenderer | null = null;
 let hud: FloatingHud | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
+let isTranslating = false;
+let failedCount = 0;
+let cachedCount = 0;
 const processedImages: Set<string> = new Set();
+const failedImageKeys: Set<string> = new Set();
 const autoTranslateScheduler = createDebouncedAutoTranslate(() => {
   void maybeAutoTranslateNewImages();
 });
@@ -97,18 +106,19 @@ function setState(state: ContentState): void {
           status: 'translating',
           current: state.current,
           total: state.total,
+          currentImageIndex: state.currentImageIndex,
         });
         break;
       case 'complete':
         hud.update({
           status: 'complete',
           translatedCount: state.count,
-          failedCount: 0,
-          cachedCount: 0,
+          failedCount: state.failedCount ?? 0,
+          cachedCount: state.cachedCount ?? 0,
         });
         break;
       case 'error':
-        hud.update({ status: 'error', message: state.message });
+        hud.update({ status: 'error', message: state.message, suggestion: state.suggestion });
         break;
     }
   }
@@ -134,7 +144,7 @@ async function ensureServicesInitialized(): Promise<void> {
   } catch (error) {
     console.error('[ContentScript] Translator 初始化失败:', error);
     const friendly = parseTranslationError(error);
-    setState({ status: 'error', message: `初始化失败: ${friendly.message}` });
+    setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion });
     throw error;
   }
 }
@@ -157,23 +167,6 @@ function getImageKey(img: HTMLImageElement): string {
   );
 }
 
-function getEnabledFromConfig(config: unknown): boolean {
-  if (!config || typeof config !== 'object') {
-    return false;
-  }
-
-  const maybeConfig = config as {
-    enabled?: boolean;
-    autoContinueEnabled?: boolean;
-    state?: { enabled?: boolean };
-  };
-
-  const enabled = maybeConfig.state?.enabled ?? maybeConfig.enabled ?? false;
-  const autoContinueEnabled = maybeConfig.autoContinueEnabled ?? true;
-
-  return enabled && autoContinueEnabled;
-}
-
 async function processSingleImage(
   img: HTMLImageElement,
   forceRefresh: boolean = false
@@ -184,9 +177,16 @@ async function processSingleImage(
 
   img.classList.add(PROCESSED_CLASS);
 
+  // 检测是否为漫画长图：高宽比 >= 2.4 且自然高度 >= 2000px
+  const isTallImage =
+    img.naturalWidth > 0 &&
+    img.naturalHeight > 0 &&
+    img.naturalHeight / img.naturalWidth >= 2.4 &&
+    img.naturalHeight >= 2000;
+
   const result = await translator.translateImage(
     img,
-    false,
+    isTallImage,
     undefined,
     forceRefresh
   );
@@ -282,6 +282,11 @@ function stopAutoTranslateObserver(): void {
 async function translatePage(forceRefresh: boolean = false): Promise<void> {
   console.warn('[ContentScript] translatePage 开始执行');
 
+  if (isTranslating) {
+    console.warn('[ContentScript] 翻译已在进行中（锁保护）');
+    return;
+  }
+
   if (
     currentState.status === 'translating' ||
     currentState.status === 'scanning'
@@ -290,6 +295,7 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     return;
   }
 
+  isTranslating = true;
   abortController = new AbortController();
   setState({ status: 'scanning' });
 
@@ -315,22 +321,35 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     );
     const total = images.length;
     let current = 0;
+    let currentImageIndex = 0;
     let successCount = 0;
+    failedCount = 0;
+    cachedCount = 0;
+    failedImageKeys.clear();
 
-    setState({ status: 'translating', current: 0, total });
+    setState({ status: 'translating', current: 0, total, currentImageIndex: 0 });
 
     const options: ParallelProcessingOptions = {
       maxConcurrent: parallelLimit,
       signal: abortController.signal,
+      onItemStart: index => {
+        currentImageIndex = index;
+        if (currentState.status === 'translating') {
+          setState({ status: 'translating', current, total, currentImageIndex: index });
+        }
+      },
       onItemComplete: completed => {
         current = completed;
         if (currentState.status === 'translating') {
-          setState({ status: 'translating', current, total });
+          setState({ status: 'translating', current, total, currentImageIndex });
         }
       },
-      onError: error => {
-        const friendly = parseTranslationError(error);
-        console.error('[ContentScript] 图片处理失败:', friendly.message);
+      onError: (_error, index) => {
+        failedCount++;
+        const img = images[index];
+        if (img) {
+          failedImageKeys.add(getImageKey(img));
+        }
       },
     };
 
@@ -342,7 +361,6 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
         }
         const beforeCount = processedImages.size;
         await processSingleImage(img, forceRefresh);
-        // Only count if it wasn't already processed
         if (processedImages.size > beforeCount) {
           successCount++;
         }
@@ -351,19 +369,19 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
       options
     );
 
-    // 检查是否被取消
     if (abortController?.signal.aborted) {
       setState({ status: 'idle' });
       return;
     }
 
-    setState({ status: 'complete', count: successCount });
+    setState({ status: 'complete', count: successCount, failedCount, cachedCount });
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
-    setState({ status: 'error', message: friendly.message });
+    setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion });
   } finally {
     abortController = null;
+    isTranslating = false;
   }
 }
 
@@ -376,6 +394,8 @@ function cancelTranslation(): void {
     abortController = null;
   }
   setState({ status: 'idle' });
+  // 通知 popup 取消成功，按钮状态需要更新
+  sendToBackground({ type: 'HUD_CANCELLED' });
 }
 
 /**
@@ -390,6 +410,7 @@ function clearAll(): void {
   removeAllOverlaysFromDOM();
 
   processedImages.clear();
+  failedImageKeys.clear();
   document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach(img => {
     img.classList.remove(PROCESSED_CLASS);
   });
@@ -464,8 +485,15 @@ function handleStorageChange(
   if (changes[CONFIG_STORAGE_KEY]) {
     // 配置变更时重置 translator，下次使用时重新初始化
     translator = null;
-    const enabled = getEnabledFromConfig(changes[CONFIG_STORAGE_KEY].newValue);
+    const newConfig = changes[CONFIG_STORAGE_KEY].newValue;
+    const enabled = getEnabledFromConfig(newConfig);
+    const overlayStyle = getOverlayStyleFromConfig(newConfig);
     isAutoTranslateEnabled = enabled;
+
+    // 更新 renderer 样式
+    if (renderer && overlayStyle) {
+      renderer.updateStyleFromConfig(overlayStyle);
+    }
 
     if (enabled) {
       startAutoTranslateObserver();
@@ -476,12 +504,25 @@ function handleStorageChange(
   }
 }
 
-// ==================== HUD 取消按钮监听 ====================
+// ==================== HUD 事件监听 ====================
 
-function setupHudCancelListener(): void {
-  document.addEventListener('hud-cancel', () => {
-    cancelTranslation();
-  });
+function handleHudCancel(): void {
+  cancelTranslation();
+}
+
+function handleRetryFailed(): void {
+  if (isTranslating) return;
+  // 清除失败图片记录，让它们可以被重新处理
+  for (const key of failedImageKeys) {
+    processedImages.delete(key);
+  }
+  failedImageKeys.clear();
+  void translatePage(true);
+}
+
+function setupHudEventListeners(): void {
+  document.addEventListener('hud-cancel', handleHudCancel);
+  document.addEventListener('hud-retry-failed', handleRetryFailed);
 }
 
 // ==================== 初始化 ====================
@@ -501,8 +542,8 @@ async function initialize(): Promise<void> {
 
     await syncAutoTranslateMode();
 
-    // 监听 HUD 取消按钮
-    setupHudCancelListener();
+    // 监听 HUD 按钮事件
+    setupHudEventListeners();
 
     // 页面卸载时清理
     window.addEventListener('beforeunload', cleanup);
@@ -529,6 +570,12 @@ function cleanup(): void {
   }
   stopAutoTranslateObserver();
   processedImages.clear();
+  failedImageKeys.clear();
+  chrome.runtime.onMessage.removeListener(handleMessage);
+  chrome.storage.onChanged.removeListener(handleStorageChange);
+  document.removeEventListener('hud-cancel', handleHudCancel);
+  document.removeEventListener('hud-retry-failed', handleRetryFailed);
+  window.removeEventListener('beforeunload', cleanup);
 }
 
 // ==================== 启动 ====================
@@ -540,7 +587,9 @@ initialize();
 export {
   currentState,
   findTranslatableImages,
+  getEnabledFromConfig,
   handleMessage,
+  handleStorageChange,
   translatePage,
   cancelTranslation,
   clearAll,

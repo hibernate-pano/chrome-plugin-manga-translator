@@ -10,7 +10,7 @@ export interface BatchTranslationTask {
   status: 'pending' | 'processing' | 'completed' | 'failed' | 'skipped';
   retryCount: number;
   error?: string;
-  result?: any;
+  result?: unknown;
   timestamp: number;
 }
 
