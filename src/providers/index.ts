@@ -14,6 +14,7 @@ export {
   type ProviderType,
   getMangaTranslationPrompt,
   parseVisionResponse,
+  providerRequiresApiKey,
 } from './base';
 
 // Provider implementations (static imports for Chrome extension compatibility)
