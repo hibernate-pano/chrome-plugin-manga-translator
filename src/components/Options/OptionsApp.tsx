@@ -18,6 +18,7 @@ import {
 import { createProvider } from '@/providers';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
 
@@ -206,22 +207,19 @@ const OptionsApp: React.FC = () => {
   }, []);
 
   // Provider switch confirmation handler
+  // 第一次点击弹出确认对话框；确认后才真正切换。
+  // 之前是 3 秒隐式倒计时（黄色 ring），用户难以察觉，按视觉审计 §六.5 改为显式 dialog。
   const handleProviderSwitch = useCallback((providerType: ProviderType) => {
+    if (providerType === provider) {
+      return; // 已是当前 provider，无需切换
+    }
+    setPendingProvider(providerType);
+  }, [provider]);
+
+  const confirmProviderSwitch = useCallback(() => {
     if (pendingProvider) {
-      // Already pending - confirm switch
-      setProvider(providerType);
+      void setProvider(pendingProvider);
       setPendingProvider(null);
-    } else {
-      // Start pending confirmation
-      setPendingProvider(providerType);
-      setTimeout(() => {
-        setPendingProvider(current => {
-          if (current === providerType) {
-            return null;
-          }
-          return current;
-        });
-      }, 3000);
     }
   }, [pendingProvider, setProvider]);
 
@@ -286,7 +284,6 @@ const OptionsApp: React.FC = () => {
     }
     const settings = providers[providerType];
     const result = testResults[providerType];
-    const isPending = pendingProvider === providerType;
     const health = providerHealth[providerType];
 
     return (
@@ -305,7 +302,7 @@ const OptionsApp: React.FC = () => {
           provider === providerType
             ? 'border-cyan-500/40 bg-cyan-500/10'
             : 'border-white/10 bg-white/[0.03]'
-        } ${isPending ? 'ring-2 ring-yellow-500/50' : ''}`}
+        }`}
       >
         <div className='flex items-start justify-between gap-4'>
           <div>
@@ -334,7 +331,7 @@ const OptionsApp: React.FC = () => {
                   : 'border-white/10 text-slate-400'
               }`}
             >
-              {provider === providerType ? '当前使用中' : isPending ? '确认切换？' : '点击切换'}
+              {provider === providerType ? '当前使用中' : '点击切换'}
             </span>
             {health !== 'unknown' && (
               <span
@@ -795,6 +792,19 @@ const OptionsApp: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingProvider !== null}
+        title='切换翻译后端？'
+        description={`将切换到「${
+          PROVIDERS.find(p => p.type === pendingProvider)?.name ?? pendingProvider
+        }」。已有配置不会丢失，可随时切回。`}
+        confirmLabel='切换'
+        cancelLabel='取消'
+        destructive={false}
+        onConfirm={confirmProviderSwitch}
+        onCancel={() => setPendingProvider(null)}
+      />
     </div>
   );
 };

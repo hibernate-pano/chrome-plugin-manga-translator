@@ -12,6 +12,7 @@ import {
 
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
+import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { getPageAvailability, type PageAvailability } from './popup-state';
 
 type ContentState =
@@ -202,6 +203,29 @@ const PopupApp: React.FC = () => {
     await sendToContent({ type: 'FORCE_RETRANSLATE_PAGE' });
   }, []);
 
+  // 危险操作二次确认：哪个动作正在等用户确认（null = 无）
+  const [pendingDanger, setPendingDanger] = useState<
+    'reset' | 'forceRetranslate' | null
+  >(null);
+
+  const requestReset = useCallback(() => {
+    setPendingDanger('reset');
+  }, []);
+
+  const requestResetAndRerun = useCallback(() => {
+    setPendingDanger('forceRetranslate');
+  }, []);
+
+  const confirmDanger = useCallback(async () => {
+    const action = pendingDanger;
+    setPendingDanger(null);
+    if (action === 'reset') {
+      await handleReset();
+    } else if (action === 'forceRetranslate') {
+      await handleResetAndRerun();
+    }
+  }, [pendingDanger, handleReset, handleResetAndRerun]);
+
   const handleCancel = useCallback(async () => {
     await sendToContent({ type: 'CANCEL_TRANSLATION' });
   }, []);
@@ -379,8 +403,8 @@ const PopupApp: React.FC = () => {
             <div className='group relative'>
               <button
                 type='button'
-                onClick={handleReset}
-                className='flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07]'
+                onClick={requestReset}
+                className='flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
               >
                 <Trash2 className='h-4 w-4' />
                 彻底重置
@@ -393,9 +417,9 @@ const PopupApp: React.FC = () => {
             <div className='group relative'>
               <button
                 type='button'
-                onClick={handleResetAndRerun}
+                onClick={requestResetAndRerun}
                 disabled={!isConfigured || pageAvailability.state !== 'ready'}
-                className='flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07] disabled:cursor-not-allowed disabled:opacity-40'
+                className='flex w-full items-center justify-center gap-2 rounded-lg border border-white/10 bg-white/[0.03] px-3 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:cursor-not-allowed disabled:opacity-40'
               >
                 <RefreshCw className='h-4 w-4' />
                 强制重翻
@@ -408,6 +432,27 @@ const PopupApp: React.FC = () => {
           </div>
         </div>
       </div>
+
+      <ConfirmDialog
+        open={pendingDanger === 'reset'}
+        title='彻底重置当前页？'
+        description='将清除本页所有翻译覆盖层、缓存与状态，无法撤销。'
+        confirmLabel='清除'
+        cancelLabel='取消'
+        destructive={true}
+        onConfirm={confirmDanger}
+        onCancel={() => setPendingDanger(null)}
+      />
+      <ConfirmDialog
+        open={pendingDanger === 'forceRetranslate'}
+        title='强制重翻当前页？'
+        description='忽略缓存，对所有图片重新调用 Vision LLM 翻译，会产生额外的 API 调用费用。'
+        confirmLabel='重翻'
+        cancelLabel='取消'
+        destructive={true}
+        onConfirm={confirmDanger}
+        onCancel={() => setPendingDanger(null)}
+      />
     </div>
   );
 };

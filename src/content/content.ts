@@ -62,7 +62,12 @@ export type ContentState =
   | { status: 'scanning' }
   | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
   | { status: 'complete'; count: number; failedCount?: number; cachedCount?: number }
-  | { status: 'error'; message: string; suggestion?: string };
+  | {
+      status: 'error';
+      message: string;
+      suggestion?: string;
+      action?: import('@/utils/error-handler').ErrorAction;
+    };
 
 // ==================== 常量 ====================
 
@@ -118,7 +123,7 @@ function setState(state: ContentState): void {
         });
         break;
       case 'error':
-        hud.update({ status: 'error', message: state.message, suggestion: state.suggestion });
+        hud.update({ status: 'error', message: state.message, suggestion: state.suggestion, action: state.action });
         break;
     }
   }
@@ -144,7 +149,7 @@ async function ensureServicesInitialized(): Promise<void> {
   } catch (error) {
     console.error('[ContentScript] Translator 初始化失败:', error);
     const friendly = parseTranslationError(error);
-    setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion });
+    setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion, action: friendly.action });
     throw error;
   }
 }
@@ -378,7 +383,7 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
-    setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion });
+    setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion, action: friendly.action });
   } finally {
     abortController = null;
     isTranslating = false;
@@ -520,9 +525,31 @@ function handleRetryFailed(): void {
   void translatePage(true);
 }
 
+// 错误"修复入口"按钮：根据 action 类型执行
+function handleHudErrorAction(e: Event): void {
+  const detail = (e as CustomEvent<{ type: string }>).detail;
+  if (!detail) return;
+  if (detail.type === 'open-settings') {
+    void chrome.runtime.sendMessage({ action: 'openOptionsPage' }).catch(
+      () => undefined
+    );
+  } else if (detail.type === 'copy-command') {
+    // 从当前 state 取 suggestion 作为待复制内容
+    const suggestion =
+      currentState.status === 'error' ? currentState.suggestion : undefined;
+    if (suggestion) {
+      void navigator.clipboard.writeText(suggestion).then(
+        () => console.warn('[ContentScript] 已复制修复命令到剪贴板'),
+        () => console.error('[ContentScript] 复制到剪贴板失败')
+      );
+    }
+  }
+}
+
 function setupHudEventListeners(): void {
   document.addEventListener('hud-cancel', handleHudCancel);
   document.addEventListener('hud-retry-failed', handleRetryFailed);
+  document.addEventListener('hud-error-action', handleHudErrorAction);
 }
 
 // ==================== 初始化 ====================
@@ -575,6 +602,7 @@ function cleanup(): void {
   chrome.storage.onChanged.removeListener(handleStorageChange);
   document.removeEventListener('hud-cancel', handleHudCancel);
   document.removeEventListener('hud-retry-failed', handleRetryFailed);
+  document.removeEventListener('hud-error-action', handleHudErrorAction);
   window.removeEventListener('beforeunload', cleanup);
 }
 

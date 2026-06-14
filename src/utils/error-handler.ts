@@ -46,6 +46,18 @@ export enum TranslationErrorCode {
 }
 
 /**
+ * 错误对应的"修复入口"动作类型。
+ * - open-settings：跳到扩展设置页（chrome.runtime.openOptionsPage）
+ * - copy-command：复制 suggestion 里的命令到剪贴板
+ */
+export type ErrorActionType = 'open-settings' | 'copy-command';
+
+export interface ErrorAction {
+  type: ErrorActionType;
+  label: string;
+}
+
+/**
  * 友好错误接口（符合设计文档）
  */
 export interface FriendlyError {
@@ -53,6 +65,7 @@ export interface FriendlyError {
   message: string; // 用户友好的中文消息
   retryable: boolean;
   suggestion?: string; // 解决建议
+  action?: ErrorAction; // 可执行的修复入口
 }
 
 /**
@@ -61,22 +74,30 @@ export interface FriendlyError {
  */
 const ERROR_MESSAGES: Record<
   TranslationErrorCode,
-  { message: string; suggestion: string; retryable: boolean }
+  {
+    message: string;
+    suggestion: string;
+    retryable: boolean;
+    action?: ErrorAction;
+  }
 > = {
   [TranslationErrorCode.CONFIG_MISSING]: {
     message: '请先配置 API 密钥',
     suggestion: '请在设置页面配置您的 API 密钥',
     retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
   },
   [TranslationErrorCode.AUTH_ERROR]: {
     message: 'API 密钥无效，请检查配置',
     suggestion: '请确认您的 API 密钥是否正确',
     retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
   },
   [TranslationErrorCode.INVALID_API_KEY_FORMAT]: {
     message: 'API 密钥格式不正确',
     suggestion: '请检查 API 密钥格式是否正确，例如 OpenAI 密钥应以 sk- 开头',
     retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
   },
   [TranslationErrorCode.CONNECTION_REFUSED]: {
     message: '无法连接到服务器',
@@ -102,28 +123,33 @@ const ERROR_MESSAGES: Record<
     message: '请先启动 Ollama 服务',
     suggestion: '请确保 Ollama 已安装并运行：ollama serve',
     retryable: false,
+    action: { type: 'copy-command', label: '复制命令' },
   },
   [TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED]: {
     message: 'Ollama 未允许当前浏览器扩展访问',
     suggestion:
       '请设置 OLLAMA_ORIGINS=chrome-extension://* 并重启 Ollama；macOS 可先执行 launchctl setenv OLLAMA_ORIGINS "chrome-extension://*"',
     retryable: false,
+    action: { type: 'copy-command', label: '复制命令' },
   },
   [TranslationErrorCode.MODEL_NOT_FOUND]: {
     message: '模型未安装，请先下载模型',
     suggestion: '请运行 ollama pull <model_name> 下载模型',
     retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
   },
   [TranslationErrorCode.PARAM_ERROR]: {
     message: '请求参数超出模型限制',
     suggestion: '请在设置中调整模型参数，或更换支持更大上下文的模型',
     retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
   },
   [TranslationErrorCode.MODEL_INCOMPATIBLE]: {
     message: '当前模型不支持翻译任务',
     suggestion:
       '请更换为支持指令跟随的视觉语言模型，如 Qwen2.5-VL-32B-Instruct',
     retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
   },
   [TranslationErrorCode.PARSE_ERROR]: {
     message: '翻译结果解析失败',
@@ -445,6 +471,7 @@ export class TranslationErrorHandler {
       message: errorInfo.message,
       retryable: errorInfo.retryable,
       suggestion: errorInfo.suggestion,
+      action: errorInfo.action,
     };
   }
 
@@ -553,6 +580,7 @@ export function createFriendlyError(code: TranslationErrorCode): FriendlyError {
     message: errorInfo.message,
     retryable: errorInfo.retryable,
     suggestion: errorInfo.suggestion,
+    action: errorInfo.action,
   };
 }
 

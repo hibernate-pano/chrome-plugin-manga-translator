@@ -13,6 +13,8 @@
 
 // ==================== 类型定义 ====================
 
+import type { ErrorAction } from '@/utils/error-handler';
+
 export type HudState =
   | { status: 'hidden' }
   | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
@@ -22,7 +24,12 @@ export type HudState =
       failedCount: number;
       cachedCount: number;
     }
-  | { status: 'error'; message: string; suggestion?: string };
+  | {
+      status: 'error';
+      message: string;
+      suggestion?: string;
+      action?: ErrorAction;
+    };
 
 // ==================== FloatingHud 类 ====================
 
@@ -59,6 +66,20 @@ export class FloatingHud {
         this.container.dispatchEvent(
           new CustomEvent('hud-retry-failed', { bubbles: true, composed: true })
         );
+      } else if (target.id === 'error-action-btn') {
+        const actionType = target.dataset['actionType'] as
+          | 'open-settings'
+          | 'copy-command'
+          | undefined;
+        if (actionType) {
+          this.container.dispatchEvent(
+            new CustomEvent('hud-error-action', {
+              bubbles: true,
+              composed: true,
+              detail: { type: actionType },
+            })
+          );
+        }
       }
     });
   }
@@ -158,6 +179,11 @@ export class FloatingHud {
             ${state.suggestion ? `
               <div class="hud-suggestion">${escapeHtml(state.suggestion)}</div>
             ` : ''}
+            ${
+              state.action
+                ? `<button id="error-action-btn" class="hud-action" data-action-type="${state.action.type}">${escapeHtml(state.action.label)}</button>`
+                : ''
+            }
           </div>
         `;
       }
@@ -216,6 +242,24 @@ export class FloatingHud {
           margin-top: 8px;
           padding-top: 8px;
           border-top: 1px solid rgba(255, 255, 255, 0.15);
+        }
+
+        .hud-action {
+          margin-top: 10px;
+          padding: 6px 12px;
+          background: rgba(255, 255, 255, 0.15);
+          color: #fff;
+          border: 1px solid rgba(255, 255, 255, 0.25);
+          border-radius: 6px;
+          font-size: 12px;
+          font-weight: 500;
+          cursor: pointer;
+          pointer-events: auto;
+          transition: background 0.15s;
+        }
+
+        .hud-action:hover {
+          background: rgba(255, 255, 255, 0.25);
         }
 
         .hud-progress-track {
