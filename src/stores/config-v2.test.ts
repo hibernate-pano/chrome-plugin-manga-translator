@@ -65,8 +65,8 @@ describe('AppConfigStore', () => {
     // 等待持久化异步操作写入完成
     await new Promise((resolve) => setTimeout(resolve, 50));
     
-    // 检查 chrome.storage.sync 中保存的是混淆后的值（包含 obf:）且没有暴露明文
-    const result = await chrome.storage.sync.get(['manga-translator-config-v2']);
+    // 检查 chrome.storage.local 中保存的是混淆后的值（包含 obf:）且没有暴露明文
+    const result = await chrome.storage.local.get(['manga-translator-config-v2']);
     const storedObj = result['manga-translator-config-v2'];
     expect(storedObj).not.toBeNull();
     expect(storedObj.state).toBeDefined();
@@ -98,7 +98,7 @@ describe('AppConfigStore', () => {
     it('remaps legacy `openai` provider into `openai-compatible`', async () => {
       // Simulate a v0.3.1 persisted envelope where the user was on the old
       // 'openai' provider key with no 'openai-compatible' or 'lm-studio'.
-      await chrome.storage.sync.set({
+      await chrome.storage.local.set({
         'manga-translator-config-v2': {
           state: {
             enabled: true,
@@ -142,7 +142,7 @@ describe('AppConfigStore', () => {
     });
 
     it('remaps legacy `siliconflow` provider settings to `openai-compatible`', async () => {
-      await chrome.storage.sync.set({
+      await chrome.storage.local.set({
         'manga-translator-config-v2': {
           state: {
             enabled: false,

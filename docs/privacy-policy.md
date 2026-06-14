@@ -22,14 +22,16 @@ When you activate the extension on a webpage, the extension captures images from
 
 You may provide API keys for third-party services (e.g., OpenAI). These keys are:
 
-- Stored locally in your browser using Chrome's `storage.sync` API
+- Stored locally in your browser using Chrome's `storage.local` API (not synced across devices via your Google account)
 - Obfuscated before storage (XOR-based obfuscation) to prevent casual inspection by other extensions
 - Never transmitted to any server other than the API provider you configure
 - Never sent to the extension developer
 
+> Note: Prior to v0.3.5, configuration was stored in `chrome.storage.sync`, which meant obfuscated API keys were synced across devices via the user's Google account. v0.3.5 moved all configuration to `chrome.storage.local` and performs a one-time automatic migration on startup; the old `storage.sync` copy is deleted after migration.
+
 ### 3. Configuration Preferences
 
-Your settings (target language, provider selection, UI preferences) are stored locally using Chrome's `storage.sync` API. None of this data is sent to the extension developer.
+Your settings (target language, provider selection, UI preferences) are stored locally using Chrome's `storage.local` API. None of this data is sent to the extension developer or synced across devices.
 
 ### 4. Translation Cache
 

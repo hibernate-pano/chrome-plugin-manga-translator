@@ -81,7 +81,7 @@ void getConfig().then(config => {
 
 // 监听外部配置变更，自动同步并发度
 chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName !== 'sync') {
+  if (areaName !== 'local') {
     return;
   }
   const configChange = changes[APP_CONFIG_STORAGE_KEY];
@@ -153,6 +153,7 @@ chrome.contextMenus.onClicked.addListener((info, tab) => {
 });
 
 chrome.runtime.onStartup.addListener(() => {
+  void migrateConfigFromSyncToLocal();
   void checkAndSetDefaultConfig();
 });
 
@@ -160,8 +161,37 @@ async function initializeDefaultSettings(): Promise<void> {
   await setConfig(DEFAULT_CONFIG);
 }
 
+/**
+ * v0.3.5 之前配置存在 chrome.storage.sync（会随 Google 账户跨设备同步），
+ * 导致混淆后的 API key 也会被同步出去。v0.3.5 起改用 chrome.storage.local。
+ *
+ * 本函数做一次性迁移：若 local 里没有配置但 sync 里有，就把 sync 的搬过来，
+ * 然后删掉 sync 里的副本。幂等 —— 已迁移过的用户再跑也是 no-op。
+ */
+async function migrateConfigFromSyncToLocal(): Promise<void> {
+  try {
+    const local = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
+    if (local[CONFIG_STORAGE_KEY]) {
+      return; // local 已有配置，无需迁移
+    }
+    const synced = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
+    const syncedConfig = synced[CONFIG_STORAGE_KEY];
+    if (!syncedConfig) {
+      return; // sync 里也没有，没东西可迁
+    }
+    await chrome.storage.local.set({ [CONFIG_STORAGE_KEY]: syncedConfig });
+    await chrome.storage.sync.remove([CONFIG_STORAGE_KEY]);
+    console.warn(
+      '[Background] 已将配置从 chrome.storage.sync 迁移到 chrome.storage.local（API key 不再跨设备同步）'
+    );
+  } catch (error) {
+    console.error('[Background] sync→local 配置迁移失败:', error);
+  }
+}
+
 async function migrateSettings(): Promise<void> {
-  const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
+  await migrateConfigFromSyncToLocal();
+  const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
   const currentConfig = result[CONFIG_STORAGE_KEY];
   if (!currentConfig) {
     await initializeDefaultSettings();
@@ -172,14 +202,14 @@ async function migrateSettings(): Promise<void> {
 }
 
 async function checkAndSetDefaultConfig(): Promise<void> {
-  const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
+  const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
   if (!result[CONFIG_STORAGE_KEY]) {
     await initializeDefaultSettings();
   }
 }
 
 async function getConfig(): Promise<Record<string, unknown>> {
-  const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
+  const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
   const config = normalizeStoredConfigSnapshot(result[CONFIG_STORAGE_KEY]);
   deobfuscateAllApiKeys(config);
   return config;
@@ -188,7 +218,7 @@ async function getConfig(): Promise<Record<string, unknown>> {
 async function setConfig(config: Record<string, unknown>): Promise<void> {
   const cloned = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   obfuscateAllApiKeys(cloned);
-  await chrome.storage.sync.set({ [CONFIG_STORAGE_KEY]: cloned });
+  await chrome.storage.local.set({ [CONFIG_STORAGE_KEY]: cloned });
   syncQueueLimit(cloned);
 }
 
@@ -539,7 +569,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
   if (changeInfo.status === 'complete') {
-    void chrome.storage.sync
+    void chrome.storage.local
       .get([CONFIG_STORAGE_KEY])
       .then(result => {
         const config = result[CONFIG_STORAGE_KEY] || DEFAULT_CONFIG;

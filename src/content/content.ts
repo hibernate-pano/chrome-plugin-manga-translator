@@ -204,7 +204,7 @@ async function processSingleImage(
 
 async function syncAutoTranslateMode(): Promise<void> {
   try {
-    const result = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
+    const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
     const enabled = getEnabledFromConfig(result[CONFIG_STORAGE_KEY]);
     isAutoTranslateEnabled = enabled;
 
