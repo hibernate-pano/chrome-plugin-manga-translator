@@ -143,6 +143,15 @@ chrome.runtime.onInstalled.addListener(details => {
   }
 });
 
+// 右键菜单"翻译当前页面" → 转发 TRANSLATE_PAGE 到当前 tab 的 content script。
+// 复用 forwardToActiveTab 已有的错误处理链路。
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId !== 'translatePage' || !tab?.id) {
+    return;
+  }
+  void sendToTab(tab.id, { type: 'TRANSLATE_PAGE' }).catch(() => undefined);
+});
+
 chrome.runtime.onStartup.addListener(() => {
   void checkAndSetDefaultConfig();
 });

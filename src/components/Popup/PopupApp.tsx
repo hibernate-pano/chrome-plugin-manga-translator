@@ -235,9 +235,7 @@ const PopupApp: React.FC = () => {
         <div className='flex items-center justify-between'>
           <div>
             <div className='text-sm font-semibold'>Manga Translator</div>
-            <div className='mt-1 flex items-center gap-2 text-xs text-slate-400'>
-              <span>当前页翻译 / 自动续翻 / 强制重翻</span>
-            </div>
+            <div className='mt-1 text-xs text-slate-400'>漫画翻译助手</div>
           </div>
           <div className='flex items-center gap-3'>
             <div className='flex items-center gap-1.5 rounded-full border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1'>
