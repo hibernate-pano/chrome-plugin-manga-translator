@@ -56,7 +56,6 @@ export default defineConfig({
     include: [
       'react',
       'react-dom',
-      '@tanstack/react-query',
       'zustand',
       'clsx',
       'class-variance-authority',
@@ -92,7 +91,6 @@ export default defineConfig({
         manualChunks: {
           // 将React相关库分离到单独的chunk（popup/options 受益于代码分割）
           'react-vendor': ['react', 'react-dom'],
-          'query-vendor': ['@tanstack/react-query'],
           'state-vendor': ['zustand'],
           'utils-vendor': ['clsx', 'class-variance-authority'],
         },
