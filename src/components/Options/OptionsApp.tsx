@@ -21,6 +21,7 @@ import type { ProviderType } from '@/providers/base';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 
 interface TestResult {
   success: boolean;
@@ -622,11 +623,10 @@ const OptionsApp: React.FC = () => {
                   <div className='text-sm font-medium'>启用扩展</div>
                   <div className='text-xs text-slate-400'>允许页面进入自动翻译体系</div>
                 </div>
-              <input
-                type='checkbox'
+              <Switch
                 checked={enabled}
-                onChange={e => setEnabled(e.target.checked)}
-                className='h-4 w-4'
+                onCheckedChange={setEnabled}
+                aria-label='启用扩展'
               />
             </label>
 
@@ -635,11 +635,10 @@ const OptionsApp: React.FC = () => {
                 <div className='text-sm font-medium'>自动续翻</div>
                 <div className='text-xs text-slate-400'>页面内后续图片出现时自动继续翻译</div>
               </div>
-              <input
-                type='checkbox'
+              <Switch
                 checked={autoContinueEnabled}
-                onChange={e => setAutoContinueEnabled(e.target.checked)}
-                className='h-4 w-4'
+                onCheckedChange={setAutoContinueEnabled}
+                aria-label='自动续翻'
               />
             </label>
 
@@ -648,11 +647,10 @@ const OptionsApp: React.FC = () => {
                 <div className='text-sm font-medium'>缓存结果</div>
                 <div className='text-xs text-slate-400'>减少重复图片的重复请求</div>
               </div>
-              <input
-                type='checkbox'
+              <Switch
                 checked={cacheEnabled}
-                onChange={e => setCacheEnabled(e.target.checked)}
-                className='h-4 w-4'
+                onCheckedChange={setCacheEnabled}
+                aria-label='缓存结果'
               />
             </label>
 
@@ -721,11 +719,10 @@ const OptionsApp: React.FC = () => {
                       <div className='text-sm font-medium'>竖排文字</div>
                       <div className='text-xs text-slate-400'>日文漫画竖向排版时启用</div>
                     </div>
-                    <input
-                      type='checkbox'
+                    <Switch
                       checked={verticalText}
-                      onChange={e => setVerticalText(e.target.checked)}
-                      className='h-4 w-4'
+                      onCheckedChange={setVerticalText}
+                      aria-label='竖排文字'
                     />
                   </label>
 

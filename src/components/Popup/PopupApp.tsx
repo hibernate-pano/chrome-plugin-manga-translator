@@ -13,6 +13,7 @@ import {
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { Switch } from '@/components/ui/switch';
 import { getPageAvailability, type PageAvailability } from './popup-state';
 
 type ContentState =
@@ -289,11 +290,10 @@ const PopupApp: React.FC = () => {
             <div className='text-sm font-medium'>启用扩展</div>
             <div className='text-xs text-slate-400'>页面加载后允许自动续翻新出现的图片</div>
           </div>
-          <input
-            type='checkbox'
+          <Switch
             checked={enabled}
-            onChange={e => setEnabled(e.target.checked)}
-            className='h-4 w-4 rounded border-white/20 bg-slate-900'
+            onCheckedChange={setEnabled}
+            aria-label='启用扩展'
           />
         </label>
 

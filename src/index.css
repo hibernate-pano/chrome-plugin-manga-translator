@@ -77,4 +77,17 @@ body {
   body {
     @apply bg-background text-foreground;
   }
+
+  /* 全局键盘聚焦反馈：键盘用户必须能看到当前焦点。
+     focus-visible 只在键盘导航时触发，不影响鼠标点击体验。
+     使用 cyan 在深色 popup/options 上也清晰可见。 */
+  button:focus-visible,
+  input:focus-visible,
+  select:focus-visible,
+  textarea:focus-visible,
+  a:focus-visible,
+  [role='button']:focus-visible {
+    outline: 2px solid rgb(34 211 238); /* cyan-400 */
+    outline-offset: 2px;
+  }
 }
