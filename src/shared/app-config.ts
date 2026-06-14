@@ -270,8 +270,8 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
 
 export async function loadRuntimeAppConfig(): Promise<RuntimeAppConfig> {
   try {
-    if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
-      const result = await chrome.storage.sync.get([APP_CONFIG_STORAGE_KEY]);
+    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+      const result = await chrome.storage.local.get([APP_CONFIG_STORAGE_KEY]);
       return normalizeRuntimeAppConfig(result[APP_CONFIG_STORAGE_KEY]);
     }
   } catch (error) {

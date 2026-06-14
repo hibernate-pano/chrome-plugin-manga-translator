@@ -139,6 +139,7 @@ const OptionsApp: React.FC = () => {
   const [loadingOllamaModels, setLoadingOllamaModels] = useState(false);
   const [overlayStyleExpanded, setOverlayStyleExpanded] = useState(false);
   const [pendingProvider, setPendingProvider] = useState<ProviderType | null>(null);
+  const [privacyBannerDismissed, setPrivacyBannerDismissed] = useState(false);
   const [providerHealth, setProviderHealth] = useState<Record<ProviderType, 'unknown' | 'healthy' | 'unhealthy'>>({
     'openai-compatible': 'unknown',
     ollama: 'unknown',
@@ -184,6 +185,25 @@ const OptionsApp: React.FC = () => {
       }
     };
   }, [performHealthCheck]);
+
+  // 隐私告知 banner：读取是否已被用户关闭
+  useEffect(() => {
+    void chrome.storage.local
+      .get(['manga-translator-privacy-banner-dismissed'])
+      .then(result => {
+        if (result['manga-translator-privacy-banner-dismissed'] === true) {
+          setPrivacyBannerDismissed(true);
+        }
+      })
+      .catch(() => undefined);
+  }, []);
+
+  const dismissPrivacyBanner = useCallback(() => {
+    setPrivacyBannerDismissed(true);
+    void chrome.storage.local
+      .set({ 'manga-translator-privacy-banner-dismissed': true })
+      .catch(() => undefined);
+  }, []);
 
   // Provider switch confirmation handler
   const handleProviderSwitch = useCallback((providerType: ProviderType) => {
@@ -517,6 +537,35 @@ const OptionsApp: React.FC = () => {
             </span>
           </div>
         </div>
+
+        {/* 隐私告知 banner：说明 API key 与图片数据流向，可关闭 */}
+        {!privacyBannerDismissed && (
+          <div className='flex items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4'>
+            <Info className='mt-0.5 h-5 w-5 shrink-0 text-cyan-400' />
+            <div className='flex-1'>
+              <h3 className='text-sm font-semibold text-cyan-100'>
+                数据流向说明
+              </h3>
+              <p className='mt-1 text-sm text-slate-300'>
+                你的 API Key 与配置仅保存在本机{' '}
+                <code className='rounded bg-slate-800 px-1 py-0.5 text-xs'>
+                  chrome.storage.local
+                </code>
+                ，不随 Google 账户跨设备同步，也不会上传给本扩展作者。
+                翻译时漫画图片会直接发送到你配置的 Vision LLM 服务
+                （OpenAI / Ollama / LM Studio）。
+              </p>
+            </div>
+            <button
+              type='button'
+              onClick={dismissPrivacyBanner}
+              aria-label='关闭告知'
+              className='shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-white'
+            >
+              <ChevronDown className='h-4 w-4' />
+            </button>
+          </div>
+        )}
 
         {/* First-time usage guide - only show when no provider is configured */}
         {!(

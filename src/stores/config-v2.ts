@@ -289,8 +289,8 @@ const chromeStorage = {
   getItem: async (name: string): Promise<string | null> => {
     try {
       let dataStr = null;
-      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
-        const result = await chrome.storage.sync.get([name]);
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        const result = await chrome.storage.local.get([name]);
         dataStr = result[name] ? JSON.stringify(result[name]) : null;
       } else {
         dataStr = localStorage.getItem(name);
@@ -318,8 +318,8 @@ const chromeStorage = {
         obfuscateAllApiKeys(parsedValue);
       }
 
-      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
-        await chrome.storage.sync.set({ [name]: parsedValue });
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.set({ [name]: parsedValue });
       } else {
         localStorage.setItem(name, JSON.stringify(parsedValue));
       }
@@ -329,8 +329,8 @@ const chromeStorage = {
   },
   removeItem: async (name: string): Promise<void> => {
     try {
-      if (typeof chrome !== 'undefined' && chrome.storage?.sync) {
-        await chrome.storage.sync.remove([name]);
+      if (typeof chrome !== 'undefined' && chrome.storage?.local) {
+        await chrome.storage.local.remove([name]);
       } else {
         localStorage.removeItem(name);
       }
@@ -508,7 +508,7 @@ export const useOverlayStyle = () =>
 // ==================== External Storage Change Listener ====================
 
 /**
- * Listen for external changes to chrome.storage.sync and re-sync the store.
+ * Listen for external changes to chrome.storage.local and re-sync the store.
  * This handles cases where Popup/Options/Background modify storage directly,
  * ensuring all extension contexts stay in sync.
  */
@@ -522,7 +522,7 @@ function setupStorageChangeListener(): void {
 
   if (typeof chrome !== 'undefined' && chrome.storage?.onChanged) {
     chrome.storage.onChanged.addListener((changes, areaName) => {
-      if (areaName !== 'sync') {
+      if (areaName !== 'local') {
         return;
       }
       const configChange = changes[APP_CONFIG_STORAGE_KEY];
