@@ -1,0 +1,193 @@
+version: 1
+plan:
+  name: '漫画翻译助手 - 阶段2体验优化'
+  max_concurrency: 2
+  max_consecutive_failures: 1
+  max_cycles: 6
+
+tasks:
+  - id: error-messages-improved
+    title: '改进错误信息展示'
+    prompt: |
+      ## 任务：改进错误信息展示
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+
+      ### 背景
+
+      当前错误处理模块 (`src/utils/error-handler.ts`) 已经有完整的 `FriendlyError` 系统，但 UI 层没有充分利用这些信息。
+
+      ### 需要改进的地方
+
+      1. **FloatingHUD 错误状态改进**（`src/content/floating-hud.ts`）：
+         - 当前 error 状态只显示 message，没有显示 suggestion
+         - 添加「查看详情」或「如何解决」按钮（可选折叠）
+         - Ollama 相关错误提供更明确的解决步骤
+
+      2. **选项页面错误提示改进**（`src/components/Options/OptionsApp.tsx`）：
+         - 测试配置失败时，显示更友好的错误信息
+         - 使用 `getFullFriendlyErrorMessage` 展示完整建议
+         - 网络错误和 Ollama 错误提供具体解决步骤
+
+      3. **错误码扩展**：
+         - 检查现有的 `TranslationErrorCode` 是否覆盖了所有常见错误场景
+         - 添加「无效 API Key 格式」等更具体的错误码
+
+      ### 技术要求
+
+      - 保持 Shadow DOM 隔离（FloatingHUD）
+      - 不要引入新的依赖
+      - 构建 `pnpm build && pnpm lint && pnpm test:run` 全部通过
+
+      ### 交付物
+
+      - 修改的文件列表
+      - 改进说明
+      - 通过构建/测试/lint 的证据
+
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      验证错误信息改进：
+
+      1. 检查 FloatingHUD 的 error 状态是否包含更多有用信息
+
+      2. 检查 OptionsApp 的测试失败提示是否更友好
+
+      3. 运行 `pnpm build && pnpm lint && pnpm test:run` 确认构建通过
+
+      4. 检查是否有新的错误码添加
+
+      通过条件：所有检查通过，构建/测试/lint 全部通过
+
+    timeout_ms: 900000
+
+  - id: overlay-style-config
+    title: '覆盖层样式可配置'
+    prompt: |
+      ## 任务：添加覆盖层样式可配置选项
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+
+      ### 背景
+
+      当前 `OverlayRenderer` (`src/services/renderer.ts`) 的样式是硬编码的。用户可能想要自定义：
+      - 背景颜色/透明度
+      - 字体大小范围
+      - 字体样式
+
+      ### 实现方案
+
+      1. **在 config-v2.ts 添加覆盖层样式配置**：
+         ```typescript
+         export interface OverlayStyleConfig {
+           backgroundColor: string;  // 默认 rgba(240, 240, 235, 0.94)
+           textColor: string;        // 默认 #111111
+           minFontSize: number;      // 默认 10
+           maxFontSize: number;      // 默认 22
+         }
+         ```
+
+      2. **在 OptionsApp.tsx 添加 UI 配置**：
+         - 背景颜色选择器（或预设：明亮/半透明/暗色）
+         - 字体大小范围滑块
+         - 实时预览
+
+      3. **修改 OverlayRenderer 支持动态样式**：
+         - 从 store 读取配置
+         - 样式变更时更新 overlay
+
+      ### 约束
+
+      - 保持向后兼容（默认样式不变）
+      - 构建 `pnpm build && pnpm lint && pnpm test:run` 全部通过
+      - 不破坏现有 overlay 渲染
+
+      ### 交付物
+
+      - 配置接口定义
+      - OptionsApp UI 更新
+      - OverlayRenderer 修改
+      - 通过构建/测试/lint 的证据
+
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      验证覆盖层样式配置：
+
+      1. 检查 config-v2.ts 是否添加了 overlayStyle 配置
+
+      2. 检查 OptionsApp 是否有覆盖层样式配置 UI
+
+      3. 检查 OverlayRenderer 是否支持动态样式
+
+      4. 运行 `pnpm build && pnpm lint && pnpm test:run` 确认构建通过
+
+      5. 测试默认值是否与之前一致（向后兼容）
+
+      通过条件：所有检查通过，构建/测试/lint 全部通过
+
+    timeout_ms: 900000
+
+  - id: provider-config-simplify
+    title: '简化 Provider 配置流程'
+    prompt: |
+      ## 任务：简化 Provider 配置流程
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+
+      ### 背景
+
+      当前 OptionsApp 的 Provider 配置比较繁琐：
+      - 需要手动填写 Base URL
+      - 测试按钮不够醒目
+      - Ollama 的本地模型检测不够直观
+
+      ### 改进方案
+
+      1. **Ollama 自动检测优化**：
+         - 页面加载时自动检测 Ollama 是否运行
+         - 未检测到时显示明确的启动指引
+         - 自动填充默认的 localhost:11434
+
+      2. **测试配置交互优化**：
+         - 测试按钮更醒目
+                 - 测试成功后显示绿色确认
+         - 测试失败时显示具体错误和建议
+
+      3. **智能默认值**：
+         - OpenAI-compatible 默认为 api.openai.com/v1
+         - Ollama 默认为 localhost:11434
+         - 常用模型自动推荐
+
+      4. **首次使用引导**：
+         - 检测到未配置时显示引导提示
+         - 一键填充推荐配置
+
+      ### 约束
+
+      - 不改变配置存储格式（保持 chrome.storage.sync 兼容）
+      - 构建 `pnpm build && pnpm lint && pnpm test:run` 全部通过
+
+      ### 交付物
+
+      - OptionsApp 修改说明
+      - 改进点列表
+      - 通过构建/测试/lint 的证据
+
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      验证 Provider 配置简化：
+
+      1. 检查 Ollama 自动检测逻辑是否改进
+
+      2. 检查测试配置交互是否有改善
+
+      3. 运行 `pnpm build && pnpm lint && pnpm test:run` 确认构建通过
+
+      4. 检查默认值是否合理
+
+      通过条件：所有检查通过，构建/测试/lint 全部通过
+
+    timeout_ms: 900000

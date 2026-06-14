@@ -60,36 +60,22 @@ module.exports = {
   },
   overrides: [
     {
-      files: [
-        'src/components/UserGuide.tsx',
-        'src/components/theme-provider.tsx',
-        'src/components/ui/**/*.tsx'
-      ],
+      files: ['src/components/theme-provider.tsx', 'src/components/ui/**/*.tsx'],
       rules: {
-        'react-refresh/only-export-components': 'off'
-      }
+        'react-refresh/only-export-components': 'off',
+      },
     },
     {
-      files: [
-        'src/background/**/*.ts',
-        'src/services/**/*.ts',
-        'src/hooks/query-client.ts',
-        'src/stores/persistence.ts',
-        'src/utils/code-quality-checker.ts'
-      ],
+      files: ['src/background/**/*.ts', 'src/services/**/*.ts'],
       rules: {
-        'no-console': 'off'
-      }
+        'no-console': 'off',
+      },
     },
     {
-      files: [
-        'src/stores/cache-v2.ts',
-        'src/stores/persistence.ts',
-        'src/utils/batch-translation-manager.ts'
-      ],
+      files: ['src/stores/cache-v2.ts', 'src/utils/batch-translation-manager.ts'],
       rules: {
-        '@typescript-eslint/no-explicit-any': 'off'
-      }
-    }
-  ]
+        '@typescript-eslint/no-explicit-any': 'off',
+      },
+    },
+  ],
 };

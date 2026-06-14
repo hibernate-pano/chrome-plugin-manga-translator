@@ -1,0 +1,69 @@
+version: 1
+plan:
+  name: '漫画翻译助手 - 阶段1止血'
+  max_concurrency: 2
+  max_consecutive_failures: 1
+  max_cycles: 5
+
+tasks:
+  - id: v1-cleanup
+    title: '清理 V1 遗留代码 (src/api/ + content.jsx)'
+    prompt: |
+      ## 任务：清理 V1 遗留代码
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+
+      ### 背景
+      项目存在两套并行代码系统（V1 JS + V2 TS），需要清理 V1 遗留代码以降低维护成本。
+
+      ### 工作内容
+
+      1. **确认覆盖情况**：检查 src/content/content.ts 是否已包含原 content.jsx 的所有核心功能（页面扫描、翻译调度、HUD、自动续翻）
+
+      2. **删除 V1 代码**：
+         - 删除 src/api/ 整个目录（JS 遗留代码）
+         - 删除 src/content/content.jsx（JSX 遗留代码）
+         - 检查是否有其他 v1 文件需要清理
+
+      3. **更新引用**：
+         - 搜索所有引用 src/api/ 的 import 语句并移除
+         - 搜索所有引用 content.jsx 的地方并移除
+         - 检查 src/providers/index.ts 中的 provider 工厂函数（目前只暴露 openai-compatible 和 ollama）
+
+      4. **运行验证**：
+         - `pnpm build` 确保构建通过
+         - `pnpm lint` 确保无 lint 错误
+         - `pnpm test:run` 确保测试通过
+
+      5. **更新 CLAUDE.md**：
+         - 删除「遗留代码共存」段落中关于 v1 的描述
+         - 更新架构说明反映当前的单一代码体系
+
+      ### 约束
+      - 不要删除任何 v2 代码
+      - 不要修改 v2 业务逻辑
+      - 保持现有功能的完整性
+      - 所有变更必须通过 build + lint + test
+
+      ### 交付物
+      - 删除的文件列表
+      - 修改的文件列表
+      - 通过 pnpm build && pnpm lint && pnpm test:run 的证据
+      - 更新后的 CLAUDE.md
+
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      验证 V1 清理工作：
+
+      1. 确认 src/api/ 和 src/content/content.jsx 已删除
+
+      2. 运行 `pnpm build && pnpm lint && pnpm test:run` 确认构建通过
+
+      3. 检查是否有其他 v1 遗留文件（搜索 .jsx 文件，搜索 JS 语法旧模式）
+
+      4. 确认 CLAUDE.md 已更新
+
+      5. 检查 providers/index.ts 是否正常（目前只暴露 openai-compatible 和 ollama 是正常的，不需要扩展）
+
+      通过条件：所有检查通过，构建/测试/lint 全部通过

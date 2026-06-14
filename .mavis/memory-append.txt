@@ -1,0 +1,8 @@
+### mavis-team plan decision (2026-05-16)
+Type: feedback
+
+mavis team plan decision --file <path> must use a file, not stdin. --file - fails.
+decision.json structure: {last_cycle, next_cycle, plan_complete}. Engine auto-schedules next_cycle tasks.
+
+Why: stdin redirection breaks the argument parsing. Always write to a temp file.
+Apply when: submitting plan decisions via mavis team plan decision.

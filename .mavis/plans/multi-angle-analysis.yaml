@@ -1,0 +1,583 @@
+version: 1
+plan:
+  name: '漫画翻译助手 - 多角度项目分析'
+  max_concurrency: 4
+  max_consecutive_failures: 2
+  max_cycles: 5
+  verifier_config:
+    default_verifiers: [verifier]
+    audit_sample_rate: 0.0
+
+tasks:
+  # ============================================================
+  # 轨道 1：产品 UX 与用户旅程
+  # ============================================================
+  - id: product-ux
+    title: '产品 UX 与用户旅程分析'
+    prompt: |
+      ## 任务：产品 UX 与用户旅程分析
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+      项目类型：Chrome Manifest V3 扩展，用于翻译网页上的外文漫画文字
+
+      ### 你的角色
+      你是一个 **co-founder 视角的产品体验顾问**，从用户角度审视这个产品。
+      不要做花架子 — 直接告诉用户"什么让用户爽、什么让用户卡、什么功能用户根本不知道有"。
+
+      ### 你的工作
+
+      1. **完整阅读相关文件**（至少这些）：
+         - `src/popup.tsx`、`src/components/Popup/PopupApp.tsx` (Popup UI)
+         - `src/components/Options/OptionsApp.tsx` (Options UI)
+         - `src/background/background.ts` (Service Worker)
+         - `src/content/content.ts` (Content Script 核心)
+         - `src/content/floating-hud.ts` (页面内 HUD)
+         - `src/content/reading-layer.ts` (Reading Layer 高级功能)
+         - `src/content/auto-translate-observer.ts` (自动续翻)
+         - `src/components/UserGuide.tsx` (用户指南)
+         - `public/manifest.json`
+         - `README.md`
+
+      2. **梳理用户旅程**：
+         - 发现（用户怎么找到这个扩展？）
+         - 安装
+         - 首次使用 / onboarding（配置 Provider、上 API Key）
+         - 日常使用：浏览漫画网页 → 启用翻译 → 看结果 → 调整
+         - 失败时的体验：翻译失败、Provider 异常、API Key 错、CORS 错
+         - 高级功能发现：Reading Layer、自动续翻、强制重翻
+
+      3. **找出至少 10 个具体痛点**，每个痛点要包含：
+         - 痛点描述（用户视角，不要技术黑话）
+         - 触发场景（用户在做什么时遇到）
+         - 严重程度（高/中/低，1 句话理由）
+         - 证据（具体文件:行号 + 引用原文）
+         - 改进建议（不要"加个 XX 按钮"这种废话，要说明为什么这样改更好）
+
+      4. **分析用户感知不到的隐藏功能**：
+         - Reading Layer 这种功能用户怎么发现？存在度如何？
+         - 自动续翻开关存在但用户知道吗？
+         - 强制重翻 vs 翻译当前页的差异用户分得清吗？
+
+      5. **不要做的事**：
+         - 不要分析代码质量（那是别的轨道的事）
+         - 不要做 UI 视觉评论（那是另一个轨道）
+         - 不要泛泛而谈"用户体验不好"，要落到具体场景
+
+      ### 交付物
+
+      写一份 markdown 报告到 `deliverable-product-ux.md`，结构：
+
+      ```
+      # 产品 UX 与用户旅程分析
+
+      ## 用户旅程图
+      （一张表或列表，覆盖从发现到熟练使用）
+
+      ## 痛点清单（按严重度排序）
+      ### P0 - 高严重度（影响核心功能使用）
+      1. **痛点标题**
+         - 描述：...
+         - 触发场景：...
+         - 证据：file.tsx:行号 + 引用
+         - 改进建议：...
+
+      ### P1 - 中严重度（影响体验流畅度）
+      ...
+
+      ### P2 - 低严重度（锦上添花）
+      ...
+
+      ## 隐藏功能盘点
+      | 功能 | 入口在哪里 | 用户能发现吗 | 建议 |
+      |---|---|---|---|
+
+      ## 三个最重要改进（如果只能改三处）
+      1. ...
+      2. ...
+      3. ...
+      ```
+
+      用中文写。用户是中文母语，直接说人话不要"赋能""链路"这种黑话。
+
+    assigned_to: design
+    verified_by: verifier
+    verify_prompt: |
+      独立验证产品 UX 分析报告（不要只读 producer 的报告就 PASS）：
+
+      1. **证据链验证**：随机抽 5 个痛点，对照源文件检查：
+         - 痛点描述的文件:行号引用是否真实存在
+         - 引用的代码片段是否与现状一致
+         - 严重程度评级是否合理（高严重度痛点是否真的影响核心功能）
+
+      2. **用户旅程完整性**：对照实际功能列表，验证：
+         - 旅程图是否覆盖了所有关键入口（popup、options、HUD、content）
+         - 是否有遗漏的关键场景
+
+      3. **改进建议可行性**：每个 P0 痛点的改进建议，是否真的能落地（不要"加个 AI 助手"这种空话）。
+
+      4. **不要宽容**：如果证据不真实或痛点牵强，直接 FAIL，并指出具体哪个。
+
+      报告产出在 deliverable-product-ux.md。验收后用一句话总结这个分析的价值密度。
+    timeout_ms: 1800000
+
+  # ============================================================
+  # 轨道 2：视觉设计与交互细节
+  # ============================================================
+  - id: visual-interaction
+    title: '视觉设计与交互细节分析'
+    prompt: |
+      ## 任务：视觉设计与交互细节分析
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+      项目类型：Chrome Manifest V3 扩展，用于翻译网页上的外文漫画文字
+
+      ### 你的角色
+      你是一个 **有审美的前端设计顾问**。这个项目的 Popup、Options、HUD 三个界面都用了 shadcn/ui + Tailwind，
+      你的任务是从视觉、交互、信息密度、状态反馈、可访问性五个维度给出**具体可执行的优化点**。
+
+      ### 你的工作
+
+      1. **完整阅读 UI 源文件**：
+         - `src/components/Popup/PopupApp.tsx` (360px 宽 popup)
+         - `src/components/Options/OptionsApp.tsx` (759 行 options 页)
+         - `src/content/floating-hud.ts` (Shadow DOM 内 HUD)
+         - `src/content/reading-layer.ts` (Shadow DOM 内 Reading Layer 面板)
+         - `src/components/ui/` (shadcn 基础组件)
+         - `src/index.css`、`tailwind.config.js`
+         - `src/components/theme-provider.tsx`
+
+      2. **从 5 个维度分析**：
+
+         **A. 视觉一致性**
+         - 三个入口（Popup/Options/HUD/Reading Layer）的色彩、字体、圆角、间距、阴影是否统一？
+         - 主题切换是否所有面板都跟随？
+         - 在亮色/暗色模式下，对比度是否都达标？
+
+         **B. 信息密度**
+         - OptionsApp 759 行 — 信息组织是否合理？有没有违反渐进式披露？
+         - Popup 在 360px 宽 × ~460px 高限制下，元素是否过密？
+         - Reading Layer 360px 侧边栏在长截图页面上是否够用？
+
+         **C. 状态反馈**
+         - Loading / Error / Empty / Success 四态如何呈现？
+         - 微动效是否到位（hover、active、transition）？
+         - 用户做完操作（比如切换 provider）有没有清晰反馈？
+
+         **D. 可访问性 (a11y)**
+         - 颜色对比度（特别是 HUD 文字）
+         - 键盘可达性（Tab 顺序、Enter/Space 触发）
+         - aria-label、aria-live（特别是进度变化和错误通知）
+         - focus ring 是否清晰
+
+         **E. 交互模式**
+         - 按钮、Switch、Select 是否一致？
+         - 危险操作（清除所有覆盖层、强制重翻）有没有二次确认？
+         - 进度条是连续还是离散反馈？取消操作是否容易触达？
+         - 鼠标 hover/leave 反馈是否符合预期？
+
+      3. **每个优化点要包含**：
+         - 标题
+         - 现状描述（file:行号）
+         - 问题（用户能感知到什么）
+         - 改进方案（具体到能落地）
+         - 优先级（P0/P1/P2）
+
+      4. **对比参考**（可选）：
+         - 你可以参考类似产品（沉浸式翻译、彩云小译、Youtube 双字幕）的视觉/交互做法
+         - 但要客观分析"这个项目适不适合用这套做法"，不要照搬
+
+      ### 交付物
+
+      写一份 markdown 报告到 `deliverable-visual.md`：
+
+      ```
+      # 视觉设计与交互细节分析
+
+      ## 总评
+      （3-5 句话：当前 UI 设计的整体水平、最大的优点、最大的问题）
+
+      ## 一、视觉一致性
+      ### P0 改进
+      1. **改进标题** - file.tsx:行号
+         - 现状：...
+         - 问题：...
+         - 方案：...
+       ...
+
+      ## 二、信息密度
+      ...
+
+      ## 三、状态反馈
+      ...
+
+      ## 四、可访问性 (a11y)
+      ...
+
+      ## 五、交互模式
+      ...
+
+      ## 6 个最值得做的优化（按性价比排序）
+      1. ...
+      2. ...
+      ```
+
+      用中文写。直接说人话。**只讲具体能落地的改进，不要讲"应该体现品牌感"这种空话。**
+
+    assigned_to: design
+    verified_by: verifier
+    verify_prompt: |
+      独立验证视觉设计分析报告：
+
+      1. **引用真实性**：抽 3-5 个改进点，验证：
+         - file:行号 引用真实存在
+         - 现状描述与代码实际状态一致
+         - 引用的颜色/字体/类名是项目里实际用的
+
+      2. **可执行性**：每个改进点是否真的能落地：
+         - 方案是否包含具体动作（"按钮加 loading 态"是好，"增强体验"是废话）
+         - 是否考虑了扩展的 manifest 限制（比如 chrome popup 尺寸限制）
+         - 不要给"加个 AI 助手"这种空话 PASS
+
+      3. **P0 评级合理性**：P0 改进是否真的影响用户感知？比如"色彩饱和度差 5%"不应该是 P0，但"色盲用户无法识别红色错误"应该是 P0。
+
+      报告产出在 deliverable-visual.md。
+    timeout_ms: 1800000
+
+  # ============================================================
+  # 轨道 3：前端性能 + 翻译质量
+  # ============================================================
+  - id: performance-quality
+    title: '前端性能 + 翻译质量分析'
+    prompt: |
+      ## 任务：前端性能 + 翻译质量分析
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+      项目类型：Chrome Manifest V3 扩展，通过 Vision LLM 翻译网页漫画
+
+      ### 你的角色
+      你是一个 **有 Chrome 扩展经验的工程师**。你关注的不是"代码能跑就行"，而是：
+      - 用户用的时候卡不卡、慢不慢
+      - 翻译结果准不准、稳不稳
+      - VLM 调用的 token 成本有没有浪费
+      - 缓存策略是否合理
+
+      ### 你的工作
+
+      1. **完整阅读核心文件**：
+         - `src/content/content.ts` (597 行, 主流程)
+         - `src/services/translator.ts` (892 行, 翻译核心)
+         - `src/services/image-processor.ts` (684 行, 图片处理)
+         - `src/services/renderer.ts` (962 行, 覆盖层渲染)
+         - `src/services/text-detector.ts` (Tesseract.js)
+         - `src/services/reading-result.ts` (Reading Layer 数据)
+         - `src/services/translation-transport.ts` (消息传递)
+         - `src/stores/cache-v2.ts` (缓存 store)
+         - `src/background/background.ts`、`src/background/job-queue.ts`
+         - `src/providers/base.ts`、`openai.ts`、`ollama.ts`、`lm-studio.ts`
+         - `vite.config.ts` (构建配置)
+         - `public/manifest.json`
+
+      2. **从以下几个维度分析（每个都给出具体数字或代码引用）**：
+
+         **A. Content Script 体积与注入性能**
+         - content.ts 597 行直接注入到每个网页，估算下编译后 bundle 体积
+         - 注入时机：document_start / document_end / document_idle？
+         - 有没有不必要的依赖被打包进去（React、shadcn 组件等）？
+         - 编译后第一次注入慢不慢？
+
+         **B. 图片处理流水线**
+         - 压缩逻辑（DEFAULT_OPTIONS）合理吗？
+         - 长图检测（高宽比 >= 2.4 且自然高度 >= 2000）的边界条件
+         - base64 编码、hash 算法的性能
+         - 是否有内存泄漏风险（image processing 时的 buffer）
+
+         **C. 翻译调度**
+         - parallelLimit 默认 3 是否合理？
+         - processInParallel 的实现有没有竞态？
+         - abortController 的传递链路
+         - 失败重试机制（retryWithBackoff）的具体参数
+
+         **D. 缓存策略**
+         - 缓存 key 用什么？hash 还是 URL？换了 Provider 怎么办？
+         - cacheEnabled 开关的实际效果
+         - LRU 容量上限
+         - 缓存命中率如何提升？
+
+         **E. VLM 调用成本**
+         - 一次翻译一张图大概多少 token？
+         - full-image-vlm vs hybrid-regions 哪个更省 token？
+         - prompt 是否过长？manga-translation-prompt.ts 看一下
+         - 有什么办法能省 token 而不损失质量？
+
+         **F. 翻译质量与稳定性**
+         - 解析 VLM 返回的 JSON 容错做得怎样？
+         - 坐标精度（text areas 的 bbox 是否精确）
+         - 多 Provider 切换的 fallback 链
+         - 长图被切成多段时上下文丢失问题
+
+         **G. 渲染性能**
+         - reading-layer.ts 的 render 函数在大型结果集下的性能（每次 render 都 innerHTML='' 清空重渲染）
+         - scroll/resize 事件是否防抖（看 scheduleRender）
+         - 阴影 DOM 的样式隔离成本
+         - 覆盖层在长页面滚动时的体验
+
+      3. **每个问题要包含**：
+         - 问题描述
+         - 影响（用户能感知到吗？性能影响多少？）
+         - 证据（具体代码引用或数字估算）
+         - 改进建议（具体到能落地，给出量级预期）
+
+      4. **做实际的量化估算**：
+         - "content script bundle 约 X KB"
+         - "并发 3 张图，平均每张 Y 秒，翻译 30 张图约 Z 秒"
+         - "缓存命中率提升 10% 可省约 W token / 每次翻译"
+         - 不要泛泛说"性能可能有问题"
+
+      ### 交付物
+
+      写一份 markdown 报告到 `deliverable-performance.md`：
+
+      ```
+      # 前端性能 + 翻译质量分析
+
+      ## 关键数据估算
+      | 指标 | 当前值 | 改进后预期 |
+      |---|---|---|
+      | Content Script 注入体积 | ... | ... |
+      | 翻译单张图片平均耗时 | ... | ... |
+      | 缓存命中率 | ... | ... |
+      | Token 消耗/图 | ... | ... |
+
+      ## 一、Content Script 性能
+      ...
+
+      ## 二、图片处理
+      ...
+
+      ## 三、翻译调度
+      ...
+
+      ## 四、缓存策略
+      ...
+
+      ## 五、VLM 调用成本
+      ...
+
+      ## 六、翻译质量
+      ...
+
+      ## 七、渲染性能
+      ...
+
+      ## 5 个最高 ROI 的性能优化
+      1. ...
+      2. ...
+      ```
+
+      用中文写。**用数字说话，不要用"可能"、"也许"这种词。**
+
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      独立验证性能分析报告：
+
+      1. **数字真实性**：所有估算数字（体积、耗时、token）是否有依据？是否给了计算过程？
+
+      2. **代码引用准确性**：抽 5 个具体引用，验证 file:行号 与代码实际状态一致。
+
+      3. **方案可执行性**：每个优化建议是否真的能落地：
+         - 改一个文件的 vs 需要跨多模块的
+         - 给定量的预期（比如"减少 30% 注入时间"）还是定性描述
+
+      4. **避免"伪优化"**：有些方案看起来很美但实际上收益小或引入复杂度。挑 1-2 个"看起来美好但可能不划算"的建议，验证它们是否真的有意义。
+
+      报告产出在 deliverable-performance.md。
+    timeout_ms: 1800000
+
+  # ============================================================
+  # 轨道 4：架构 + 安全隐私
+  # ============================================================
+  - id: architecture-security
+    title: '架构 + 安全隐私分析'
+    prompt: |
+      ## 任务：架构 + 安全隐私分析
+
+      项目目录：/Users/panbo/Code/Demos/chrome-plugin-manga-translator
+      项目类型：Chrome Manifest V3 扩展
+
+      ### 你的角色
+      你是一个 **关注长期可维护性和安全风险的架构师**。这个项目已经迭代了 50+ commits，
+      你的任务是从两个角度审视：
+      1. 架构层面：模块边界是否清晰？状态机是否合理？错误处理是否统一？
+      2. 安全隐私：Chrome 扩展的权限使用是否克制？API key 怎么存？图片数据传到哪里？
+
+      ### 你的工作
+
+      1. **完整阅读关键文件**：
+         - `src/background/background.ts` (Service Worker)
+         - `src/background/auto-translate.ts`、`job-queue.ts`
+         - `src/content/content.ts` (state machine)
+         - `src/content/auto-translate-observer.ts` (auto translate logic)
+         - `src/stores/config-v2.ts` (主配置 store, 持久化)
+         - `src/stores/persistence.ts` (chrome.storage 适配器)
+         - `src/stores/cache-v2.ts`、`usage-store.ts`
+         - `src/utils/error-handler.ts` (统一错误)
+         - `src/utils/api-error-messages.ts`
+         - `src/utils/code-quality-checker.ts`
+         - `src/utils/crypto.ts` (key 加密?)
+         - `src/providers/index.ts`、`base.ts`
+         - `src/types/` (类型定义)
+         - `public/manifest.json`
+         - `src/test/setup.ts`
+
+      2. **从架构维度分析**：
+
+         **A. 状态机设计**
+         - content.ts 的 ContentState 类型（idle/scanning/translating/complete/error）是否完备？
+         - 状态转换是否所有路径都正确？有没有"卡在 translating 状态"的可能？
+         - abortController + isTranslating 两层锁的关系
+         - auto-translate 的 debounce + observer 状态机
+
+         **B. 错误处理统一性**
+         - 错误处理散落多少个地方？是否用了统一系统？
+         - retryWithBackoff 的使用率和参数合理性
+         - 用户友好的错误信息（api-error-messages.ts）覆盖度
+         - 静默失败 vs 上报失败
+
+         **C. 消息协议**
+         - PopupToContentMsg、ContentToPopupMsg、Background 消息的类型完整性
+         - 消息发送失败的处理（try/catch + .catch）
+         - chrome.runtime.sendMessage 的可靠性
+
+         **D. 状态管理**
+         - Zustand store 数量（cache-v2、config-v2、usage-store、product-metrics）是否合理？
+         - chrome.storage.sync 与 store 同步机制（persistence.ts 适配器）
+         - 跨标签页状态同步
+         - 状态变更时副作用的处理（auto-translate 启停）
+
+         **E. 代码组织**
+         - services/、stores/、utils/ 的边界是否清晰？
+         - 跨层调用（content → service → store）有没有越界？
+         - 类型定义分散在多个地方（types/、providers/、services/）
+         - 死代码、未使用的导出、重复实现
+
+         **F. 测试**
+         - 测试覆盖率 70% 阈值是否合理？
+         - 关键路径（translation flow、state machine）有没有覆盖？
+         - mock 是否能反映真实情况
+         - e2e 是否有？smoke-test-page.html 怎么用？
+
+      3. **从安全隐私维度分析**：
+
+         **A. 权限使用**
+         - `host_permissions: ["<all_urls>"]` 是否过度授权？
+         - `activeTab` vs `<all_urls>` 的取舍
+         - `scripting`、`contextMenus` 的实际使用情况
+
+         **B. 敏感数据**
+         - API key 怎么存的？chrome.storage.sync 是同步到 Google 账户的（安全吗？）
+         - crypto.ts 干了什么？key 真的加密了吗？加密密钥在哪？
+         - 用户翻译的图片内容传到哪个 VLM Provider？是否告知用户？
+
+         **C. 内容安全策略 (CSP)**
+         - manifest 里有没有 CSP 设置？
+         - inline script 用得多不多？有没有被 CSP 阻挡的风险？
+
+         **D. 第三方依赖风险**
+         - tesseract.js、@crxjs/vite-plugin 等依赖的风险
+         - 是否有自动更新机制？过期依赖如何处理？
+         - 0.x 版本依赖（@tanstack/react-query 5.100.14, tesseract.js 7.0.0）的稳定性
+
+         **E. 隐私告知**
+         - 用户首次使用前有没有告知数据会发到第三方？
+         - 隐私政策在哪里？
+         - 远程图标、CDN 资源是否泄露用户访问的 URL
+
+      4. **每个问题要包含**：
+         - 风险等级（高/中/低）
+         - 描述
+         - 证据（具体代码引用）
+         - 改进建议
+
+      5. **特别关注**：
+         - 这是个 v0.3.2 的早期项目，不要按企业级标准要求，但要识别"会变成大坑"的问题
+         - 区分"必须修"、"应该改"、"可以等"
+
+      ### 交付物
+
+      写一份 markdown 报告到 `deliverable-architecture.md`：
+
+      ```
+      # 架构 + 安全隐私分析
+
+      ## 关键发现速览
+      | 风险类别 | 高 | 中 | 低 |
+      |---|---|---|---|
+
+      ## 一、架构
+
+      ### 1. 状态机
+      ...
+
+      ### 2. 错误处理
+      ...
+
+      ### 3. 消息协议
+      ...
+
+      ### 4. 状态管理
+      ...
+
+      ### 5. 代码组织
+      ...
+
+      ### 6. 测试
+      ...
+
+      ## 二、安全隐私
+
+      ### 1. 权限使用
+      ...
+
+      ### 2. 敏感数据
+      ...
+
+      ### 3. CSP
+      ...
+
+      ### 4. 第三方依赖
+      ...
+
+      ### 5. 隐私告知
+      ...
+
+      ## 必须修的 3 件事
+      1. ...
+      2. ...
+      3. ...
+      ```
+
+      用中文写。**直接说"这个有 X 风险，建议改 Y"或"这个是过度担心，可以不动"。不要模棱两可。**
+
+    assigned_to: coder
+    verified_by: verifier
+    verify_prompt: |
+      独立验证架构与安全分析报告：
+
+      1. **证据真实性**：抽 5 个引用验证 file:行号 和代码内容。
+         - manifest.json 的权限数组是否引用正确
+         - crypto.ts 的加密实现是否真存在还是占位
+         - 错误处理散落点的统计是否真实
+
+      2. **风险评级合理性**：
+         - 高风险必须是用户能感知到或能直接造成损失的
+         - 低风险不要"上纲上线"（比如"未来可能有 XSS"但实际是内部用的）
+
+      3. **方案可执行性**：
+         - "必须修的 3 件事"是否真的值得优先做
+         - 给出的方案是否考虑了 v0.3.2 早期项目的现实（不要企业级要求）
+
+      4. **避免假阳性**：要挑 1 个"看似有风险但实际是过度担心"的项进行反驳验证 — 比如确认 manifest permissions 是否有过度授权。
+
+      报告产出在 deliverable-architecture.md。
+    timeout_ms: 1800000
