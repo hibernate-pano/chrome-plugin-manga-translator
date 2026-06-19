@@ -37,7 +37,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["icons/*", "tesseract/*"],
+      "resources": ["icons/*"],
       "matches": ["<all_urls>"]
     }
   ]
