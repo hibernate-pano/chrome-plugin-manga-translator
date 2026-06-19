@@ -474,8 +474,6 @@ export function createTranslatorFromConfig(): TranslatorService {
     imageOptions: {
       maxSize: config.maxImageSize,
     },
-    // 不使用 Tesseract 预处理，直接发送完整图片给 VLM
-    // 原因：1) Tesseract 坐标映射存在 Bug  2) VLM 直接处理完整图片质量更好
   });
 }
 
