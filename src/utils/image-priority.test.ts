@@ -13,7 +13,6 @@ import {
   getViewportFirstImages,
   processInParallel,
   processImagesOptimized,
-  splitIntoBatches,
 } from './image-priority';
 
 // ==================== Test Utilities ====================
@@ -415,29 +414,3 @@ describe('Parallel Processing', () => {
   });
 });
 
-describe('Batch Processing Utilities', () => {
-  describe('splitIntoBatches', () => {
-    it('should split array into correct batch sizes', () => {
-      const items = [1, 2, 3, 4, 5, 6, 7];
-      const batches = splitIntoBatches(items, 3);
-
-      expect(batches).toHaveLength(3);
-      expect(batches[0]).toEqual([1, 2, 3]);
-      expect(batches[1]).toEqual([4, 5, 6]);
-      expect(batches[2]).toEqual([7]);
-    });
-
-    it('should handle empty array', () => {
-      const batches = splitIntoBatches([], 3);
-      expect(batches).toHaveLength(0);
-    });
-
-    it('should handle array smaller than batch size', () => {
-      const items = [1, 2];
-      const batches = splitIntoBatches(items, 5);
-
-      expect(batches).toHaveLength(1);
-      expect(batches[0]).toEqual([1, 2]);
-    });
-  });
-});

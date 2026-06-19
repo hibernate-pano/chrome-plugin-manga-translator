@@ -176,13 +176,6 @@ describe('getMangaTranslationPrompt', () => {
     expect(prompt).toContain('0-1');
     expect(prompt).toContain('ratio');
   });
-
-  it('should return hybrid prompt when isHybridRegions is true', () => {
-    const prompt = getMangaTranslationPrompt('zh-CN', 'faithful', true);
-    expect(prompt).toContain('numeric anchor label');
-    expect(prompt).toContain('index');
-    expect(prompt).toContain('Do NOT return coordinates');
-  });
 });
 
 describe('providerRequiresApiKey', () => {
