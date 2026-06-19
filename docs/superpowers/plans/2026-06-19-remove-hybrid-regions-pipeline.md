@@ -278,25 +278,35 @@ git commit -m "refactor: delete text-detector (Tesseract.js wrapper)"
 
 ---
 
-### Task 7: Delete `src/services/reading-result.ts`
+### Task 7: Delete `src/services/reading-result.ts` and clean up its other importers
 
 **Files:**
 - Delete: `src/services/reading-result.ts`
+- Modify: `src/types/index.ts:17-24`
+- Modify: `src/stores/cache-v2.ts:13, 27`
 
 - [ ] **Step 1: Find all importers**
 
 Run: `grep -rn "reading-result\|ImageReadingResult\|ReadingEntry\|createReadingEntryId" src/ --include='*.ts' --include='*.tsx' | grep -v 'reading-result.ts'`
-Expected: only `src/services/translator.ts`. We will fix in Task 8.
+Expected: three importers — `src/services/translator.ts`, `src/types/index.ts` (re-exports `ImageReadingResult` and `ReadingEntry`), and `src/stores/cache-v2.ts` (uses `ImageReadingResult` as a `readingResult?` field type). This task fixes the latter two; Task 8 will fix `translator.ts`.
 
-- [ ] **Step 2: Delete the file**
+- [ ] **Step 2: Remove the re-exports from `src/types/index.ts`**
+
+Find the import block that pulls `ImageReadingResult` and `ReadingEntry` from `@/services/reading-result`. Delete the entire import. Search the rest of `src/types/index.ts` for any references to those two type names and delete them too. After this, no code outside `translator.ts` should reference these types.
+
+- [ ] **Step 3: Remove `readingResult` field from `src/stores/cache-v2.ts`**
+
+The cache entry interface has `readingResult?: ImageReadingResult` (used only by hybrid). Delete that field from the type. Also delete the `import type { ImageReadingResult } from '@/services/reading-result';` line. After this, the cache stores only `{ success, textAreas, cachedAt }` (or whatever shape remains — verify by reading the file).
+
+- [ ] **Step 4: Delete the file**
 
 Run: `rm src/services/reading-result.ts`
 
-- [ ] **Step 3: Commit (do NOT run type-check yet)**
+- [ ] **Step 5: Commit (do NOT run type-check yet — `translator.ts` still imports deleted symbols; Task 8 fixes it)**
 
 ```bash
-git add -A src/services/reading-result.ts
-git commit -m "refactor: delete reading-result types (hybrid-only)"
+git add -A src/services/reading-result.ts src/types/index.ts src/stores/cache-v2.ts
+git commit -m "refactor: delete reading-result types (hybrid-only); clean re-export and cache"
 ```
 
 ---
@@ -876,25 +886,27 @@ git commit -m "refactor(config): drop hybrid fields; bump persist version to 3 w
 
 ---
 
-### Task 13: Remove `'hybrid-regions' | 'full-image-vlm'` from `src/types/index.ts` and clean cache key
+### Task 13: Remove `'hybrid-regions' | 'full-image-vlm'` pipeline enum (final cleanup)
 
 **Files:**
 - Modify: `src/types/index.ts`
 - Modify: `src/stores/cache-v2.ts`
 
-- [ ] **Step 1: Find pipeline enum**
+Note: most of the hybrid-related cleanup in these two files already happened in Task 7 (re-export removal, `readingResult?` field deletion). This task removes the remaining `'hybrid-regions' | 'full-image-vlm'` union (which the cache store may still reference for the `pipeline` field on cache entries) and any leftover `'hybrid-regions'` literal in `cache-v2.ts`.
+
+- [ ] **Step 1: Find pipeline enum in types**
 
 Run: `grep -n "hybrid-regions\|full-image-vlm\|TranslationPipeline" src/types/index.ts`
-Expected: a single line defining the union.
+Expected: shows a `'hybrid-regions' | 'full-image-vlm'` union, possibly used as a `pipeline` field type.
 
 - [ ] **Step 2: Edit types**
 
-If `TranslationPipeline` is a type alias, delete the entire declaration. If it's used elsewhere, narrow it to `'full-image-vlm'` only.
+If `TranslationPipeline` is a type alias, narrow it to `'full-image-vlm'` (or delete the alias if unused after the narrowing). If the `'hybrid-regions'` literal appears in any other type union, remove it.
 
-- [ ] **Step 3: Inspect cache-v2.ts for hybrid-related symbols**
+- [ ] **Step 3: Inspect cache-v2.ts for remaining hybrid references**
 
-Run: `grep -n "hybrid\|TranslationPipeline\|HYBRID" src/stores/cache-v2.ts`
-Expected: probably no `hybrid` references in cache key code (the version token was in translator.ts, removed in Task 8). If anything remains, remove it.
+Run: `grep -n "hybrid\|HYBRID\|hybrid-regions\|full-image-vlm" src/stores/cache-v2.ts`
+Expected: may show a `pipeline` field on cached entries or a `hybrid-regions` literal. Remove any `hybrid-regions` literal — narrow `pipeline` to `'full-image-vlm'` or remove the field if no longer meaningful.
 
 - [ ] **Step 4: Run type-check and tests**
 
