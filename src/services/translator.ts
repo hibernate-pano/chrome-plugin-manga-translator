@@ -27,22 +27,9 @@ import { useAppConfigStore } from '@/stores/config-v2';
 import { useUsageStore } from '@/stores/usage-store';
 import {
   processImage,
-  cropRegions,
-  combineCroppedRegions,
-  base64ToDataUrl,
   type ImageProcessingOptions,
   DEFAULT_OPTIONS,
 } from '@/services/image-processor';
-import {
-  detectTextRegions,
-  mergeOverlappingRegions,
-  type TextRegion,
-} from '@/services/text-detector';
-import {
-  createReadingEntryId,
-  type ImageReadingResult,
-  type ReadingEntry,
-} from '@/services/reading-result';
 import {
   getDefaultTranslationTransport,
   type TranslationTransport,
@@ -50,7 +37,6 @@ import {
 import { retryWithBackoff } from '@/utils/error-handler';
 import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
-import { splitIntoBatches } from '@/utils/image-priority';
 
 
 // ==================== Logging Utilities ====================
@@ -127,10 +113,6 @@ function deriveRequestedPath(
 ): RequestedExecutionPath {
   return provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
 }
-
-const HYBRID_PIPELINE_VERSION = 'hybrid-v1';
-const MAX_REASONABLE_REGION_COUNT = 80;
-const MAX_ALLOWED_MISSING_RATIO = 0.4;
 
 // ==================== Translator Service Class ====================
 
@@ -210,22 +192,17 @@ export class TranslatorService {
     }
 
     try {
-      // 步骤1：处理图片（压缩 + base64 + hash + possible viewport crop）
-      if (isDevelopment) {
-        _log('处理图片...');
-      }
-
       const processOptions: ImageProcessingOptions = {
         maxSize: DEFAULT_OPTIONS.maxSize,
         quality: DEFAULT_OPTIONS.quality,
         viewportCrop: false,
-        ...this.config.imageOptions, // Merge user-defined options
+        ...this.config.imageOptions,
       };
 
       if (viewportCrop) {
-        processOptions.maxSize = 1600;    // 优化：文字识别不需要超高分辨率
-        processOptions.quality = 0.80;    // 优化：降低质量减少 base64 体积
-        processOptions.format = 'webp';   // 优化：使用 WebP 格式缩小体积
+        processOptions.maxSize = 1600;
+        processOptions.quality = 0.80;
+        processOptions.format = 'webp';
         processOptions.viewportCrop = true;
       }
 
@@ -237,14 +214,12 @@ export class TranslatorService {
       const imageKey = imageKeyOverride || processed.hash;
       const cacheKey = this.buildCacheKey(processed.hash);
 
-      // 步骤3：检查缓存
       if (this.config.cacheEnabled && !forceRefresh) {
         const cached = useTranslationCacheStore.getState().get(cacheKey);
         if (cached) {
           if (isDevelopment) {
             _log('使用缓存结果, 文字区域数:', cached.textAreas.length);
           }
-          // 如果缓存命中，则使用缓存同时记录 Token 为 0（命中）
           useUsageStore.getState().addRecord({
             provider: this.config.provider,
             usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
@@ -254,15 +229,36 @@ export class TranslatorService {
         }
       }
 
-      const result = await this.translateWithHybridPipeline(
-        image,
-        processed,
-        imageKey,
-        viewportCrop,
-        forceRefresh
+      const response = await retryWithBackoff(
+        () =>
+          this.callTranslationTransport(
+            processed.base64,
+            processed.mimeType,
+            this.config.targetLanguage,
+            forceRefresh,
+            {
+              imageKey,
+              imageUrl: image.currentSrc || image.src,
+              pageUrl: window.location.href,
+            }
+          ),
+        2,
+        1000
       );
 
-      // 步骤5：写入缓存
+      if (response.usage) {
+        useUsageStore.getState().addRecord({
+          provider: this.config.provider,
+          usage: response.usage,
+          cached: false,
+        });
+      }
+
+      const result: TranslationResult = {
+        success: true,
+        textAreas: response.textAreas,
+      };
+
       if (this.config.cacheEnabled) {
         if (isDevelopment) {
           _log('存入缓存');
@@ -357,394 +353,7 @@ export class TranslatorService {
       this.config.targetLanguage,
       this.config.translationStylePreset,
       this.config.renderMode || 'strong-overlay-compat',
-      HYBRID_PIPELINE_VERSION,
     ].join('::');
-  }
-
-  private async translateWithHybridPipeline(
-    image: HTMLImageElement,
-    processed: Awaited<ReturnType<typeof processImage>>,
-    imageKey: string,
-    viewportCrop: boolean,
-    forceRefresh: boolean
-  ): Promise<TranslationResult> {
-    const appConfig = useAppConfigStore.getState();
-    const hybridEnabled =
-      appConfig.translationPipeline === 'hybrid-regions' &&
-      this.config.provider !== 'ollama';
-    const allowFallback = appConfig.fallbackToFullImage;
-
-    if (hybridEnabled) {
-      try {
-        const readingResult = await this.translateRegionsWithHybrid(
-          processed,
-          imageKey
-        );
-        return {
-          success: true,
-          textAreas: this.readingEntriesToTextAreas(readingResult.entries, processed),
-          readingResult,
-        };
-      } catch (error) {
-        if (isDevelopment) {
-          _logError('Hybrid pipeline failed, falling back to full image', error);
-        }
-        if (!allowFallback) {
-          throw error;
-        }
-      }
-    }
-
-    const fallbackProcessed = viewportCrop
-      ? await processImage(image, {
-        ...this.config.imageOptions,
-        viewportCrop: false,
-      })
-      : processed;
-
-    const fallbackResponse = await retryWithBackoff(
-      () =>
-        this.callTranslationTransport(
-          fallbackProcessed.base64,
-          fallbackProcessed.mimeType,
-          this.config.targetLanguage,
-          forceRefresh,
-          {
-            imageKey,
-            imageUrl: image.currentSrc || image.src,
-            pageUrl: window.location.href,
-          }
-        ),
-      2,
-      1000
-    );
-
-    if (fallbackResponse.usage) {
-      useUsageStore.getState().addRecord({
-        provider: this.config.provider,
-        usage: fallbackResponse.usage,
-        cached: false,
-      });
-    }
-
-    const mappedTextAreas = this.mapTextAreasToOriginalImage(
-      fallbackResponse.textAreas,
-      fallbackProcessed
-    );
-
-    const readingResult = this.textAreasToReadingResult(
-      mappedTextAreas,
-      imageKey,
-      fallbackProcessed,
-      'full-image-fallback'
-    );
-
-    return {
-      success: true,
-      textAreas: mappedTextAreas,
-      readingResult,
-    };
-  }
-
-  private async translateRegionsWithHybrid(
-    processed: Awaited<ReturnType<typeof processImage>>,
-    imageKey: string
-  ): Promise<ImageReadingResult> {
-    const dataUrl = base64ToDataUrl(processed.base64, processed.mimeType);
-    const detection = await detectTextRegions(dataUrl, {
-      minConfidence: 0.25,
-    });
-    const mergedRegions = this.prepareTextRegions(detection.regions);
-
-    if (
-      mergedRegions.length === 0 ||
-      mergedRegions.length > MAX_REASONABLE_REGION_COUNT
-    ) {
-      throw new Error('Hybrid region detection produced unusable results');
-    }
-
-    const batches = splitIntoBatches(
-      mergedRegions,
-      Math.max(1, useAppConfigStore.getState().regionBatchSize)
-    );
-
-    const entries: ReadingEntry[] = [];
-    let order = 0;
-
-    for (const batch of batches) {
-      const batchEntries = await this.translateRegionBatch(
-        dataUrl,
-        batch,
-        processed,
-        imageKey,
-        order
-      );
-      entries.push(...batchEntries);
-      order += batch.length;
-    }
-
-    const missingRatio = 1 - entries.length / mergedRegions.length;
-    if (missingRatio > MAX_ALLOWED_MISSING_RATIO) {
-      throw new Error('Hybrid region translation missing too many entries');
-    }
-
-    return {
-      imageKey,
-      entries: entries.sort((a, b) => a.order - b.order),
-      pipeline: 'hybrid-regions',
-    };
-  }
-
-  private prepareTextRegions(regions: TextRegion[]): TextRegion[] {
-    const merged = mergeOverlappingRegions(regions, 0.12);
-    return merged
-      .filter(region => region.width >= 12 && region.height >= 12)
-      .sort((left, right) => {
-        const leftVertical = left.height > left.width * 1.8;
-        const rightVertical = right.height > right.width * 1.8;
-        if (leftVertical && rightVertical) {
-          if (Math.abs(left.x - right.x) > 24) {
-            return left.x - right.x;
-          }
-        }
-        if (Math.abs(left.y - right.y) > 20) {
-          return left.y - right.y;
-        }
-        return left.x - right.x;
-      });
-  }
-
-  private async translateRegionBatch(
-    imageDataUrl: string,
-    regions: TextRegion[],
-    processed: Awaited<ReturnType<typeof processImage>>,
-    imageKey: string,
-    orderOffset: number
-  ): Promise<ReadingEntry[]> {
-    const croppedImages = await cropRegions(
-      imageDataUrl,
-      regions.map(region => ({
-        x: region.x,
-        y: region.y,
-        width: region.width,
-        height: region.height,
-      })),
-      {
-        format: 'jpeg',
-        quality: 0.92,
-      }
-    );
-
-    const combined = await combineCroppedRegions(croppedImages, {
-      format: 'jpeg',
-      quality: 0.92,
-    });
-
-    const response = await retryWithBackoff(
-      () =>
-        this.callTranslationTransport(
-          combined.base64,
-          'image/jpeg',
-          this.config.targetLanguage,
-          false,
-          {
-            imageKey,
-            pageUrl: window.location.href,
-          }
-        ),
-      2,
-      1000
-    );
-
-    if (response.usage) {
-      useUsageStore.getState().addRecord({
-        provider: this.config.provider,
-        usage: response.usage,
-        cached: false,
-      });
-    }
-
-    const grouped = new Map<number, TextArea[]>();
-
-    for (const area of response.textAreas) {
-      const centerY = (area.y + area.height / 2) * combined.height;
-      const segment = combined.segments.find(
-        item => centerY >= item.top && centerY <= item.top + item.height
-      ) || this.findNearestSegment(centerY, combined.segments);
-
-      if (!segment) {
-        continue;
-      }
-
-      const current = grouped.get(segment.index) || [];
-      current.push(area);
-      grouped.set(segment.index, current);
-    }
-
-    const entries: ReadingEntry[] = [];
-
-    regions.forEach((region, index) => {
-      const matchedAreas = grouped.get(index);
-      if (!matchedAreas || matchedAreas.length === 0) {
-        return;
-      }
-
-      const sourceRegion = this.toOriginalRegion(region, processed);
-      const originalText = matchedAreas
-        .map(area => area.originalText)
-        .filter(Boolean)
-        .join('\n')
-        .trim();
-      const translatedText = matchedAreas
-        .map(area => area.translatedText)
-        .filter(Boolean)
-        .join('\n')
-        .trim();
-
-      if (!translatedText) {
-        return;
-      }
-
-      const anchorIndex = orderOffset + index + 1;
-      entries.push({
-        id: createReadingEntryId(imageKey, anchorIndex),
-        imageKey,
-        anchorIndex,
-        sourceRegion,
-        displayRegion: sourceRegion,
-        originalText,
-        translatedText,
-        confidence: region.confidence,
-        order: orderOffset + index,
-        status: 'region-vlm',
-      });
-    });
-
-    return entries;
-  }
-
-  private findNearestSegment(
-    centerY: number,
-    segments: Array<{ index: number; top: number; height: number }>
-  ): { index: number; top: number; height: number } | null {
-    let nearest: { index: number; top: number; height: number } | null = null;
-    let minDistance = Number.POSITIVE_INFINITY;
-
-    for (const segment of segments) {
-      const segmentCenter = segment.top + segment.height / 2;
-      const distance = Math.abs(segmentCenter - centerY);
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearest = segment;
-      }
-    }
-
-    return nearest;
-  }
-
-  private mapTextAreasToOriginalImage(
-    textAreas: TextArea[],
-    processed: Awaited<ReturnType<typeof processImage>>
-  ): TextArea[] {
-    return textAreas.map(area => {
-      const absoluteX = area.x * processed.width;
-      const absoluteWidth = area.width * processed.width;
-      const absoluteYInCrop = area.y * processed.height;
-      const absoluteHeightInCrop = area.height * processed.height;
-
-      const absoluteXOrig = (absoluteX / processed.width) * processed.originalWidth;
-      const absoluteWidthOrig =
-        (absoluteWidth / processed.width) * processed.originalWidth;
-      const absoluteYOrig =
-        (absoluteYInCrop / processed.height) * (processed.cropHeight || processed.originalHeight) +
-        (processed.cropY || 0);
-      const absoluteHeightOrig =
-        (absoluteHeightInCrop / processed.height) *
-        (processed.cropHeight || processed.originalHeight);
-
-      return {
-        ...area,
-        x: absoluteXOrig / processed.originalWidth,
-        y: absoluteYOrig / processed.originalHeight,
-        width: absoluteWidthOrig / processed.originalWidth,
-        height: absoluteHeightOrig / processed.originalHeight,
-      };
-    });
-  }
-
-  private toOriginalRegion(
-    region: TextRegion,
-    processed: Awaited<ReturnType<typeof processImage>>
-  ): { x: number; y: number; width: number; height: number } {
-    const xRatio = region.x / processed.width;
-    const yRatio = region.y / processed.height;
-    const widthRatio = region.width / processed.width;
-    const heightRatio = region.height / processed.height;
-    const visibleHeight = processed.cropHeight || processed.originalHeight;
-
-    return {
-      x: xRatio * processed.originalWidth,
-      y: yRatio * visibleHeight + (processed.cropY || 0),
-      width: widthRatio * processed.originalWidth,
-      height: heightRatio * visibleHeight,
-    };
-  }
-
-  private textAreasToReadingResult(
-    textAreas: TextArea[],
-    imageKey: string,
-    processed: Awaited<ReturnType<typeof processImage>>,
-    pipeline: 'hybrid-regions' | 'full-image-fallback'
-  ): ImageReadingResult {
-    const entries = [...textAreas]
-      .sort((left, right) => {
-        if (Math.abs(left.y - right.y) > 0.03) {
-          return left.y - right.y;
-        }
-        return left.x - right.x;
-      })
-      .map((area, index) => {
-        const sourceRegion = {
-          x: area.x * processed.originalWidth,
-          y: area.y * processed.originalHeight,
-          width: area.width * processed.originalWidth,
-          height: area.height * processed.originalHeight,
-        };
-        const anchorIndex = index + 1;
-
-        return {
-          id: createReadingEntryId(imageKey, anchorIndex),
-          imageKey,
-          anchorIndex,
-          sourceRegion,
-          displayRegion: sourceRegion,
-          originalText: area.originalText,
-          translatedText: area.translatedText,
-          confidence: 1,
-          order: index,
-          status: 'fallback-full-image' as const,
-        };
-      });
-
-    return {
-      imageKey,
-      entries,
-      pipeline,
-    };
-  }
-
-  private readingEntriesToTextAreas(
-    entries: ReadingEntry[],
-    processed: Awaited<ReturnType<typeof processImage>>
-  ): TextArea[] {
-    return entries.map(entry => ({
-      x: entry.sourceRegion.x / processed.originalWidth,
-      y: entry.sourceRegion.y / processed.originalHeight,
-      width: entry.sourceRegion.width / processed.originalWidth,
-      height: entry.sourceRegion.height / processed.originalHeight,
-      originalText: entry.originalText,
-      translatedText: entry.translatedText,
-    }));
   }
 
   /**
