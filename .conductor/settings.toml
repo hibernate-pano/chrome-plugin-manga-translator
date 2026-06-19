@@ -1,0 +1,47 @@
+# Conductor repository settings for chrome-plugin-manga-translator.
+#
+# Shared with teammates once this worktree is merged into the default branch.
+# Conductor reads this file from the repository's root checkout, not from
+# worktrees, so the same content is also written and staged at the root.
+
+"$schema" = "https://conductor.build/schemas/settings.repo.schema.json"
+
+# Setup runs once per new workspace, from the workspace directory.
+#   - Idempotently patches pnpm-workspace.yaml with an `allowBuilds:` block so
+#     pnpm 11 stops hard-failing on the repo's intentionally-ignored
+#     esbuild/tesseract.js build scripts (see [ERR_PNPM_IGNORED_BUILDS]).
+#   - Then runs `pnpm install`, which also invokes the `prepare` script
+#     (`husky install`) via package.json.
+[scripts]
+setup = '''
+set -euo pipefail
+WS_FILE="pnpm-workspace.yaml"
+if [ ! -f "$WS_FILE" ]; then
+  echo "setup: $WS_FILE not found in workspace, skipping patch" >&2
+else
+  if ! grep -q "^allowBuilds:" "$WS_FILE"; then
+    tmp="$(mktemp)"
+    {
+      printf "allowBuilds:\n  esbuild: false\n  tesseract.js: false\n"
+      cat "$WS_FILE"
+    } > "$tmp"
+    mv "$tmp" "$WS_FILE"
+    echo "setup: patched $WS_FILE with allowBuilds block (idempotent)" >&2
+  fi
+fi
+pnpm install
+'''
+
+# Run is the long-running dev server. Vite accepts --port and --strictPort, so
+# each workspace gets its own deterministic port range from Conductor.
+# The dev script first copies Tesseract assets, then starts Vite.
+run = "pnpm dev -- --port $CONDUCTOR_PORT --strictPort"
+
+# Archive runs before Conductor archives a workspace. The dist/ directory is
+# already gitignored, so we just remove it to keep the archive small and
+# avoid carrying stale extension builds forward.
+archive = "rm -rf dist coverage"
+
+# Chrome extension dev servers can run concurrently: each workspace isolates
+# into its own git worktree and binds its own port.
+run_mode = "concurrent"
