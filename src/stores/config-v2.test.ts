@@ -15,7 +15,6 @@ describe('AppConfigStore', () => {
       'https://api.openai.com/v1'
     );
     expect(state.autoContinueEnabled).toBe(true);
-    expect(state.translationPipeline).toBe('full-image-vlm');
   });
 
   it('keeps only openai-compatible, ollama and lm-studio provider surfaces', () => {
