@@ -4,8 +4,8 @@
   "description": "Chrome插件，用于翻译漫画中的文字，并保持原有样式",
   "type": "module",
   "scripts": {
-    "dev": "node scripts/copy-tesseract.js && vite",
-    "build": "node scripts/copy-tesseract.js && tsc && vite build",
+    "dev": "vite",
+    "build": "tsc && vite build",
     "preview": "vite preview",
     "test": "vitest",
     "test:ui": "vitest --ui",
