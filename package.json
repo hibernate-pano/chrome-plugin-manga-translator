@@ -56,8 +56,6 @@
     "react-hook-form": "^7.76.1",
     "tailwind-merge": "^2.6.1",
     "tailwindcss-animate": "^1.0.7",
-    "tesseract.js": "^7.0.0",
-    "tesseract.js-core": "^7.0.0",
     "zod": "^4.4.3",
     "zustand": "^4.5.7"
   },
