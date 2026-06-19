@@ -33,8 +33,6 @@ export interface TextArea {
   originalText: string;
   /** Translated text */
   translatedText: string;
-  /** Optional visual index for hybrid mapping */
-  index?: number;
 }
 
 /**
@@ -164,8 +162,7 @@ export interface VisionProvider {
   analyzeAndTranslate(
     imageBase64: string,
     targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset,
-    isHybridRegions?: boolean
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse>;
 
   /**
@@ -183,29 +180,8 @@ export interface VisionProvider {
  */
 export function getMangaTranslationPrompt(
   targetLanguage: string,
-  translationStylePreset: TranslationStylePreset = DEFAULT_TRANSLATION_STYLE_PRESET,
-  isHybridRegions: boolean = false
+  translationStylePreset: TranslationStylePreset = DEFAULT_TRANSLATION_STYLE_PRESET
 ): string {
-  if (isHybridRegions) {
-    return `Extract and translate text from this compiled vertical strip of manga text regions.
-Each region has a bold numeric anchor label (e.g. 1, 2, 3) drawn on its left margin.
-
-Translate the text in each segment to ${targetLanguage}.
-
-Return ONLY valid JSON in this format:
-{"textAreas":[{"index":1,"originalText":"Japanese/English text","translatedText":"Translated text"}]}
-
-RULES:
-1. "index" must match the numeric label on the left of each segment.
-2. For each index, extract the original text from that segment and translate it.
-3. Keep speaker tone (formal/casual) and use \\\\n for line breaks in translatedText.
-4. If a segment contains no text or only graphics, still return it with empty originalText and translatedText.
-5. Do NOT return coordinates (x, y, width, height) in the textAreas - only "index", "originalText", and "translatedText".
-6. Output ONLY valid JSON. No conversational wrapper.
-
-${getTranslationStyleInstruction(translationStylePreset)}`;
-  }
-
   return `Extract ALL visible text from this manga/comic image and translate to ${targetLanguage}.
 
 Return ONLY valid JSON: {"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,"originalText":"原文","translatedText":"翻译"}]}
@@ -216,7 +192,7 @@ RULES:
 3. Merge multi-line text in one bubble into ONE item.
 4. SFX: use target language onomatopoeia.
 5. Keep original speaker tone (formal/casual).
-6. Use \\\\n for line breaks in translatedText.
+6. Use \\n for line breaks in translatedText.
 7. No text found: {"textAreas":[]}
 8. If two text blocks are separate, return separate items. Avoid giant boxes that overlap unrelated text.
 9. Output ONLY the JSON.

@@ -135,11 +135,14 @@ Hope this helps!`;
     expect(result.textAreas).toHaveLength(1);
   });
 
-  it('should parse valid hybrid JSON response without coordinates but with index', () => {
+  it('should parse valid response with all required fields', () => {
     const response = JSON.stringify({
       textAreas: [
         {
-          index: 1,
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
           originalText: 'Hello',
           translatedText: '你好',
         },
@@ -150,13 +153,12 @@ Hope this helps!`;
 
     expect(result.textAreas).toHaveLength(1);
     expect(result.textAreas[0]).toEqual({
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
+      x: 0.1,
+      y: 0.2,
+      width: 0.3,
+      height: 0.1,
       originalText: 'Hello',
       translatedText: '你好',
-      index: 1,
     });
   });
 });
@@ -175,13 +177,6 @@ describe('getMangaTranslationPrompt', () => {
 
     expect(prompt).toContain('0-1');
     expect(prompt).toContain('ratio');
-  });
-
-  it('should return hybrid prompt when isHybridRegions is true', () => {
-    const prompt = getMangaTranslationPrompt('zh-CN', 'faithful', true);
-    expect(prompt).toContain('numeric anchor label');
-    expect(prompt).toContain('index');
-    expect(prompt).toContain('Do NOT return coordinates');
   });
 });
 

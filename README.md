@@ -11,7 +11,7 @@
 
 **不适合**：
 - 你想要自动 OCR 整本 PDF 漫画——这是浏览器扩展，不是桌面 OCR 工具
-- 你想用 Tesseract.js 做离线翻译——v0.3.3 的默认管线是 `full-image-vlm`（VLM 直出），Tesseract 仅在显式开启 `hybrid-regions` 模式时使用
+- 你想用 Tesseract.js 做离线翻译——v0.3.3 起默认管线是 `full-image-vlm`（VLM 直出）
 - 你想免费白嫖——VLM API 要么花钱，要么本地跑模型（Ollama/LM Studio 都要本机 GPU）
 
 ## 当前能力
@@ -33,8 +33,6 @@
   页面内状态机，负责找图、调度翻译、自动续翻与 HUD
 - `src/services/translator.ts`
   主翻译管线，串联图片处理、直连调用、缓存与回退逻辑
-- `src/services/text-detector.ts`
-  基于 Tesseract.js 的文字区域检测
 - `src/services/renderer.ts`
   将译文作为 overlay 渲染回原图
 - `src/stores/config-v2.ts`

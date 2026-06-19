@@ -42,9 +42,6 @@ export interface AppConfigState extends RuntimeAppConfig {
   autoContinueEnabled: boolean;
   readingMode: 'panel';
   renderMode: 'anchors-only' | 'strong-overlay-compat';
-  translationPipeline: 'hybrid-regions' | 'full-image-vlm';
-  regionBatchSize: number;
-  fallbackToFullImage: boolean;
   overlayStyle: OverlayStyleConfig;
 }
 
@@ -65,11 +62,6 @@ export interface AppConfigActions {
   setTranslationStylePreset: (preset: TranslationStylePreset) => void;
   setReadingMode: (mode: 'panel') => void;
   setRenderMode: (mode: 'anchors-only' | 'strong-overlay-compat') => void;
-  setTranslationPipeline: (
-    pipeline: 'hybrid-regions' | 'full-image-vlm'
-  ) => void;
-  setRegionBatchSize: (size: number) => void;
-  setFallbackToFullImage: (enabled: boolean) => void;
   setOverlayStyle: (style: Partial<OverlayStyleConfig>) => void;
   setVerticalText: (enabled: boolean) => void;
   getActiveProviderSettings: () => ProviderSettings;
@@ -99,9 +91,6 @@ const LOCAL_DEFAULT_CONFIG: AppConfigState = {
     DEFAULT_TRANSLATION_STYLE_PRESET,
   readingMode: SHARED_DEFAULT_CONFIG.readingMode,
   renderMode: SHARED_DEFAULT_CONFIG.renderMode as 'anchors-only' | 'strong-overlay-compat',
-  translationPipeline: SHARED_DEFAULT_CONFIG.translationPipeline as 'hybrid-regions' | 'full-image-vlm',
-  regionBatchSize: SHARED_DEFAULT_CONFIG.regionBatchSize,
-  fallbackToFullImage: SHARED_DEFAULT_CONFIG.fallbackToFullImage,
   overlayStyle: SHARED_DEFAULT_CONFIG.overlayStyle,
 };
 
@@ -143,16 +132,20 @@ function pickLegacyProviderEntry(
 }
 
 /**
- * Migration for persisted config (v0 → v1 → v2).
+ * Migration for persisted config (v0 → v1 → v2 → v3).
  *
  * v0.3.1 persisted state:
  *   { provider: 'openai' | 'ollama' | 'siliconflow' | ...,
  *     providers: { openai: {...}, ollama: {...} }, ... }
  *
- * v0.3.2 (current) state:
+ * v0.3.2 state:
  *   { provider: 'openai-compatible' | 'ollama' | 'lm-studio',
  *     openaiCompatible: {...}, ollama: {...}, lmStudio: {...},
  *     providers: { 'openai-compatible': {...}, ollama: {...}, 'lm-studio': {...} } }
+ *
+ * v0.3.5 (current) state:
+ *   v2 state minus translationPipeline / regionBatchSize / fallbackToFullImage
+ *   (full-image-vlm is now the only supported pipeline).
  *
  * We rebuild providers and the top-level provider fields from the legacy
  * shape so v0.3.1 users do not get undefined on providers['openai-compatible']
@@ -166,8 +159,8 @@ function migratePersistedConfig(
     return persistedState;
   }
 
-  // Already on v2 — pass through.
-  if ((version ?? 0) >= 2) {
+  // Already on v3 — pass through.
+  if ((version ?? 0) >= 3) {
     return persistedState;
   }
 
@@ -230,9 +223,16 @@ function migratePersistedConfig(
     providers: newProviders,
   };
 
+  // v2 → v3: drop legacy pipeline fields. The full-image-vlm pipeline is now
+  // the only supported path; these fields were UI-only and no longer
+  // referenced by the runtime.
+  delete migratedState['translationPipeline'];
+  delete migratedState['regionBatchSize'];
+  delete migratedState['fallbackToFullImage'];
+
   return isRecord(persistedState['state'])
-    ? { ...persistedState, state: migratedState, version: 2 }
-    : { state: migratedState, version: 2 };
+    ? { ...persistedState, state: migratedState, version: 3 }
+    : { state: migratedState, version: 3 };
 }
 
 /**
@@ -417,10 +417,6 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         set({ translationStylePreset }),
       setReadingMode: readingMode => set({ readingMode }),
       setRenderMode: renderMode => set({ renderMode }),
-      setTranslationPipeline: translationPipeline => set({ translationPipeline }),
-      setRegionBatchSize: regionBatchSize => set({ regionBatchSize }),
-      setFallbackToFullImage: fallbackToFullImage =>
-        set({ fallbackToFullImage }),
       setOverlayStyle: style =>
         set(state => ({
           overlayStyle: { ...state.overlayStyle, ...style },
@@ -460,7 +456,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
     {
       name: APP_CONFIG_STORAGE_KEY,
       storage: createJSONStorage(() => chromeStorage),
-      version: 2,
+      version: 3,
       migrate: migratePersistedConfig,
       merge: mergePersistedConfig,
       partialize: state => ({
@@ -478,9 +474,6 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         translationStylePreset: state.translationStylePreset,
         readingMode: state.readingMode,
         renderMode: state.renderMode,
-        translationPipeline: state.translationPipeline,
-        regionBatchSize: state.regionBatchSize,
-        fallbackToFullImage: state.fallbackToFullImage,
         overlayStyle: state.overlayStyle,
       }),
     }

@@ -5,6 +5,12 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Removed
+
+- **`hybrid-regions` translation pipeline** and all its supporting code: Tesseract.js wrapper (`src/services/text-detector.ts`), reading-result types (`src/services/reading-result.ts`), OCR provider selector helper (`src/utils/ocr-provider-selector.ts`), hybrid-region detection, region batching, region cropping/label-drawing, and the `isHybridRegions` codepath in the provider layer. Also removed: `tesseract.js` and `tesseract.js-core` npm dependencies, `scripts/copy-tesseract.js`, the `public/tesseract/` 14 MB WASM directory, and the `tesseract/*` entry in `web_accessible_resources`. The only remaining translation pipeline is `full-image-vlm`. Stored config bumps to `version: 3`; legacy fields `translationPipeline`, `regionBatchSize`, and `fallbackToFullImage` are deleted on migration. Cache entries written under the old `hybrid-v1` version token are invalidated. No behavior change for users on `full-image-vlm` (the default since v0.3.3).
+
 ## [0.3.4] - 2026-06-01
 
 ### Added

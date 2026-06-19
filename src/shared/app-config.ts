@@ -74,9 +74,6 @@ export const DEFAULT_CONFIG: Readonly<{
   cacheEnabled: boolean;
   readingMode: 'panel';
   renderMode: 'strong-overlay-compat' | 'anchors-only';
-  translationPipeline: 'hybrid-regions' | 'full-image-vlm';
-  regionBatchSize: number;
-  fallbackToFullImage: boolean;
   overlayStyle: {
     backgroundColor: string;
     textColor: string;
@@ -98,13 +95,6 @@ export const DEFAULT_CONFIG: Readonly<{
   cacheEnabled: true,
   readingMode: 'panel',
   renderMode: 'strong-overlay-compat',
-  // Default to full-image-vlm — single VLM pass over the image, no Tesseract.
-  // CLAUDE.md states this is the default; tests were asserting hybrid-regions,
-  // which contradicted both the docs and production reality (hybrid path
-  // requires Tesseract.js, which is heavy and disabled for most users).
-  translationPipeline: 'full-image-vlm',
-  regionBatchSize: 10,
-  fallbackToFullImage: true,
   // UI fields (from config-v2.ts overlayStyle)
   overlayStyle: {
     backgroundColor: 'rgba(240, 240, 235, 0.94)',

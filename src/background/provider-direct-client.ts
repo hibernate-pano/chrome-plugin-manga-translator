@@ -58,8 +58,7 @@ export async function translateImageViaProviderDirect(
     const result = await provider.analyzeAndTranslate(
       request.imageBase64,
       request.targetLanguage,
-      request.translationStylePreset,
-      request.isHybridRegions
+      request.translationStylePreset
     );
 
     return {

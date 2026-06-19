@@ -26,7 +26,6 @@ export interface TranslationTransportRequest {
   pageKey?: string;
   priorityClass?: JobPriorityClass;
   scope?: 'viewport' | 'page' | 'chapter' | 'manual';
-  isHybridRegions?: boolean;
 }
 
 export interface TranslationTransportResponse {
@@ -81,7 +80,6 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
         baseUrl: request.baseUrl,
         model: request.model,
         forceRefresh: request.forceRefresh,
-        isHybridRegions: request.isHybridRegions,
       } satisfies TranslateImageJobRequest)) as
         | TranslateImageJobResponse
         | undefined

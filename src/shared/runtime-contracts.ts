@@ -94,7 +94,6 @@ export interface TranslateImageJobRequest {
   baseUrl?: string;
   model?: string;
   forceRefresh?: boolean;
-  isHybridRegions?: boolean;
 }
 
 export interface TranslateImageJobResponse {

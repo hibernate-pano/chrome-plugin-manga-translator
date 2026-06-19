@@ -65,19 +65,14 @@ export class OllamaProvider implements VisionProvider {
   async analyzeAndTranslate(
     imageBase64: string,
     targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset,
-    isHybridRegions?: boolean
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
     const validation = await this.validateConfig();
     if (!validation.valid) {
       throw new Error(validation.message);
     }
 
-    const prompt = getMangaTranslationPrompt(
-      targetLanguage,
-      translationStylePreset,
-      isHybridRegions
-    );
+    const prompt = getMangaTranslationPrompt(targetLanguage, translationStylePreset);
 
     // Extract pure base64 data (remove data URL prefix if present)
     let base64Data = imageBase64;

@@ -63,14 +63,6 @@ pnpm type-check             # 仅类型检查
 
 图像检测 → 图像处理(压缩/Base64/哈希) → 缓存检查 → Vision LLM 调用 → JSON 响应解析(文字区域+翻译) → 覆盖层渲染
 
-### 翻译管线（Translation Pipeline）
-
-两种翻译模式，默认 `full-image-vlm`：
-- **`full-image-vlm`**（默认）：VLM 直接处理完整图片，稳定性高，适合大多数场景
-- **`hybrid-regions`**：先通过 Tesseract.js 检测文字区域，再分批发送给 VLM 翻译（保留供需要时使用）
-
-`hybrid-regions` 代码仍然可用，用户可手动切换。
-
 ### Vision LLM Provider（策略模式）
 
 `src/providers/` 下的 TypeScript 实现:
