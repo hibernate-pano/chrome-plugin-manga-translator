@@ -51,16 +51,11 @@ export abstract class OpenAICompatibleProvider
   override async analyzeAndTranslate(
     imageBase64: string,
     targetLanguage: string,
-    translationStylePreset?: TranslationStylePreset,
-    isHybridRegions?: boolean
+    translationStylePreset?: TranslationStylePreset
   ): Promise<VisionResponse> {
     this.ensureConfigured();
 
-    const prompt = getMangaTranslationPrompt(
-      targetLanguage,
-      translationStylePreset,
-      isHybridRegions
-    );
+    const prompt = getMangaTranslationPrompt(targetLanguage, translationStylePreset);
     const imageData = parseImageData(imageBase64);
     const imageUrl = `data:${imageData.mediaType};base64,${imageData.base64}`;
 
