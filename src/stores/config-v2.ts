@@ -223,9 +223,9 @@ function migratePersistedConfig(
     providers: newProviders,
   };
 
-  // v2 → v3: drop hybrid-regions pipeline fields. The full-image-vlm pipeline
-  // is now the only supported path; these fields were UI-only and no longer
-  // referenced by the runtime after Task 8/9/11.
+  // v2 → v3: drop legacy pipeline fields. The full-image-vlm pipeline is now
+  // the only supported path; these fields were UI-only and no longer
+  // referenced by the runtime.
   delete migratedState['translationPipeline'];
   delete migratedState['regionBatchSize'];
   delete migratedState['fallbackToFullImage'];

@@ -33,8 +33,6 @@ export interface TextArea {
   originalText: string;
   /** Translated text */
   translatedText: string;
-  /** Optional visual index for hybrid mapping */
-  index?: number;
 }
 
 /**
