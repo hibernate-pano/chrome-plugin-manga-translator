@@ -7,8 +7,9 @@ import {
  *
  * All incoming messages use the type-based envelope: `{ type: '...' }`.
  * The type switch handles translation jobs, image-bytes fetch, content
- * state broadcasts, and the ready handshake. Sensitive actions
- * (config read/write) are gated on isExtensionOrigin — see handleMessage.
+ * state broadcasts, and the ready handshake. The only access control
+ * is the top-level sender check (extension origin or content script);
+ * no per-type gating is currently enforced.
  */
 import type {
   QueryJobStatusRequest,
@@ -240,11 +241,6 @@ async function handleMessage(
   }
 
   try {
-    // 涉及配置读写（包含 API Key 解混淆结果）的接口仅信任扩展内部页面。
-    // content script 即使被注入到任意 tab 也不应读到去混淆后的 key，
-    // 也不应改写配置。其它 job / fetch / state 接口对两者都开放。
-    const requestType =
-      typeof request.type === 'string' ? request.type : null;
     switch (request.type) {
       case 'JOB_TRANSLATE_IMAGE':
         sendResponse(
