@@ -428,8 +428,8 @@ describe('image-processor', () => {
       expect(result.originalHeight).toBe(100);
       expect(result.wasCompressed).toBe(false);
       expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
-        action: 'fetchImage',
-        url: 'https://cdn.example.com/cors-image.jpg',
+        type: 'FETCH_IMAGE_BYTES',
+        imageUrl: 'https://cdn.example.com/cors-image.jpg',
       });
     });
 

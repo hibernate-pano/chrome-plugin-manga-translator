@@ -316,16 +316,8 @@ export async function processImage(
 /**
  * Process an image via background script to bypass CORS.
  *
- * NOTE on message protocols: this function uses the legacy
- * `{ action: 'fetchImage', url }` envelope, which is dispatched by the
- * background handler's action-based switch. The new envelope protocol
- * (`{ type: 'JOB_*', ... }`) is reserved for translation jobs handled
- * by ChromeRuntimeTranslationTransport (see
- * src/services/translation-transport.ts). The two protocols coexist
- * because the image-fetch path is a simple binary transport with no
- * job-queue semantics, while translation requires priority/scope/dedup.
- * Unifying them is a future refactor; for now, callers must read the
- * matching response field — `imageBase64` here, `textAreas` there.
+ * The background dispatcher handles this via the `FETCH_IMAGE_BYTES`
+ * type-based message; the response is a base64 string + mime type.
  */
 async function processImageViaBackground(
   imageUrl: string,
@@ -333,8 +325,8 @@ async function processImageViaBackground(
   originalHeight: number
 ): Promise<ProcessedImage> {
   const response = await chrome.runtime.sendMessage({
-    action: 'fetchImage',
-    url: imageUrl,
+    type: 'FETCH_IMAGE_BYTES',
+    imageUrl,
   });
 
   if (!response?.success || !response.imageBase64) {
