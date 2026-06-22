@@ -133,7 +133,6 @@ chrome.runtime.onInstalled.addListener(details => {
 });
 
 // 右键菜单"翻译当前页面" → 转发 TRANSLATE_PAGE 到当前 tab 的 content script。
-// 复用 forwardToActiveTab 已有的错误处理链路。
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== 'translatePage' || !tab?.id) {
     return;
@@ -371,36 +370,6 @@ async function enqueueTranslationJob(
       };
     },
   });
-}
-
-async function forwardToActiveTab(
-  message: Record<string, unknown>,
-  sendResponse: (response: MessageResponse) => void
-): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    sendResponse({ success: false, error: 'No active tab found' });
-    return;
-  }
-
-  try {
-    const response = await sendToTab(tab.id, message);
-    sendResponse((response as MessageResponse) ?? { success: true });
-  } catch (error) {
-    sendResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to reach page',
-    });
-  }
-}
-
-async function broadcastToAllTabs(message: Record<string, unknown>): Promise<void> {
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(
-    tabs
-      .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
-      .map(tab => sendToTab(tab.id, message).catch(() => undefined))
-  );
 }
 
 async function sendToTab(
