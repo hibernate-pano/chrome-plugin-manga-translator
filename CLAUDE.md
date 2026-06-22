@@ -44,21 +44,6 @@ pnpm type-check             # 仅类型检查
 
 通信流: Popup ↔ Background ↔ Content Script
 
-### 消息协议（v0.3.2）
-
-后台分发器同时接受两套信封，目前并存不互通：
-
-1. **Action 协议**（旧）：`{ action: 'fetchImage' | 'getConfig' | 'setConfig' | ... }`
-   - 调用方：`image-processor.ts`（CORS 图片代理）、`popup.tsx`、`options.tsx`
-   - 响应字段：`{ success, imageBase64 }` 或 `{ success, config }`
-
-2. **Type 协议**（新）：`{ type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }`
-   - 调用方：`translation-transport.ts`（翻译任务）
-   - 响应字段：`{ success, job: { ... }, textAreas }`（envelope 形态）
-   - 信封类型见 `src/shared/runtime-contracts.ts`
-
-未来重构计划：统一到 type-based 信封。短期不要混用响应字段。
-
 ### 翻译核心流程
 
 图像检测 → 图像处理(压缩/Base64/哈希) → 缓存检查 → Vision LLM 调用 → JSON 响应解析(文字区域+翻译) → 覆盖层渲染

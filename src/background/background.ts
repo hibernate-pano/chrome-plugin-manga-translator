@@ -3,22 +3,13 @@ import {
   isTranslationEnabled,
 } from './auto-translate';
 /**
- * Message protocols handled by this background script.
+ * Background message dispatcher.
  *
- * The dispatcher accepts TWO coexisting envelopes:
- *
- * 1. Action-based (legacy): { action: 'fetchImage' | 'getConfig' | ... }
- *    Used by:
- *    - image-processor.ts (CORS-tainted image proxy)
- *    - popup.tsx and options.tsx (config read/write)
- *
- * 2. Type-based (new): { type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }
- *    Used by:
- *    - translation-transport.ts (translation job dispatch)
- *
- * Response field naming differs: action-based returns `{ success, imageBase64 }`,
- * type-based returns `{ success, job: { ... }, textAreas }` (envelope shape).
- * Do NOT unify without also migrating the consumers; see CLAUDE.md.
+ * All incoming messages use the type-based envelope: `{ type: '...' }`.
+ * The type switch handles translation jobs, image-bytes fetch, content
+ * state broadcasts, and the ready handshake. The only access control
+ * is the top-level sender check (extension origin or content script);
+ * no per-type gating is currently enforced.
  */
 import type {
   QueryJobStatusRequest,
@@ -40,12 +31,10 @@ import { BackgroundJobQueue, createJobStatus } from './job-queue';
 import { deriveRequestedPath } from '@/shared/runtime-contracts';
 
 interface MessageRequest {
-  action?: string;
   type?: string;
   enabled?: boolean;
   config?: Record<string, unknown>;
   imageUrl?: string;
-  url?: string;
   [key: string]: unknown;
 }
 
@@ -144,7 +133,6 @@ chrome.runtime.onInstalled.addListener(details => {
 });
 
 // 右键菜单"翻译当前页面" → 转发 TRANSLATE_PAGE 到当前 tab 的 content script。
-// 复用 forwardToActiveTab 已有的错误处理链路。
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId !== 'translatePage' || !tab?.id) {
     return;
@@ -252,112 +240,48 @@ async function handleMessage(
   }
 
   try {
-    // 涉及配置读写（包含 API Key 解混淆结果）的接口仅信任扩展内部页面。
-    // content script 即使被注入到任意 tab 也不应读到去混淆后的 key，
-    // 也不应改写配置。其它 job / fetch / state 接口对两者都开放。
-    const requestAction =
-      typeof request.action === 'string' ? request.action : null;
-    const requestType =
-      typeof request.type === 'string' ? request.type : null;
-    const isSensitiveRequest =
-      requestAction === 'getConfig' || requestAction === 'setConfig';
-    if (isSensitiveRequest && !isExtensionOrigin) {
-      sendResponse({
-        success: false,
-        error: `${requestAction ?? requestType ?? 'request'} requires extension origin`,
-      });
-      return;
-    }
-    if (request.type && !request.action) {
-      switch (request.type) {
-        case 'JOB_TRANSLATE_IMAGE':
-          sendResponse(
-            (await enqueueTranslationJob(
-              request as unknown as TranslateImageJobRequest
-            )) as unknown as MessageResponse
-          );
-          return;
-        case 'JOB_QUERY_STATUS': {
-          const statusRequest = request as unknown as QueryJobStatusRequest;
-          const job = translationJobQueue.getJob(statusRequest.jobId);
-          sendResponse(job ? { success: true, job } : { success: false, error: 'Job not found' });
-          return;
-        }
-        case 'STATE_UPDATE':
-          void chrome.runtime.sendMessage(request).catch(() => undefined);
-          sendResponse({ received: true });
-          return;
-        case 'READY': {
-          const config = await getConfig();
-          if (sender.tab?.id && isTranslationEnabled(config)) {
-            await requestAutoTranslateForTab(sender.tab.id);
-          }
-          sendResponse({ received: true });
-          return;
-        }
-        case 'FETCH_IMAGE_BYTES': {
-          const imageUrl = request.imageUrl;
-          if (!imageUrl) {
-            sendResponse({ success: false, error: 'No image URL provided' });
-            return;
-          }
-          sendResponse(await fetchImageBytesResponse(imageUrl));
-          return;
-        }
-        case 'HUD_CANCELLED':
-          void chrome.runtime.sendMessage(request).catch(() => undefined);
-          sendResponse({ received: true });
-          return;
-        default:
-          sendResponse({ received: true });
-          return;
-      }
-    }
-
-    switch (request.action) {
-      case 'getConfig':
-        sendResponse({ success: true, config: await getConfig() });
-        return;
-      case 'setConfig':
-        if (!request.config) {
-          sendResponse({ success: false, error: 'No config provided' });
-          return;
-        }
-        await setConfig(request.config);
-        await broadcastToAllTabs({ action: 'configUpdated' });
-        sendResponse({ success: true });
-        return;
-      case 'toggleTranslation':
-        await forwardToActiveTab(
-          request.enabled ? { type: 'TRANSLATE_PAGE' } : { type: 'CANCEL_TRANSLATION' },
-          sendResponse
+    switch (request.type) {
+      case 'JOB_TRANSLATE_IMAGE':
+        sendResponse(
+          (await enqueueTranslationJob(
+            request as unknown as TranslateImageJobRequest
+          )) as unknown as MessageResponse
         );
         return;
-      case 'startTranslation':
-        await forwardToActiveTab({ type: 'TRANSLATE_PAGE' }, sendResponse);
+      case 'JOB_QUERY_STATUS': {
+        const statusRequest = request as unknown as QueryJobStatusRequest;
+        const job = translationJobQueue.getJob(statusRequest.jobId);
+        sendResponse(job ? { success: true, job } : { success: false, error: 'Job not found' });
         return;
-      case 'stopTranslation':
-        await forwardToActiveTab({ type: 'CANCEL_TRANSLATION' }, sendResponse);
+      }
+      case 'STATE_UPDATE':
+        void chrome.runtime.sendMessage(request).catch(() => undefined);
+        sendResponse({ received: true });
         return;
-      case 'getState':
-      case 'checkState':
-        await forwardToActiveTab({ type: 'GET_STATE' }, sendResponse);
+      case 'READY': {
+        const config = await getConfig();
+        if (sender.tab?.id && isTranslationEnabled(config)) {
+          await requestAutoTranslateForTab(sender.tab.id);
+        }
+        sendResponse({ received: true });
         return;
-      case 'openOptionsPage':
-        void chrome.runtime.openOptionsPage();
-        sendResponse({ success: true });
-        return;
-      case 'fetchImage': {
-        const imageUrl = request.url;
+      }
+      case 'FETCH_IMAGE_BYTES': {
+        const imageUrl = request.imageUrl;
         if (!imageUrl) {
-          sendResponse({ success: false, error: 'No URL provided' });
+          sendResponse({ success: false, error: 'No image URL provided' });
           return;
         }
         sendResponse(await fetchImageBytesResponse(imageUrl));
         return;
       }
+      case 'HUD_CANCELLED':
+        void chrome.runtime.sendMessage(request).catch(() => undefined);
+        sendResponse({ received: true });
+        return;
       default:
-        sendResponse({ success: false, error: `Unknown action: ${request.action}` });
+        sendResponse({ received: true });
+        return;
     }
   } catch (error) {
     sendResponse({
@@ -446,36 +370,6 @@ async function enqueueTranslationJob(
       };
     },
   });
-}
-
-async function forwardToActiveTab(
-  message: Record<string, unknown>,
-  sendResponse: (response: MessageResponse) => void
-): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
-  if (!tab?.id) {
-    sendResponse({ success: false, error: 'No active tab found' });
-    return;
-  }
-
-  try {
-    const response = await sendToTab(tab.id, message);
-    sendResponse((response as MessageResponse) ?? { success: true });
-  } catch (error) {
-    sendResponse({
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to reach page',
-    });
-  }
-}
-
-async function broadcastToAllTabs(message: Record<string, unknown>): Promise<void> {
-  const tabs = await chrome.tabs.query({});
-  await Promise.all(
-    tabs
-      .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
-      .map(tab => sendToTab(tab.id, message).catch(() => undefined))
-  );
 }
 
 async function sendToTab(

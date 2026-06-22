@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Background dispatcher unified to a single type-based message protocol.** The legacy `{ action: '...' }` envelope and its 9-case switch are removed from `src/background/background.ts`. The only legacy caller (`src/services/image-processor.ts` CORS image fetch) was migrated to use the existing `FETCH_IMAGE_BYTES` type-based case, which had been a duplicate of the action case since v0.3.2. `CLAUDE.md`'s "双协议并存" note is removed. No external behavior change.
+
 ### Removed
 
 - **`hybrid-regions` translation pipeline** and all its supporting code: Tesseract.js wrapper (`src/services/text-detector.ts`), reading-result types (`src/services/reading-result.ts`), OCR provider selector helper (`src/utils/ocr-provider-selector.ts`), hybrid-region detection, region batching, region cropping/label-drawing, and the `isHybridRegions` codepath in the provider layer. Also removed: `tesseract.js` and `tesseract.js-core` npm dependencies, `scripts/copy-tesseract.js`, the `public/tesseract/` 14 MB WASM directory, and the `tesseract/*` entry in `web_accessible_resources`. The only remaining translation pipeline is `full-image-vlm`. Stored config bumps to `version: 3`; legacy fields `translationPipeline`, `regionBatchSize`, and `fallbackToFullImage` are deleted on migration. Cache entries written under the old `hybrid-v1` version token are invalidated. No behavior change for users on `full-image-vlm` (the default since v0.3.3).
