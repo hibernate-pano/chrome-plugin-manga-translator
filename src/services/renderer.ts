@@ -573,17 +573,24 @@ export class OverlayRenderer {
     const controls = document.createElement('div');
     controls.className = CONTROLS_CLASS;
 
-    // Toggle button (pin/unpin translation)
+    // Toggle button: with autoPinned: true (the new default), the
+    // user sees the translation. Clicking 📌 shows the ORIGINAL
+    // text instead, so the user can compare. A second click
+    // restores the translation.
     const toggleBtn = document.createElement('button');
-    toggleBtn.title = '切换翻译显示';
+    toggleBtn.title = '切换原文 / 译文';
     toggleBtn.textContent = '📌';
     toggleBtn.addEventListener('click', e => {
       e.stopPropagation();
       const rendered = this.renderedOverlays.get(image);
-      if (rendered) {
-        rendered.pinned = !rendered.pinned;
-        wrapper.classList.toggle('manga-translator-pinned', rendered.pinned);
-        toggleBtn.textContent = rendered.pinned ? '👁' : '📌';
+      if (!rendered) return;
+      rendered.pinned = !rendered.pinned;
+      wrapper.classList.toggle('manga-translator-pinned', rendered.pinned);
+      toggleBtn.textContent = rendered.pinned ? '👁' : '📌';
+      for (const overlay of rendered.overlays) {
+        overlay.textContent = rendered.pinned
+          ? (overlay.getAttribute('data-translated') ?? '')
+          : (overlay.getAttribute('data-original') ?? '');
       }
     });
     controls.appendChild(toggleBtn);
@@ -721,6 +728,7 @@ export class OverlayRenderer {
 
     overlay.textContent = area.translatedText;
     overlay.setAttribute('data-original', area.originalText);
+    overlay.setAttribute('data-translated', area.translatedText);
 
     return overlay;
   }
