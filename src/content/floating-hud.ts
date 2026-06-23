@@ -15,7 +15,7 @@
 
 export type HudState =
   | { status: 'hidden' }
-  | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
+  | { status: 'translating'; current: number; total: number; currentImageIndex?: number; etaSeconds?: number }
   | {
       status: 'complete';
       translatedCount: number;
@@ -170,13 +170,17 @@ export class FloatingHud {
         const imageLabel = state.currentImageIndex
           ? `第 ${state.currentImageIndex} 张`
           : `${state.current}`;
+        const etaLabel =
+          typeof state.etaSeconds === 'number' && state.etaSeconds > 0
+            ? ` · 约 ${formatEta(state.etaSeconds)}`
+            : '';
         return `
           <div class="hud-card">
             <div class="hud-title">翻译中...</div>
             <div class="hud-progress-track">
               <div class="hud-progress-bar" style="width:${pct}%"></div>
             </div>
-            <div class="hud-sub">${imageLabel} / ${state.total}</div>
+            <div class="hud-sub">${imageLabel} / ${state.total}${etaLabel}</div>
             <button id="cancel-btn" class="hud-cancel">取消</button>
           </div>
         `;
@@ -291,7 +295,7 @@ export class FloatingHud {
           background: #3b82f6;
           height: 100%;
           border-radius: 4px;
-          transition: width 0.3s ease;
+          transition: width 0.15s linear;
         }
 
         .hud-cancel {
@@ -386,4 +390,12 @@ function escapeHtml(str: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+function formatEta(seconds: number): string {
+  if (seconds < 60) return `${seconds} 秒`;
+  const mins = Math.floor(seconds / 60);
+  const secs = seconds % 60;
+  if (secs === 0) return `${mins} 分`;
+  return `${mins} 分 ${secs} 秒`;
 }

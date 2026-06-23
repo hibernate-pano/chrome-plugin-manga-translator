@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getErrorStats, clearErrorStats, type ErrorStats } from '@/utils/error-stats';
+import { useUsageStore } from '@/stores/usage-store';
 import { readAndClearFocusSignal } from '@/utils/onboarding';
 
 interface TestResult {
@@ -168,6 +169,36 @@ function ErrorStatsCard() {
           清零
         </Button>
       </CardFooter>
+    </Card>
+  );
+}
+
+function CacheStatsCard() {
+  // useUsageStore.getSummary() already computes cacheHitRate.
+  // We re-read on every render; this card is rendered alongside
+  // ErrorStatsCard so the user sees both in one place.
+  const summary = useUsageStore(state => state.getSummary());
+  const total = summary.totalRecords;
+  const hit = Math.round(summary.cacheHitRate * 100);
+
+  if (total === 0) return null;
+
+  return (
+    <Card className='mt-6'>
+      <CardHeader>
+        <CardTitle>缓存命中率</CardTitle>
+        <CardDescription>
+          本地累计的翻译记录中从缓存复用（零延迟）的比例
+        </CardDescription>
+      </CardHeader>
+      <CardContent>
+        <div className='flex items-baseline gap-2'>
+          <span className='text-3xl font-semibold'>{hit}%</span>
+          <span className='text-sm text-muted-foreground'>
+            （{summary.totalRecords} 次翻译）
+          </span>
+        </div>
+      </CardContent>
     </Card>
   );
 }
@@ -916,6 +947,7 @@ const OptionsApp: React.FC = () => {
         </div>
 
         <ErrorStatsCard />
+        <CacheStatsCard />
       </div>
     </div>
   );

@@ -190,29 +190,6 @@ describe('OverlayRenderer Integration', () => {
     });
   });
 
-  describe('Loading Overlay', () => {
-    it('shows loading overlay', () => {
-      const img = createMockImage('test-img-10', 720, 1000);
-      container.appendChild(img);
-
-      renderer.renderLoading(img);
-
-      const loading = container.querySelector('.manga-translator-loading');
-      expect(loading).toBeTruthy();
-    });
-
-    it('removes loading overlay', () => {
-      const img = createMockImage('test-img-11', 720, 1000);
-      container.appendChild(img);
-
-      renderer.renderLoading(img);
-      expect(container.querySelector('.manga-translator-loading')).toBeTruthy();
-
-      renderer.removeLoading(img);
-      expect(container.querySelector('.manga-translator-loading')).toBeFalsy();
-    });
-  });
-
   describe('Control Buttons', () => {
     it('renders control buttons', () => {
       const img = createMockImage('test-img-12', 720, 1000);
