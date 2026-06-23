@@ -20,6 +20,16 @@ import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardFooter,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { Button } from '@/components/ui/button';
+import { getErrorStats, clearErrorStats, type ErrorStats } from '@/utils/error-stats';
 
 interface TestResult {
   success: boolean;
@@ -93,6 +103,73 @@ const API_PRESETS: Array<{
     description: '国外大模型聚合平台，支持 Gemini 等多种多模态模型。',
   },
 ];
+
+const ERROR_STATS_STORAGE_KEY = 'manga-translator-error-stats';
+
+function ErrorStatsCard() {
+  const [stats, setStats] = useState<ErrorStats>({});
+
+  useEffect(() => {
+    void getErrorStats().then(setStats);
+
+    const listener = (
+      changes: Record<string, chrome.storage.StorageChange>,
+      areaName: string
+    ) => {
+      if (areaName !== 'local') return;
+      if (changes[ERROR_STATS_STORAGE_KEY]) {
+        void getErrorStats().then(setStats);
+      }
+    };
+    chrome.storage.onChanged.addListener(listener);
+    return () => {
+      chrome.storage.onChanged.removeListener(listener);
+    };
+  }, []);
+
+  const entries = Object.entries(stats).sort(
+    ([, a], [, b]) => (b ?? 0) - (a ?? 0)
+  );
+
+  if (entries.length === 0) return null;
+
+  return (
+    <Card className='mt-6'>
+      <CardHeader>
+        <CardTitle>诊断</CardTitle>
+        <CardDescription>本地累计的翻译失败次数（按错误码）</CardDescription>
+      </CardHeader>
+      <CardContent>
+        <table className='w-full text-sm'>
+          <thead>
+            <tr className='border-b'>
+              <th className='py-2 text-left'>错误码</th>
+              <th className='py-2 text-right'>次数</th>
+            </tr>
+          </thead>
+          <tbody>
+            {entries.map(([code, count]) => (
+              <tr key={code} className='border-b last:border-0'>
+                <td className='py-2 font-mono'>{code}</td>
+                <td className='py-2 text-right'>{count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </CardContent>
+      <CardFooter>
+        <Button
+          variant='outline'
+          onClick={() => {
+            void clearErrorStats().then(() => setStats({}));
+          }}
+        >
+          清零
+        </Button>
+      </CardFooter>
+    </Card>
+  );
+}
 
 const OptionsApp: React.FC = () => {
   const provider = useAppConfigStore(state => state.provider);
@@ -794,6 +871,8 @@ const OptionsApp: React.FC = () => {
             {PROVIDERS.map(item => renderProviderCard(item.type))}
           </div>
         </div>
+
+        <ErrorStatsCard />
       </div>
     </div>
   );
