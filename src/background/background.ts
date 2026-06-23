@@ -22,6 +22,7 @@ import {
   DEFAULT_CONFIG,
   normalizeRuntimeAppConfig,
   APP_CONFIG_STORAGE_KEY,
+  isProviderSettingsComplete,
 } from '@/shared/app-config';
 import { getErrorMessage } from '@/utils/error-message';
 import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
@@ -259,7 +260,30 @@ async function handleMessage(
         return;
       case 'READY': {
         const config = await getConfig();
-        if (sender.tab?.id && isTranslationEnabled(config)) {
+        // Gate auto-translate on the provider being usable, not just
+        // on `enabled` — otherwise the first-time user sees an
+        // init-failure error storm before the onboarding corner card
+        // can show up.
+        const provider = config['provider'] as
+          | 'openai-compatible'
+          | 'ollama'
+          | 'lm-studio'
+          | undefined;
+        const providers = config['providers'] as
+          | Record<string, { apiKey: string; baseUrl: string; model: string }>
+          | undefined;
+        const providerSettings =
+          provider && providers ? providers[provider] : undefined;
+        const providerReady = !!(
+          provider &&
+          providerSettings &&
+          isProviderSettingsComplete(provider, providerSettings)
+        );
+        if (
+          sender.tab?.id &&
+          isTranslationEnabled(config) &&
+          providerReady
+        ) {
           await requestAutoTranslateForTab(sender.tab.id);
         }
         sendResponse({ received: true });
