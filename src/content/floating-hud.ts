@@ -22,7 +22,8 @@ export type HudState =
       failedCount: number;
       cachedCount: number;
     }
-  | { status: 'error'; message: string; suggestion?: string };
+  | { status: 'error'; message: string; suggestion?: string }
+  | { status: 'onboarding' };
 
 // ==================== FloatingHud 类 ====================
 
@@ -30,6 +31,7 @@ export class FloatingHud {
   private container: HTMLElement;
   private shadow: ShadowRoot;
   private autoHideTimer: ReturnType<typeof setTimeout> | null = null;
+  private onboardingCollapseTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor() {
     this.container = document.createElement('div');
@@ -59,6 +61,25 @@ export class FloatingHud {
         this.container.dispatchEvent(
           new CustomEvent('hud-retry-failed', { bubbles: true, composed: true })
         );
+      } else if (target.id === 'onboarding-configure') {
+        this.container.dispatchEvent(
+          new CustomEvent('hud-configure', { bubbles: true, composed: true })
+        );
+      } else if (target.id === 'onboarding-close') {
+        this.container.dispatchEvent(
+          new CustomEvent('hud-dismiss-onboarding', { bubbles: true, composed: true })
+        );
+      }
+    });
+
+    this.shadow.addEventListener('mouseover', (e: Event) => {
+      const target = e.target as HTMLElement;
+      if (target.closest('.hud-onboarding-collapsed')) {
+        this.setOnboardingCollapsed(false);
+        this.clearOnboardingTimers();
+        this.onboardingCollapseTimer = setTimeout(() => {
+          this.setOnboardingCollapsed(true);
+        }, 4000);
       }
     });
   }
@@ -71,6 +92,11 @@ export class FloatingHud {
 
     const hud = this.shadow.getElementById('hud');
     if (!hud) return;
+
+    if (state.status === 'onboarding') {
+      this.startOnboardingCard(hud);
+      return;
+    }
 
     if (state.status === 'hidden') {
       hud.style.display = 'none';
@@ -110,6 +136,30 @@ export class FloatingHud {
       clearTimeout(this.autoHideTimer);
       this.autoHideTimer = null;
     }
+    this.clearOnboardingTimers();
+  }
+
+  private startOnboardingCard(hud: HTMLElement): void {
+    this.clearOnboardingTimers();
+    hud.style.display = 'block';
+    hud.innerHTML = this.renderState({ status: 'onboarding' });
+
+    this.onboardingCollapseTimer = setTimeout(() => {
+      this.setOnboardingCollapsed(true);
+    }, 8000);
+  }
+
+  private setOnboardingCollapsed(collapsed: boolean): void {
+    const card = this.shadow.getElementById('onboarding-card');
+    if (!card) return;
+    card.classList.toggle('hud-onboarding-collapsed', collapsed);
+  }
+
+  private clearOnboardingTimers(): void {
+    if (this.onboardingCollapseTimer !== null) {
+      clearTimeout(this.onboardingCollapseTimer);
+      this.onboardingCollapseTimer = null;
+    }
   }
 
   private renderState(state: HudState): string {
@@ -146,6 +196,17 @@ export class FloatingHud {
           <div class="hud-card">
             <div class="hud-title">翻译完成</div>
             <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
+          </div>
+        `;
+      }
+
+      case 'onboarding': {
+        return `
+          <div class="hud-card hud-card--onboarding" id="onboarding-card">
+            <button id="onboarding-close" class="hud-onboarding-close" title="关闭" aria-label="关闭">×</button>
+            <div class="hud-title">需要 API key 才能翻译</div>
+            <div class="hud-sub">点下面按钮完成配置（约 10 秒）</div>
+            <button id="onboarding-configure" class="hud-onboarding-action">去配置</button>
           </div>
         `;
       }
@@ -264,6 +325,52 @@ export class FloatingHud {
 
         .hud-retry:hover {
           background: rgba(59, 130, 246, 1);
+        }
+
+        .hud-card--onboarding {
+          background: rgba(180, 130, 30, 0.92);
+          max-width: 280px;
+          position: relative;
+        }
+
+        .hud-onboarding-close {
+          position: absolute;
+          top: 6px;
+          right: 8px;
+          background: none;
+          border: none;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 16px;
+          line-height: 1;
+          cursor: pointer;
+          padding: 4px;
+        }
+
+        .hud-onboarding-close:hover {
+          color: #fff;
+        }
+
+        .hud-onboarding-action {
+          margin-top: 12px;
+          width: 100%;
+          background: rgba(255, 255, 255, 0.95);
+          border: none;
+          border-radius: 6px;
+          color: #8a5a00;
+          font-size: 13px;
+          font-weight: 600;
+          padding: 8px 12px;
+          cursor: pointer;
+          transition: background 0.15s;
+        }
+
+        .hud-onboarding-action:hover {
+          background: #fff;
+        }
+
+        .hud-onboarding-collapsed .hud-sub,
+        .hud-onboarding-collapsed .hud-onboarding-action {
+          display: none;
         }
       </style>
     `;
