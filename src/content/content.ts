@@ -23,6 +23,7 @@ import {
   removeAllOverlaysFromDOM,
 } from '@/services/renderer';
 import { parseTranslationError } from '@/utils/error-handler';
+import { incrementErrorStats } from '@/utils/error-stats';
 import {
   getViewportFirstImages,
   processInParallel,
@@ -379,6 +380,7 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
     setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion });
+    void incrementErrorStats(friendly.code);
   } finally {
     abortController = null;
     isTranslating = false;
