@@ -576,6 +576,14 @@ async function initialize(): Promise<void> {
 
     await syncAutoTranslateMode();
 
+    // Translate the page on load (one-shot). The auto-translate
+    // observer handles new images; this handles images that were
+    // already in the DOM when the content script injected.
+    // shouldAutoTranslateFollowUp already maps 'onboarding' to
+    // 'idle' (see P3a fix), so this is a no-op when the user is
+    // not configured.
+    autoTranslateScheduler.schedule();
+
     // 监听 HUD 按钮事件
     setupHudEventListeners();
 
