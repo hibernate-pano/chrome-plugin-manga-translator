@@ -204,8 +204,8 @@ export class FloatingHud {
         return `
           <div class="hud-card hud-card--onboarding" id="onboarding-card">
             <button id="onboarding-close" class="hud-onboarding-close" title="关闭" aria-label="关闭">×</button>
-            <div class="hud-title">需要 API key 才能翻译</div>
-            <div class="hud-sub">点下面按钮完成配置（约 10 秒）</div>
+            <div class="hud-title">翻译需要 API key</div>
+            <div class="hud-sub">约 10 秒一次性配置（填入你的 LLM 视觉模型密钥）</div>
             <button id="onboarding-configure" class="hud-onboarding-action">去配置</button>
           </div>
         `;
@@ -328,7 +328,7 @@ export class FloatingHud {
         }
 
         .hud-card--onboarding {
-          background: rgba(180, 130, 30, 0.92);
+          background: rgba(30, 64, 175, 0.92);
           max-width: 280px;
           position: relative;
         }
@@ -356,7 +356,7 @@ export class FloatingHud {
           background: rgba(255, 255, 255, 0.95);
           border: none;
           border-radius: 6px;
-          color: #8a5a00;
+          color: #1e40af;
           font-size: 13px;
           font-weight: 600;
           padding: 8px 12px;
