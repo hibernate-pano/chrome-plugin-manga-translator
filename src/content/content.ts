@@ -29,6 +29,7 @@ import {
   setOnboardingDismissed,
   requestConfigureFocus,
 } from '@/utils/onboarding';
+import { isProviderSettingsComplete } from '@/shared/app-config';
 import {
   getViewportFirstImages,
   processInParallel,
@@ -582,14 +583,17 @@ async function initialize(): Promise<void> {
     window.addEventListener('beforeunload', cleanup);
 
     // Onboarding check: if the user hasn't dismissed the corner
-    // card this session AND the current provider is not configured,
-    // show the card. Runs after syncAutoTranslateMode so config is
-    // loaded.
+    // card this session AND the current provider is not properly
+    // configured (apiKey + baseUrl + model for OpenAI; baseUrl + model
+    // for Ollama / LM Studio), show the card. Runs after
+    // syncAutoTranslateMode so config is loaded.
     try {
       const dismissed = await isOnboardingDismissed();
       if (!dismissed) {
         const config = useAppConfigStore.getState();
-        if (!config.isProviderConfigured(config.provider)) {
+        const provider = config.provider;
+        const settings = config.providers[provider];
+        if (!isProviderSettingsComplete(provider, settings)) {
           setState({ status: 'onboarding' });
         }
       }

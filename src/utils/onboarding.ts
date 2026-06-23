@@ -38,3 +38,4 @@ export async function readAndClearFocusSignal(): Promise<OnboardingFocusSignal |
   await chrome.storage.session.remove(FOCUS_KEY);
   return signal;
 }
+
