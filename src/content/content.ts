@@ -25,6 +25,12 @@ import {
 import { parseTranslationError } from '@/utils/error-handler';
 import { incrementErrorStats } from '@/utils/error-stats';
 import {
+  isOnboardingDismissed,
+  setOnboardingDismissed,
+  requestConfigureFocus,
+} from '@/utils/onboarding';
+import { isProviderSettingsComplete } from '@/shared/app-config';
+import {
   getViewportFirstImages,
   processInParallel,
   type ParallelProcessingOptions,
@@ -63,7 +69,8 @@ export type ContentState =
   | { status: 'scanning' }
   | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
   | { status: 'complete'; count: number; failedCount?: number; cachedCount?: number }
-  | { status: 'error'; message: string; suggestion?: string };
+  | { status: 'error'; message: string; suggestion?: string }
+  | { status: 'onboarding' };
 
 // ==================== 常量 ====================
 
@@ -120,6 +127,9 @@ function setState(state: ContentState): void {
         break;
       case 'error':
         hud.update({ status: 'error', message: state.message, suggestion: state.suggestion });
+        break;
+      case 'onboarding':
+        hud.update({ status: 'onboarding' });
         break;
     }
   }
@@ -222,10 +232,13 @@ async function syncAutoTranslateMode(): Promise<void> {
 
 async function maybeAutoTranslateNewImages(): Promise<void> {
   const pendingImages = findTranslatableImages();
+  // The auto-translate gate only knows a fixed set of statuses; the
+  // 'onboarding' state should behave like 'idle' for this decision.
+  const statusForGate = currentState.status === 'onboarding' ? 'idle' : currentState.status;
   if (
     shouldAutoTranslateFollowUp({
       enabled: isAutoTranslateEnabled,
-      status: currentState.status,
+      status: statusForGate,
       hasPendingImages: pendingImages.length > 0,
     })
   ) {
@@ -522,9 +535,28 @@ function handleRetryFailed(): void {
   void translatePage(true);
 }
 
+function handleHudConfigure(): void {
+  const config = useAppConfigStore.getState();
+  const provider = config.provider;
+  void requestConfigureFocus(provider).then(() => {
+    try {
+      chrome.runtime.openOptionsPage();
+    } catch {
+      // Extension context may be invalid; ignore.
+    }
+  });
+}
+
+function handleHudDismissOnboarding(): void {
+  void setOnboardingDismissed();
+  setState({ status: 'idle' });
+}
+
 function setupHudEventListeners(): void {
   document.addEventListener('hud-cancel', handleHudCancel);
   document.addEventListener('hud-retry-failed', handleRetryFailed);
+  document.addEventListener('hud-configure', handleHudConfigure);
+  document.addEventListener('hud-dismiss-onboarding', handleHudDismissOnboarding);
 }
 
 // ==================== 初始化 ====================
@@ -549,6 +581,25 @@ async function initialize(): Promise<void> {
 
     // 页面卸载时清理
     window.addEventListener('beforeunload', cleanup);
+
+    // Onboarding check: if the user hasn't dismissed the corner
+    // card this session AND the current provider is not properly
+    // configured (apiKey + baseUrl + model for OpenAI; baseUrl + model
+    // for Ollama / LM Studio), show the card. Runs after
+    // syncAutoTranslateMode so config is loaded.
+    try {
+      const dismissed = await isOnboardingDismissed();
+      if (!dismissed) {
+        const config = useAppConfigStore.getState();
+        const provider = config.provider;
+        const settings = config.providers[provider];
+        if (!isProviderSettingsComplete(provider, settings)) {
+          setState({ status: 'onboarding' });
+        }
+      }
+    } catch (err) {
+      console.warn('[ContentScript] onboarding check failed:', err);
+    }
 
     // 通知 background 已就绪
     sendToBackground({ type: 'READY' });
@@ -577,6 +628,8 @@ function cleanup(): void {
   chrome.storage.onChanged.removeListener(handleStorageChange);
   document.removeEventListener('hud-cancel', handleHudCancel);
   document.removeEventListener('hud-retry-failed', handleRetryFailed);
+  document.removeEventListener('hud-configure', handleHudConfigure);
+  document.removeEventListener('hud-dismiss-onboarding', handleHudDismissOnboarding);
   window.removeEventListener('beforeunload', cleanup);
 }
 

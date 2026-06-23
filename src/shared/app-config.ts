@@ -11,6 +11,32 @@ export interface ProviderSettings {
   model: string;
 }
 
+/**
+ * Strict configuration check: returns true when the given provider
+ * has the minimum fields populated to attempt a translation. Stricter
+ * than the store's `isProviderConfigured` predicate, which considers
+ * the default placeholder `baseUrl` on Ollama / LM Studio as
+ * "configured". Use this for any code path that gates on "the user
+ * has actually set things up".
+ *
+ * Rules:
+ * - openai-compatible: needs apiKey, baseUrl, and model.
+ * - ollama / lm-studio: needs baseUrl and model.
+ */
+export function isProviderSettingsComplete(
+  provider: 'openai-compatible' | 'ollama' | 'lm-studio',
+  settings: ProviderSettings
+): boolean {
+  if (provider === 'openai-compatible') {
+    return Boolean(
+      settings.apiKey?.trim() &&
+        settings.baseUrl?.trim() &&
+        settings.model?.trim()
+    );
+  }
+  return Boolean(settings.baseUrl?.trim() && settings.model?.trim());
+}
+
 export interface RuntimeAppConfig {
   enabled: boolean;
   provider: 'openai-compatible' | 'ollama' | 'lm-studio';
@@ -41,7 +67,7 @@ export const DEFAULT_LM_STUDIO_CONFIG: ProviderSettings = {
 };
 
 export const DEFAULT_RUNTIME_APP_CONFIG: RuntimeAppConfig = {
-  enabled: false,
+  enabled: true,
   provider: 'openai-compatible',
   openaiCompatible: DEFAULT_OPENAI_COMPATIBLE_CONFIG,
   ollama: DEFAULT_OLLAMA_CONFIG,
