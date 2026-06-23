@@ -408,15 +408,12 @@ function createOverlayStyles(): string {
       font-weight: 500;
       text-shadow: 0 1px 2px rgba(255,255,255,0.8);
       box-shadow: 0 1px 4px rgba(0,0,0,0.15), inset 0 1px 0 rgba(255,255,255,0.6);
-      animation: manga-overlay-fadein 0.3s ease-out;
-      transition: opacity 0.18s ease-in-out;
-    }
-
-    .${OVERLAY_CLASS}:hover {
-      opacity: 0.15 !important;
+      animation: manga-overlay-fadein 0.2s ease-out;
+      transition: opacity 0.15s ease-in-out;
     }
 
     .${WRAPPER_CLASS}:hover .${OVERLAY_CLASS} {
+      opacity: 0.5;
       pointer-events: auto;
       user-select: text;
     }
