@@ -459,49 +459,9 @@ function createOverlayStyles(): string {
       background: rgba(0, 0, 0, 0.85);
     }
 
-    .manga-translator-loading {
-      position: absolute;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(2px);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 1001;
-      border-radius: inherit;
-    }
-    
-    .manga-translator-spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(255,255,255,0.3);
-      border-radius: 50%;
-      border-top-color: #fff;
-      animation: manga-spin 1s ease-in-out infinite;
-    }
-    
-    @keyframes manga-spin {
-      to { transform: rotate(360deg); }
-    }
-
     @keyframes manga-overlay-fadein {
       from { opacity: 0; transform: scale(0.95); }
       to { opacity: 1; transform: scale(1); }
-    }
-
-    .manga-translator-loading-content {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .manga-translator-loading-text {
-      color: #fff;
-      font-size: 13px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-weight: 500;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
   `;
 }
@@ -585,17 +545,24 @@ export class OverlayRenderer {
     const controls = document.createElement('div');
     controls.className = CONTROLS_CLASS;
 
-    // Toggle button (pin/unpin translation)
+    // Toggle button: with autoPinned: true (the new default), the
+    // user sees the translation. Clicking 📌 shows the ORIGINAL
+    // text instead, so the user can compare. A second click
+    // restores the translation.
     const toggleBtn = document.createElement('button');
-    toggleBtn.title = '切换翻译显示';
+    toggleBtn.title = '切换原文 / 译文';
     toggleBtn.textContent = '📌';
     toggleBtn.addEventListener('click', e => {
       e.stopPropagation();
       const rendered = this.renderedOverlays.get(image);
-      if (rendered) {
-        rendered.pinned = !rendered.pinned;
-        wrapper.classList.toggle('manga-translator-pinned', rendered.pinned);
-        toggleBtn.textContent = rendered.pinned ? '👁' : '📌';
+      if (!rendered) return;
+      rendered.pinned = !rendered.pinned;
+      wrapper.classList.toggle('manga-translator-pinned', rendered.pinned);
+      toggleBtn.textContent = rendered.pinned ? '👁' : '📌';
+      for (const overlay of rendered.overlays) {
+        overlay.textContent = rendered.pinned
+          ? (overlay.getAttribute('data-translated') ?? '')
+          : (overlay.getAttribute('data-original') ?? '');
       }
     });
     controls.appendChild(toggleBtn);
@@ -660,50 +627,6 @@ export class OverlayRenderer {
   }
 
   /**
-   * Render a loading overlay over an image
-   */
-  renderLoading(image: HTMLImageElement): void {
-    let wrapper = image.parentElement;
-    if (!wrapper || !wrapper.classList.contains(WRAPPER_CLASS)) {
-      wrapper = document.createElement('div');
-      wrapper.className = WRAPPER_CLASS;
-      wrapper.setAttribute(DATA_ATTR, 'true');
-
-      const parent = image.parentElement;
-      if (parent) {
-        parent.insertBefore(wrapper, image);
-      }
-      wrapper.appendChild(image);
-    }
-
-    // Ensure no existing loading indicator
-    this.removeLoading(image);
-
-    const loading = document.createElement('div');
-    loading.className = 'manga-translator-loading';
-    loading.innerHTML = `
-      <div class="manga-translator-loading-content">
-        <div class="manga-translator-spinner"></div>
-        <div class="manga-translator-loading-text">翻译中...</div>
-      </div>
-    `;
-    wrapper.appendChild(loading);
-  }
-
-  /**
-   * Remove loading overlay from an image
-   */
-  removeLoading(image: HTMLImageElement): void {
-    const wrapper = image.parentElement;
-    if (wrapper && wrapper.classList.contains(WRAPPER_CLASS)) {
-      const loading = wrapper.querySelector('.manga-translator-loading');
-      if (loading) {
-        loading.remove();
-      }
-    }
-  }
-
-  /**
    * Create a single overlay element for a text area
    */
   private createOverlayElement(
@@ -738,6 +661,7 @@ export class OverlayRenderer {
 
     overlay.textContent = area.translatedText;
     overlay.setAttribute('data-original', area.originalText);
+    overlay.setAttribute('data-translated', area.translatedText);
 
     return overlay;
   }
