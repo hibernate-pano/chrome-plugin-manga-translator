@@ -461,25 +461,28 @@ function createOverlayStyles(): string {
 
     .manga-translator-loading {
       position: absolute;
-      top: 0; left: 0; width: 100%; height: 100%;
-      background: rgba(0, 0, 0, 0.4);
-      backdrop-filter: blur(2px);
+      top: 6px;
+      right: 6px;
+      width: 20px;
+      height: 20px;
+      pointer-events: none;
+      z-index: 1001;
+      border-radius: 50%;
+      background: rgba(0, 0, 0, 0.55);
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 1001;
-      border-radius: inherit;
     }
-    
-    .manga-translator-spinner {
-      width: 40px;
-      height: 40px;
-      border: 3px solid rgba(255,255,255,0.3);
-      border-radius: 50%;
+
+    .manga-translator-loading-spinner {
+      width: 12px;
+      height: 12px;
+      border: 2px solid rgba(255, 255, 255, 0.4);
       border-top-color: #fff;
-      animation: manga-spin 1s ease-in-out infinite;
+      border-radius: 50%;
+      animation: manga-spin 0.8s linear infinite;
     }
-    
+
     @keyframes manga-spin {
       to { transform: rotate(360deg); }
     }
@@ -487,21 +490,6 @@ function createOverlayStyles(): string {
     @keyframes manga-overlay-fadein {
       from { opacity: 0; transform: scale(0.95); }
       to { opacity: 1; transform: scale(1); }
-    }
-
-    .manga-translator-loading-content {
-      display: flex;
-      flex-direction: column;
-      align-items: center;
-      gap: 10px;
-    }
-
-    .manga-translator-loading-text {
-      color: #fff;
-      font-size: 13px;
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      font-weight: 500;
-      text-shadow: 0 1px 3px rgba(0,0,0,0.5);
     }
   `;
 }
@@ -681,12 +669,7 @@ export class OverlayRenderer {
 
     const loading = document.createElement('div');
     loading.className = 'manga-translator-loading';
-    loading.innerHTML = `
-      <div class="manga-translator-loading-content">
-        <div class="manga-translator-spinner"></div>
-        <div class="manga-translator-loading-text">翻译中...</div>
-      </div>
-    `;
+    loading.innerHTML = `<div class="manga-translator-loading-spinner"></div>`;
     wrapper.appendChild(loading);
   }
 
