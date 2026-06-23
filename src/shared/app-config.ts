@@ -41,7 +41,7 @@ export const DEFAULT_LM_STUDIO_CONFIG: ProviderSettings = {
 };
 
 export const DEFAULT_RUNTIME_APP_CONFIG: RuntimeAppConfig = {
-  enabled: false,
+  enabled: true,
   provider: 'openai-compatible',
   openaiCompatible: DEFAULT_OPENAI_COMPATIBLE_CONFIG,
   ollama: DEFAULT_OLLAMA_CONFIG,

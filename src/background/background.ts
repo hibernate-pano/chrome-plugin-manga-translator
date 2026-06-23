@@ -126,7 +126,6 @@ chrome.runtime.onInstalled.addListener(details => {
 
   if (details.reason === 'install') {
     void initializeDefaultSettings();
-    void chrome.runtime.openOptionsPage();
   } else if (details.reason === 'update') {
     void migrateSettings();
   }
