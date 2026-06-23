@@ -459,34 +459,6 @@ function createOverlayStyles(): string {
       background: rgba(0, 0, 0, 0.85);
     }
 
-    .manga-translator-loading {
-      position: absolute;
-      top: 6px;
-      right: 6px;
-      width: 20px;
-      height: 20px;
-      pointer-events: none;
-      z-index: 1001;
-      border-radius: 50%;
-      background: rgba(0, 0, 0, 0.55);
-      display: flex;
-      align-items: center;
-      justify-content: center;
-    }
-
-    .manga-translator-loading-spinner {
-      width: 12px;
-      height: 12px;
-      border: 2px solid rgba(255, 255, 255, 0.4);
-      border-top-color: #fff;
-      border-radius: 50%;
-      animation: manga-spin 0.8s linear infinite;
-    }
-
-    @keyframes manga-spin {
-      to { transform: rotate(360deg); }
-    }
-
     @keyframes manga-overlay-fadein {
       from { opacity: 0; transform: scale(0.95); }
       to { opacity: 1; transform: scale(1); }
@@ -651,45 +623,6 @@ export class OverlayRenderer {
     if (existing) {
       clearTimeout(existing);
       this.hoverTimers.set(image, null);
-    }
-  }
-
-  /**
-   * Render a loading overlay over an image
-   */
-  renderLoading(image: HTMLImageElement): void {
-    let wrapper = image.parentElement;
-    if (!wrapper || !wrapper.classList.contains(WRAPPER_CLASS)) {
-      wrapper = document.createElement('div');
-      wrapper.className = WRAPPER_CLASS;
-      wrapper.setAttribute(DATA_ATTR, 'true');
-
-      const parent = image.parentElement;
-      if (parent) {
-        parent.insertBefore(wrapper, image);
-      }
-      wrapper.appendChild(image);
-    }
-
-    // Ensure no existing loading indicator
-    this.removeLoading(image);
-
-    const loading = document.createElement('div');
-    loading.className = 'manga-translator-loading';
-    loading.innerHTML = `<div class="manga-translator-loading-spinner"></div>`;
-    wrapper.appendChild(loading);
-  }
-
-  /**
-   * Remove loading overlay from an image
-   */
-  removeLoading(image: HTMLImageElement): void {
-    const wrapper = image.parentElement;
-    if (wrapper && wrapper.classList.contains(WRAPPER_CLASS)) {
-      const loading = wrapper.querySelector('.manga-translator-loading');
-      if (loading) {
-        loading.remove();
-      }
     }
   }
 
