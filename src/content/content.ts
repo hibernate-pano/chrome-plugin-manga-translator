@@ -67,7 +67,7 @@ export type ContentToPopupMsg =
 export type ContentState =
   | { status: 'idle' }
   | { status: 'scanning' }
-  | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
+  | { status: 'translating'; current: number; total: number; currentImageIndex?: number; etaSeconds?: number }
   | { status: 'complete'; count: number; failedCount?: number; cachedCount?: number }
   | { status: 'error'; message: string; suggestion?: string }
   | { status: 'onboarding' };
@@ -115,6 +115,7 @@ function setState(state: ContentState): void {
           current: state.current,
           total: state.total,
           currentImageIndex: state.currentImageIndex,
+          etaSeconds: state.etaSeconds,
         });
         break;
       case 'complete':
@@ -340,8 +341,18 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     failedCount = 0;
     cachedCount = 0;
     failedImageKeys.clear();
+    const translateStartTime = performance.now();
 
     setState({ status: 'translating', current: 0, total, currentImageIndex: 0 });
+
+    const computeEtaSeconds = (): number | undefined => {
+      if (current === 0) return undefined;
+      const elapsed = (performance.now() - translateStartTime) / 1000;
+      const remaining = total - current;
+      // Avoid divide-by-zero and don't claim 0s during first item
+      if (current < 1 || remaining <= 0) return undefined;
+      return Math.max(0, Math.round((elapsed / current) * remaining));
+    };
 
     const options: ParallelProcessingOptions = {
       maxConcurrent: parallelLimit,
@@ -349,13 +360,13 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
       onItemStart: index => {
         currentImageIndex = index;
         if (currentState.status === 'translating') {
-          setState({ status: 'translating', current, total, currentImageIndex: index });
+          setState({ status: 'translating', current, total, currentImageIndex: index, etaSeconds: computeEtaSeconds() });
         }
       },
       onItemComplete: completed => {
         current = completed;
         if (currentState.status === 'translating') {
-          setState({ status: 'translating', current, total, currentImageIndex });
+          setState({ status: 'translating', current, total, currentImageIndex, etaSeconds: computeEtaSeconds() });
         }
       },
       onError: (_error, index) => {
