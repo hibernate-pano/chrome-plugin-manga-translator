@@ -556,11 +556,20 @@ export class OverlayRenderer {
       rendered.pinned = !rendered.pinned;
       wrapper.classList.toggle('manga-translator-pinned', rendered.pinned);
       toggleBtn.textContent = rendered.pinned ? '👁' : '📌';
+      // Cross-fade text over 200ms: fade out → swap text → fade in.
+      // The 150ms opacity transition is already declared on .overlay; we
+      // piggyback on it so no extra CSS is needed.
       for (const overlay of rendered.overlays) {
-        overlay.textContent = rendered.pinned
-          ? (overlay.getAttribute('data-translated') ?? '')
-          : (overlay.getAttribute('data-original') ?? '');
+        overlay.style.opacity = '0';
       }
+      setTimeout(() => {
+        for (const overlay of rendered.overlays) {
+          overlay.textContent = rendered.pinned
+            ? (overlay.getAttribute('data-translated') ?? '')
+            : (overlay.getAttribute('data-original') ?? '');
+          overlay.style.opacity = '';
+        }
+      }, 200);
     });
     controls.appendChild(toggleBtn);
 
