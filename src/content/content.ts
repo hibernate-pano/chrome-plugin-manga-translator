@@ -210,7 +210,7 @@ async function processSingleImage(
     return;
   }
 
-  renderer.render(img, result.textAreas);
+  renderer.render(img, result.textAreas, true);
 }
 
 async function syncAutoTranslateMode(): Promise<void> {
