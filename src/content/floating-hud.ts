@@ -291,7 +291,7 @@ export class FloatingHud {
           background: #3b82f6;
           height: 100%;
           border-radius: 4px;
-          transition: width 0.3s ease;
+          transition: width 0.15s linear;
         }
 
         .hud-cancel {
