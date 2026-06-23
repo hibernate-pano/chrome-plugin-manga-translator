@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { getErrorStats, clearErrorStats, type ErrorStats } from '@/utils/error-stats';
+import { readAndClearFocusSignal } from '@/utils/onboarding';
 
 interface TestResult {
   success: boolean;
@@ -172,6 +173,47 @@ function ErrorStatsCard() {
 }
 
 const OptionsApp: React.FC = () => {
+  // Onboarding focus effect: if the content script set a focus
+  // signal in session storage (via the in-page corner card's
+  // '去配置' click), scroll to + focus the matching API key input.
+  useEffect(() => {
+    void (async () => {
+      const signal = await readAndClearFocusSignal();
+      if (!signal) return;
+      // Wait one frame for provider cards to render.
+      await new Promise(r => setTimeout(r, 50));
+      const input = document.getElementById(
+        `api-key-input-${signal.provider}`
+      ) as HTMLInputElement | null;
+      if (!input) return;
+      input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      input.focus();
+      input.classList.add('manga-translator-focus-highlight');
+      setTimeout(() => {
+        input.classList.remove('manga-translator-focus-highlight');
+      }, 1500);
+    })();
+  }, []);
+
+  // Inject the focus-highlight keyframe once.
+  useEffect(() => {
+    if (document.getElementById('manga-translator-focus-style')) return;
+    const style = document.createElement('style');
+    style.id = 'manga-translator-focus-style';
+    style.textContent = `
+      @keyframes manga-translator-focus-pulse {
+        0%   { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0.7); }
+        70%  { box-shadow: 0 0 0 8px rgba(34, 211, 238, 0); }
+        100% { box-shadow: 0 0 0 0 rgba(34, 211, 238, 0); }
+      }
+      .manga-translator-focus-highlight {
+        animation: manga-translator-focus-pulse 1.5s ease-out;
+        border-color: rgb(34, 211, 238) !important;
+      }
+    `;
+    document.head.appendChild(style);
+  }, []);
+
   const provider = useAppConfigStore(state => state.provider);
   const providers = useAppConfigStore(state => state.providers);
   const targetLanguage = useAppConfigStore(state => state.targetLanguage);
@@ -442,6 +484,7 @@ const OptionsApp: React.FC = () => {
               <div className='mb-1 text-xs text-slate-400'>API Key</div>
               <div className='relative'>
                 <input
+                  id={`api-key-input-${providerType}`}
                   type={showApiKey[providerType] ? 'text' : 'password'}
                   value={settings.apiKey}
                   onChange={e =>
