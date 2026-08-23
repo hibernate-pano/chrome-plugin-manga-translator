@@ -37,6 +37,13 @@ function makeAreas(texts: string[]): TextArea[] {
 describe('ReadingPanel', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    // jsdom doesn't implement scrollIntoView; stub it so focusEntryByIndex
+    // doesn't throw when we exercise the entry-scroll path.
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = function () {
+        /* noop */
+      };
+    }
   });
 
   it('renders empty state initially', () => {
@@ -107,17 +114,22 @@ describe('ReadingPanel', () => {
     panel.destroy();
   });
 
-  it('dispatches reading-panel-upsert custom event', () => {
+  it('focusEntryByIndex adds the flash class to the matching entry', () => {
     const panel = new ReadingPanel();
-    let receivedIndex = 0;
-    (panel as unknown as { host: HTMLElement }).host.addEventListener(
-      'reading-panel-upsert',
-      ((e: Event) => {
-        receivedIndex = (e as CustomEvent<{ index: number }>).detail.index;
-      }) as EventListener
-    );
-    panel.upsert(makeImage(), makeAreas(['测试']));
-    expect(receivedIndex).toBe(1);
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好世界']));
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const entry = shadow.querySelector<HTMLElement>('.entry');
+    // jsdom doesn't implement scrollIntoView, but we can verify the visible
+    // side effect (flash class) which only fires after a successful lookup.
+    panel.focusEntryByIndex(1);
+    expect(entry?.classList.contains('flash')).toBe(true);
+    panel.destroy();
+  });
+
+  it('focusEntryByIndex is a no-op for unknown index', () => {
+    const panel = new ReadingPanel();
+    expect(() => panel.focusEntryByIndex(99)).not.toThrow();
     panel.destroy();
   });
 });

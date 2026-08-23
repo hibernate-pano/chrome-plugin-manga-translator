@@ -123,15 +123,6 @@ export class ReadingPanel {
     const entry: Entry = { image, index, textAreas, node };
     this.entries.push(entry);
 
-    // Add anchor badge on image (delegated to anchors via custom event)
-    this.host.dispatchEvent(
-      new CustomEvent('reading-panel-upsert', {
-        bubbles: true,
-        composed: true,
-        detail: { image, index },
-      })
-    );
-
     // Wire click on entry → scroll image into view
     node.addEventListener('click', () => this.focusImage(entry));
     node.addEventListener('keydown', (e: KeyboardEvent) => {
@@ -153,12 +144,6 @@ export class ReadingPanel {
       this.list.removeChild(this.list.firstChild);
     }
     this.refreshCount();
-    this.host.dispatchEvent(
-      new CustomEvent('reading-panel-reset', {
-        bubbles: true,
-        composed: true,
-      })
-    );
   }
 
   /** 销毁面板 DOM（卸载场景） */
@@ -173,6 +158,20 @@ export class ReadingPanel {
   /** 暴露给外部以便测试或扩展 */
   getEntryCount(): number {
     return this.entries.length;
+  }
+
+  /**
+   * 滚动指定编号的 entry 到视口，并闪高亮。
+   * 由 content.ts 在收到 reading-anchor-click 事件时调用。
+   */
+  focusEntryByIndex(index: number): void {
+    const entryNode = this.shadow.querySelector<HTMLElement>(
+      `.entry[data-index="${index}"]`
+    );
+    if (!entryNode) return;
+    entryNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    entryNode.classList.add('flash');
+    setTimeout(() => entryNode.classList.remove('flash'), 1200);
   }
 
   private toggleCollapsed(): void {

@@ -160,17 +160,19 @@ async function ensureServicesInitialized(): Promise<void> {
   // 它们只创建一次，整个页面生命周期内复用。
   if (!readingPanel) {
     readingPanel = new ReadingPanel();
-    // 监听图上编号点击 → 滚动对应 entry 到面板视口 + 闪高亮
-    readingPanel['host'].addEventListener(
-      'reading-anchor-click',
-      ((e: Event) => {
-        const detail = (e as CustomEvent<{ index: number }>).detail;
-        focusReadingPanelEntry(detail.index);
-      }) as EventListener
-    );
   }
   if (!readingAnchors) {
     readingAnchors = new ReadingAnchors();
+    // 监听图上编号点击 → 滚动对应 entry 到面板视口 + 闪高亮。
+    // 必须挂在 readingAnchors.host 上（事件从锚点 host 冒泡出来），
+    // 不能挂在 readingPanel.host 上（两者是兄弟节点，互不冒泡）。
+    readingAnchors['host'].addEventListener(
+      'reading-anchor-click',
+      ((e: Event) => {
+        const detail = (e as CustomEvent<{ index: number }>).detail;
+        readingPanel?.focusEntryByIndex(detail.index);
+      }) as EventListener
+    );
     // 滚动 / 缩放时重新定位所有锚点
     const reposition = () => readingAnchors?.repositionAll();
     window.addEventListener('scroll', reposition, { passive: true });
@@ -189,21 +191,6 @@ async function ensureServicesInitialized(): Promise<void> {
     setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion, action: resolveErrorAction(friendly) });
     throw error;
   }
-}
-
-/**
- * 滚动阅读面板的对应编号 entry 到视口，并闪高亮。
- */
-function focusReadingPanelEntry(index: number): void {
-  if (!readingPanel) return;
-  const shadow = (readingPanel as unknown as { shadow: ShadowRoot }).shadow;
-  const entryNode = shadow.querySelector<HTMLElement>(
-    `.entry[data-index="${index}"]`
-  );
-  if (!entryNode) return;
-  entryNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  entryNode.classList.add('flash');
-  setTimeout(() => entryNode.classList.remove('flash'), 1200);
 }
 
 // ==================== 图片处理 ====================
@@ -670,7 +657,9 @@ function handleRetryFailed(): void {
  * 让 "copy-command" 按钮直接复制用户能跑的命令，而不是通用模板。
  *
  * 例如 MODEL_NOT_FOUND 默认的 command 是 "ollama pull <model>"，
- * 这里会替换为 "ollama pull qwen3-vl:8b"。
+ * 这里会替换为 "ollama pull qwen3-vl:8b"，并且只在 Ollama 后端下生效
+ * （OpenAI-compatible / LM Studio 的模型不在用户本机，
+ *   误显示 ollama pull 会误导，改为 open-settings）。
  */
 function resolveErrorAction(friendly: FriendlyError): ErrorAction | undefined {
   const action = friendly.action;
@@ -681,6 +670,11 @@ function resolveErrorAction(friendly: FriendlyError): ErrorAction | undefined {
     return action;
   }
   const state = useAppConfigStore.getState();
+  // 非 Ollama 后端的 "model not found" 没法用 ollama pull 修复，
+  // 改为 open-settings 让用户换模型。
+  if (state.provider !== 'ollama') {
+    return { type: 'open-settings', label: '打开设置' };
+  }
   const settings = state.providers[state.provider];
   const modelName = settings.model?.trim();
   if (!modelName) {
