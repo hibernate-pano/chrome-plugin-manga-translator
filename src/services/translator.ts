@@ -50,7 +50,7 @@ import {
 import { retryWithBackoff } from '@/utils/error-handler';
 import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
-import { splitIntoBatches } from '@/utils/image-priority';
+import { processInParallel, splitIntoBatches } from '@/utils/image-priority';
 
 
 // ==================== Logging Utilities ====================
@@ -513,69 +513,24 @@ export class TranslatorService {
       );
     }
 
-    const allAreas: TextArea[] = [];
     const imageKey = image.src || `img-${Date.now()}`;
+    const parallelLimit = Math.min(
+      3,
+      Math.max(1, useAppConfigStore.getState().parallelLimit || 3)
+    );
 
-    for (let i = 0; i < tiles.length; i++) {
-      const tile = tiles[i];
-      if (!tile) continue;
-
-      try {
-        const processed = await processImage(image, {
-          maxSize: TILE_MAX_DIMENSION,
-          quality: 0.9,
-          format: 'webp',
-          viewportCrop: false,
-          // Explicit crop on the ORIGINAL image; sky-high legibility.
-          cropRegion: {
-            top: tile.top,
-            height: tile.height,
-          },
-        });
-
-        let response = await this.callTranslationTransport(
-          processed.base64,
-          processed.mimeType,
-          this.config.targetLanguage,
-          forceRefresh,
-          {
-            scope: 'page',
-            imageKey: `${imageKey}::t${i}`,
-            pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
-          }
-        );
-
-        // Quality gate: a tile that yields no text is suspicious. Retry once
-        // (covers transient JSON/parse flakiness) before accepting empty.
-        const nonEmpty = (response.textAreas ?? []).filter(
-          area => (area.translatedText ?? '').trim().length > 0
-        );
-        if (nonEmpty.length === 0 && !forceRefresh) {
-          response = await this.callTranslationTransport(
-            processed.base64,
-            processed.mimeType,
-            this.config.targetLanguage,
-            true,
-            {
-              scope: 'page',
-              imageKey: `${imageKey}::t${i}-r`,
-              pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
-            }
-          );
-        }
-
-        const mapped = this.mapTextAreasToOriginalImage(
-          response.textAreas ?? [],
-          processed
-        );
-        allAreas.push(...mapped);
-      } catch (error) {
-        if (isDevelopment) {
-          _logError(`切片 ${i + 1}/${tiles.length} 失败:`, error);
-        }
-        // One tile failing shouldn't fail the page if others succeeded.
+    // 并发翻译所有切片（限制并发，避免打爆 provider）。processInParallel
+    // 按 index 保序保存结果，失败切片记 undefined，不中断其他切片。
+    const perTileResults = await processInParallel(
+      tiles,
+      (tile, index) => this.translateTile(image, tile, index, imageKey, forceRefresh),
+      {
+        maxConcurrent: parallelLimit,
+        signal: this.abortController?.signal,
       }
-    }
+    );
+
+    const allAreas: TextArea[] = perTileResults.flatMap(r => r?.areas ?? []);
 
     if (allAreas.length === 0) {
       return { success: false, textAreas: [], error: '所有切片均未检测到文字' };
@@ -598,6 +553,74 @@ export class TranslatorService {
       success: true,
       textAreas: clipped,
     };
+  }
+
+  /**
+   * Translate a single tile (crop + transport + map back to original coords).
+   * Returns null on failure so one bad tile doesn't fail the page.
+   */
+  private async translateTile(
+    image: HTMLImageElement,
+    tile: TileSpec,
+    index: number,
+    imageKey: string,
+    forceRefresh: boolean
+  ): Promise<{ areas: TextArea[] } | null> {
+    try {
+      const processed = await processImage(image, {
+        maxSize: TILE_MAX_DIMENSION,
+        quality: 0.9,
+        format: 'webp',
+        viewportCrop: false,
+        // Explicit crop on the ORIGINAL image; sky-high legibility.
+        cropRegion: {
+          top: tile.top,
+          height: tile.height,
+        },
+      });
+
+      let response = await this.callTranslationTransport(
+        processed.base64,
+        processed.mimeType,
+        this.config.targetLanguage,
+        forceRefresh,
+        {
+          scope: 'page',
+          imageKey: `${imageKey}::t${index}`,
+          pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+        }
+      );
+
+      // Quality gate: a tile that yields no text is suspicious. Retry once
+      // (covers transient JSON/parse flakiness) before accepting empty.
+      const nonEmpty = (response.textAreas ?? []).filter(
+        area => (area.translatedText ?? '').trim().length > 0
+      );
+      if (nonEmpty.length === 0 && !forceRefresh) {
+        response = await this.callTranslationTransport(
+          processed.base64,
+          processed.mimeType,
+          this.config.targetLanguage,
+          true,
+          {
+            scope: 'page',
+            imageKey: `${imageKey}::t${index}-r`,
+            pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+          }
+        );
+      }
+
+      const mapped = this.mapTextAreasToOriginalImage(
+        response.textAreas ?? [],
+        processed
+      );
+      return { areas: mapped };
+    } catch (error) {
+      if (isDevelopment) {
+        _logError(`切片 ${index + 1} 失败:`, error);
+      }
+      return null;
+    }
   }
 
   private async translateWithHybridPipeline(
