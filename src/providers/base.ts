@@ -220,6 +220,8 @@ RULES:
 7. No text found: {"textAreas":[]}
 8. If two text blocks are separate, return separate items. Avoid giant boxes that overlap unrelated text.
 9. Output ONLY the JSON.
+10. Source language may be KOREAN (webtoon), Japanese, or English. For Korean: translate casual 반말 as natural casual Chinese, honorific -요/-습니다 as polite Chinese, and keep Korean webtoon netspeak idiomatic in Chinese rather than literal.
+11. Do NOT invent text — only return areas for text you can actually read. If the image is unreadable or empty, return {"textAreas":[]} EXACTLY, never hallucinate bubbles.
 
 ${getTranslationStyleInstruction(translationStylePreset)}`;
 }
@@ -268,8 +270,25 @@ export function parseVisionResponse(response: string): VisionResponse {
     response.substring(0, 500)
   );
 
-  // Detect common model incompatibility patterns
+  // Detect truncated JSON (model hit the token ceiling mid-output).
+  // The response is cut off at an object/array boundary without closing it.
   const trimmed = response.trim();
+  const openBraces = (trimmed.match(/\{/g) ?? []).length;
+  const closeBraces = (trimmed.match(/\}/g) ?? []).length;
+  const openBrackets = (trimmed.match(/\[/g) ?? []).length;
+  const closeBrackets = (trimmed.match(/\]/g) ?? []).length;
+  const looksTruncated =
+    trimmed.includes('{') &&
+    (openBraces !== closeBraces || openBrackets !== closeBrackets) &&
+    !trimmed.endsWith('}') &&
+    !trimmed.endsWith(']');
+  if (looksTruncated) {
+    throw new Error(
+      'Model response was cut off (token limit reached). The image is probably very long or dense. The tiled pipeline avoids this for long strips; if you still see this, increase MAX_TOKENS in providers/constants.ts.'
+    );
+  }
+
+  // Detect common model incompatibility patterns
   if (trimmed.length <= 5 && !trimmed.includes('{')) {
     // Truncated garbage like "}" — model doesn't understand the task
     throw new Error(

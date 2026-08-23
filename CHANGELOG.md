@@ -5,6 +5,29 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-XX-XX
+
+### Added
+
+- **P1 — Auto-degradation chain**: if the full-image path reports success
+  but yields zero translated areas (a "false success" where the VLM failed
+  to read the image), the translator now automatically retries via the
+  Tesseract hybrid pipeline (detect regions → translate crops). This is the
+  last-mile fallback so a page never silently shows blank translations.
+- **P1 — Korean OCR language**: Tesseract default languages now include
+  `kor` (plus jpn/eng/chi_sim), so the hybrid fallback can actually read
+  Korean webtoon text instead of blanking.
+- **P2 — Korean-aware prompts**: the translation prompt and the `natural-zh`
+  style instruction now handle Korean source text — 반말 → casual Chinese,
+  -요/-습니다 → polite Chinese, and Korean webtoon slang (ㅋㅋ → 哈哈哈,
+  ㅠㅠ → 呜呜). Also added an explicit anti-hallucination rule: never invent
+  bubbles.
+- **P2b — Token-truncation detection**: `parseVisionResponse` now detects
+  JSON that was cut off mid-output (unbalanced braces/brackets) and throws
+  a clear "response was cut off" error instead of a generic parse failure.
+  Raised `MAX_TOKENS` from 2048 to 4096 so large fallback pages are less
+  likely to hit the ceiling.
+
 ## [1.2.0] - 2026-XX-XX
 
 ### Added

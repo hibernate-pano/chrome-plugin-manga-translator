@@ -21,7 +21,7 @@ export const DEFAULT_MODELS = {
 // ==================== Request Limits ====================
 
 export const REQUEST_LIMITS = {
-  MAX_TOKENS: 2048, // 漫画翻译输出通常 <1000 tokens，降低上限加快响应
+  MAX_TOKENS: 4096, // tiled 管线单片很少超过；整图 fallback 需要余量避免截断
   TEMPERATURE: 0.1,
   IMAGE_DETAIL: 'high' as const,
 } as const;

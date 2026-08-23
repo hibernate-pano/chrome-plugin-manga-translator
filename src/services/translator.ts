@@ -671,6 +671,38 @@ export class TranslatorService {
       fallbackProcessed
     );
 
+    // 自动降级（P1）：全图路径“成功但零文字”是假成功。
+    // 模型没读到文字时，尝试 Tesseract 检测 + 区域翻译兜底。
+    const realCount = mappedTextAreas.filter(
+      area => (area.translatedText ?? '').trim().length > 0
+    ).length;
+    if (realCount === 0 && !hybridEnabled && this.config.provider !== 'ollama') {
+      if (isDevelopment) {
+        _logError('全图路径返回零文字，自动降级到 Tesseract hybrid...');
+      }
+      try {
+        const hybridResult = await this.translateRegionsWithHybrid(
+          fallbackProcessed,
+          imageKey
+        );
+        const hybridAreas = this.readingEntriesToTextAreas(
+          hybridResult.entries,
+          fallbackProcessed
+        );
+        if (hybridAreas.length > 0) {
+          return {
+            success: true,
+            textAreas: hybridAreas,
+            readingResult: hybridResult,
+          };
+        }
+      } catch (error) {
+        if (isDevelopment) {
+          _logError('Tesseract hybrid 兜底也失败:', error);
+        }
+      }
+    }
+
     const readingResult = this.textAreasToReadingResult(
       mappedTextAreas,
       imageKey,

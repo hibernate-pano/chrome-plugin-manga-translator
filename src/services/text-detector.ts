@@ -52,7 +52,10 @@ export interface TextDetectionOptions {
 // ==================== Configuration ====================
 
 const DEFAULT_OPTIONS: Required<TextDetectionOptions> = {
-  languages: ['jpn', 'eng', 'chi_sim'],
+  // jpn/eng/chi_sim cover the classic manga set; kor is required for the
+  // Korean manhwa (webtoon) target audience this extension serves. Tesseract
+  // lazily downloads traineddata, so extra langs only add a first-run delay.
+  languages: ['kor', 'jpn', 'eng', 'chi_sim'],
   expandMargin: 0.05, // Expand by 5% to capture full text
   minConfidence: 0.3,
   psm: '11', // Sparse text: Find as much text as possible in no particular order

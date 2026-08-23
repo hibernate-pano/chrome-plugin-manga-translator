@@ -201,3 +201,39 @@ describe('providerRequiresApiKey', () => {
     expect(providerRequiresApiKey('lm-studio')).toBe(false);
   });
 });
+
+describe('P2 Korean + truncation guards', () => {
+  it('includes Korean handling rules for webtoon source text', () => {
+    const prompt = getMangaTranslationPrompt('zh-CN');
+    expect(prompt).toContain('KOREAN');
+    expect(prompt).toContain('반말');
+    expect(prompt).toContain('-요');
+  });
+
+  it('includes anti-hallucination instruction (never invent text)', () => {
+    const prompt = getMangaTranslationPrompt('zh-CN');
+    expect(prompt).toContain('Do NOT invent text');
+    expect(prompt).toContain('never hallucinate');
+  });
+
+  it('detects truncated JSON and throws a token-limit error', () => {
+    // Unclosed JSON — model hit the token ceiling mid-output
+    const truncated = '{"textAreas":[{"x":0.1,"y":0.2,';
+    expect(() => parseVisionResponse(truncated)).toThrow(/token limit|cut off/i);
+  });
+
+  it('detects plain-text captioning and throws a format error', () => {
+    const caption = 'This image shows a young man walking in the rain at night. He looks sad.';
+    expect(() => parseVisionResponse(caption)).toThrow(/plain text|format/i);
+  });
+});
+
+describe('getTranslationStyleInstruction', () => {
+  it('includes Korean honorific + webtoon slang handling in natural-zh', async () => {
+    const { getTranslationStyleInstruction } = await import('@/utils/translation-style');
+    const style = getTranslationStyleInstruction('natural-zh');
+    expect(style).toContain('-요');
+    expect(style).toContain('ㅋㅋ');
+    expect(style).toContain('반말');
+  });
+});

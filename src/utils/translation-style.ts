@@ -27,7 +27,7 @@ const STYLE_PROMPTS: Record<TranslationStylePreset, string> = {
    * - 语气和情感表达本地化
    */
   'natural-zh':
-    'Style: read like polished natural Simplified Chinese manga dialogue. Allow four-character idiom expressions. Convert SFX to vivid Chinese onomatopoeia. Translate honorifics to common Chinese equivalents (e.g., -san → 先生/同学, or omit naturally). Localize tone and emotional expression.',
+    'Style: read like polished natural Simplified Chinese manga dialogue. Allow four-character idiom expressions. Convert SFX to vivid Chinese onomatopoeia. Translate honorifics to common Chinese equivalents (Japanese -san → 先生/同学, or omit naturally; Korean -요/-습니다 → polite Chinese, 반말 → casual Chinese). Localize tone and emotional expression, including Korean webtoon idiom and slang (ㅋㅋ → 哈哈哈, ㅠㅠ → 呜呜).',
 
   /**
    * 简洁气泡
