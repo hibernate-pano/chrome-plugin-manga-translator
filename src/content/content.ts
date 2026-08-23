@@ -31,6 +31,8 @@ import {
 import { useAppConfigStore } from '@/stores/config-v2';
 import { isTranslatableImage } from './image-filter';
 import { FloatingHud } from './floating-hud';
+import { ReadingPanel } from './reading-panel';
+import { ReadingAnchors } from './reading-anchors';
 import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
   createDebouncedAutoTranslate,
@@ -81,6 +83,8 @@ let abortController: AbortController | null = null;
 let translator: TranslatorService | null = null;
 let renderer: OverlayRenderer | null = null;
 let hud: FloatingHud | null = null;
+let readingPanel: ReadingPanel | null = null;
+let readingAnchors: ReadingAnchors | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
 let failedCount = 0;
@@ -139,6 +143,27 @@ async function ensureServicesInitialized(): Promise<void> {
     renderer = getRenderer();
   }
 
+  // 首次翻译前创建沉浸式阅读面板与图上编号锚点。
+  // 它们只创建一次，整个页面生命周期内复用。
+  if (!readingPanel) {
+    readingPanel = new ReadingPanel();
+    // 监听图上编号点击 → 滚动对应 entry 到面板视口 + 闪高亮
+    readingPanel['host'].addEventListener(
+      'reading-anchor-click',
+      ((e: Event) => {
+        const detail = (e as CustomEvent<{ index: number }>).detail;
+        focusReadingPanelEntry(detail.index);
+      }) as EventListener
+    );
+  }
+  if (!readingAnchors) {
+    readingAnchors = new ReadingAnchors();
+    // 滚动 / 缩放时重新定位所有锚点
+    const reposition = () => readingAnchors?.repositionAll();
+    window.addEventListener('scroll', reposition, { passive: true });
+    window.addEventListener('resize', reposition);
+  }
+
   // 重新创建 translator 以获取最新配置
   translator = createTranslatorFromConfig();
 
@@ -151,6 +176,21 @@ async function ensureServicesInitialized(): Promise<void> {
     setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion, action: friendly.action });
     throw error;
   }
+}
+
+/**
+ * 滚动阅读面板的对应编号 entry 到视口，并闪高亮。
+ */
+function focusReadingPanelEntry(index: number): void {
+  if (!readingPanel) return;
+  const shadow = (readingPanel as unknown as { shadow: ShadowRoot }).shadow;
+  const entryNode = shadow.querySelector<HTMLElement>(
+    `.entry[data-index="${index}"]`
+  );
+  if (!entryNode) return;
+  entryNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  entryNode.classList.add('flash');
+  setTimeout(() => entryNode.classList.remove('flash'), 1200);
 }
 
 // ==================== 图片处理 ====================
@@ -204,6 +244,12 @@ async function processSingleImage(
   }
 
   renderer.render(img, result.textAreas);
+
+  // 同步到阅读面板 + 图上编号锚点。
+  // panel 内部按 upsert 顺序给图片分配 1-based 编号。
+  readingPanel?.upsert(img, result.textAreas);
+  const entryCount = readingPanel?.getEntryCount() ?? 0;
+  readingAnchors?.upsert(img, entryCount);
 }
 
 async function syncAutoTranslateMode(): Promise<void> {
@@ -406,6 +452,9 @@ function clearAll(): void {
     renderer.removeAll();
   }
   removeAllOverlaysFromDOM();
+
+  readingPanel?.reset();
+  readingAnchors?.reset();
 
   processedImages.clear();
   failedImageKeys.clear();

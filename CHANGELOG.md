@@ -5,6 +5,29 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-XX-XX
+
+### Added
+
+- **Reading mode side panel** (`src/content/reading-panel.ts`): right-side
+  floating panel that lists every translated image in reading order. Each
+  entry shows the image's 1-based index, a preview of the first translated
+  bubble, and the full list of translations when the image has 2+ bubbles.
+  Click an entry to scroll the matching image into view + flash highlight
+  it for 1.2s. Collapsible header. Auto-resets with `clearAll`.
+- **Numbered image anchors** (`src/content/reading-anchors.ts`): a small
+  cyan badge anchored at the top-right of every translated image. Clicking
+  a badge dispatches `reading-anchor-click`, which scrolls the matching
+  panel entry into view + flashes it. Repositioned on scroll and resize.
+
+### Changed
+
+- **Content script integration** (`src/content/content.ts`): after a
+  successful single-image translation, `processSingleImage` now upserts
+  into the panel and anchors in addition to rendering overlays. `clearAll`
+  resets both. The panel and anchors are lazily created on first
+  translation and reused for the lifetime of the page.
+
 ## [0.4.0] - 2026-XX-XX
 
 ### Added (in progress)
