@@ -17,12 +17,20 @@ import type { ErrorAction } from '@/utils/error-handler';
 
 export type HudState =
   | { status: 'hidden' }
-  | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
+  | { status: 'scanning'; candidateCount?: number }
+  | {
+      status: 'translating';
+      current: number;
+      total: number;
+      currentImageIndex?: number;
+      phase?: 'translating' | 'rendering';
+    }
   | {
       status: 'complete';
       translatedCount: number;
       failedCount: number;
       cachedCount: number;
+      skippedCount?: number;
     }
   | {
       status: 'error';
@@ -71,12 +79,13 @@ export class FloatingHud {
           | 'open-settings'
           | 'copy-command'
           | undefined;
+        const actionCommand = target.dataset['actionCommand'];
         if (actionType) {
           this.container.dispatchEvent(
             new CustomEvent('hud-error-action', {
               bubbles: true,
               composed: true,
-              detail: { type: actionType },
+              detail: { type: actionType, command: actionCommand },
             })
           );
         }
@@ -135,30 +144,56 @@ export class FloatingHud {
 
   private renderState(state: HudState): string {
     switch (state.status) {
+      case 'scanning': {
+        const candidate =
+          typeof state.candidateCount === 'number'
+            ? `（候选 ${state.candidateCount} 张）`
+            : '';
+        return `
+          <div class="hud-card">
+            <div class="hud-title">扫描页面中...</div>
+            <div class="hud-sub">检测可翻译图片${escapeHtml(candidate)}</div>
+          </div>
+        `;
+      }
+
       case 'translating': {
         const pct =
           state.total > 0 ? Math.round((state.current / state.total) * 100) : 0;
         const imageLabel = state.currentImageIndex
           ? `第 ${state.currentImageIndex} 张`
           : `${state.current}`;
+        const phaseLabel =
+          state.phase === 'rendering' ? '正在渲染...' : '正在翻译...';
         return `
           <div class="hud-card">
-            <div class="hud-title">翻译中...</div>
+            <div class="hud-title">${escapeHtml(phaseLabel)}</div>
             <div class="hud-progress-track">
               <div class="hud-progress-bar" style="width:${pct}%"></div>
             </div>
-            <div class="hud-sub">${imageLabel} / ${state.total}</div>
+            <div class="hud-sub">${escapeHtml(imageLabel)} / ${state.total}</div>
             <button id="cancel-btn" class="hud-cancel">取消</button>
           </div>
         `;
       }
 
       case 'complete': {
+        const skipped = state.skippedCount ?? 0;
+        const skippedLine =
+          skipped > 0
+            ? `<div class="hud-sub hud-sub-muted">已跳过 ${skipped} 张（尺寸/位置不匹配）</div>`
+            : '';
+        const cachedLine =
+          state.cachedCount > 0
+            ? `<div class="hud-sub hud-sub-muted">其中 ${state.cachedCount} 张来自缓存</div>`
+            : '';
         if (state.failedCount > 0) {
           return `
             <div class="hud-card">
               <div class="hud-title">翻译完成</div>
               <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
+              ${cachedLine}
+              ${skippedLine}
               <button id="retry-failed-btn" class="hud-retry">重新翻译失败项</button>
             </div>
           `;
@@ -167,6 +202,8 @@ export class FloatingHud {
           <div class="hud-card">
             <div class="hud-title">翻译完成</div>
             <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
+            ${cachedLine}
+            ${skippedLine}
           </div>
         `;
       }
@@ -181,7 +218,7 @@ export class FloatingHud {
             ` : ''}
             ${
               state.action
-                ? `<button id="error-action-btn" class="hud-action" data-action-type="${state.action.type}">${escapeHtml(state.action.label)}</button>`
+                ? `<button id="error-action-btn" class="hud-action" data-action-type="${state.action.type}"${state.action.command ? ` data-action-command="${escapeHtml(state.action.command)}"` : ''}>${escapeHtml(state.action.label)}</button>`
                 : ''
             }
           </div>
@@ -226,6 +263,11 @@ export class FloatingHud {
           color: rgba(255, 255, 255, 0.7);
           font-size: 12px;
           line-height: 1.4;
+        }
+        .hud-sub-muted {
+          color: rgba(255, 255, 255, 0.5);
+          font-size: 11px;
+          margin-top: 2px;
         }
 
         .hud-message {

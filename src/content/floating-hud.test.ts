@@ -63,7 +63,7 @@ describe('FloatingHud', () => {
       const hudDiv = shadow?.getElementById('hud');
 
       expect(hudDiv?.style.display).toBe('block');
-      expect(hudDiv?.textContent).toContain('翻译中');
+      expect(hudDiv?.textContent).toContain('正在翻译');
       expect(hudDiv?.textContent).toContain('3');
       expect(hudDiv?.textContent).toContain('10');
     });
@@ -287,6 +287,61 @@ describe('FloatingHud', () => {
       const retryBtn = shadow?.getElementById('retry-failed-btn');
 
       expect(retryBtn).toBeNull();
+    });
+
+    it('complete 状态显示缓存命中数（cachedCount > 0）', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 0,
+        cachedCount: 3,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('其中 3 张来自缓存');
+    });
+
+    it('complete 状态显示跳过的图片数（skippedCount > 0）', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 0,
+        cachedCount: 0,
+        skippedCount: 7,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('已跳过 7 张');
+      expect(hudDiv?.textContent).toContain('尺寸/位置不匹配');
+    });
+  });
+
+  describe('update - scanning 状态', () => {
+    it('扫描中显示提示', () => {
+      hud.update({ status: 'scanning' });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.style.display).toBe('block');
+      expect(hudDiv?.textContent).toContain('扫描页面中');
+    });
+
+    it('扫描时显示候选图片数', () => {
+      hud.update({ status: 'scanning', candidateCount: 12 });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('候选 12 张');
     });
   });
 });

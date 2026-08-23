@@ -5,6 +5,41 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-XX-XX
+
+### Added
+
+- **Copy-command actions carry the runnable command**
+  (`src/utils/error-handler.ts`): `ErrorAction` now has an optional
+  `command` field separate from `suggestion`. `copy-command` buttons copy
+  the command, not the human-readable explanation. Wired to:
+  - `OLLAMA_NOT_RUNNING`     -> `ollama serve`
+  - `OLLAMA_ORIGIN_NOT_ALLOWED` -> `OLLAMA_ORIGINS=chrome-extension://* ollama serve`
+  - `MODEL_NOT_FOUND`        -> `ollama pull <model>` (model name substituted
+    at render time from the active provider's config)
+  - `CONNECTION_REFUSED`     -> `curl -v http://localhost:11434/api/tags`
+- **Staged HUD progress**: distinct `scanning` state with candidate
+  count + `translating` phase indicator ('translating' | 'rendering').
+- **Cache-hit visibility**: HUD `complete` state now shows how many
+  translations came from the cache (`其中 N 张来自缓存`).
+- **Filtered-image reporting**: HUD `complete` state reports how many
+  images on the page were skipped due to size / position / duplication
+  (`已跳过 N 张（尺寸/位置不匹配）`).
+
+### Changed
+
+- **`processSingleImage`** (`src/content/content.ts`): now accepts an
+  optional `onCacheHit` callback so the calling site can count cache hits.
+- **`ContentState.scanning`**: gains `candidateCount?: number` so the
+  scan-stage HUD can tell the user how many images will be translated.
+- **`ContentState.translating`**: gains `phase?: 'translating' | 'rendering'`
+  so future phases (e.g. post-processing) can be surfaced.
+- **`ContentState.complete`**: gains `skippedCount?: number` so the HUD
+  can report filtering without re-scanning.
+- **`scanImages()`** (new internal helper): returns total / filter-skipped /
+  duplicate-skipped / translatable counts so callers don't need to redo
+  the pass.
+
 ## [0.5.0] - 2026-XX-XX
 
 ### Added

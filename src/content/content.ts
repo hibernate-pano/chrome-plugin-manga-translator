@@ -22,7 +22,7 @@ import {
   getRenderer,
   removeAllOverlaysFromDOM,
 } from '@/services/renderer';
-import { parseTranslationError } from '@/utils/error-handler';
+import { parseTranslationError, TranslationErrorCode, type FriendlyError, type ErrorAction } from '@/utils/error-handler';
 import {
   getViewportFirstImages,
   processInParallel,
@@ -61,9 +61,16 @@ export type ContentToPopupMsg =
 
 export type ContentState =
   | { status: 'idle' }
-  | { status: 'scanning' }
-  | { status: 'translating'; current: number; total: number; currentImageIndex?: number }
-  | { status: 'complete'; count: number; failedCount?: number; cachedCount?: number }
+  | { status: 'scanning'; candidateCount?: number }
+  | { status: 'translating'; current: number; total: number; currentImageIndex?: number; phase?: 'translating' | 'rendering' }
+  | {
+      status: 'complete';
+      count: number;
+      failedCount?: number;
+      cachedCount?: number;
+      /** Images on the page that were filtered out (size/position/duplicate). */
+      skippedCount?: number;
+    }
   | {
       status: 'error';
       message: string;
@@ -89,6 +96,7 @@ let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
 let failedCount = 0;
 let cachedCount = 0;
+let skippedCount = 0;
 const processedImages: Set<string> = new Set();
 const failedImageKeys: Set<string> = new Set();
 const autoTranslateScheduler = createDebouncedAutoTranslate(() => {
@@ -107,7 +115,10 @@ function setState(state: ContentState): void {
         hud.update({ status: 'hidden' });
         break;
       case 'scanning':
-        hud.update({ status: 'translating', current: 0, total: 0 });
+        hud.update({
+          status: 'scanning',
+          candidateCount: state.candidateCount,
+        });
         break;
       case 'translating':
         hud.update({
@@ -115,6 +126,7 @@ function setState(state: ContentState): void {
           current: state.current,
           total: state.total,
           currentImageIndex: state.currentImageIndex,
+          phase: state.phase,
         });
         break;
       case 'complete':
@@ -123,6 +135,7 @@ function setState(state: ContentState): void {
           translatedCount: state.count,
           failedCount: state.failedCount ?? 0,
           cachedCount: state.cachedCount ?? 0,
+          skippedCount: state.skippedCount ?? 0,
         });
         break;
       case 'error':
@@ -173,7 +186,7 @@ async function ensureServicesInitialized(): Promise<void> {
   } catch (error) {
     console.error('[ContentScript] Translator 初始化失败:', error);
     const friendly = parseTranslationError(error);
-    setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion, action: friendly.action });
+    setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion, action: resolveErrorAction(friendly) });
     throw error;
   }
 }
@@ -195,13 +208,45 @@ function focusReadingPanelEntry(index: number): void {
 
 // ==================== 图片处理 ====================
 
-function findTranslatableImages(): HTMLImageElement[] {
-  // 等待一小段时间确保图片已加载（懒加载页面）
-  const allImages = Array.from(document.querySelectorAll('img'));
+interface ImageScanResult {
+  /** 过滤后真正会被翻译的图片 */
+  translatable: HTMLImageElement[];
+  /** 页面 img 元素总数（不过滤） */
+  total: number;
+  /** 通过 isTranslatableImage 但已被处理过的（去重后剩余） */
+  skippedDuplicate: number;
+  /** 被 isTranslatableImage 过滤掉的（尺寸/位置/类型） */
+  skippedFilter: number;
+}
 
-  return allImages.filter(
-    img => isTranslatableImage(img) && !processedImages.has(getImageKey(img))
-  );
+function scanImages(): ImageScanResult {
+  const allImages = Array.from(document.querySelectorAll('img'));
+  let skippedFilter = 0;
+  let skippedDuplicate = 0;
+  const translatable: HTMLImageElement[] = [];
+
+  for (const img of allImages) {
+    if (!isTranslatableImage(img)) {
+      skippedFilter++;
+      continue;
+    }
+    if (processedImages.has(getImageKey(img))) {
+      skippedDuplicate++;
+      continue;
+    }
+    translatable.push(img);
+  }
+
+  return {
+    translatable,
+    total: allImages.length,
+    skippedFilter,
+    skippedDuplicate,
+  };
+}
+
+function findTranslatableImages(): HTMLImageElement[] {
+  return scanImages().translatable;
 }
 
 function getImageKey(img: HTMLImageElement): string {
@@ -213,7 +258,8 @@ function getImageKey(img: HTMLImageElement): string {
 
 async function processSingleImage(
   img: HTMLImageElement,
-  forceRefresh: boolean = false
+  forceRefresh: boolean = false,
+  onCacheHit?: (hit: boolean) => void
 ): Promise<void> {
   if (!translator || !renderer) {
     throw new Error('Services not initialized');
@@ -234,6 +280,10 @@ async function processSingleImage(
     undefined,
     forceRefresh
   );
+
+  if (onCacheHit) {
+    onCacheHit(Boolean(result.cached));
+  }
 
   if (!result.success) {
     throw new Error(result.error || 'Translation failed');
@@ -342,21 +392,38 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
   }
 
   abortController = new AbortController();
-  setState({ status: 'scanning' });
 
   try {
     await ensureServicesInitialized();
     console.warn('[ContentScript] 服务初始化完成');
 
-    const allImages = Array.from(document.querySelectorAll('img'));
-    console.warn('[ContentScript] 页面上的 img 元素数量:', allImages.length);
+    // 扫描阶段：把"过滤掉多少张"也告诉用户。
+    const scan = scanImages();
+    skippedCount = scan.skippedFilter + scan.skippedDuplicate;
+    const candidateCount = scan.translatable.length;
+    setState({ status: 'scanning', candidateCount });
 
-    const images = getViewportFirstImages(findTranslatableImages());
-    console.warn('[ContentScript] 可翻译图片数量:', images.length);
+    const images = getViewportFirstImages(scan.translatable);
+    console.warn(
+      '[ContentScript] 页面 img 总数:',
+      scan.total,
+      '过滤:',
+      scan.skippedFilter,
+      '去重:',
+      scan.skippedDuplicate,
+      '可翻译:',
+      images.length
+    );
 
     if (images.length === 0) {
       console.warn('[ContentScript] 没有找到可翻译的图片');
-      setState({ status: 'complete', count: 0 });
+      setState({
+        status: 'complete',
+        count: 0,
+        failedCount: 0,
+        cachedCount: 0,
+        skippedCount,
+      });
       return;
     }
 
@@ -372,7 +439,13 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     cachedCount = 0;
     failedImageKeys.clear();
 
-    setState({ status: 'translating', current: 0, total, currentImageIndex: 0 });
+    setState({
+      status: 'translating',
+      current: 0,
+      total,
+      currentImageIndex: 0,
+      phase: 'translating',
+    });
 
     const options: ParallelProcessingOptions = {
       maxConcurrent: parallelLimit,
@@ -380,13 +453,25 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
       onItemStart: index => {
         currentImageIndex = index;
         if (currentState.status === 'translating') {
-          setState({ status: 'translating', current, total, currentImageIndex: index });
+          setState({
+            status: 'translating',
+            current,
+            total,
+            currentImageIndex: index,
+            phase: 'translating',
+          });
         }
       },
       onItemComplete: completed => {
         current = completed;
         if (currentState.status === 'translating') {
-          setState({ status: 'translating', current, total, currentImageIndex });
+          setState({
+            status: 'translating',
+            current,
+            total,
+            currentImageIndex,
+            phase: 'translating',
+          });
         }
       },
       onError: (_error, index) => {
@@ -405,7 +490,9 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
           throw new Error('Translation cancelled');
         }
         const beforeCount = processedImages.size;
-        await processSingleImage(img, forceRefresh);
+        await processSingleImage(img, forceRefresh, hit => {
+          if (hit) cachedCount++;
+        });
         if (processedImages.size > beforeCount) {
           successCount++;
         }
@@ -419,11 +506,17 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
       return;
     }
 
-    setState({ status: 'complete', count: successCount, failedCount, cachedCount });
+    setState({
+      status: 'complete',
+      count: successCount,
+      failedCount,
+      cachedCount,
+      skippedCount,
+    });
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
-    setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion, action: friendly.action });
+    setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion, action: resolveErrorAction(friendly) });
   } finally {
     abortController = null;
   }
@@ -572,20 +665,45 @@ function handleRetryFailed(): void {
   void translatePage(true);
 }
 
+/**
+ * 根据当前 provider 配置，定制 friendly error 的 action.command。
+ * 让 "copy-command" 按钮直接复制用户能跑的命令，而不是通用模板。
+ *
+ * 例如 MODEL_NOT_FOUND 默认的 command 是 "ollama pull <model>"，
+ * 这里会替换为 "ollama pull qwen3-vl:8b"。
+ */
+function resolveErrorAction(friendly: FriendlyError): ErrorAction | undefined {
+  const action = friendly.action;
+  if (!action || action.type !== 'copy-command' || !action.command) {
+    return action;
+  }
+  if (friendly.code !== TranslationErrorCode.MODEL_NOT_FOUND) {
+    return action;
+  }
+  const state = useAppConfigStore.getState();
+  const settings = state.providers[state.provider];
+  const modelName = settings.model?.trim();
+  if (!modelName) {
+    return action;
+  }
+  return {
+    ...action,
+    command: action.command.replace('<model>', modelName),
+  };
+}
+
 // 错误"修复入口"按钮：根据 action 类型执行
 function handleHudErrorAction(e: Event): void {
-  const detail = (e as CustomEvent<{ type: string }>).detail;
+  const detail = (e as CustomEvent<{ type: string; command?: string }>).detail;
   if (!detail) return;
   if (detail.type === 'open-settings') {
     void chrome.runtime.sendMessage({ action: 'openOptionsPage' }).catch(
       () => undefined
     );
   } else if (detail.type === 'copy-command') {
-    // 从当前 state 取 suggestion 作为待复制内容
-    const suggestion =
-      currentState.status === 'error' ? currentState.suggestion : undefined;
-    if (suggestion) {
-      void navigator.clipboard.writeText(suggestion).then(
+    const command = detail.command;
+    if (command) {
+      void navigator.clipboard.writeText(command).then(
         () => console.warn('[ContentScript] 已复制修复命令到剪贴板'),
         () => console.error('[ContentScript] 复制到剪贴板失败')
       );

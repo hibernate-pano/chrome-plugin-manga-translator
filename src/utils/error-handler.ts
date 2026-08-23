@@ -55,6 +55,17 @@ export type ErrorActionType = 'open-settings' | 'copy-command';
 export interface ErrorAction {
   type: ErrorActionType;
   label: string;
+  /**
+   * For `copy-command` actions, this is the exact string that will be written
+   * to the clipboard when the user clicks the action button. The `suggestion`
+   * field stays human-readable; `command` is the runnable shell snippet.
+   *
+   * Examples:
+   *   OLLAMA_NOT_RUNNING     -> "ollama serve"
+   *   OLLAMA_ORIGIN_NOT_ALLOWED -> "OLLAMA_ORIGINS=chrome-extension://* ollama serve"
+   *   MODEL_NOT_FOUND        -> "ollama pull <model>" (filled in at render time)
+   */
+  command?: string;
 }
 
 /**
@@ -103,6 +114,11 @@ const ERROR_MESSAGES: Record<
     message: '无法连接到服务器',
     suggestion: '请检查服务器是否运行，或地址/端口是否正确',
     retryable: true,
+    action: {
+      type: 'copy-command',
+      label: '复制排查命令',
+      command: '# 检查服务是否在监听\ncurl -v http://localhost:11434/api/tags',
+    },
   },
   [TranslationErrorCode.NETWORK_ERROR]: {
     message: '网络连接失败，请检查网络',
@@ -121,22 +137,36 @@ const ERROR_MESSAGES: Record<
   },
   [TranslationErrorCode.OLLAMA_NOT_RUNNING]: {
     message: '请先启动 Ollama 服务',
-    suggestion: '请确保 Ollama 已安装并运行：ollama serve',
+    suggestion: '在终端运行 ollama serve 启动本地 Ollama，然后刷新本页',
     retryable: false,
-    action: { type: 'copy-command', label: '复制命令' },
+    action: {
+      type: 'copy-command',
+      label: '复制命令',
+      command: 'ollama serve',
+    },
   },
   [TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED]: {
     message: 'Ollama 未允许当前浏览器扩展访问',
     suggestion:
-      '请设置 OLLAMA_ORIGINS=chrome-extension://* 并重启 Ollama；macOS 可先执行 launchctl setenv OLLAMA_ORIGINS "chrome-extension://*"',
+      '用下方命令启动 Ollama，并临时放行所有浏览器扩展来源。macOS 需先在 shell 中执行一次 launchctl setenv OLLAMA_ORIGINS "chrome-extension://*" 后再启动 Ollama。',
     retryable: false,
-    action: { type: 'copy-command', label: '复制命令' },
+    action: {
+      type: 'copy-command',
+      label: '复制启动命令',
+      command: 'OLLAMA_ORIGINS=chrome-extension://* ollama serve',
+    },
   },
   [TranslationErrorCode.MODEL_NOT_FOUND]: {
-    message: '模型未安装，请先下载模型',
-    suggestion: '请运行 ollama pull <model_name> 下载模型',
+    message: '当前模型未安装',
+    suggestion:
+      '运行下方命令拉取你当前配置的模型（命令由当前 provider 配置动态生成）。',
     retryable: false,
-    action: { type: 'open-settings', label: '打开设置' },
+    action: {
+      type: 'copy-command',
+      label: '复制 ollama pull 命令',
+      // command 由 content.ts 在渲染错误时根据当前 provider.model 注入
+      command: 'ollama pull <model>',
+    },
   },
   [TranslationErrorCode.PARAM_ERROR]: {
     message: '请求参数超出模型限制',
