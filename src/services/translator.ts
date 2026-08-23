@@ -362,6 +362,16 @@ export class TranslatorService {
             _logError('Tiled pipeline failed, falling back to full-image', result.error);
           }
         } else {
+          // 切片成功也写缓存（整图 hash 为 key），与整图路径共用同一套
+          // 缓存语义：同一张图只付费翻译一次，后续直接命中。
+          const tiledRealCount = (result.textAreas ?? []).filter(
+            area => (area.translatedText ?? '').trim().length > 0
+          ).length;
+          if (this.config.cacheEnabled && tiledRealCount > 0) {
+            useTranslationCacheStore
+              .getState()
+              .set(cacheKey, result, this.config.provider);
+          }
           return result;
         }
       }
