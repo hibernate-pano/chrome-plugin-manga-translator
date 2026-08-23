@@ -63,13 +63,12 @@ pnpm build
 
 ## 使用方式
 
-1. 安装并加载扩展
-2. 打开扩展设置页，选择 `OpenAI-compatible` 或 `Ollama`
-3. 填写必要的 API Key / 本地地址
+1. 安装并加载扩展（首次安装会弹出一个 3 步引导：欢迎 → 选后端 → 准备就绪）
+2. 在引导里选择后端（`OpenAI-compatible` / `Ollama` / `LM Studio`）
+3. 设置页填写必要的 API Key / 本地地址（首次引导跳过也无所谓，之后可在设置页补）
 4. 选择目标翻译语言
-5. 按需开启“启用扩展”和“自动续翻”
-6. 在漫画页面打开弹窗
-7. 选择：
+5. 在漫画页面打开弹窗
+6. 选择：
    - “翻译当前页面”
    - “强制重翻”
    - 或“彻底重置”
@@ -78,7 +77,7 @@ pnpm build
 
 ## 插件直连说明
 
-- 插件只保留两条路径：`OpenAI-compatible` API 直连与 `Ollama` 本地直连
+- 插件只保留三条直连路径：`OpenAI-compatible` API 直连、`Ollama` 本地直连、`LM Studio` 本地直连
 - 支持整页翻译、自动续翻、强制重翻、彻底重置
 - 不再包含服务端加速、hover 选图和多云 provider 路径
 
@@ -86,8 +85,9 @@ pnpm build
 
 直连配置目前仅支持以下 Provider：
 
-- `openai-compatible`
+- `openai-compatible`（任意 OpenAI Chat Completions 端点）
 - `ollama`
+- `lm-studio`
 
 ## 验证命令
 

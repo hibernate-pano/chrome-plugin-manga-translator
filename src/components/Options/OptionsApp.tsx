@@ -19,6 +19,7 @@ import { createProvider } from '@/providers';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
+import { OnboardingApp } from '@/components/Onboarding/OnboardingApp';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
@@ -515,7 +516,9 @@ const OptionsApp: React.FC = () => {
   };
 
   return (
-    <div className='min-h-screen bg-slate-950 px-6 py-8 text-slate-100'>
+    <>
+      <OnboardingApp />
+      <div className='min-h-screen bg-slate-950 px-6 py-8 text-slate-100'>
       <div className='mx-auto max-w-5xl space-y-6'>
         <div className='flex items-start justify-between'>
           <div>
@@ -565,54 +568,10 @@ const OptionsApp: React.FC = () => {
           </div>
         )}
 
-        {/* First-time usage guide - only show when no provider is configured */}
-        {!(
-          providers['openai-compatible'].apiKey ||
-          providers['openai-compatible'].baseUrl ||
-          providers.ollama.baseUrl
-        ) && (
-          <div className='rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4'>
-            <div className='flex items-start gap-3'>
-              <Info className='mt-0.5 h-5 w-5 shrink-0 text-cyan-400' />
-              <div className='flex-1'>
-                <h3 className='text-sm font-semibold text-cyan-100'>开始使用</h3>
-                <p className='mt-1 text-sm text-slate-400'>
-                  选择一个 Provider 并配置测试后即可开始翻译。
-                </p>
-                <div className='mt-3 flex flex-wrap gap-2'>
-                  <button
-                    type='button'
-                    onClick={() => {
-                      void updateProviderSettings('openai-compatible', {
-                        baseUrl: 'https://api.openai.com/v1',
-                        model: 'gpt-4o-mini',
-                      });
-                      void setProvider('openai-compatible');
-                    }}
-                    className='inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
-                  >
-                    <Sparkles className='h-4 w-4' />
-                    使用 OpenAI-compatible
-                  </button>
-                  <button
-                    type='button'
-                    onClick={() => {
-                      void updateProviderSettings('ollama', {
-                        baseUrl: 'http://localhost:11434',
-                        model: '',
-                      });
-                      void setProvider('ollama');
-                    }}
-                    className='inline-flex items-center gap-1.5 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
-                  >
-                    <Server className='h-4 w-4' />
-                    使用 Ollama
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+        {/* First-time onboarding is handled by the OnboardingApp modal at the
+            top of this component, shown when onboardingCompleted === false.
+            The old inline "开始使用" quick-pick panel has been removed because
+            it duplicated the onboarding step 2 and conflicted with it. */}
 
         <div className='grid gap-6 lg:grid-cols-[320px_minmax(0,1fr)]'>
           <div className='space-y-4 rounded-xl border border-white/10 bg-white/[0.03] p-4'>
@@ -803,6 +762,7 @@ const OptionsApp: React.FC = () => {
         onCancel={() => setPendingProvider(null)}
       />
     </div>
+    </>
   );
 };
 

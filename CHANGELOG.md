@@ -5,6 +5,56 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-XX-XX
+
+### Added (in progress)
+
+- **First-run onboarding modal** (`src/components/Onboarding/OnboardingApp.tsx`):
+  a 3-step modal that appears in the Options page when
+  `onboardingCompleted === false`. Steps: welcome + data-flow disclosure →
+  provider picker (OpenAI-compatible / Ollama / LM Studio) → ready + finish.
+  Keyboard support: `Enter` advances, `Escape` skips. The `Skip` / `Escape`
+  path marks onboarding as completed without enabling translation, so users
+  who want to configure later are not pestered again.
+- **`onboardingCompleted` config flag** (`RuntimeAppConfig`): persisted via
+  the existing `chrome.storage.local` adapter and partialised in the Zustand
+  store. Defaults to `false` for new installs.
+- **`setOnboardingCompleted` store action** (`config-v2.ts`): imperative
+  setter for the onboarding flow.
+
+### Changed (in progress)
+
+- **Product positioning in README**: extended usage section to cover the
+  3-step onboarding; updated Provider list to include LM Studio alongside
+  OpenAI-compatible and Ollama.
+- **Persisted config version** (`config-v2.ts`): bumped from `2` to `3`.
+  v2 → v3 migration marks `onboardingCompleted: true` for existing users so
+  they are not re-prompted after upgrade. New installs (no persisted state)
+  see the modal as designed.
+
+### Removed
+
+- **Redundant "First-time usage guide" panel** in OptionsApp. The inline
+  quick-pick panel duplicated the new onboarding step 2 (provider picker)
+  and conflicted with it. The onboarding modal is now the single, consistent
+  entry path for new users.
+- **Dead UI components** (~2459 lines) removed from `src/components/ui/`:
+  `accessibility`, `animated-container`, `dropdown-menu`, `feedback`,
+  `layout`, `navigation`, `radio-group`, `select`, `spinner`, `tabs`,
+  `textarea`. None of these had any importers anywhere in `src/`; they
+  were speculative library code shipped as "亮但不亮" UI surface area.
+- **Dead utility modules** (~1051 lines) removed from `src/utils/`:
+  `batch-translation-manager`, `manga-translation-prompt`,
+  `ocr-provider-selector`. None had any importers.
+
+### Security & ethics
+
+- The extension now ships with `enabled=false` and `onboardingCompleted=false`.
+  Until the user finishes the onboarding (or explicitly skips), the extension
+  will not run any VLM translation and the user will not be billed. This
+  closes the prior gap where a fresh install could start charging API costs
+  before the user understood what they had just installed.
+
 ## [0.3.4] - 2026-06-01
 
 ### Added

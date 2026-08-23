@@ -75,6 +75,7 @@ export interface AppConfigActions {
   getActiveProviderSettings: () => ProviderSettings;
   isProviderConfigured: (provider?: ProviderType) => boolean;
   getRuntimeConfig: () => RuntimeAppConfig;
+  setOnboardingCompleted: (completed: boolean) => void;
   resetToDefaults: () => void;
 }
 
@@ -103,6 +104,7 @@ const LOCAL_DEFAULT_CONFIG: AppConfigState = {
   regionBatchSize: SHARED_DEFAULT_CONFIG.regionBatchSize,
   fallbackToFullImage: SHARED_DEFAULT_CONFIG.fallbackToFullImage,
   overlayStyle: SHARED_DEFAULT_CONFIG.overlayStyle,
+  onboardingCompleted: SHARED_DEFAULT_CONFIG.onboardingCompleted,
 };
 
 /**
@@ -143,16 +145,20 @@ function pickLegacyProviderEntry(
 }
 
 /**
- * Migration for persisted config (v0 → v1 → v2).
+ * Migration for persisted config (v0 → v1 → v2 → v3).
  *
  * v0.3.1 persisted state:
  *   { provider: 'openai' | 'ollama' | 'siliconflow' | ...,
  *     providers: { openai: {...}, ollama: {...} }, ... }
  *
- * v0.3.2 (current) state:
+ * v0.3.2 persisted state:
  *   { provider: 'openai-compatible' | 'ollama' | 'lm-studio',
  *     openaiCompatible: {...}, ollama: {...}, lmStudio: {...},
  *     providers: { 'openai-compatible': {...}, ollama: {...}, 'lm-studio': {...} } }
+ *
+ * v0.4.0 persisted state adds `onboardingCompleted`. Existing users who
+ * upgrade from v2 are marked as `onboardingCompleted: true` automatically
+ * so they are not re-prompted.
  *
  * We rebuild providers and the top-level provider fields from the legacy
  * shape so v0.3.1 users do not get undefined on providers['openai-compatible']
@@ -166,9 +172,29 @@ function migratePersistedConfig(
     return persistedState;
   }
 
-  // Already on v2 — pass through.
-  if ((version ?? 0) >= 2) {
+  // Already on v3 — pass through.
+  if ((version ?? 0) >= 3) {
     return persistedState;
+  }
+
+  // Upgrading from v2 → v3: onboardingCompleted was introduced in v0.4.0.
+  // Existing users have already configured the extension, so we mark
+  // onboarding as completed on upgrade to avoid re-prompting them.
+  if ((version ?? 0) === 2) {
+    return isRecord(persistedState['state'])
+      ? {
+          ...persistedState,
+          state: {
+            ...(persistedState['state'] as Record<string, unknown>),
+            onboardingCompleted: true,
+          },
+          version: 3,
+        }
+      : {
+          ...persistedState,
+          onboardingCompleted: true,
+          version: 3,
+        };
   }
 
   // Zustand wraps the partialized state in { state, version } when writing.
@@ -453,14 +479,17 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
           targetLanguage: state.targetLanguage,
           translationStylePreset: state.translationStylePreset,
           autoContinueEnabled: state.autoContinueEnabled,
+          onboardingCompleted: state.onboardingCompleted,
         };
       },
+      setOnboardingCompleted: (completed) =>
+        set({ onboardingCompleted: completed }),
       resetToDefaults: () => set(LOCAL_DEFAULT_CONFIG),
     }),
     {
       name: APP_CONFIG_STORAGE_KEY,
       storage: createJSONStorage(() => chromeStorage),
-      version: 2,
+      version: 3,
       migrate: migratePersistedConfig,
       merge: mergePersistedConfig,
       partialize: state => ({
@@ -482,6 +511,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         regionBatchSize: state.regionBatchSize,
         fallbackToFullImage: state.fallbackToFullImage,
         overlayStyle: state.overlayStyle,
+        onboardingCompleted: state.onboardingCompleted,
       }),
     }
   )

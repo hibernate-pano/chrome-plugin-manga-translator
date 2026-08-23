@@ -83,7 +83,6 @@ let renderer: OverlayRenderer | null = null;
 let hud: FloatingHud | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
-let isTranslating = false;
 let failedCount = 0;
 let cachedCount = 0;
 const processedImages: Set<string> = new Set();
@@ -287,11 +286,7 @@ function stopAutoTranslateObserver(): void {
 async function translatePage(forceRefresh: boolean = false): Promise<void> {
   console.warn('[ContentScript] translatePage 开始执行');
 
-  if (isTranslating) {
-    console.warn('[ContentScript] 翻译已在进行中（锁保护）');
-    return;
-  }
-
+  // 翻译进行中的互斥：直接用 currentState 判断，不再维护冗余的 isTranslating 布尔
   if (
     currentState.status === 'translating' ||
     currentState.status === 'scanning'
@@ -300,7 +295,6 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     return;
   }
 
-  isTranslating = true;
   abortController = new AbortController();
   setState({ status: 'scanning' });
 
@@ -386,7 +380,6 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion, action: friendly.action });
   } finally {
     abortController = null;
-    isTranslating = false;
   }
 }
 
@@ -516,7 +509,12 @@ function handleHudCancel(): void {
 }
 
 function handleRetryFailed(): void {
-  if (isTranslating) return;
+  if (
+    currentState.status === 'translating' ||
+    currentState.status === 'scanning'
+  ) {
+    return;
+  }
   // 清除失败图片记录，让它们可以被重新处理
   for (const key of failedImageKeys) {
     processedImages.delete(key);

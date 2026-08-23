@@ -20,6 +20,15 @@ export interface RuntimeAppConfig {
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
   autoContinueEnabled: boolean;
+  /**
+   * First-run onboarding completed flag.
+   *
+   * The extension ships with `enabled=false` and `onboardingCompleted=false`.
+   * New users see a 3-step onboarding modal in the Options page on first
+   * install. Until they complete it (or skip it explicitly), the extension
+   * will not auto-translate and the user will not be billed for VLM calls.
+   */
+  onboardingCompleted: boolean;
 }
 
 export const DEFAULT_OPENAI_COMPATIBLE_CONFIG: ProviderSettings = {
@@ -49,6 +58,10 @@ export const DEFAULT_RUNTIME_APP_CONFIG: RuntimeAppConfig = {
   targetLanguage: 'zh-CN',
   translationStylePreset: DEFAULT_TRANSLATION_STYLE_PRESET,
   autoContinueEnabled: true,
+  // New users must explicitly complete (or skip) the onboarding modal
+  // before the extension will run translations. This protects them
+  // from being billed for VLM calls without their consent.
+  onboardingCompleted: false,
 };
 
 /**
@@ -69,6 +82,7 @@ export const DEFAULT_CONFIG: Readonly<{
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
   autoContinueEnabled: boolean;
+  onboardingCompleted: boolean;
   maxImageSize: number;
   parallelLimit: number;
   cacheEnabled: boolean;
@@ -265,6 +279,10 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
       typeof state.autoContinueEnabled === 'boolean'
         ? state.autoContinueEnabled
         : DEFAULT_RUNTIME_APP_CONFIG.autoContinueEnabled,
+    onboardingCompleted:
+      typeof state.onboardingCompleted === 'boolean'
+        ? state.onboardingCompleted
+        : DEFAULT_RUNTIME_APP_CONFIG.onboardingCompleted,
   };
 }
 
