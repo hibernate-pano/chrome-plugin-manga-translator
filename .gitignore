@@ -19,3 +19,10 @@ src/shared/env-config.generated.ts
 
 # Test coverage reports
 coverage/
+
+# AI tooling state (never commit these)
+.opencode/
+.mavis/
+.conductor/
+.kiro/
+.omx/
