@@ -2,6 +2,7 @@ import {
   DEFAULT_TRANSLATION_STYLE_PRESET,
   type TranslationStylePreset,
 } from '@/utils/translation-style';
+import { ENV_CONFIG } from './env-config';
 
 export const APP_CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
@@ -32,9 +33,13 @@ export interface RuntimeAppConfig {
 }
 
 export const DEFAULT_OPENAI_COMPATIBLE_CONFIG: ProviderSettings = {
-  apiKey: '',
-  baseUrl: 'https://api.openai.com/v1',
-  model: 'gpt-4o',
+  // Default provider: MiniMax M3 (personal use). Values are injected at
+  // build time from .env by scripts/inject-env-config.mjs into the
+  // gitignored src/shared/env-config.generated.ts. If the .env is missing
+  // the build falls back to the placeholder values below.
+  apiKey: ENV_CONFIG.minimax.apiKey || '',
+  baseUrl: ENV_CONFIG.minimax.baseUrl || 'https://api.minimaxi.com/v1',
+  model: ENV_CONFIG.minimax.model || 'MiniMax-M3',
 };
 
 export const DEFAULT_OLLAMA_CONFIG: ProviderSettings = {

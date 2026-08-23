@@ -45,21 +45,16 @@ describe('OnboardingApp', () => {
     expect(screen.getByRole('dialog')).toBeInTheDocument();
   });
 
-  it('advances through provider and ready steps', async () => {
+  it('advances through welcome and ready steps', async () => {
     const user = userEvent.setup();
     render(<OnboardingApp />);
 
     // Step 1: welcome → next
     expect(screen.getByText(/欢迎使用 Manga Translator/)).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /下一步：选择后端/ }));
+    expect(screen.getByText(/默认翻译后端/)).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /下一步/ }));
 
-    // Step 2: provider — pick Ollama
-    expect(screen.getByRole('heading', { name: '选择一个翻译后端' })).toBeInTheDocument();
-    await user.click(screen.getByRole('button', { name: /Ollama/ }));
-    expect(useAppConfigStore.getState().provider).toBe('ollama');
-    await user.click(screen.getByRole('button', { name: /我选好了/ }));
-
-    // Step 3: ready → finish
+    // Step 2: ready → finish
     expect(screen.getByRole('heading', { name: '准备就绪' })).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /完成并启用翻译/ }));
 

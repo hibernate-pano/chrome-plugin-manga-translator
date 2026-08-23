@@ -20,6 +20,7 @@ import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { OnboardingApp } from '@/components/Onboarding/OnboardingApp';
+import { PROVIDER_PRESETS } from '@/shared/presets';
 import { cn } from '@/lib/utils';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
@@ -76,7 +77,18 @@ const API_PRESETS: Array<{
   baseUrl: string;
   model: string;
   description: string;
+  apiKey?: string;
 }> = [
+  // 个人 presets：从 .env 注入（首选的 MiniMax + 备选的 OpenCode·DeepSeek）
+  ...PROVIDER_PRESETS.filter(p => p.provider === 'openai-compatible').map(
+    p => ({
+      name: p.label,
+      baseUrl: p.settings.baseUrl,
+      model: p.settings.model,
+      description: p.description + (p.note ? ` （${p.note}）` : ''),
+      apiKey: p.settings.apiKey || undefined,
+    })
+  ),
   {
     name: 'OpenAI 官方',
     baseUrl: 'https://api.openai.com/v1',
@@ -434,6 +446,7 @@ const OptionsApp: React.FC = () => {
                         updateProviderSettings('openai-compatible', {
                           baseUrl: preset.baseUrl,
                           model: preset.model,
+                          ...(preset.apiKey ? { apiKey: preset.apiKey } : {}),
                         });
                       }}
                       className={cn(

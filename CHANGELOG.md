@@ -5,6 +5,40 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] - 2026-XX-XX
+
+### Added
+
+- **`.env`-injected provider credentials**: new build step
+  `scripts/inject-env-config.mjs` reads MiniMax / OpenCode credentials from
+  `.env` (project root, or up to 3 levels up, or `MT_ENV_FILE`) and emits the
+  gitignored `src/shared/env-config.generated.ts`. Every `pnpm` script
+  (`build`, `dev`, `test*`, `type-check`) runs the injector first.
+- **Zero-config first-run**: the extension now ships with a pre-configured
+  default backend — **MiniMax M3** (primary) with **OpenCode · DeepSeek V4
+  Flash** (backup) — so personal installs need no manual API key / base URL /
+  model setup.
+- **Preset quick-switch in Options**: provider cards now include the two
+  env-injected presets, plus the existing OpenAI / SiliconFlow / OpenRouter
+  presets. Clicking a preset fills base URL + model + API key in one click.
+- **Onboarding simplified to 2 steps**: removed the provider picker (default
+  is baked in); step 1 shows the configured default backend and step 2
+  confirms + enables.
+
+### Security
+
+- API keys live **only** in the user's `.env` (gitignored). The generated
+  `env-config.generated.ts` absorbs them at build time into `dist/` but is
+  itself gitignored — the keys never enter the source tree or git history.
+- Chrome Web Store publish credentials (CLIENT_ID / SECRET / REFRESH_TOKEN /
+  ITEM_ID) from the user's `.env` are intentionally **NOT** injected anywhere.
+  Those must never be compiled into the extension or committed.
+
+### Changed
+
+- `pnpm-workspace.yaml`: switched `ignoredBuiltDependencies` →
+  `onlyBuiltDependencies` (pnpm 11 strict-by-default policy).
+
 ## [1.0.0] - 2026-XX-XX
 
 The first stable release of Manga Translator. Four phases of focused work

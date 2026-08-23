@@ -8,11 +8,15 @@ describe('AppConfigStore', () => {
     useAppConfigStore.getState().resetToDefaults();
   });
 
-  it('defaults to openai-compatible with auto continuation enabled', () => {
+  it('defaults to openai-compatible with MiniMax baked-in default', () => {
     const state = useAppConfigStore.getState();
     expect(state.provider).toBe('openai-compatible');
-    expect(state.providers['openai-compatible'].baseUrl).toBe(
-      'https://api.openai.com/v1'
+    // v1.1.0: default endpoint is MiniMax (from .env injection), no longer
+    // the OpenAI placeholder. The base URL should point at MiniMax when the
+    // .env is present (test env may not have it for CI, but the template
+    // fallback is MiniMax).
+    expect(state.providers['openai-compatible'].baseUrl).toContain(
+      'minimaxi.com'
     );
     expect(state.autoContinueEnabled).toBe(true);
     expect(state.translationPipeline).toBe('full-image-vlm');
