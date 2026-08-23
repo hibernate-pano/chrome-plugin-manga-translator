@@ -5,6 +5,40 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0] - 2026-XX-XX
+
+The first stable release of Manga Translator. Four phases of focused work
+that took the project from "working but unpositioned" to "focused,
+ethically guarded, OSS-ready".
+
+### Headline
+
+- Ships with `enabled=false` by default. Users must complete the onboarding
+  modal before any translation runs. Closes the silent-billing risk.
+- Reading-mode side panel + numbered image anchors (the differentiator).
+- Errors are repair menus, not complaints. Copy-the-shell-snippet buttons
+  for the common Ollama / model / CORS issues.
+- English-first docs, frozen legacy backend, 3500+ lines of dead code removed.
+
+### Stability
+
+- `type-check`: 0 errors
+- `lint:strict`: 0 warnings, 0 errors
+- `vitest`: 302 tests pass (was 278 at v0.3.4; +24 new tests for onboarding,
+  reading panel, anchors, HUD staged progress, copy-command actions)
+- `vite build`: clean production build, content bundle ~332 KB unminified,
+  ~27 KB gzipped
+
+### Migration from v0.3.x
+
+- v0.3.x → v1.0.0: existing users are NOT re-prompted through onboarding
+  (v2 → v3 persisted-config migration sets `onboardingCompleted=true`
+  automatically). They get the new reading panel + improved error UX
+  immediately on upgrade.
+- `server/` Python backend is no longer maintained. Users with that path
+  configured should switch to `OpenAI-compatible` or `Ollama` in Settings
+  → Backend. The direct paths cover every case.
+
 ## [0.7.0] - 2026-XX-XX
 
 ### Added

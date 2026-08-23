@@ -142,8 +142,9 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 | Version | Status | Highlights |
 |---|---|---|
-| v0.6.0 | current | Reading-mode panel, error fix-it entries, HUD stages |
-| v0.5.0 | shipped | Reading panel + numbered image anchors |
+| v1.0.0 | current | First stable release |
+| v0.6.0 | shipped | Error fix-it entries, HUD stages, cache visibility |
+| v0.5.0 | shipped | Reading-mode panel + numbered image anchors |
 | v0.4.0 | shipped | First-run onboarding, ethics fix, dead code removed |
 | v0.3.4 | shipped | Provider consolidation, security hardening |
 
