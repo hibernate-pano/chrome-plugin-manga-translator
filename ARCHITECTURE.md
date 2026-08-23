@@ -100,15 +100,30 @@ Response shape: `{ success, job: { ... }, textAreas }` (envelope).
 
 ## Translation pipeline
 
-Default: **`full-image-vlm`** — a single VLM pass over the (possibly downscaled)
-image that returns a JSON list of translated text bubbles. No Tesseract required.
+The translator lives in `src/services/translator.ts`, constructed from the live
+config via `createTranslatorFromConfig()`. It now has three routes, decided by
+image shape and result quality:
 
-Optional: **`hybrid-regions`** — Tesseract.js detects text regions, the VLM
-translates each region in a smaller batched call. Useful when the default
-pipeline wastes tokens on full-image OCR. Requires Tesseract assets (~3 MB WASM).
+1. **Tiled (long strips — default for webtoons)** — from v1.2.0. Images with
+   height ≥ 2200px and aspect ≥ 2.2 are split into overlapping ~1152px tiles
+   with 96px seams; each tile is translated separately (crisp crop, per-tile
+   token budget) and results are merged back to original coordinates with
+   overlap dedup. Tiles run concurrently (cap 3). A successful tiled result is
+   cached under the image-hash key so revisits don't re-bill.
+2. **`full-image-vlm`** — a single VLM pass over the (possibly downscaled)
+   image. Default for non-tall images; also the fallback when tiling fails.
+3. **`hybrid-regions`** — Tesseract.js detects text regions, the VLM translates
+   each region in a smaller batched call. From v1.3.0 this is also triggered
+   automatically as a degradation path when the full-image route returns zero
+   text areas (a "false success"), with `kor` in the default OCR languages.
 
-The translator lives in `src/services/translator.ts`. It is constructed from
-the live config via `createTranslatorFromConfig()`.
+### Quality gates
+
+- A VLM response with zero non-empty text areas is treated as failure, not
+  cached, and triggers the next pipeline route (v1.3.0+).
+- `parseVisionResponse` detects truncated JSON (unbalanced braces — the model
+  hit the token ceiling) and raises a clear error instead of a generic parse
+  failure (v1.3.0+).
 
 ## State
 

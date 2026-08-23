@@ -19,18 +19,28 @@ release notes below; the live version is whatever's at the top of
 - HUD staged progress (scanning / translating / rendering)
 - Cache-hit visibility + filtered-image reporting
 
-## Phase 3 — In progress
+## Phase 3 — Done (v0.7.x → v1.1.0)
 
-- English-first README, ARCHITECTURE.md, CONTRIBUTING.md (this file)
-- `server/` Python backend frozen and slated for extraction to its own repo
-- v0.7.0 release
+- English-first README, ARCHITECTURE.md, CONTRIBUTING.md
+- `server/` Python backend frozen + deprecation notice
+- Zero-config personal setup via `.env` injection (v1.1.0)
 
-## Phase 4 — Next
+## Phase 4 — Done (v1.0 → v1.3.x)
+
+- First stable release (v1.0.0) + anchor-click fix (v1.0.1)
+- **Tiled webtoon pipeline** (v1.2.0): overlapping slices for long strips;
+  fixes "long strip downscaled to thumbnail → text illegible / token
+  ceiling" that made Korean webtoons sometimes fail to translate.
+- **Auto-degradation + Korean prompts** (v1.3.0): zero-text "false success"
+  now falls back to Tesseract hybrid; `kor` added to OCR languages; prompts
+  and `natural-zh` style handle 반말/-요/-습니다 and webtoon slang.
+- Parallel tile translation (v1.3.1) + tiled results cached (v1.3.2).
+
+## Phase 5 — Next
 
 - Chrome Web Store listing with screenshots + a 30s demo GIF
 - A "show HN" / "show r/ChromeExtensions" post with the demo
-- Seed 5-10 users and gather feedback for v1.0
-- v1.0 release with stable public API
+- Seed 5-10 users and gather feedback for v1.x
 
 ## What we are NOT doing
 

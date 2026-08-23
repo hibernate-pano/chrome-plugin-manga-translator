@@ -142,11 +142,13 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 | Version | Status | Highlights |
 |---|---|---|
-| v1.0.0 | current | First stable release |
+| v1.3.2 | current | Tiled webtoon pipeline, auto-degradation, Korean-aware prompts |
+| v1.2.0 | shipped | Tiled pipeline for long webtoon strips + quality gates |
+| v1.1.0 | shipped | Zero-config personal setup via .env injection |
+| v1.0.0 | shipped | First stable release |
 | v0.6.0 | shipped | Error fix-it entries, HUD stages, cache visibility |
 | v0.5.0 | shipped | Reading-mode panel + numbered image anchors |
 | v0.4.0 | shipped | First-run onboarding, ethics fix, dead code removed |
-| v0.3.4 | shipped | Provider consolidation, security hardening |
 
 See [`CHANGELOG.md`](./CHANGELOG.md) for the full history and
 [`ROADMAP.md`](./ROADMAP.md) for what's next.
