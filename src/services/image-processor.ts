@@ -22,6 +22,19 @@ export interface ImageProcessingOptions {
   format?: 'jpeg' | 'png' | 'webp' | 'auto';
   /** Whether to crop the image to only the visible viewport part (useful for very long images) */
   viewportCrop?: boolean;
+  /**
+   * Explicit crop region in ORIGINAL image pixel space ({top, height}).
+   * When set, overrides viewportCrop. Used by the tiled (sliding-window)
+   * pipeline so each tile is a crisp slice of a long webtoon strip instead
+   * of the whole image being downscaled to a thumbnail.
+   */
+  /**
+   * Explicit crop region in ORIGINAL image pixel space ({top, height}).
+   * When set, overrides viewportCrop. Used by the tiled (sliding-window)
+   * pipeline so each tile is a crisp slice of a long webtoon strip instead
+   * of the whole image being downscaled to a thumbnail.
+   */
+  cropRegion?: { top: number; height: number };
   /** Whether to add visual indices for hybrid region stitching */
   isHybridRegions?: boolean;
 }
@@ -51,7 +64,15 @@ export interface ProcessedImage {
 
 // ==================== Default Configuration ====================
 
-export const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
+type FilledOptions = Omit<
+  ImageProcessingOptions,
+  'cropRegion'
+> &
+  Required<Pick<ImageProcessingOptions, 'maxSize' | 'quality' | 'format' | 'viewportCrop' | 'isHybridRegions'>> & {
+  cropRegion?: { top: number; height: number };
+};
+
+export const DEFAULT_OPTIONS: FilledOptions = {
   /**
    * Default image size for translation.
    * 1024px is sufficient for text extraction while being ~4x faster than 2048px.
@@ -60,6 +81,7 @@ export const DEFAULT_OPTIONS: Required<ImageProcessingOptions> = {
   quality: 0.85,
   format: 'jpeg',
   viewportCrop: false,
+  cropRegion: undefined,
   isHybridRegions: false,
 };
 
@@ -151,7 +173,8 @@ export function compressImage(
   maxSize: number = DEFAULT_OPTIONS.maxSize,
   quality: number = DEFAULT_OPTIONS.quality,
   viewportCrop: boolean = false,
-  format: string = 'jpeg'
+  format: string = 'jpeg',
+  cropRegion?: { top: number; height: number }
 ): { base64: string; width: number; height: number; wasCompressed: boolean; cropY: number; cropHeight: number } {
   // Guard against zero-dimension images (e.g. failed image loads) so we
   // don't produce NaN canvas dimensions or empty base64.
@@ -170,8 +193,14 @@ export function compressImage(
   let sourceHeight = image.naturalHeight;
   const sourceWidth = image.naturalWidth;
 
-  // 1. 如果需要视口裁剪，计算当前视口中图片的范围
-  if (viewportCrop) {
+  // 0. 显式 cropRegion（切片管线用）：直接按原图像素裁剪
+  if (cropRegion) {
+    sourceY = Math.max(0, Math.min(image.naturalHeight - 1, cropRegion.top));
+    sourceHeight = Math.max(
+      1,
+      Math.min(image.naturalHeight - sourceY, cropRegion.height)
+    );
+  } else if (viewportCrop) {
     const rect = image.getBoundingClientRect();
     const windowHeight = window.innerHeight || document.documentElement.clientHeight;
 
@@ -289,7 +318,8 @@ export async function processImage(
       opts.maxSize,
       opts.quality,
       opts.viewportCrop,
-      opts.format
+      opts.format,
+      opts.cropRegion
     );
 
     const hash = await calculateHash(base64);
@@ -548,7 +578,7 @@ function cropImageElement(
   y: number,
   width: number,
   height: number,
-  options: Required<ImageProcessingOptions>
+  options: FilledOptions
 ): string {
   const canvas = document.createElement('canvas');
   canvas.width = width;

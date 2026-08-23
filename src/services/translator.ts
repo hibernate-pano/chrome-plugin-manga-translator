@@ -132,6 +132,99 @@ const HYBRID_PIPELINE_VERSION = 'hybrid-v1';
 const MAX_REASONABLE_REGION_COUNT = 80;
 const MAX_ALLOWED_MISSING_RATIO = 0.4;
 
+// ==================== Tiled (sliding-window) pipeline constants ====================
+
+/**
+ * Long webtoon strips are translated as a stack of overlapping tiles.
+ * Each tile is a crisp, near-1:1 slice of the original image instead of the
+ * whole strip downscaled to a thumbnail — small text stays legible and the
+ * VLM output never approaches the token ceiling.
+ */
+const TILED_PIPELINE_VERSION = 'tiled-v1';
+/** Min image height (px) to treat as a long strip and tile. */
+const TILING_MIN_HEIGHT = 2200;
+/** Min aspect ratio (h/w) to treat as a long strip. */
+const TILING_MIN_ASPECT = 2.2;
+/** Nominal tile height in ORIGINAL image pixels. */
+const TILE_HEIGHT = 1152;
+/** Vertical overlap between adjacent tiles (text split across the seam). */
+const TILE_OVERLAP = 96;
+/** Keep tiles inside this many original pixels so text stays legible. */
+const TILE_MAX_DIMENSION = 1600;
+
+interface TileSpec {
+  top: number;
+  height: number;
+}
+
+/**
+ * Split a tall strip into overlapping tiles.
+ * Returns a single full-height tile for short images (no-op).
+ */
+/** @internal exported for tests */
+export function computeTiles(
+  imageWidth: number,
+  imageHeight: number
+): TileSpec[] {
+  if (
+    imageHeight < TILING_MIN_HEIGHT ||
+    imageHeight / Math.max(1, imageWidth) < TILING_MIN_ASPECT
+  ) {
+    return [{ top: 0, height: imageHeight }];
+  }
+
+  const tiles: TileSpec[] = [];
+  let top = 0;
+  while (top < imageHeight) {
+    const height = Math.min(TILE_HEIGHT, imageHeight - top);
+    // Shrink the last tile if it would leave a sliver < 1/3 tile height;
+    // extend the previous tile instead (overlap handles the seam).
+    if (top > 0 && imageHeight - top < TILE_HEIGHT * 0.4) {
+      const prev = tiles[tiles.length - 1];
+      if (prev) {
+        prev.height = imageHeight - prev.top;
+      }
+      break;
+    }
+    tiles.push({ top, height });
+    if (top + height >= imageHeight) {
+      break;
+    }
+    top = top + height - TILE_OVERLAP;
+  }
+  return tiles;
+}
+
+/**
+ * Deduplicate areas that straddle a tile seam (VLM re-detects text in the
+ * overlap). Keep the area whose center is higher (upper tile wins) but only
+ * when two boxes genuinely overlap across a horizontally compatible band.
+ */
+/** @internal exported for tests */
+export function filterOverlapDuplicates(
+  areas: TextArea[]
+): TextArea[] {
+  const kept: TextArea[] = [];
+  const toleranceX = 0.06; // center-x must be near
+  const toleranceY = 0.03; // overlap height must be significant
+
+  for (const area of areas) {
+    const duplicated = kept.some(other => {
+      const ay0 = area.y, ay1 = area.y + (area.height ?? 0);
+      const by0 = other.y, by1 = other.y + (other.height ?? 0);
+      const overlapHeight = Math.min(ay1, by1) - Math.max(ay0, by0);
+      if (overlapHeight <= toleranceY) return false;
+      const cxA = area.x + (area.width ?? 0) / 2;
+      const cxB = other.x + (other.width ?? 0) / 2;
+      return Math.abs(cxA - cxB) < toleranceX;
+    });
+    if (!duplicated) {
+      kept.push(area);
+    }
+  }
+  return kept;
+}
+
 // ==================== Translator Service Class ====================
 
 /**
@@ -254,6 +347,25 @@ export class TranslatorService {
         }
       }
 
+      // 长条 webtoon 走切片管线：每一片清晰、token 不截断、失败可重试。
+      // viewportCrop=true 表示用户正在看这一片（滚动阅读），保持原逻辑；
+      // 否则对长图自动切片。
+      if (!viewportCrop && image.naturalHeight >= TILING_MIN_HEIGHT) {
+        const result = await this.translateImageTiled(
+          image,
+          viewportCrop,
+          forceRefresh
+        );
+        if (!result.success) {
+          // 切片失败（例如 CORS 无法取原图）→ 回退整图压缩旧路径
+          if (isDevelopment) {
+            _logError('Tiled pipeline failed, falling back to full-image', result.error);
+          }
+        } else {
+          return result;
+        }
+      }
+
       const result = await this.translateWithHybridPipeline(
         image,
         processed,
@@ -358,7 +470,128 @@ export class TranslatorService {
       this.config.translationStylePreset,
       this.config.renderMode || 'strong-overlay-compat',
       HYBRID_PIPELINE_VERSION,
+      // Pipeline version bump invalidates tiled-vs-pre-tiled caches on upgrade.
+      TILED_PIPELINE_VERSION,
     ].join('::');
+  }
+
+  /**
+   * Tiled (sliding-window) pipeline for long webtoon strips.
+   *
+   * Splits the original image into overlapping horizontal tiles, translates
+   * each tile separately (crisp, near-1:1 crop — no thumbnail downscaling,
+   * no token truncation), maps each tile's relative coords back to original
+   * image space, then merges and dedupes.
+   *
+   * Failure policy: a tile that produces no text (or a whole-page empty
+   * result) is retried once; if the merged result is still empty the caller
+   * falls back to the classic full-image path.
+   */
+  private async translateImageTiled(
+    image: HTMLImageElement,
+    viewportCrop: boolean,
+    forceRefresh: boolean
+  ): Promise<TranslationResult> {
+    const tiles = computeTiles(
+      image.naturalWidth,
+      image.naturalHeight
+    );
+    if (tiles.length <= 1) {
+      // Not actually a long strip — let the caller use the classic path.
+      return { success: false, textAreas: [], error: 'not-tall-enough' };
+    }
+
+    if (isDevelopment) {
+      _log(
+        `切片翻译: ${image.naturalWidth}x${image.naturalHeight} → ${tiles.length} tiles`
+      );
+    }
+
+    const allAreas: TextArea[] = [];
+    const imageKey = image.src || `img-${Date.now()}`;
+
+    for (let i = 0; i < tiles.length; i++) {
+      const tile = tiles[i];
+      if (!tile) continue;
+
+      try {
+        const processed = await processImage(image, {
+          maxSize: TILE_MAX_DIMENSION,
+          quality: 0.9,
+          format: 'webp',
+          viewportCrop: false,
+          // Explicit crop on the ORIGINAL image; sky-high legibility.
+          cropRegion: {
+            top: tile.top,
+            height: tile.height,
+          },
+        });
+
+        let response = await this.callTranslationTransport(
+          processed.base64,
+          processed.mimeType,
+          this.config.targetLanguage,
+          forceRefresh,
+          {
+            scope: 'page',
+            imageKey: `${imageKey}::t${i}`,
+            pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+          }
+        );
+
+        // Quality gate: a tile that yields no text is suspicious. Retry once
+        // (covers transient JSON/parse flakiness) before accepting empty.
+        const nonEmpty = (response.textAreas ?? []).filter(
+          area => (area.translatedText ?? '').trim().length > 0
+        );
+        if (nonEmpty.length === 0 && !forceRefresh) {
+          response = await this.callTranslationTransport(
+            processed.base64,
+            processed.mimeType,
+            this.config.targetLanguage,
+            true,
+            {
+              scope: 'page',
+              imageKey: `${imageKey}::t${i}-r`,
+              pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+            }
+          );
+        }
+
+        const mapped = this.mapTextAreasToOriginalImage(
+          response.textAreas ?? [],
+          processed
+        );
+        allAreas.push(...mapped);
+      } catch (error) {
+        if (isDevelopment) {
+          _logError(`切片 ${i + 1}/${tiles.length} 失败:`, error);
+        }
+        // One tile failing shouldn't fail the page if others succeeded.
+      }
+    }
+
+    if (allAreas.length === 0) {
+      return { success: false, textAreas: [], error: '所有切片均未检测到文字' };
+    }
+
+    const clean = filterOverlapDuplicates(allAreas);
+    const clipped = clean.map(area => ({
+      ...area,
+      x: Math.max(0, Math.min(1, area.x ?? 0)),
+      y: Math.max(0, Math.min(1, area.y ?? 0)),
+      width: Math.max(0, Math.min(1, area.width ?? 0)),
+      height: Math.max(0, Math.min(1, area.height ?? 0)),
+    }));
+
+    if (isDevelopment) {
+      _log(`切片结果: ${clean.length} 个区域 (去重后)`);
+    }
+
+    return {
+      success: true,
+      textAreas: clipped,
+    };
   }
 
   private async translateWithHybridPipeline(

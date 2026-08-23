@@ -5,6 +5,34 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-XX-XX
+
+### Added
+
+- **Tiled (sliding-window) pipeline for long webtoon strips**: instead of
+  downscaling an 800×10000px strip to a 3000px thumbnail (which shrinks
+  dialogue into illegible smudges), long images are split into overlapping
+  ~1152px tiles with 96px seams. Each tile is translated as a crisp,
+  near-1:1 crop — small text stays legible, output stays under the token
+  ceiling, and a single model failure no longer nukes the whole page.
+  - New `cropRegion` option in `image-processor.ts` (`compressImage` /
+    `processImage`) to slice the ORIGINAL image by pixel coordinates.
+  - `translator.ts` now auto-tiles when `naturalHeight >= 2200` and
+    aspect ratio `>= 2.2`. Tile results are mapped back to original image
+    coordinates, merged, and overlap-deduplicated.
+  - Tile quality gate: a tile that yields no text is retried once before
+    being accepted; if every tile returns empty the caller falls back to
+    the classic full-image path.
+  - Tiled results do not write to the hash cache when the whole page
+    produced nothing; cache key now includes `tiled-v1` so pre-tiled hash
+    caches are invalidated on upgrade.
+
+### Fixed
+
+- **Korean-manhwa (webtoon) "sometimes can't translate"**: the root cause
+  was the whole-strip downscale to 3000px + the 2048-token completion
+  ceiling. Tiling addresses both: legible crops and per-tile token budgets.
+
 ## [1.1.0] - 2026-XX-XX
 
 ### Added
