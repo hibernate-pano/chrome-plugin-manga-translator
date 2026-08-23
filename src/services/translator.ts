@@ -374,14 +374,20 @@ export class TranslatorService {
         forceRefresh
       );
 
-      // 步骤5：写入缓存
-      if (this.config.cacheEnabled) {
+      // 步骤5：写入缓存。质量门：模型返回 success 但零文字区是"假成功"，
+      // 不写缓存，让下一次翻译有机会换路径/拿新结果，而不是永远空白。
+      const realTextCount = (result.textAreas ?? []).filter(
+        area => (area.translatedText ?? '').trim().length > 0
+      ).length;
+      if (this.config.cacheEnabled && result.success && realTextCount > 0) {
         if (isDevelopment) {
-          _log('存入缓存');
+          _log('存入缓存, 文字区域数:', realTextCount);
         }
         useTranslationCacheStore
           .getState()
           .set(cacheKey, result, this.config.provider);
+      } else if (isDevelopment && result.success && realTextCount === 0) {
+        _logError('翻译成功但无文字区域，跳过缓存（假成功）');
       }
 
       return result;
