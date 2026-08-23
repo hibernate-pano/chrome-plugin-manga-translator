@@ -5,6 +5,27 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-XX-XX
+
+### Added
+
+- **English-first README**: international positioning with quick start,
+  backend comparison table, and project structure overview.
+- **`ARCHITECTURE.md`**: contexts diagram, message protocol, translation
+  pipeline, state layout, reading-mode internals, error contract,
+  privacy/security notes.
+- **`CONTRIBUTING.md`**: code layout, dev setup, conventions, "how to add a
+  new provider / error code / UI component", and explicit anti-patterns.
+- **`ROADMAP.md`**: 90-day plan, what we are NOT doing, open questions,
+  performance budget.
+
+### Deprecated
+
+- **`server/` directory frozen**: the Python OCR-first backend is no longer
+  maintained. The plugin's `full-image-vlm` pipeline handles all the cases
+  this server used to handle. The server directory will be removed in v1.0.
+  See `server/README.md` for the deprecation notice and migration guidance.
+
 ## [0.6.0] - 2026-XX-XX
 
 ### Added

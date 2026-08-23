@@ -1,116 +1,157 @@
-# 漫画翻译助手 Chrome 插件
+# Manga Translator
 
-## 这是什么 / 给谁用
+A Chrome Manifest V3 extension that translates foreign-language manga in your browser.
 
-一个**轻量的 Chrome 扩展**，在你阅读外文漫画网页时直接调用 Vision LLM，把图片里的文字翻译成你选的语言，**以覆盖层形式贴在原图上**——保留排版、保留画风、不污染原页面。
+It calls **any OpenAI-compatible Vision LLM** (OpenAI, Qwen-VL, Gemini via OpenRouter,
+SiliconFlow, ...) or a **local model** (Ollama, LM Studio) on demand, then overlays the
+translation on top of the original image. The art stays untouched, the styles are
+preserved, and the overlay renders inside the page so you can read without leaving your
+manga site.
 
-**适合**：
-- 你已经在用 OpenAI 兼容的 Vision LLM（OpenAI / Qwen-VL / Gemini via OpenRouter 等），想在网页上直接读外文漫画
-- 你有 Ollama 或 LM Studio 在本地跑，想**零成本、零数据外传**地翻漫画
-- 你用 i18n 翻页站（漫画站、扫描组发布站），需要"打开就翻"，不需要切到独立 app
+> **Reading, not just translation.** v0.5.0 added a side panel that lists every
+> translated panel in reading order with numbered anchors on each image — a small
+> thing, but the first "this isn't just a translation tool" moment for the project.
 
-**不适合**：
-- 你想要自动 OCR 整本 PDF 漫画——这是浏览器扩展，不是桌面 OCR 工具
-- 你想用 Tesseract.js 做离线翻译——v0.3.3 的默认管线是 `full-image-vlm`（VLM 直出），Tesseract 仅在显式开启 `hybrid-regions` 模式时使用
-- 你想免费白嫖——VLM API 要么花钱，要么本地跑模型（Ollama/LM Studio 都要本机 GPU）
+---
 
-## 当前能力
+## Quick start
 
-- **页内翻译**：直接在当前网页上翻译整页漫画图片
-- **自动续翻**：开启后，页面内后续出现的新图片会继续翻译
-- **强制重翻**：清空当前页覆盖层与已处理状态后重新执行
-- **彻底重置**：移除当前页 overlay 和处理痕迹
-- **三种后端**：
-  - `OpenAI-compatible`：商用 API（OpenAI、SiliconFlow、OpenRouter 等任何 OpenAI 格式端点）
-  - `Ollama`：本地模型，隐私优先、免费
-  - `LM Studio`：本地 OpenAI 兼容服务器，离线开发演示用
-- **页内 HUD**：展示扫描、翻译进度、完成和错误状态
-- **多语言目标**：简体中文、繁体中文、English、日本語、한국어
+### 1. Install the extension
 
-## 技术架构
-
-- `src/content/content.ts`
-  页面内状态机，负责找图、调度翻译、自动续翻与 HUD
-- `src/services/translator.ts`
-  主翻译管线，串联图片处理、直连调用、缓存与回退逻辑
-- `src/services/text-detector.ts`
-  基于 Tesseract.js 的文字区域检测
-- `src/services/renderer.ts`
-  将译文作为 overlay 渲染回原图
-- `src/stores/config-v2.ts`
-  基于 Zustand 的配置存储，持久化到 Chrome Storage
-- `src/components/Popup/PopupApp.tsx`
-  操作驱动型弹窗，负责发起整页翻译、强制重翻、清理覆盖层
-- `src/components/Options/OptionsApp.tsx`
-  双 provider 配置页与基础行为设置
-
-## 安装与开发
-
-### 开发
+The extension is not on the Chrome Web Store yet (see [`ROADMAP.md`](./ROADMAP.md)).
+To use it now:
 
 ```bash
+git clone <repo>
+cd chrome-plugin-manga-translator
 pnpm install
-pnpm dev
-```
-
-### 构建
-
-```bash
 pnpm build
 ```
 
-构建完成后，在 Chrome 的 `chrome://extensions/` 中开启开发者模式，加载仓库里的 `dist/` 目录。
+Then open `chrome://extensions/`, enable **Developer mode**, click **Load unpacked**
+and pick the `dist/` directory.
 
-## 使用方式
+### 2. Pick a backend
 
-1. 安装并加载扩展（首次安装会弹出一个 3 步引导：欢迎 → 选后端 → 准备就绪）
-2. 在引导里选择后端（`OpenAI-compatible` / `Ollama` / `LM Studio`）
-3. 设置页填写必要的 API Key / 本地地址（首次引导跳过也无所谓，之后可在设置页补）
-4. 选择目标翻译语言
-5. 在漫画页面打开弹窗
-6. 选择：
-   - “翻译当前页面”
-   - “强制重翻”
-   - 或“彻底重置”
+Open the extension's **Settings** page. On first install you'll see a 3-step
+onboarding modal:
 
-翻译完成后，可以在页面内通过 overlay 控件固定/移除译文。
+1. **Welcome** — what this extension does, where your images go.
+2. **Backend** — pick `OpenAI-compatible`, `Ollama`, or `LM Studio`.
+3. **Ready** — finish, enable translation.
 
-## 插件直连说明
+You can skip the onboarding and configure later. The extension will not translate
+or bill you until you explicitly enable it.
 
-- 插件只保留三条直连路径：`OpenAI-compatible` API 直连、`Ollama` 本地直连、`LM Studio` 本地直连
-- 支持整页翻译、自动续翻、强制重翻、彻底重置
-- 不再包含服务端加速、hover 选图和多云 provider 路径
+### 3. Translate a page
 
-## Provider 说明
+Open any manga page, click the toolbar icon, then **Translate current page**.
 
-直连配置目前仅支持以下 Provider：
+---
 
-- `openai-compatible`（任意 OpenAI Chat Completions 端点）
-- `ollama`
-- `lm-studio`
+## What you get
 
-## 验证命令
+- **In-place overlay translation**: detected text is replaced with the translation
+  while keeping the surrounding art intact.
+- **Auto-continue**: new images that scroll into view are translated automatically
+  (toggle in Settings).
+- **Reading mode side panel**: a right-side panel listing every translation in
+  reading order, with numbered anchors on each image. Click a panel entry to jump
+  to the image; click an image badge to jump to its panel entry.
+- **HUD with stages**: scanning → translating → rendering, with cache-hit and
+  filtered-image counts surfaced in the completion card.
+- **Errors as repair menus**: every common failure has a fix-it button. Ollama
+  not running? Copy `ollama serve`. CORS blocked? Copy
+  `OLLAMA_ORIGINS=chrome-extension://* ollama serve`. Auth failed? Open Settings.
+- **Local-first**: config + obfuscated API keys live in `chrome.storage.local`.
+  Nothing syncs to your Google account. No telemetry. No analytics.
 
-提交前建议至少运行：
+---
 
-```bash
-pnpm build
-pnpm lint
-pnpm test:run
+## Backend options
+
+| Backend | Requires | Privacy | Cost |
+|---|---|---|---|
+| `OpenAI-compatible` | API Key | images sent to your configured endpoint | pay per token |
+| `Ollama` | local install | stays on your machine | free, needs GPU |
+| `LM Studio` | local install | stays on your machine | free, needs GPU/CPU |
+
+For the OpenAI-compatible path, any endpoint that speaks Chat Completions works:
+
+- OpenAI: `https://api.openai.com/v1`, model `gpt-4o` or `gpt-4o-mini`
+- SiliconFlow: `https://api.siliconflow.cn/v1`, model `Qwen/Qwen3-VL-8B-Instruct`
+- OpenRouter: `https://openrouter.ai/api/v1`, model `google/gemini-2.5-flash`
+
+For local Ollama, you'll need a vision model. `llava` is the smallest; `minicpm-v`
+or `qwen2.5vl` give better translations.
+
+---
+
+## Project structure
+
+```
+src/
+├── background/   Service worker: message routing, job queue, provider-direct calls
+├── content/      Content script: image scanning, translation flow, HUD + reading panel
+├── components/   React UI: Options, Popup, Onboarding
+├── providers/    Vision LLM provider implementations (OpenAI-compatible / Ollama / LM Studio)
+├── services/     Translator, renderer, image-processor, text-detector
+├── stores/       Zustand config + cache stores (chrome.storage adapter)
+├── shared/       Runtime contracts + shared defaults
+├── utils/        Error handler, prompt, validation, http client, font matcher
+└── test/         Vitest setup
 ```
 
-如果你正在专门清理历史 warning，可以额外运行：
+See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the longer story.
+
+---
+
+## Development
 
 ```bash
-pnpm lint:strict
+pnpm install              # Install deps
+pnpm dev                  # Vite dev server (HMR for popup/options)
+pnpm build                # Type-check + production build
+pnpm test:run             # Run tests once
+pnpm lint                 # ESLint
+pnpm lint:strict          # ESLint with --max-warnings 0
+pnpm type-check           # tsc --noEmit
 ```
 
-## 已知方向
+Before opening a PR:
 
-当前版本重点在三件事：
+```bash
+pnpm build && pnpm lint:strict && pnpm test:run
+```
 
-- 提高 `manhwaread` 主路径的稳定性
-- 保持插件直连路径可诊断、可验证
-- 在不牺牲稳定性的前提下继续优化速度和渲染效果
+See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
-后续更适合继续深化的是主路径质量、错误可诊断性和覆盖层可读性，而不是继续扩展多站点、多模式或复杂配置能力。
+---
+
+## Privacy
+
+- Your API key and config live in `chrome.storage.local` only. Nothing syncs to
+  your Google account.
+- When you translate, the image is sent **directly** from the content script to
+  your configured VLM endpoint. The extension author never sees it.
+- No analytics, no telemetry, no remote logging. See [`docs/privacy-policy.md`](./docs/privacy-policy.md).
+
+---
+
+## Status
+
+| Version | Status | Highlights |
+|---|---|---|
+| v0.6.0 | current | Reading-mode panel, error fix-it entries, HUD stages |
+| v0.5.0 | shipped | Reading panel + numbered image anchors |
+| v0.4.0 | shipped | First-run onboarding, ethics fix, dead code removed |
+| v0.3.4 | shipped | Provider consolidation, security hardening |
+
+See [`CHANGELOG.md`](./CHANGELOG.md) for the full history and
+[`ROADMAP.md`](./ROADMAP.md) for what's next.
+
+---
+
+## License
+
+MIT.
