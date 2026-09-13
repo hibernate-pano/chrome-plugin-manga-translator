@@ -17,7 +17,6 @@ import {
 } from '@/utils/translation-style';
 import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
 
-
 export interface ProviderSettings extends RuntimeProviderSettings {}
 
 export interface ProvidersConfig {
@@ -99,8 +98,12 @@ const LOCAL_DEFAULT_CONFIG: AppConfigState = {
     SHARED_DEFAULT_CONFIG.translationStylePreset ??
     DEFAULT_TRANSLATION_STYLE_PRESET,
   readingMode: SHARED_DEFAULT_CONFIG.readingMode,
-  renderMode: SHARED_DEFAULT_CONFIG.renderMode as 'anchors-only' | 'strong-overlay-compat',
-  translationPipeline: SHARED_DEFAULT_CONFIG.translationPipeline as 'hybrid-regions' | 'full-image-vlm',
+  renderMode: SHARED_DEFAULT_CONFIG.renderMode as
+    | 'anchors-only'
+    | 'strong-overlay-compat',
+  translationPipeline: SHARED_DEFAULT_CONFIG.translationPipeline as
+    | 'hybrid-regions'
+    | 'full-image-vlm',
   regionBatchSize: SHARED_DEFAULT_CONFIG.regionBatchSize,
   fallbackToFullImage: SHARED_DEFAULT_CONFIG.fallbackToFullImage,
   overlayStyle: SHARED_DEFAULT_CONFIG.overlayStyle,
@@ -227,27 +230,21 @@ function migratePersistedConfig(
     previousProvider
   );
 
-  function asProviderSettingsOrNull(
-    value: unknown
-  ): ProviderSettings | null {
+  function asProviderSettingsOrNull(value: unknown): ProviderSettings | null {
     if (!isRecord(value)) return null;
     return value as unknown as ProviderSettings;
   }
 
   const newProviders: ProvidersConfig = {
-    'openai-compatible':
-      asProviderSettingsOrNull(legacyProvidersRecord['openai-compatible']) ??
+    'openai-compatible': asProviderSettingsOrNull(
+      legacyProvidersRecord['openai-compatible']
+    ) ??
       (openaiEntry as ProviderSettings | null) ??
-      normalized.openaiCompatible ??
-      { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
-    ollama:
-      asProviderSettingsOrNull(legacyProvidersRecord['ollama']) ??
-      normalized.ollama ??
-      { ...DEFAULT_OLLAMA_CONFIG },
-    'lm-studio':
-      asProviderSettingsOrNull(legacyProvidersRecord['lm-studio']) ??
-      normalized.lmStudio ??
-      { ...DEFAULT_LM_STUDIO_CONFIG },
+      normalized.openaiCompatible ?? { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
+    ollama: asProviderSettingsOrNull(legacyProvidersRecord['ollama']) ??
+      normalized.ollama ?? { ...DEFAULT_OLLAMA_CONFIG },
+    'lm-studio': asProviderSettingsOrNull(legacyProvidersRecord['lm-studio']) ??
+      normalized.lmStudio ?? { ...DEFAULT_LM_STUDIO_CONFIG },
   };
 
   const migratedState: Record<string, unknown> = {
@@ -276,39 +273,96 @@ function mergePersistedConfig<S extends AppConfigState>(
 ): S {
   // migratePersistedConfig returns the zustand envelope { state, version }.
   // Unwrap it so we read from the migrated state, not the envelope.
-  const envelopeState = isRecord(persisted)
-    ? persisted['state']
-    : undefined;
+  const envelopeState = isRecord(persisted) ? persisted['state'] : undefined;
   const baseCandidate: unknown = isRecord(envelopeState)
     ? envelopeState
     : persisted;
   const base = isRecord(baseCandidate)
     ? (baseCandidate as Partial<AppConfigState>)
     : {};
+
+  const asProviderSettings = (value: unknown): ProviderSettings | undefined =>
+    isRecord(value) ? (value as unknown as ProviderSettings) : undefined;
+
   const persistedProviders = isRecord(base.providers)
-    ? (base.providers as Partial<ProvidersConfig>)
+    ? (base.providers as Record<string, unknown>)
     : {};
 
+  // Runtime input wins, then the build-time default. This preserves:
+  // - zero-config personal builds where .env supplied a key;
+  // - user-entered keys and custom endpoints in public builds;
+  // - old persisted settings without resurrecting a stale build key.
+  const mergeProvider = (
+    fallback: ProviderSettings,
+    currentValue: ProviderSettings | undefined,
+    persistedValue: ProviderSettings | undefined
+  ): ProviderSettings => ({
+    apiKey:
+      persistedValue?.apiKey?.trim() || currentValue?.apiKey || fallback.apiKey,
+    baseUrl:
+      persistedValue?.baseUrl?.trim() ||
+      currentValue?.baseUrl ||
+      fallback.baseUrl,
+    model:
+      persistedValue?.model?.trim() || currentValue?.model || fallback.model,
+  });
+
+  const nextOpenaiCompatible = mergeProvider(
+    DEFAULT_OPENAI_COMPATIBLE_CONFIG,
+    current.openaiCompatible,
+    asProviderSettings(base.openaiCompatible) ??
+      asProviderSettings(persistedProviders['openai-compatible'])
+  );
+  const nextOllama = mergeProvider(
+    DEFAULT_OLLAMA_CONFIG,
+    current.ollama,
+    asProviderSettings(base.ollama) ??
+      asProviderSettings(persistedProviders['ollama'])
+  );
+  const nextLmStudio = mergeProvider(
+    DEFAULT_LM_STUDIO_CONFIG,
+    current.lmStudio,
+    asProviderSettings(base.lmStudio) ??
+      asProviderSettings(persistedProviders['lm-studio'])
+  );
+
+  // v1.1.1: reuse field references when merged equals current so persist
+  // doesn't churn the storage listener into a feedback loop on every
+  // rehydrate (regression guard for the page-freeze bug).
+  const sameProvider = (
+    next: ProviderSettings,
+    prev: ProviderSettings | undefined
+  ): ProviderSettings =>
+    prev !== undefined &&
+    prev.apiKey === next.apiKey &&
+    prev.baseUrl === next.baseUrl &&
+    prev.model === next.model
+      ? prev
+      : next;
+
+  const prevProviders = current.providers;
   const providers: ProvidersConfig = {
-    'openai-compatible':
-      (persistedProviders['openai-compatible'] as ProviderSettings | undefined) ??
-      current.providers['openai-compatible'] ??
-      { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
-    ollama:
-      (persistedProviders['ollama'] as ProviderSettings | undefined) ??
-      current.providers.ollama ??
-      { ...DEFAULT_OLLAMA_CONFIG },
-    'lm-studio':
-      (persistedProviders['lm-studio'] as ProviderSettings | undefined) ??
-      current.providers['lm-studio'] ??
-      { ...DEFAULT_LM_STUDIO_CONFIG },
+    'openai-compatible': sameProvider(
+      nextOpenaiCompatible,
+      prevProviders['openai-compatible']
+    ),
+    ollama: sameProvider(nextOllama, prevProviders.ollama),
+    'lm-studio': sameProvider(nextLmStudio, prevProviders['lm-studio']),
   };
 
-  return {
+  const merged: AppConfigState = {
     ...current,
     ...base,
+    openaiCompatible: sameProvider(
+      nextOpenaiCompatible,
+      current.openaiCompatible
+    ),
+    ollama: sameProvider(nextOllama, current.ollama),
+    lmStudio: sameProvider(nextLmStudio, current.lmStudio),
     providers,
-  } as S;
+  };
+
+  return merged as S;
 }
 
 const chromeStorage = {
@@ -370,9 +424,9 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
   persist(
     (set, get) => ({
       ...LOCAL_DEFAULT_CONFIG,
-      setEnabled: (enabled) => set({ enabled }),
+      setEnabled: enabled => set({ enabled }),
       toggleEnabled: () => set(state => ({ enabled: !state.enabled })),
-      setProvider: (provider) => set({ provider }),
+      setProvider: provider => set({ provider }),
       updateProviderSettings: (provider, settings) =>
         set(state => ({
           ...(provider === 'openai-compatible'
@@ -383,18 +437,18 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
                 },
               }
             : provider === 'ollama'
-            ? {
-                ollama: {
-                  ...state.ollama,
-                  ...settings,
-                },
-              }
-            : {
-                lmStudio: {
-                  ...state.lmStudio,
-                  ...settings,
-                },
-              }),
+              ? {
+                  ollama: {
+                    ...state.ollama,
+                    ...settings,
+                  },
+                }
+              : {
+                  lmStudio: {
+                    ...state.lmStudio,
+                    ...settings,
+                  },
+                }),
           providers: {
             ...state.providers,
             [provider]: {
@@ -413,18 +467,18 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
                 },
               }
             : provider === 'ollama'
-            ? {
-                ollama: {
-                  ...state.ollama,
-                  apiKey,
-                },
-              }
-            : {
-                lmStudio: {
-                  ...state.lmStudio,
-                  apiKey,
-                },
-              }),
+              ? {
+                  ollama: {
+                    ...state.ollama,
+                    apiKey,
+                  },
+                }
+              : {
+                  lmStudio: {
+                    ...state.lmStudio,
+                    apiKey,
+                  },
+                }),
           providers: {
             ...state.providers,
             [provider]: {
@@ -433,17 +487,18 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
             },
           },
         })),
-      setTargetLanguage: (targetLanguage) => set({ targetLanguage }),
-      setMaxImageSize: (maxImageSize) => set({ maxImageSize }),
-      setParallelLimit: (parallelLimit) => set({ parallelLimit }),
-      setCacheEnabled: (cacheEnabled) => set({ cacheEnabled }),
-      setAutoContinueEnabled: (autoContinueEnabled) =>
+      setTargetLanguage: targetLanguage => set({ targetLanguage }),
+      setMaxImageSize: maxImageSize => set({ maxImageSize }),
+      setParallelLimit: parallelLimit => set({ parallelLimit }),
+      setCacheEnabled: cacheEnabled => set({ cacheEnabled }),
+      setAutoContinueEnabled: autoContinueEnabled =>
         set({ autoContinueEnabled }),
-      setTranslationStylePreset: (translationStylePreset) =>
+      setTranslationStylePreset: translationStylePreset =>
         set({ translationStylePreset }),
       setReadingMode: readingMode => set({ readingMode }),
       setRenderMode: renderMode => set({ renderMode }),
-      setTranslationPipeline: translationPipeline => set({ translationPipeline }),
+      setTranslationPipeline: translationPipeline =>
+        set({ translationPipeline }),
       setRegionBatchSize: regionBatchSize => set({ regionBatchSize }),
       setFallbackToFullImage: fallbackToFullImage =>
         set({ fallbackToFullImage }),
@@ -482,7 +537,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
           onboardingCompleted: state.onboardingCompleted,
         };
       },
-      setOnboardingCompleted: (completed) =>
+      setOnboardingCompleted: completed =>
         set({ onboardingCompleted: completed }),
       resetToDefaults: () => set(LOCAL_DEFAULT_CONFIG),
     }),
@@ -492,27 +547,57 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       version: 3,
       migrate: migratePersistedConfig,
       merge: mergePersistedConfig,
-      partialize: state => ({
-        enabled: state.enabled,
-        provider: state.provider,
-        openaiCompatible: state.openaiCompatible,
-        ollama: state.ollama,
-        lmStudio: state.lmStudio,
-        providers: state.providers,
-        targetLanguage: state.targetLanguage,
-        maxImageSize: state.maxImageSize,
-        parallelLimit: state.parallelLimit,
-        cacheEnabled: state.cacheEnabled,
-        autoContinueEnabled: state.autoContinueEnabled,
-        translationStylePreset: state.translationStylePreset,
-        readingMode: state.readingMode,
-        renderMode: state.renderMode,
-        translationPipeline: state.translationPipeline,
-        regionBatchSize: state.regionBatchSize,
-        fallbackToFullImage: state.fallbackToFullImage,
-        overlayStyle: state.overlayStyle,
-        onboardingCompleted: state.onboardingCompleted,
-      }),
+      partialize: state => {
+        // Do not persist the build-time .env key. User-entered overrides are
+        // persisted locally and obfuscated by the storage adapter above.
+        const serializeProvider = (
+          settings: ProviderSettings,
+          buildDefaultKey: string
+        ): ProviderSettings => ({
+          ...settings,
+          apiKey: settings.apiKey === buildDefaultKey ? '' : settings.apiKey,
+        });
+        return {
+          enabled: state.enabled,
+          provider: state.provider,
+          openaiCompatible: serializeProvider(
+            state.openaiCompatible,
+            DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
+          ),
+          ollama: serializeProvider(state.ollama, DEFAULT_OLLAMA_CONFIG.apiKey),
+          lmStudio: serializeProvider(
+            state.lmStudio,
+            DEFAULT_LM_STUDIO_CONFIG.apiKey
+          ),
+          providers: {
+            'openai-compatible': serializeProvider(
+              state.providers['openai-compatible'],
+              DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
+            ),
+            ollama: serializeProvider(
+              state.providers.ollama,
+              DEFAULT_OLLAMA_CONFIG.apiKey
+            ),
+            'lm-studio': serializeProvider(
+              state.providers['lm-studio'],
+              DEFAULT_LM_STUDIO_CONFIG.apiKey
+            ),
+          },
+          targetLanguage: state.targetLanguage,
+          maxImageSize: state.maxImageSize,
+          parallelLimit: state.parallelLimit,
+          cacheEnabled: state.cacheEnabled,
+          autoContinueEnabled: state.autoContinueEnabled,
+          translationStylePreset: state.translationStylePreset,
+          readingMode: state.readingMode,
+          renderMode: state.renderMode,
+          translationPipeline: state.translationPipeline,
+          regionBatchSize: state.regionBatchSize,
+          fallbackToFullImage: state.fallbackToFullImage,
+          overlayStyle: state.overlayStyle,
+          onboardingCompleted: state.onboardingCompleted,
+        };
+      },
     }
   )
 );
@@ -539,10 +624,39 @@ export const useOverlayStyle = () =>
 
 /**
  * Listen for external changes to chrome.storage.local and re-sync the store.
- * This handles cases where Popup/Options/Background modify storage directly,
- * ensuring all extension contexts stay in sync.
+ * This handles cases where the background script writes to storage directly
+ * (e.g. setConfig in background.ts) so the Options page reflects them.
+ *
+ * v1.1.1 fix: zustand persist also writes to chrome.storage on every state
+ * change. Without a guard, this listener fires for our own writes too and
+ * calls setState({...state, ...newState}) unconditionally — every call
+ * produces fresh object references for nested fields, which triggers
+ * re-renders for every subscriber, which can loop. We now bail out unless
+ * at least one top-level field actually differs from current state.
  */
 let storageChangeListenerInitialized = false;
+
+export function shallowChanged(
+  candidate: Record<string, unknown>,
+  current: Record<string, unknown>
+): boolean {
+  // Different key sets?
+  const candidateKeys = Object.keys(candidate);
+  if (candidateKeys.length !== Object.keys(current).length) {
+    return true;
+  }
+  for (const key of candidateKeys) {
+    if (!Object.is(candidate[key], current[key])) {
+      // Object identity differs. For primitives this is a real change; for
+      // object references (e.g. providers) it's a reference change. We
+      // treat the latter conservatively as a change because the source
+      // (background migrateSettings / setConfig) only writes when it
+      // intends to.
+      return true;
+    }
+  }
+  return false;
+}
 
 function setupStorageChangeListener(): void {
   if (storageChangeListenerInitialized) {
@@ -559,23 +673,27 @@ function setupStorageChangeListener(): void {
       if (!configChange) {
         return;
       }
-
-      // Skip re-applying our own writes (which would be a no-op anyway)
-      // The store already has the latest state via persist middleware
       const newValue = configChange.newValue;
       if (!newValue) {
         return;
       }
+      const candidate =
+        isRecord(newValue) && isRecord(newValue['state'])
+          ? (newValue['state'] as Record<string, unknown>)
+          : (newValue as Record<string, unknown>);
 
-      // Re-hydrate the store from the external change
-      // Zustand persist will handle merging via its rehydration mechanism
-      useAppConfigStore.setState((state) => {
-        const newState = (newValue && newValue.state) ? newValue.state : newValue;
-        return {
-          ...state,
-          ...newState,
-        };
-      });
+      const current = useAppConfigStore.getState() as unknown as Record<
+        string,
+        unknown
+      >;
+      if (!shallowChanged(candidate, current)) {
+        return;
+      }
+
+      useAppConfigStore.setState(state => ({
+        ...state,
+        ...candidate,
+      }));
     });
   }
 }

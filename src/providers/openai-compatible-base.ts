@@ -44,6 +44,12 @@ interface ChatResponse {
   };
 }
 
+const MINIMAX_M3_MODEL_PATTERN = /^minimax-m3(?:$|[-.:/])/i;
+
+export function isMiniMaxM3Model(model: string | undefined): boolean {
+  return Boolean(model && MINIMAX_M3_MODEL_PATTERN.test(model.trim()));
+}
+
 export abstract class OpenAICompatibleProvider
   extends BaseVisionProvider
   implements VisionProvider
@@ -82,17 +88,29 @@ export abstract class OpenAICompatibleProvider
       throw new Error(`请配置 ${this.name} API 密钥`);
     }
 
+    const body: Record<string, unknown> = {
+      model: this.config.model,
+      messages,
+      temperature: REQUEST_LIMITS.TEMPERATURE,
+    };
+
+    if (isMiniMaxM3Model(this.config.model)) {
+      // Manga translation is structured extraction, not open-ended reasoning.
+      // M3's default thinking mode can spend the whole completion budget on
+      // <think> text without returning the required JSON.
+      body['max_completion_tokens'] = REQUEST_LIMITS.MAX_TOKENS;
+      body['reasoning_split'] = true;
+      body['thinking'] = { type: 'disabled' };
+    } else {
+      body['max_tokens'] = REQUEST_LIMITS.MAX_TOKENS;
+    }
+
     const httpResponse = await httpRequest<ChatResponse>(
       `${this.config.baseUrl}/chat/completions`,
       {
         method: 'POST',
         headers,
-        body: {
-          model: this.config.model,
-          messages,
-          max_tokens: REQUEST_LIMITS.MAX_TOKENS,
-          temperature: REQUEST_LIMITS.TEMPERATURE,
-        },
+        body,
       }
     );
 

@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  DEFAULT_OLLAMA_CONFIG,
-  normalizeRuntimeAppConfig,
-} from './app-config';
+import { normalizeRuntimeAppConfig } from './app-config';
 
 describe('normalizeRuntimeAppConfig', () => {
   it('maps legacy selected cloud providers into openai-compatible settings', () => {
@@ -19,14 +16,16 @@ describe('normalizeRuntimeAppConfig', () => {
     });
 
     expect(normalized.provider).toBe('openai-compatible');
-    expect(normalized.openaiCompatible).toEqual({
-      apiKey: 'sf-key',
-      baseUrl: 'https://api.siliconflow.cn/v1',
-      model: 'Qwen/Qwen2.5-VL-32B-Instruct',
-    });
+    expect(normalized.openaiCompatible.apiKey).toBe('sf-key');
+    expect(normalized.openaiCompatible.baseUrl).toBe(
+      'https://api.siliconflow.cn/v1'
+    );
+    expect(normalized.openaiCompatible.model).toBe(
+      'Qwen/Qwen2.5-VL-32B-Instruct'
+    );
   });
 
-  it('keeps explicit openai-compatible settings when already migrated', () => {
+  it('keeps explicit openai-compatible settings and user-typed apiKey', () => {
     const normalized = normalizeRuntimeAppConfig({
       provider: 'openai-compatible',
       openaiCompatible: {
@@ -43,14 +42,14 @@ describe('normalizeRuntimeAppConfig', () => {
       },
     });
 
-    expect(normalized.openaiCompatible).toEqual({
-      apiKey: 'new-key',
-      baseUrl: 'https://proxy.example.com/v1',
-      model: 'custom-vlm',
-    });
+    expect(normalized.openaiCompatible.apiKey).toBe('new-key');
+    expect(normalized.openaiCompatible.baseUrl).toBe(
+      'https://proxy.example.com/v1'
+    );
+    expect(normalized.openaiCompatible.model).toBe('custom-vlm');
   });
 
-  it('normalizes ollama and strips legacy api keys', () => {
+  it('allows Ollama host and model overrides while stripping apiKey', () => {
     const normalized = normalizeRuntimeAppConfig({
       provider: 'ollama',
       providers: {
@@ -63,11 +62,8 @@ describe('normalizeRuntimeAppConfig', () => {
     });
 
     expect(normalized.provider).toBe('ollama');
-    expect(normalized.ollama).toEqual({
-      apiKey: '',
-      baseUrl: 'http://127.0.0.1:11434',
-      model: 'minicpm-v',
-    });
-    expect(normalized.ollama.apiKey).toBe(DEFAULT_OLLAMA_CONFIG.apiKey);
+    expect(normalized.ollama.apiKey).toBe('');
+    expect(normalized.ollama.baseUrl).toBe('http://127.0.0.1:11434');
+    expect(normalized.ollama.model).toBe('minicpm-v');
   });
 });

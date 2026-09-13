@@ -16,7 +16,11 @@ function resetStore() {
     enabled: false,
     provider: 'openai-compatible',
     onboardingCompleted: false,
-    openaiCompatible: { apiKey: '', baseUrl: 'https://api.openai.com/v1', model: 'gpt-4o' },
+    openaiCompatible: {
+      apiKey: '',
+      baseUrl: 'https://api.openai.com/v1',
+      model: 'gpt-4o',
+    },
     ollama: { apiKey: '', baseUrl: 'http://localhost:11434', model: 'llava' },
     lmStudio: { apiKey: '', baseUrl: 'http://localhost:1234/v1', model: '' },
   } as never);
@@ -51,11 +55,13 @@ describe('OnboardingApp', () => {
 
     // Step 1: welcome → next
     expect(screen.getByText(/欢迎使用 Manga Translator/)).toBeInTheDocument();
-    expect(screen.getByText(/默认翻译后端/)).toBeInTheDocument();
+    expect(screen.getByText(/可用的翻译后端/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /下一步/ }));
 
     // Step 2: ready → finish
-    expect(screen.getByRole('heading', { name: '准备就绪' })).toBeInTheDocument();
+    expect(
+      screen.getByRole('heading', { name: '准备就绪' })
+    ).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /完成并启用翻译/ }));
 
     const state = useAppConfigStore.getState();

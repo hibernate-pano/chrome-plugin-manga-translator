@@ -79,6 +79,13 @@ function buildEnvConfig(env) {
       apiKey: env['OPEN_CODE_API_KEY'] ?? '',
       model: env['OPEN_CODE_API_MODEL'] ?? '',
     },
+    ollama: {
+      // Ollama's native daemon URL. No apiKey (keyless). Model is the
+      // tag user wants to use (e.g., llava, minicpm-v).
+      baseUrl: env['OLLAMA_HOST'] ?? '',
+      apiKey: '',
+      model: env['OLLAMA_MODEL'] ?? '',
+    },
   };
 }
 
@@ -91,21 +98,50 @@ export const ENV_CONFIG = ${JSON.stringify(config, null, 2)} as const;
 }
 
 function main() {
+  const publicBuild = process.argv.includes('--public-build');
   const envPath = findEnvFile();
-  const config = envPath
+  const loadedConfig = envPath
     ? buildEnvConfig(parseEnv(readFileSync(envPath, 'utf8')))
-    : { minimax: { baseUrl: '', apiKey: '', model: '' }, opencode: { baseUrl: '', apiKey: '', model: '' } };
+    : {
+        minimax: { baseUrl: '', apiKey: '', model: '' },
+        opencode: { baseUrl: '', apiKey: '', model: '' },
+        ollama: { baseUrl: '', apiKey: '', model: '' },
+      };
+  const config = publicBuild
+    ? {
+        ...loadedConfig,
+        minimax: { ...loadedConfig.minimax, apiKey: '' },
+        opencode: { ...loadedConfig.opencode, apiKey: '' },
+      }
+    : loadedConfig;
 
-  const outPath = join(PROJECT_ROOT, 'src', 'shared', 'env-config.generated.ts');
+  const outPath = join(
+    PROJECT_ROOT,
+    'src',
+    'shared',
+    'env-config.generated.ts'
+  );
   writeFileSync(outPath, renderGeneratedTs(config), 'utf8');
 
   if (envPath) {
     const maskedKeys = Object.entries({
       minimax: config.minimax.apiKey,
       opencode: config.opencode.apiKey,
-    }).map(([name, key]) => `${name}=${key ? `${key.slice(0, 6)}…(${key.length})` : 'empty'}`);
+    }).map(
+      ([name, key]) =>
+        `${name}=${key ? `${key.slice(0, 6)}…(${key.length})` : 'empty'}`
+    );
+    const ollamaLine = `ollama=${config.ollama.baseUrl || 'empty'} model=${config.ollama.model || 'empty'}`;
     console.log(`[inject-env] loaded ${envPath}`);
-    console.log(`[inject-env]   ${maskedKeys.join('  ')}`);
+    console.log(`[inject-env]   ${maskedKeys.join('  ')}  ${ollamaLine}`);
+    if (
+      publicBuild &&
+      (loadedConfig.minimax.apiKey || loadedConfig.opencode.apiKey)
+    ) {
+      console.warn(
+        '[inject-env] public build: provider API keys were intentionally omitted from the bundle.'
+      );
+    }
   } else {
     console.warn(
       '[inject-env] no .env found at ' +

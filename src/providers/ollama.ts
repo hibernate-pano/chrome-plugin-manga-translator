@@ -178,6 +178,18 @@ export class OllamaProvider implements VisionProvider {
         };
       }
 
+      // v1.1.1: 403 from Ollama almost always means the browser extension
+      // origin isn't in OLLAMA_ORIGINS. Surface that explicitly so
+      // error-handler maps to OLLAMA_ORIGIN_NOT_ALLOWED (with the
+      // "复制启动命令" action) instead of generic OLLAMA_NOT_RUNNING.
+      if (response.status === 403) {
+        return {
+          healthy: false,
+          message:
+            'Ollama 拒绝了当前扩展的访问 (403 Forbidden)，请设置 OLLAMA_ORIGINS 后重启 Ollama 服务',
+        };
+      }
+
       return {
         healthy: false,
         message: `Ollama 服务响应异常: ${response.status}`,
@@ -190,10 +202,22 @@ export class OllamaProvider implements VisionProvider {
             message: 'Ollama 服务连接超时，请检查服务是否启动',
           };
         }
-        if (
-          error.message.includes('fetch') ||
-          error.message.includes('network')
-        ) {
+        // CORS-rejected fetch lands here too with a generic "Failed to
+        // fetch" message. If the URL is the configured ollama host,
+        // it's almost always an origin-not-allowed problem rather than
+        // a connection-refused one (the latter would surface as
+        // net::ERR_CONNECTION_REFUSED with no "fetch" message body).
+        if (error.message.includes('fetch')) {
+          const baseUrl = this.config.baseUrl ?? '';
+          const isOllamaHost =
+            baseUrl.includes('11434') || baseUrl.includes('ollama');
+          if (isOllamaHost) {
+            return {
+              healthy: false,
+              message:
+                'Ollama 拒绝了当前扩展的访问 (CORS / OLLAMA_ORIGINS 未放行)',
+            };
+          }
           return {
             healthy: false,
             message: '无法连接到 Ollama 服务，请先启动 Ollama',

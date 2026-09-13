@@ -39,4 +39,16 @@ describe('parseTranslationError', () => {
     expect(result.code).toBe(TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED);
     expect(result.message).toBe('Ollama 未允许当前浏览器扩展访问');
   });
+
+  it('maps MiniMax-style sensitive-image rejection to CONTENT_BLOCKED (not retryable)', () => {
+    const result = parseTranslationError(
+      new Error(
+        'OpenAI-Compatible: {"type":"error","error":{"type":"unprocessable_entity_error","message":"input new_sensitive, messages[0]\'s content[1] image is sensitive, please check your input (1026)","http_code":"422"},"request_id":"06dcac921482a6069ec57e1dec9034d7"}'
+      )
+    );
+
+    expect(result.code).toBe(TranslationErrorCode.CONTENT_BLOCKED);
+    expect(result.retryable).toBe(false);
+    expect(result.suggestion).toContain('Ollama');
+  });
 });

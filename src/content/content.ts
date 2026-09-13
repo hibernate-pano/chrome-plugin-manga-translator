@@ -17,12 +17,18 @@ import {
   TranslatorService,
   createTranslatorFromConfig,
 } from '@/services/translator';
+import { createProvider, providerRequiresApiKey } from '@/providers';
 import {
   OverlayRenderer,
   getRenderer,
   removeAllOverlaysFromDOM,
 } from '@/services/renderer';
-import { parseTranslationError, TranslationErrorCode, type FriendlyError, type ErrorAction } from '@/utils/error-handler';
+import {
+  parseTranslationError,
+  TranslationErrorCode,
+  type FriendlyError,
+  type ErrorAction,
+} from '@/utils/error-handler';
 import {
   getViewportFirstImages,
   processInParallel,
@@ -62,7 +68,13 @@ export type ContentToPopupMsg =
 export type ContentState =
   | { status: 'idle' }
   | { status: 'scanning'; candidateCount?: number }
-  | { status: 'translating'; current: number; total: number; currentImageIndex?: number; phase?: 'translating' | 'rendering' }
+  | {
+      status: 'translating';
+      current: number;
+      total: number;
+      currentImageIndex?: number;
+      phase?: 'translating' | 'rendering';
+    }
   | {
       status: 'complete';
       count: number;
@@ -94,6 +106,7 @@ let readingPanel: ReadingPanel | null = null;
 let readingAnchors: ReadingAnchors | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
+let translationRunInFlight = false;
 let failedCount = 0;
 let cachedCount = 0;
 let skippedCount = 0;
@@ -139,7 +152,12 @@ function setState(state: ContentState): void {
         });
         break;
       case 'error':
-        hud.update({ status: 'error', message: state.message, suggestion: state.suggestion, action: state.action });
+        hud.update({
+          status: 'error',
+          message: state.message,
+          suggestion: state.suggestion,
+          action: state.action,
+        });
         break;
     }
   }
@@ -166,13 +184,12 @@ async function ensureServicesInitialized(): Promise<void> {
     // 监听图上编号点击 → 滚动对应 entry 到面板视口 + 闪高亮。
     // 必须挂在 readingAnchors.host 上（事件从锚点 host 冒泡出来），
     // 不能挂在 readingPanel.host 上（两者是兄弟节点，互不冒泡）。
-    readingAnchors['host'].addEventListener(
-      'reading-anchor-click',
-      ((e: Event) => {
-        const detail = (e as CustomEvent<{ index: number }>).detail;
-        readingPanel?.focusEntryByIndex(detail.index);
-      }) as EventListener
-    );
+    readingAnchors['host'].addEventListener('reading-anchor-click', ((
+      e: Event
+    ) => {
+      const detail = (e as CustomEvent<{ index: number }>).detail;
+      readingPanel?.focusEntryByIndex(detail.index);
+    }) as EventListener);
     // 滚动 / 缩放时重新定位所有锚点
     const reposition = () => readingAnchors?.repositionAll();
     window.addEventListener('scroll', reposition, { passive: true });
@@ -188,7 +205,12 @@ async function ensureServicesInitialized(): Promise<void> {
   } catch (error) {
     console.error('[ContentScript] Translator 初始化失败:', error);
     const friendly = parseTranslationError(error);
-    setState({ status: 'error', message: `初始化失败: ${friendly.message}`, suggestion: friendly.suggestion, action: resolveErrorAction(friendly) });
+    setState({
+      status: 'error',
+      message: `初始化失败: ${friendly.message}`,
+      suggestion: friendly.suggestion,
+      action: resolveErrorAction(friendly),
+    });
     throw error;
   }
 }
@@ -206,6 +228,14 @@ interface ImageScanResult {
   skippedFilter: number;
 }
 
+// Lazy-load sites (Korean webtoons, etc.) swap src and only the image's
+// `load` event fires once bytes arrive. attribute-only MutationObserver misses
+// the moment naturalWidth becomes >0, so incomplete-but-valid images were
+// filtered and never re-picked up. We attach a one-shot `load` listener to
+// candidate-but-incomplete images so a debounced rescan fires as soon as the
+// bytes land.
+const pendingLoadImages = new WeakSet<HTMLImageElement>();
+
 function scanImages(): ImageScanResult {
   const allImages = Array.from(document.querySelectorAll('img'));
   let skippedFilter = 0;
@@ -219,6 +249,21 @@ function scanImages(): ImageScanResult {
     }
     if (processedImages.has(getImageKey(img))) {
       skippedDuplicate++;
+      continue;
+    }
+    if (!img.complete) {
+      // Image passes the filter but bytes haven't arrived yet. Arm a
+      // one-shot `load` listener so we re-scan the moment it does.
+      if (!pendingLoadImages.has(img)) {
+        pendingLoadImages.add(img);
+        img.addEventListener(
+          'load',
+          () => {
+            autoTranslateScheduler.schedule();
+          },
+          { once: true }
+        );
+      }
       continue;
     }
     translatable.push(img);
@@ -254,19 +299,7 @@ async function processSingleImage(
 
   img.classList.add(PROCESSED_CLASS);
 
-  // 检测是否为漫画长图：高宽比 >= 2.4 且自然高度 >= 2000px
-  const isTallImage =
-    img.naturalWidth > 0 &&
-    img.naturalHeight > 0 &&
-    img.naturalHeight / img.naturalWidth >= 2.4 &&
-    img.naturalHeight >= 2000;
-
-  const result = await translator.translateImage(
-    img,
-    isTallImage,
-    undefined,
-    forceRefresh
-  );
+  const result = await translator.translateImage(img, forceRefresh);
 
   if (onCacheHit) {
     onCacheHit(Boolean(result.cached));
@@ -325,8 +358,21 @@ function startAutoTranslateObserver(): void {
   }
 
   autoTranslateObserver = new MutationObserver(mutations => {
-    const hasNewImages = mutations.some(mutation =>
-      Array.from(mutation.addedNodes).some(node => {
+    const hasNewImages = mutations.some(mutation => {
+      // Lazy-loaders swap src/data-src on an existing <img> without adding
+      // DOM nodes. Image only becomes translatable once it is complete, so
+      // key off the new src to detect an untouched, ready image.
+      if (
+        mutation.type === 'attributes' &&
+        mutation.target instanceof HTMLImageElement
+      ) {
+        const img = mutation.target;
+        return (
+          isTranslatableImage(img) && !processedImages.has(getImageKey(img))
+        );
+      }
+
+      return Array.from(mutation.addedNodes).some(node => {
         if (!(node instanceof HTMLElement)) {
           return false;
         }
@@ -339,17 +385,23 @@ function startAutoTranslateObserver(): void {
         }
 
         return !!node.querySelector('img');
-      })
-    );
+      });
+    });
 
     if (hasNewImages) {
       autoTranslateScheduler.schedule();
     }
   });
 
+  // childList catches newly added <img> nodes; attributes catches lazy
+  // loaders that swap src/data-src on an existing <img>. subtree covers
+  // images inside containers. The debounced schedule re-scans ~800ms later,
+  // by which point the swapped image is usually complete.
   autoTranslateObserver.observe(document.body, {
     childList: true,
     subtree: true,
+    attributes: true,
+    attributeFilter: ['src', 'data-src', 'srcset'],
   });
 }
 
@@ -371,6 +423,7 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
 
   // 翻译进行中的互斥：直接用 currentState 判断，不再维护冗余的 isTranslating 布尔
   if (
+    translationRunInFlight ||
     currentState.status === 'translating' ||
     currentState.status === 'scanning'
   ) {
@@ -378,11 +431,48 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
     return;
   }
 
+  // Set this before the first await. READY and tabs.onUpdated can both send
+  // TRANSLATE_PAGE around page load; currentState changes too late to prevent
+  // those duplicate runs.
+  translationRunInFlight = true;
   abortController = new AbortController();
 
   try {
     await ensureServicesInitialized();
     console.warn('[ContentScript] 服务初始化完成');
+
+    // v1.1.1: pre-flight provider health check (especially Ollama origin
+    // policy). If the provider is misconfigured (e.g. OLLAMA_ORIGINS not
+    // whitelisting the extension origin), fail fast with one clear error
+    // instead of running every image and reporting 5 duplicates.
+    const runtimeConfig = useAppConfigStore.getState();
+    const providerSettings = runtimeConfig.providers[runtimeConfig.provider];
+    if (
+      !providerRequiresApiKey(runtimeConfig.provider) ||
+      providerSettings.apiKey
+    ) {
+      try {
+        const preflight = await createProvider(
+          runtimeConfig.provider,
+          providerSettings
+        );
+        const probe = await preflight.validateConfig();
+        if (!probe.valid) {
+          throw new Error(probe.message);
+        }
+      } catch (probeError) {
+        const friendly = parseTranslationError(probeError);
+        console.error('[ContentScript] 翻译预检查失败:', friendly.message);
+        setState({
+          status: 'error',
+          message: friendly.message,
+          suggestion: friendly.suggestion,
+          action: resolveErrorAction(friendly),
+        });
+        abortController = null;
+        return;
+      }
+    }
 
     // 扫描阶段：把"过滤掉多少张"也告诉用户。
     const scan = scanImages();
@@ -503,8 +593,14 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 翻译流程失败:', friendly.message);
-    setState({ status: 'error', message: friendly.message, suggestion: friendly.suggestion, action: resolveErrorAction(friendly) });
+    setState({
+      status: 'error',
+      message: friendly.message,
+      suggestion: friendly.suggestion,
+      action: resolveErrorAction(friendly),
+    });
   } finally {
+    translationRunInFlight = false;
     abortController = null;
   }
 }
@@ -691,9 +787,9 @@ function handleHudErrorAction(e: Event): void {
   const detail = (e as CustomEvent<{ type: string; command?: string }>).detail;
   if (!detail) return;
   if (detail.type === 'open-settings') {
-    void chrome.runtime.sendMessage({ action: 'openOptionsPage' }).catch(
-      () => undefined
-    );
+    void chrome.runtime
+      .sendMessage({ action: 'openOptionsPage' })
+      .catch(() => undefined);
   } else if (detail.type === 'copy-command') {
     const command = detail.command;
     if (command) {

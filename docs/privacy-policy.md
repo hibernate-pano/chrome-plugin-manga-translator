@@ -1,6 +1,6 @@
 # Privacy Policy for Manga Translator (漫画翻译助手)
 
-**Last updated: 2026-05-26**
+**Last updated: 2026-09-13**
 
 ## Summary
 
@@ -20,12 +20,19 @@ When you activate the extension on a webpage, the extension captures images from
 
 ### 2. API Keys
 
-You may provide API keys for third-party services (e.g., OpenAI). These keys are:
+You may provide API keys for third-party services (e.g., OpenAI-compatible
+providers). User-entered keys are:
 
 - Stored locally in your browser using Chrome's `storage.local` API (not synced across devices via your Google account)
 - Obfuscated before storage (XOR-based obfuscation) to prevent casual inspection by other extensions
 - Never transmitted to any server other than the API provider you configure
 - Never sent to the extension developer
+
+Private builds may also preload provider credentials from a local `.env` file at
+build time. Those credentials are compiled into that private extension bundle
+and must not be distributed publicly. The `build:public` release path omits
+provider API keys and is the required path for shared or Chrome Web Store
+artifacts.
 
 > Note: Prior to v0.3.5, configuration was stored in `chrome.storage.sync`, which meant obfuscated API keys were synced across devices via the user's Google account. v0.3.5 moved all configuration to `chrome.storage.local` and performs a one-time automatic migration on startup; the old `storage.sync` copy is deleted after migration.
 

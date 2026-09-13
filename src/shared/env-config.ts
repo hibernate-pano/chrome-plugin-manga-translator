@@ -20,8 +20,14 @@ export interface ProviderCredentials {
 export interface EnvConfig {
   /** Primary provider. MiniMax M3 by default in the user's setup. */
   minimax: ProviderCredentials;
-  /** Backup provider. OpenCode-routed DeepSeek in the user's setup. */
+  /** Backup provider. OpenCodeGo-routed DeepSeek in the user's setup. */
   opencode: ProviderCredentials;
+  /**
+   * Local Ollama daemon. host + model only; apiKey is unused (Ollama's
+   * native API is keyless, and its `/v1` OpenAI-compat shim is also
+   * unauthenticated by default).
+   */
+  ollama: ProviderCredentials;
 }
 
 import { ENV_CONFIG as GENERATED } from './env-config.generated';
@@ -42,4 +48,8 @@ export function hasOpencodeCredentials(): boolean {
       ENV_CONFIG.opencode.baseUrl &&
       ENV_CONFIG.opencode.model
   );
+}
+
+export function hasOllamaCredentials(): boolean {
+  return Boolean(ENV_CONFIG.ollama.baseUrl && ENV_CONFIG.ollama.model);
 }

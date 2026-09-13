@@ -32,7 +32,12 @@ export class BackgroundJobQueue {
   // Deduplication map: pageKey -> pending job promise resolvers
   private readonly pendingJobs = new Map<
     string,
-    { resolve: (value: unknown) => void; reject: (error: Error) => void; job: JobStatusPayload }
+    {
+      resolve: (value: unknown) => void;
+      reject: (error: Error) => void;
+      job: JobStatusPayload;
+      promise: Promise<unknown>;
+    }
   >();
   
   // Rate limiting variables
@@ -99,22 +104,30 @@ export class BackgroundJobQueue {
   }
 
   enqueue<T>({ job, run }: EnqueueJobArgs<T>): Promise<T> {
-    // Deduplication: check if a job with the same pageKey is already pending
+    // Deduplication: a repeat request for the SAME translation unit (same
+    // key) collapses onto the in-flight job so the provider is not paid
+    // twice. The key is the per-image identity (see translator), so distinct
+    // images enqueue independently and run in parallel.
     const existing = this.pendingJobs.get(job.pageKey);
     if (existing) {
-      // Return the existing job's promise
-      return existing.resolve as unknown as Promise<T>;
+      return existing.promise as Promise<T>;
     }
 
     this.upsertJob(job);
 
-    return new Promise<T>((resolve, reject) => {
-      // Store the pending job entry for deduplication
-      this.pendingJobs.set(job.pageKey, {
-        resolve: resolve as (value: unknown) => void,
-        reject,
-        job,
-      });
+    // Entry is created before the promise so the map holds the SAME object
+    // we later attach the resolved promise to (no TDZ reference inside the
+    // executor). A later same-key enqueue collapses onto entry.promise.
+    const entry = {
+      resolve: (() => undefined) as (value: unknown) => void,
+      reject: (() => undefined) as (error: Error) => void,
+      job,
+      promise: undefined as unknown as Promise<unknown>,
+    };
+
+    const promise = new Promise<T>((resolve, reject) => {
+      entry.resolve = resolve as (value: unknown) => void;
+      entry.reject = reject;
 
       const insertIndex = this.findInsertionIndex(job.priorityClass);
       this.pending.splice(insertIndex, 0, {
@@ -125,6 +138,10 @@ export class BackgroundJobQueue {
       });
       this.drain();
     });
+
+    entry.promise = promise;
+    this.pendingJobs.set(job.pageKey, entry);
+    return promise;
   }
 
   private getCurrentLimit(): number {

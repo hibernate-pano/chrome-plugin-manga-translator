@@ -41,6 +41,10 @@ export enum TranslationErrorCode {
   // 解析错误
   PARSE_ERROR = 'PARSE_ERROR', // 翻译结果解析失败
 
+  // 内容审核拦截（服务端拒绝了图片，通常是 NSFW/敏感内容）。
+  // 重试无意义；用户必须换 Provider/模型或换图源。
+  CONTENT_BLOCKED = 'CONTENT_BLOCKED', // 图片被内容审核拦截
+
   // 其他错误
   UNKNOWN_ERROR = 'UNKNOWN_ERROR', // 未知错误
 }
@@ -181,6 +185,12 @@ const ERROR_MESSAGES: Record<
     retryable: false,
     action: { type: 'open-settings', label: '打开设置' },
   },
+  [TranslationErrorCode.CONTENT_BLOCKED]: {
+    message: '图片被内容审核拦截',
+    suggestion:
+      '服务端(MiniMax 等)拒绝了该图片(422 unprocessable_entity / sensitive)。重试无效：请更换为不带审核的 Provider，或改用本地 Ollama 模型(如 qwen2-vl-uncensored 等社区脱敏 VLM)。',
+    retryable: false,
+  },
   [TranslationErrorCode.PARSE_ERROR]: {
     message: '翻译结果解析失败',
     suggestion: '请稍后重试，或尝试其他 Provider',
@@ -293,6 +303,9 @@ export class TranslationErrorHandler {
         return TranslationErrorCode.MODEL_NOT_FOUND;
       case 429:
         return TranslationErrorCode.RATE_LIMIT;
+      case 422:
+        // MiniMax 等 Provider 用 422 unprocessable_entity 表示图片敏感。
+        return TranslationErrorCode.CONTENT_BLOCKED;
       case 500:
       case 502:
       case 503:
@@ -470,6 +483,18 @@ export class TranslationErrorHandler {
       message.includes('empty content')
     ) {
       return TranslationErrorCode.PARSE_ERROR;
+    }
+
+    // 内容审核拦截：服务端拒绝图片（MiniMax 等常见）。
+    // 触发关键词：unprocessable_entity / sensitive / 内容审核。
+    if (
+      message.includes('unprocessable_entity') ||
+      message.includes('sensitive') ||
+      message.includes('内容审核') ||
+      message.includes('content blocked') ||
+      message.includes('moderation')
+    ) {
+      return TranslationErrorCode.CONTENT_BLOCKED;
     }
 
     // API 错误（通用）

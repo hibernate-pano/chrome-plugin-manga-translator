@@ -15,9 +15,9 @@ import {
   type TextArea,
   providerRequiresApiKey,
 } from '@/providers';
-import type {
-  JobPriorityClass,
-  RequestedExecutionPath,
+import {
+  deriveRequestedPath,
+  type JobPriorityClass,
 } from '@/shared/runtime-contracts';
 import {
   useTranslationCacheStore,
@@ -51,7 +51,6 @@ import { retryWithBackoff } from '@/utils/error-handler';
 import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 import { processInParallel, splitIntoBatches } from '@/utils/image-priority';
-
 
 // ==================== Logging Utilities ====================
 
@@ -105,12 +104,12 @@ export interface TranslationProgress {
   estimatedTimeRemaining?: number;
   /** Current operation phase */
   phase:
-  | 'initializing'
-  | 'processing'
-  | 'translating'
-  | 'rendering'
-  | 'complete'
-  | 'error';
+    | 'initializing'
+    | 'processing'
+    | 'translating'
+    | 'rendering'
+    | 'complete'
+    | 'error';
 }
 
 export type ProgressCallback = (progress: TranslationProgress) => void;
@@ -119,13 +118,11 @@ interface TransportTextAreasResponse {
   textAreas: TextArea[];
   cached?: boolean;
   pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
-  usage?: { promptTokens: number; completionTokens: number; totalTokens: number };
-}
-
-function deriveRequestedPath(
-  provider: ProviderType
-): RequestedExecutionPath {
-  return provider === 'ollama' ? 'ollama-direct' : 'plugin-direct';
+  usage?: {
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+  };
 }
 
 const HYBRID_PIPELINE_VERSION = 'hybrid-v1';
@@ -201,17 +198,17 @@ export function computeTiles(
  * when two boxes genuinely overlap across a horizontally compatible band.
  */
 /** @internal exported for tests */
-export function filterOverlapDuplicates(
-  areas: TextArea[]
-): TextArea[] {
+export function filterOverlapDuplicates(areas: TextArea[]): TextArea[] {
   const kept: TextArea[] = [];
   const toleranceX = 0.06; // center-x must be near
   const toleranceY = 0.03; // overlap height must be significant
 
   for (const area of areas) {
     const duplicated = kept.some(other => {
-      const ay0 = area.y, ay1 = area.y + (area.height ?? 0);
-      const by0 = other.y, by1 = other.y + (other.height ?? 0);
+      const ay0 = area.y,
+        ay1 = area.y + (area.height ?? 0);
+      const by0 = other.y,
+        by1 = other.y + (other.height ?? 0);
       const overlapHeight = Math.min(ay1, by1) - Math.max(ay0, by0);
       if (overlapHeight <= toleranceY) return false;
       const cxA = area.x + (area.width ?? 0) / 2;
@@ -268,7 +265,10 @@ export class TranslatorService {
       model: this.config.model,
     };
 
-    if (providerRequiresApiKey(this.config.provider) && !providerConfig.apiKey) {
+    if (
+      providerRequiresApiKey(this.config.provider) &&
+      !providerConfig.apiKey
+    ) {
       throw new Error(
         `${this.config.provider} 需要配置 API Key。请前往设置页面填写。`
       );
@@ -294,9 +294,8 @@ export class TranslatorService {
    */
   async translateImage(
     image: HTMLImageElement,
-    viewportCrop: boolean = false,
-    imageKeyOverride?: string,
-    forceRefresh: boolean = false
+    forceRefresh: boolean = false,
+    imageKeyOverride?: string
   ): Promise<TranslationResult> {
     if (isDevelopment) {
       _log('开始翻译图片');
@@ -314,13 +313,6 @@ export class TranslatorService {
         viewportCrop: false,
         ...this.config.imageOptions, // Merge user-defined options
       };
-
-      if (viewportCrop) {
-        processOptions.maxSize = 1600;    // 优化：文字识别不需要超高分辨率
-        processOptions.quality = 0.80;    // 优化：降低质量减少 base64 体积
-        processOptions.format = 'webp';   // 优化：使用 WebP 格式缩小体积
-        processOptions.viewportCrop = true;
-      }
 
       const processed = await processImage(image, processOptions);
       if (isDevelopment) {
@@ -347,19 +339,19 @@ export class TranslatorService {
         }
       }
 
-      // 长条 webtoon 走切片管线：每一片清晰、token 不截断、失败可重试。
-      // viewportCrop=true 表示用户正在看这一片（滚动阅读），保持原逻辑；
-      // 否则对长图自动切片。
-      if (!viewportCrop && image.naturalHeight >= TILING_MIN_HEIGHT) {
-        const result = await this.translateImageTiled(
-          image,
-          viewportCrop,
-          forceRefresh
-        );
+      // Long webtoon strips always use the tiled pipeline. The old
+      // viewport-crop call path only translated the currently visible slice
+      // of an <img>, then marked the whole image processed, leaving the rest
+      // untranslated.
+      if (image.naturalHeight >= TILING_MIN_HEIGHT) {
+        const result = await this.translateImageTiled(image, forceRefresh);
         if (!result.success) {
           // 切片失败（例如 CORS 无法取原图）→ 回退整图压缩旧路径
           if (isDevelopment) {
-            _logError('Tiled pipeline failed, falling back to full-image', result.error);
+            _logError(
+              'Tiled pipeline failed, falling back to full-image',
+              result.error
+            );
           }
         } else {
           // 切片成功也写缓存（整图 hash 为 key），与整图路径共用同一套
@@ -380,7 +372,6 @@ export class TranslatorService {
         image,
         processed,
         imageKey,
-        viewportCrop,
         forceRefresh
       );
 
@@ -434,12 +425,17 @@ export class TranslatorService {
       scope?: 'viewport' | 'page' | 'chapter' | 'manual';
     }
   ): Promise<TransportTextAreasResponse> {
-    // pageKey is used by BackgroundJobQueue for PAGE-LEVEL dedup, so it must
-    // identify the page, not the image. Prefer the explicit pageUrl; if the
-    // caller didn't supply one, fall back to the current window location
-    // (the content script always has it). Never use imageKey here —
-    // using it would collapse all images on a page into one job slot.
+    // BackgroundJobQueue dedups by pageKey. The dedup guard exists to stop
+    // duplicate calls for the SAME translation unit from double-paying, not
+    // to serialize a whole page. Key it on the per-image identity (imageKey)
+    // so distinct images / tiles enqueue and run in parallel. Keying on
+    // pageUrl collapses every concurrent image on a Korean webtoon page into
+    // one job (the parallel path returns the first image's result for all).
+    // Cache (hash-based) still dedups identical images, so imageKey dedup is
+    // just a queue safety net, not the only guard.
     const pageKey =
+      metadata?.imageKey ||
+      metadata?.imageUrl ||
       metadata?.pageUrl ||
       (typeof window !== 'undefined' ? window.location.href : undefined) ||
       'inline-image';
@@ -472,7 +468,13 @@ export class TranslatorService {
       textAreas: (response.textAreas as TextArea[]) || [],
       cached: response.cached,
       pipeline: response.pipeline,
-      usage: response.usage as { promptTokens: number; completionTokens: number; totalTokens: number } | undefined,
+      usage: response.usage as
+        | {
+            promptTokens: number;
+            completionTokens: number;
+            totalTokens: number;
+          }
+        | undefined,
     };
   }
 
@@ -505,13 +507,9 @@ export class TranslatorService {
    */
   private async translateImageTiled(
     image: HTMLImageElement,
-    viewportCrop: boolean,
     forceRefresh: boolean
   ): Promise<TranslationResult> {
-    const tiles = computeTiles(
-      image.naturalWidth,
-      image.naturalHeight
-    );
+    const tiles = computeTiles(image.naturalWidth, image.naturalHeight);
     if (tiles.length <= 1) {
       // Not actually a long strip — let the caller use the classic path.
       return { success: false, textAreas: [], error: 'not-tall-enough' };
@@ -533,7 +531,8 @@ export class TranslatorService {
     // 按 index 保序保存结果，失败切片记 undefined，不中断其他切片。
     const perTileResults = await processInParallel(
       tiles,
-      (tile, index) => this.translateTile(image, tile, index, imageKey, forceRefresh),
+      (tile, index) =>
+        this.translateTile(image, tile, index, imageKey, forceRefresh),
       {
         maxConcurrent: parallelLimit,
         signal: this.abortController?.signal,
@@ -597,9 +596,11 @@ export class TranslatorService {
         {
           scope: 'page',
           imageKey: `${imageKey}::t${index}`,
-          pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+          pageUrl:
+            typeof window !== 'undefined' ? window.location.href : undefined,
         }
       );
+      this.recordUsage(response.usage);
 
       // Quality gate: a tile that yields no text is suspicious. Retry once
       // (covers transient JSON/parse flakiness) before accepting empty.
@@ -615,9 +616,11 @@ export class TranslatorService {
           {
             scope: 'page',
             imageKey: `${imageKey}::t${index}-r`,
-            pageUrl: typeof window !== 'undefined' ? window.location.href : undefined,
+            pageUrl:
+              typeof window !== 'undefined' ? window.location.href : undefined,
           }
         );
+        this.recordUsage(response.usage);
       }
 
       const mapped = this.mapTextAreasToOriginalImage(
@@ -637,7 +640,6 @@ export class TranslatorService {
     image: HTMLImageElement,
     processed: Awaited<ReturnType<typeof processImage>>,
     imageKey: string,
-    viewportCrop: boolean,
     forceRefresh: boolean
   ): Promise<TranslationResult> {
     const appConfig = useAppConfigStore.getState();
@@ -654,12 +656,18 @@ export class TranslatorService {
         );
         return {
           success: true,
-          textAreas: this.readingEntriesToTextAreas(readingResult.entries, processed),
+          textAreas: this.readingEntriesToTextAreas(
+            readingResult.entries,
+            processed
+          ),
           readingResult,
         };
       } catch (error) {
         if (isDevelopment) {
-          _logError('Hybrid pipeline failed, falling back to full image', error);
+          _logError(
+            'Hybrid pipeline failed, falling back to full image',
+            error
+          );
         }
         if (!allowFallback) {
           throw error;
@@ -667,12 +675,7 @@ export class TranslatorService {
       }
     }
 
-    const fallbackProcessed = viewportCrop
-      ? await processImage(image, {
-        ...this.config.imageOptions,
-        viewportCrop: false,
-      })
-      : processed;
+    const fallbackProcessed = processed;
 
     const fallbackResponse = await retryWithBackoff(
       () =>
@@ -691,13 +694,7 @@ export class TranslatorService {
       1000
     );
 
-    if (fallbackResponse.usage) {
-      useUsageStore.getState().addRecord({
-        provider: this.config.provider,
-        usage: fallbackResponse.usage,
-        cached: false,
-      });
-    }
+    this.recordUsage(fallbackResponse.usage);
 
     const mappedTextAreas = this.mapTextAreasToOriginalImage(
       fallbackResponse.textAreas,
@@ -709,7 +706,11 @@ export class TranslatorService {
     const realCount = mappedTextAreas.filter(
       area => (area.translatedText ?? '').trim().length > 0
     ).length;
-    if (realCount === 0 && !hybridEnabled && this.config.provider !== 'ollama') {
+    if (
+      realCount === 0 &&
+      !hybridEnabled &&
+      this.config.provider !== 'ollama'
+    ) {
       if (isDevelopment) {
         _logError('全图路径返回零文字，自动降级到 Tesseract hybrid...');
       }
@@ -860,21 +861,16 @@ export class TranslatorService {
       1000
     );
 
-    if (response.usage) {
-      useUsageStore.getState().addRecord({
-        provider: this.config.provider,
-        usage: response.usage,
-        cached: false,
-      });
-    }
+    this.recordUsage(response.usage);
 
     const grouped = new Map<number, TextArea[]>();
 
     for (const area of response.textAreas) {
       const centerY = (area.y + area.height / 2) * combined.height;
-      const segment = combined.segments.find(
-        item => centerY >= item.top && centerY <= item.top + item.height
-      ) || this.findNearestSegment(centerY, combined.segments);
+      const segment =
+        combined.segments.find(
+          item => centerY >= item.top && centerY <= item.top + item.height
+        ) || this.findNearestSegment(centerY, combined.segments);
 
       if (!segment) {
         continue;
@@ -946,6 +942,21 @@ export class TranslatorService {
     return nearest;
   }
 
+  private recordUsage(
+    usage:
+      | { promptTokens: number; completionTokens: number; totalTokens: number }
+      | undefined
+  ): void {
+    if (!usage) {
+      return;
+    }
+    useUsageStore.getState().addRecord({
+      provider: this.config.provider,
+      usage,
+      cached: false,
+    });
+  }
+
   private mapTextAreasToOriginalImage(
     textAreas: TextArea[],
     processed: Awaited<ReturnType<typeof processImage>>
@@ -956,11 +967,13 @@ export class TranslatorService {
       const absoluteYInCrop = area.y * processed.height;
       const absoluteHeightInCrop = area.height * processed.height;
 
-      const absoluteXOrig = (absoluteX / processed.width) * processed.originalWidth;
+      const absoluteXOrig =
+        (absoluteX / processed.width) * processed.originalWidth;
       const absoluteWidthOrig =
         (absoluteWidth / processed.width) * processed.originalWidth;
       const absoluteYOrig =
-        (absoluteYInCrop / processed.height) * (processed.cropHeight || processed.originalHeight) +
+        (absoluteYInCrop / processed.height) *
+          (processed.cropHeight || processed.originalHeight) +
         (processed.cropY || 0);
       const absoluteHeightOrig =
         (absoluteHeightInCrop / processed.height) *
@@ -1121,7 +1134,10 @@ export class TranslatorService {
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
     if (providerRequiresApiKey(this.config.provider) && !this.config.apiKey) {
-      return { valid: false, message: `请配置 ${this.config.provider} 的 API Key` };
+      return {
+        valid: false,
+        message: `请配置 ${this.config.provider} 的 API Key`,
+      };
     }
     return { valid: true, message: '配置有效' };
   }

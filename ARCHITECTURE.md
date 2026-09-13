@@ -44,8 +44,10 @@ DOM, its own `window`, and a constrained message bridge to the others.
 ### 2. Options — `src/components/Options/OptionsApp.tsx`
 
 - Full settings page (`src/options.html`).
-- Three provider cards (OpenAI-compatible / Ollama / LM Studio), each with
-  base URL, model, optional API key, and a "test connection" button.
+- Three editable provider cards (OpenAI-compatible / Ollama / LM Studio), each
+  with Base URL, model, optional API key, and a "test connection" button.
+- Personal builds can preload provider defaults from `.env`; public builds
+  (`pnpm build:public`) compile no provider keys and rely on values entered here.
 - Privacy banner explaining where data flows.
 - Mounts `<OnboardingApp />` at the top so first-time users see the modal
   before the settings UI.
@@ -110,6 +112,9 @@ image shape and result quality:
    token budget) and results are merged back to original coordinates with
    overlap dedup. Tiles run concurrently (cap 3). A successful tiled result is
    cached under the image-hash key so revisits don't re-bill.
+   The content script always sends long images through this route; the old
+   viewport-crop path could mark a whole image processed after translating only
+   its visible slice.
 2. **`full-image-vlm`** — a single VLM pass over the (possibly downscaled)
    image. Default for non-tall images; also the fallback when tiling fails.
 3. **`hybrid-regions`** — Tesseract.js detects text regions, the VLM translates
@@ -133,10 +138,11 @@ image shape and result quality:
   language, parallel limit, cache toggle, render mode, translation pipeline,
   onboarding completion flag, overlay style.
 - **`src/stores/cache-v2.ts`** — translation cache, scoped per-image hash.
-  The cache key is image hash; **the cache does not bind provider**, so switching
-  provider requires "Force retranslate".
+  The cache key binds image hash, provider, model, target language, style,
+  render mode, and pipeline versions.
 - **`src/stores/usage-store.ts`** — token / call counters, fed by the
-  translator. Wired but not surfaced in UI yet — see ROADMAP.
+  translator. The Options page shows monthly records, billable calls, token
+  totals, and cache-hit rate.
 
 ## Reading mode
 
@@ -173,11 +179,13 @@ the content script substitutes the active provider's model name at render time.
 
 ## Privacy / security notes
 
-- API keys are XOR-obfuscated before persistence (see `src/utils/crypto.ts`).
-  This is **not real encryption** — it stops casual disk inspection but a
-  determined attacker with the salt can recover the key. The right hardening
-  is to store keys in `chrome.storage.local` (already done in v0.3.5) and
-  never log them.
+- API keys entered by users are XOR-obfuscated before persistence (see
+  `src/utils/crypto.ts`). This is **not real encryption** — it stops casual
+  disk inspection but a determined attacker with the salt can recover the key.
+  Keys are stored only in `chrome.storage.local` and never logged.
+- Private build defaults come from `.env` and are compiled into the extension;
+  this mode is for personal use only. `pnpm build:public` strips them and must
+  be used for shared or store-distributed artifacts.
 - `host_permissions: ["<all_urls>"]` is required to fetch CORS-tainted
   images from manga sites. The extension does not exfiltrate data; it only
   forwards images to the user's configured VLM endpoint.

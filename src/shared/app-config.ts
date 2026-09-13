@@ -33,19 +33,23 @@ export interface RuntimeAppConfig {
 }
 
 export const DEFAULT_OPENAI_COMPATIBLE_CONFIG: ProviderSettings = {
-  // Default provider: MiniMax M3 (personal use). Values are injected at
-  // build time from .env by scripts/inject-env-config.mjs into the
-  // gitignored src/shared/env-config.generated.ts. If the .env is missing
-  // the build falls back to the placeholder values below.
+  // v1.1.1: values injected at build time from .env via
+  // scripts/inject-env-config.mjs into the gitignored
+  // src/shared/env-config.generated.ts. If .env is missing the build
+  // falls back to the MiniMax defaults below so a fresh checkout still
+  // produces a valid (but unauthenticated) bundle.
   apiKey: ENV_CONFIG.minimax.apiKey || '',
   baseUrl: ENV_CONFIG.minimax.baseUrl || 'https://api.minimaxi.com/v1',
   model: ENV_CONFIG.minimax.model || 'MiniMax-M3',
 };
 
 export const DEFAULT_OLLAMA_CONFIG: ProviderSettings = {
+  // v1.1.1: Ollama host + model are also injected from .env (OLLAMA_HOST /
+  // OLLAMA_MODEL). Fallback to localhost + llava when the .env does not
+  // provide them, so a fresh checkout still runs against the local daemon.
   apiKey: '',
-  baseUrl: 'http://localhost:11434',
-  model: 'llava',
+  baseUrl: ENV_CONFIG.ollama.baseUrl || 'http://localhost:11434',
+  model: ENV_CONFIG.ollama.model || 'llava',
 };
 
 export const DEFAULT_LM_STUDIO_CONFIG: ProviderSettings = {
@@ -178,7 +182,9 @@ function normalizeProviderSettings(
 ): ProviderSettings {
   return {
     apiKey:
-      options.allowApiKey && typeof source?.apiKey === 'string'
+      options.allowApiKey &&
+      typeof source?.apiKey === 'string' &&
+      source.apiKey.trim()
         ? source.apiKey
         : fallback.apiKey,
     baseUrl:
@@ -225,10 +231,7 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
     selectedLegacyProvider,
     ...LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS,
   ].reduce<string[]>((candidates, candidate) => {
-    if (
-      typeof candidate === 'string' &&
-      !candidates.includes(candidate)
-    ) {
+    if (typeof candidate === 'string' && !candidates.includes(candidate)) {
       candidates.push(candidate);
     }
     return candidates;
@@ -240,19 +243,20 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
       : null) ??
     openaiProviderCandidates
       .map(candidate => getRecordEntry(providersRecord, candidate))
-      .find((candidate): candidate is Record<string, unknown> => candidate !== null);
+      .find(
+        (candidate): candidate is Record<string, unknown> => candidate !== null
+      );
 
   const ollamaSource =
     (isRecord(state.ollama)
       ? (state.ollama as Partial<ProviderSettings>)
-      : null) ??
-    getRecordEntry(providersRecord, 'ollama');
+      : null) ?? getRecordEntry(providersRecord, 'ollama');
+  void ollamaSource; // v1.1.1: Ollama is fully env-driven; source is intentionally ignored.
 
   const lmStudioSource =
     (isRecord(state.lmStudio)
       ? (state.lmStudio as Partial<ProviderSettings>)
-      : null) ??
-    getRecordEntry(providersRecord, 'lm-studio');
+      : null) ?? getRecordEntry(providersRecord, 'lm-studio');
 
   return {
     enabled:
@@ -260,6 +264,8 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
         ? state.enabled
         : DEFAULT_RUNTIME_APP_CONFIG.enabled,
     provider,
+    // A runtime key entered in Settings takes precedence. If none exists,
+    // the build-time .env default is used for zero-config personal builds.
     openaiCompatible: normalizeProviderSettings(
       openaiSource,
       DEFAULT_OPENAI_COMPATIBLE_CONFIG,
@@ -268,9 +274,13 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
     ollama: normalizeProviderSettings(ollamaSource, DEFAULT_OLLAMA_CONFIG, {
       allowApiKey: false,
     }),
-    lmStudio: normalizeProviderSettings(lmStudioSource, DEFAULT_LM_STUDIO_CONFIG, {
-      allowApiKey: false,
-    }),
+    lmStudio: normalizeProviderSettings(
+      lmStudioSource,
+      DEFAULT_LM_STUDIO_CONFIG,
+      {
+        allowApiKey: false,
+      }
+    ),
     targetLanguage:
       typeof state.targetLanguage === 'string'
         ? state.targetLanguage

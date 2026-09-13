@@ -38,9 +38,24 @@ release notes below; the live version is whatever's at the top of
 
 ## Phase 5 — Next
 
-- Chrome Web Store listing with screenshots + a 30s demo GIF
-- A "show HN" / "show r/ChromeExtensions" post with the demo
-- Seed 5-10 users and gather feedback for v1.x
+- Produce a credential-free `pnpm build:public` artifact and smoke-test it on
+  a clean Chrome profile.
+- Create Chrome Web Store assets: screenshots and a 30-second demo. Listing copy,
+  permission justifications, and the smoke-test checklist are in
+  `docs/chrome-web-store-release.md`.
+- Publish a release artifact and seed 5-10 users with clear install feedback.
+- Add provider-aware price estimates to the usage panel; token counts and cache
+  hit rate are already visible.
+
+## Recently closed
+
+- Long-strip images now always enter the tiled pipeline instead of translating
+  only their visible viewport slice.
+- CORS image fallback preserves tile crop regions instead of resending the full
+  strip for every tile.
+- Provider settings are editable at runtime again; public builds are guarded
+  against embedding private credentials.
+- Package and manifest versions are checked during every build.
 
 ## What we are NOT doing
 

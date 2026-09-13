@@ -299,4 +299,77 @@ describe('BackgroundJobQueue', () => {
     }
     await Promise.all([first, second]);
   });
+
+  it('runs jobs with distinct pageKeys independently without collapsing', async () => {
+    // Guarantees the translator's per-image pageKey fix: concurrent Korean
+    // webtoon images (distinct imageKeys) must NOT collapse into one job.
+    const queue = new BackgroundJobQueue(2);
+
+    const results = await Promise.all([
+      queue.enqueue({
+        job: createJobStatus({
+          jobId: 'img-a',
+          pageKey: 'img-a',
+          priorityClass: 'visible-now',
+          requestedPath: 'plugin-direct',
+          scope: 'page',
+        }),
+        run: async () => 'result-a',
+      }),
+      queue.enqueue({
+        job: createJobStatus({
+          jobId: 'img-b',
+          pageKey: 'img-b',
+          priorityClass: 'visible-now',
+          requestedPath: 'plugin-direct',
+          scope: 'page',
+        }),
+        run: async () => 'result-b',
+      }),
+    ]);
+
+    expect(results).toEqual(['result-a', 'result-b']);
+  });
+
+  it('collapses a queued job sharing the same pageKey as a running one', async () => {
+    // The dedup guard: a repeat request for the SAME translation unit
+    // (same key) double-pays the provider, so it collapses onto the running
+    // job. Distinct keys must never collapse.
+    const queue = new BackgroundJobQueue(1);
+    let release: (() => void) | undefined;
+
+    const first = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'first',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          release = r;
+        });
+        return 'first';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const second = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'second',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'second',
+    });
+
+    release?.();
+    const [a, b] = await Promise.all([first, second]);
+    expect(a).toBe('first');
+    expect(b).toBe('first'); // collapsed onto the running job; 'second' never ran
+  });
 });

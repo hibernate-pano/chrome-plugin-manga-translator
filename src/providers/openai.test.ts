@@ -112,6 +112,45 @@ describe('OpenAIProvider', () => {
       expect(response.textAreas[0]?.translatedText).toBe('translated');
     });
 
+    it('disables thinking for MiniMax-M3 and uses its completion-token field', async () => {
+      vi.mocked(httpRequest).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        data: {
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({ textAreas: [] }),
+              },
+            },
+          ],
+        },
+      });
+
+      await provider.initialize({
+        apiKey: 'sk-test-key-12345678901234567890',
+        baseUrl: 'https://api.minimaxi.com/v1',
+        model: 'MiniMax-M3',
+      });
+
+      await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+      expect(httpRequest).toHaveBeenCalledWith(
+        'https://api.minimaxi.com/v1/chat/completions',
+        expect.objectContaining({
+          body: expect.objectContaining({
+            model: 'MiniMax-M3',
+            max_completion_tokens: 4096,
+            reasoning_split: true,
+            thinking: { type: 'disabled' },
+          }),
+        })
+      );
+      const request = vi.mocked(httpRequest).mock.calls[0]?.[1];
+      expect(request?.body).not.toHaveProperty('max_tokens');
+    });
+
     it('should throw error when apiKey is missing (requires auth)', async () => {
       await provider.initialize({});
 

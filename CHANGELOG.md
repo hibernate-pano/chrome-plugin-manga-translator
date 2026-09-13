@@ -5,6 +5,38 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.3] - 2026-09-13
+
+### Fixed
+
+- **Long-strip tiling regression**: the content script marked tall images as
+  viewport crops, which bypassed the v1.2+ tiled pipeline and could leave the
+  lower portions of a webtoon image permanently untranslated.
+- **CORS tile cropping**: the background image-fetch fallback now applies the
+  requested `cropRegion` before compression, so protected CDN images no longer
+  send the entire strip for every tile.
+- **Duplicate page runs**: `READY` and `tabs.onUpdated` can no longer start two
+  page translations concurrently during initial page load.
+- **Tiled usage accounting**: token usage from every tile attempt is recorded,
+  including quality-gate retries.
+
+### Added
+
+- Runtime-editable provider API keys, Base URLs, and models.
+- `pnpm build:public`, which strips provider keys from `.env` and verifies that
+  the generated bundle contains no API keys.
+- Release consistency check so `package.json` and `manifest.json` versions
+  cannot silently drift.
+
+### Changed
+
+- **MiniMax-M3 fast mode**: Manga translation requests now explicitly disable
+  thinking, use `reasoning_split`, and send M3's `max_completion_tokens` field.
+  This avoids spending the completion budget on `<think>` output and materially
+  reduces response latency.
+- Version and release documentation now track v1.3.3.
+- CI and Corepack use pnpm 12.4.1 with explicit trusted build scripts.
+
 ## [1.3.0] - 2026-XX-XX
 
 ### Added

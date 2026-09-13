@@ -135,7 +135,7 @@ describe('image-processor', () => {
         mockCtx as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,abc123',
+        'data:image/jpeg;base64,abc123'
       );
     });
 
@@ -163,7 +163,9 @@ describe('image-processor', () => {
         naturalHeight: 10,
       } as unknown as HTMLImageElement;
 
-      expect(() => imageToBase64(img)).toThrow('Failed to get canvas 2D context');
+      expect(() => imageToBase64(img)).toThrow(
+        'Failed to get canvas 2D context'
+      );
     });
   });
 
@@ -179,7 +181,7 @@ describe('image-processor', () => {
         mockContext as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,mocked_base64_compressed',
+        'data:image/jpeg;base64,mocked_base64_compressed'
       );
     });
 
@@ -191,7 +193,12 @@ describe('image-processor', () => {
       const mockImage = {
         naturalWidth: 800,
         naturalHeight: 5000,
-        getBoundingClientRect: () => ({ top: 0, bottom: 5000, height: 5000, width: 800 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 5000,
+          height: 5000,
+          width: 800,
+        }),
       } as unknown as HTMLImageElement;
 
       const result = compressImage(mockImage, 1024, 0.85);
@@ -210,7 +217,7 @@ describe('image-processor', () => {
         0,
         0,
         480,
-        3000,
+        3000
       );
     });
 
@@ -218,7 +225,12 @@ describe('image-processor', () => {
       const mockImage = {
         naturalWidth: 800,
         naturalHeight: 2500,
-        getBoundingClientRect: () => ({ top: 0, bottom: 2500, height: 2500, width: 800 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 2500,
+          height: 2500,
+          width: 800,
+        }),
       } as unknown as HTMLImageElement;
 
       const result = compressImage(mockImage, 1024, 0.85);
@@ -235,7 +247,7 @@ describe('image-processor', () => {
         0,
         0,
         800,
-        2500,
+        2500
       );
     });
 
@@ -245,7 +257,12 @@ describe('image-processor', () => {
       const mockImage = {
         naturalWidth: 2000,
         naturalHeight: 1500,
-        getBoundingClientRect: () => ({ top: 0, bottom: 1500, height: 1500, width: 2000 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 1500,
+          height: 1500,
+          width: 2000,
+        }),
       } as unknown as HTMLImageElement;
 
       // aspect 1500/2000 = 0.75 < 2.4 → NOT preserved as tall manga
@@ -261,7 +278,12 @@ describe('image-processor', () => {
       const mockImage = {
         naturalWidth: 400,
         naturalHeight: 300,
-        getBoundingClientRect: () => ({ top: 0, bottom: 300, height: 300, width: 400 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 300,
+          height: 300,
+          width: 400,
+        }),
       } as unknown as HTMLImageElement;
 
       const result = compressImage(mockImage, 1024, 0.85);
@@ -341,7 +363,12 @@ describe('image-processor', () => {
       const mockImage = {
         naturalWidth: 400,
         naturalHeight: 300,
-        getBoundingClientRect: () => ({ top: 0, bottom: 300, height: 300, width: 400 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 300,
+          height: 300,
+          width: 400,
+        }),
       } as unknown as HTMLImageElement;
 
       const result = compressImage(mockImage, 1024, 0.85, false, 'webp');
@@ -356,10 +383,17 @@ describe('image-processor', () => {
       const mockImage = {
         naturalWidth: 100,
         naturalHeight: 100,
-        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100, width: 100 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 100,
+          height: 100,
+          width: 100,
+        }),
       } as unknown as HTMLImageElement;
 
-      expect(() => compressImage(mockImage)).toThrow('Failed to get canvas 2D context');
+      expect(() => compressImage(mockImage)).toThrow(
+        'Failed to get canvas 2D context'
+      );
     });
   });
 
@@ -378,7 +412,7 @@ describe('image-processor', () => {
         mockCtx as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,proc_base64',
+        'data:image/jpeg;base64,proc_base64'
       );
     });
 
@@ -391,7 +425,12 @@ describe('image-processor', () => {
         naturalWidth: 200,
         naturalHeight: 100,
         src: 'https://example.com/img.jpg',
-        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100, width: 200 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 100,
+          height: 100,
+          width: 200,
+        }),
       } as unknown as HTMLImageElement;
 
       const result = await processImage(mockImage);
@@ -405,34 +444,127 @@ describe('image-processor', () => {
     });
 
     it('falls back to background proxy when canvas path throws', async () => {
-      // Make canvas throw
-      vi.restoreAllMocks();
-      vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null);
+      const originalImage = globalThis.Image;
+      try {
+        // Fetched bytes are re-decoded via loadImage (Image element). jsdom
+        // never fires onload for data: URLs, so stub Image to resolve
+        // synchronously with a large image that forces downscaling.
+        let fakedOnload: (() => void) | null = null;
+        globalThis.Image = class {
+          crossOrigin = '';
+          naturalWidth = 2000;
+          naturalHeight = 1000;
+          set src(_v: string) {
+            fakedOnload?.();
+          }
+          set onload(fn: (() => void) | null) {
+            fakedOnload = fn;
+          }
+        } as unknown as typeof Image;
 
-      vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
-        success: true,
-        imageBase64: 'proxy_base64',
-        mimeType: 'image/png',
-      });
+        vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
+          success: true,
+          imageBase64: 'proxy_base64',
+          mimeType: 'image/png',
+        });
 
-      const mockImage = {
-        naturalWidth: 200,
-        naturalHeight: 100,
-        src: 'https://cdn.example.com/cors-image.jpg',
-        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100, width: 200 }),
-      } as unknown as HTMLImageElement;
+        const mockImage = {
+          naturalWidth: 200,
+          naturalHeight: 100,
+          src: 'https://cdn.example.com/cors-image.jpg',
+          getBoundingClientRect: () => ({
+            top: 0,
+            bottom: 100,
+            height: 100,
+            width: 200,
+          }),
+        } as unknown as HTMLImageElement;
 
-      const result = await processImage(mockImage);
+        // First getContext call (content same-origin path) returns null →
+        // throws → falls back to background. Subsequent call (background
+        // re-compress) returns mockCtx → downscales the fetched bytes.
+        const mockCtx = buildCanvasContextMock();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+          .mockReturnValueOnce(null)
+          .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+        vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+          'data:image/jpeg;base64,proxy_base64'
+        );
 
-      expect(result.base64).toBe('proxy_base64');
-      expect(result.mimeType).toBe('image/png');
-      expect(result.originalWidth).toBe(200);
-      expect(result.originalHeight).toBe(100);
-      expect(result.wasCompressed).toBe(false);
-      expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
-        action: 'fetchImage',
-        url: 'https://cdn.example.com/cors-image.jpg',
-      });
+        const result = await processImage(mockImage);
+
+        expect(result.base64).toBe('proxy_base64');
+        expect(result.mimeType).toBe('image/jpeg');
+        expect(result.originalWidth).toBe(200);
+        expect(result.originalHeight).toBe(100);
+        // CORS fallback now re-compresses: 2000x1000 down to maxSize 1024 (ratio .512)
+        expect(result.wasCompressed).toBe(true);
+        expect(result.width).toBe(1024);
+        expect(result.height).toBe(512);
+        expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
+          action: 'fetchImage',
+          url: 'https://cdn.example.com/cors-image.jpg',
+        });
+      } finally {
+        globalThis.Image = originalImage;
+      }
+    });
+
+    it('preserves an explicit crop region on the CORS fallback path', async () => {
+      const originalImage = globalThis.Image;
+      try {
+        let fakedOnload: (() => void) | null = null;
+        globalThis.Image = class {
+          crossOrigin = '';
+          naturalWidth = 2000;
+          naturalHeight = 1000;
+          set src(_v: string) {
+            fakedOnload?.();
+          }
+          set onload(fn: (() => void) | null) {
+            fakedOnload = fn;
+          }
+        } as unknown as typeof Image;
+
+        vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
+          success: true,
+          imageBase64: 'proxy_base64',
+          mimeType: 'image/png',
+        });
+
+        const mockImage = {
+          naturalWidth: 2000,
+          naturalHeight: 1000,
+          src: 'https://cdn.example.com/cors-strip.jpg',
+          getBoundingClientRect: () => ({
+            top: 0,
+            bottom: 100,
+            height: 100,
+            width: 200,
+          }),
+        } as unknown as HTMLImageElement;
+
+        const mockCtx = buildCanvasContextMock();
+        vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
+          .mockReturnValueOnce(null)
+          .mockReturnValue(mockCtx as unknown as CanvasRenderingContext2D);
+        vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
+          'data:image/jpeg;base64,proxy_crop_base64'
+        );
+
+        const result = await processImage(mockImage, {
+          maxSize: 1024,
+          cropRegion: { top: 200, height: 400 },
+        });
+
+        expect(result.base64).toBe('proxy_crop_base64');
+        expect(result.cropY).toBe(200);
+        expect(result.cropHeight).toBe(400);
+        expect(result.width).toBe(1024);
+        expect(result.height).toBe(205);
+      } finally {
+        globalThis.Image = originalImage;
+      }
     });
 
     it('throws when the background proxy also fails', async () => {
@@ -448,11 +580,16 @@ describe('image-processor', () => {
         naturalWidth: 200,
         naturalHeight: 100,
         src: 'https://cdn.example.com/bad.jpg',
-        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100, width: 200 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 100,
+          height: 100,
+          width: 200,
+        }),
       } as unknown as HTMLImageElement;
 
       await expect(processImage(mockImage)).rejects.toThrow(
-        'Failed to fetch image via background',
+        'Failed to fetch image via background'
       );
     });
 
@@ -465,17 +602,26 @@ describe('image-processor', () => {
         success: true,
         base64: 'legacy_field',
         mimeType: 'image/png',
-      } as unknown as { success: boolean; imageBase64: string; mimeType: string });
+      } as unknown as {
+        success: boolean;
+        imageBase64: string;
+        mimeType: string;
+      });
 
       const mockImage = {
         naturalWidth: 200,
         naturalHeight: 100,
         src: 'https://cdn.example.com/legacy-response.jpg',
-        getBoundingClientRect: () => ({ top: 0, bottom: 100, height: 100, width: 200 }),
+        getBoundingClientRect: () => ({
+          top: 0,
+          bottom: 100,
+          height: 100,
+          width: 200,
+        }),
       } as unknown as HTMLImageElement;
 
       await expect(processImage(mockImage)).rejects.toThrow(
-        'Failed to fetch image via background',
+        'Failed to fetch image via background'
       );
     });
   });
@@ -530,7 +676,7 @@ describe('image-processor', () => {
       } as unknown as typeof Image;
 
       await expect(loadImage('https://example.com/bad.jpg')).rejects.toThrow(
-        'Failed to load image',
+        'Failed to load image'
       );
     });
   });
@@ -552,7 +698,7 @@ describe('image-processor', () => {
         mockCtx as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,url_processed',
+        'data:image/jpeg;base64,url_processed'
       );
     });
 
@@ -577,7 +723,12 @@ describe('image-processor', () => {
         get src() {
           return 'https://example.com/manga.jpg';
         }
-        getBoundingClientRect = () => ({ top: 0, bottom: 200, height: 200, width: 300 });
+        getBoundingClientRect = () => ({
+          top: 0,
+          bottom: 200,
+          height: 200,
+          width: 300,
+        });
       } as unknown as typeof Image;
 
       const result = await processImageFromUrl('https://example.com/manga.jpg');
@@ -601,9 +752,9 @@ describe('image-processor', () => {
         }
       } as unknown as typeof Image;
 
-      await expect(processImageFromUrl('https://example.com/missing.jpg')).rejects.toThrow(
-        'Failed to load image',
-      );
+      await expect(
+        processImageFromUrl('https://example.com/missing.jpg')
+      ).rejects.toThrow('Failed to load image');
     });
   });
 
@@ -652,7 +803,9 @@ describe('image-processor', () => {
     });
 
     it('uses the provided mime type', () => {
-      expect(base64ToDataUrl('xyz', 'image/webp')).toBe('data:image/webp;base64,xyz');
+      expect(base64ToDataUrl('xyz', 'image/webp')).toBe(
+        'data:image/webp;base64,xyz'
+      );
     });
   });
 
@@ -679,7 +832,7 @@ describe('image-processor', () => {
         mockCtx as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,cropped_region',
+        'data:image/jpeg;base64,cropped_region'
       );
       // Mock Image constructor so loadImage (used by ensureImageElement)
       // can resolve with an element that has naturalWidth / naturalHeight.
@@ -735,9 +888,10 @@ describe('image-processor', () => {
     });
 
     it('loads a base64 string with data: prefix correctly', async () => {
-      const result = await cropRegions('data:image/png;base64,prefixed_base64', [
-        { x: 0, y: 0, width: 50, height: 50 },
-      ]);
+      const result = await cropRegions(
+        'data:image/png;base64,prefixed_base64',
+        [{ x: 0, y: 0, width: 50, height: 50 }]
+      );
       expect(result).toHaveLength(1);
     });
 
@@ -749,7 +903,9 @@ describe('image-processor', () => {
 
       expect(result).toHaveLength(1);
       // Should crop at (450, 450, 50, 50) — clamped to remaining 50px each way
-      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      const ctx = HTMLCanvasElement.prototype.getContext(
+        '2d'
+      ) as CanvasRenderingContext2D;
       if (!ctx) throw new Error('canvas context unavailable in test');
       expect(ctx.drawImage).toHaveBeenCalled();
     });
@@ -805,7 +961,7 @@ describe('image-processor', () => {
         mockContext as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,mocked_base64',
+        'data:image/jpeg;base64,mocked_base64'
       );
     });
 
@@ -836,14 +992,26 @@ describe('image-processor', () => {
       expect(result.segments[1]).toEqual({ index: 1, top: 220, height: 200 });
 
       // Verify canvas draw operations
-      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      const ctx = HTMLCanvasElement.prototype.getContext(
+        '2d'
+      ) as CanvasRenderingContext2D;
       if (!ctx) throw new Error('canvas context unavailable in test');
       expect(ctx.fillRect).toHaveBeenCalled();
       expect(ctx.drawImage).toHaveBeenCalledTimes(2);
       expect(ctx.fillText).toHaveBeenCalledTimes(2);
       // Check if text '1' and '2' were written
-      expect(ctx.fillText).toHaveBeenNthCalledWith(1, '1', 30, expect.any(Number));
-      expect(ctx.fillText).toHaveBeenNthCalledWith(2, '2', 30, expect.any(Number));
+      expect(ctx.fillText).toHaveBeenNthCalledWith(
+        1,
+        '1',
+        30,
+        expect.any(Number)
+      );
+      expect(ctx.fillText).toHaveBeenNthCalledWith(
+        2,
+        '2',
+        30,
+        expect.any(Number)
+      );
     });
 
     it('falls back to single image directly without label drawing when isHybridRegions is false and single image is provided', async () => {
@@ -871,16 +1039,25 @@ describe('image-processor', () => {
       expect(result.segments).toHaveLength(1);
       expect(result.segments[0]?.index).toBe(0);
 
-      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      const ctx = HTMLCanvasElement.prototype.getContext(
+        '2d'
+      ) as CanvasRenderingContext2D;
       if (!ctx) throw new Error('canvas context unavailable in test');
       expect(ctx.fillText).toHaveBeenCalledTimes(1);
-      expect(ctx.fillText).toHaveBeenNthCalledWith(1, '1', 30, expect.any(Number));
+      expect(ctx.fillText).toHaveBeenNthCalledWith(
+        1,
+        '1',
+        30,
+        expect.any(Number)
+      );
     });
 
     // --- new edge cases ---
 
     it('throws when given an empty array', async () => {
-      await expect(combineCroppedRegions([])).rejects.toThrow('No images to combine');
+      await expect(combineCroppedRegions([])).rejects.toThrow(
+        'No images to combine'
+      );
     });
 
     it('throws when all images fail to load', async () => {
@@ -899,7 +1076,7 @@ describe('image-processor', () => {
       } as unknown as typeof Image;
 
       await expect(combineCroppedRegions(['bad1', 'bad2'])).rejects.toThrow(
-        'No images to combine',
+        'No images to combine'
       );
     });
 
@@ -955,14 +1132,18 @@ describe('image-processor', () => {
       // No label column, so width should just be maxImgWidth (100px)
       expect(result.width).toBe(100);
 
-      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      const ctx = HTMLCanvasElement.prototype.getContext(
+        '2d'
+      ) as CanvasRenderingContext2D;
       if (!ctx) throw new Error('canvas context unavailable in test');
       // No fillText calls expected since labels are disabled
       expect(ctx.fillText).not.toHaveBeenCalled();
     });
 
     it('uses roundRect when available, falls back to rect when not', async () => {
-      const ctx = HTMLCanvasElement.prototype.getContext('2d') as CanvasRenderingContext2D;
+      const ctx = HTMLCanvasElement.prototype.getContext(
+        '2d'
+      ) as CanvasRenderingContext2D;
       if (!ctx) throw new Error('canvas context unavailable in test');
 
       // roundRect IS available by default in our mock
@@ -993,7 +1174,7 @@ describe('image-processor', () => {
         ctxWithoutRoundRect as unknown as CanvasRenderingContext2D
       );
       vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(
-        'data:image/jpeg;base64,mocked_fallback',
+        'data:image/jpeg;base64,mocked_fallback'
       );
 
       const resultFallback = await combineCroppedRegions(['img1'], {

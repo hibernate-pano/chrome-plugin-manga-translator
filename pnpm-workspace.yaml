@@ -1,3 +1,5 @@
-onlyBuiltDependencies:
-  - esbuild
-  - tesseract.js
+packages: []
+
+allowBuilds:
+  esbuild: true
+  tesseract.js: true

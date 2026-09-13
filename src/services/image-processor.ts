@@ -64,13 +64,15 @@ export interface ProcessedImage {
 
 // ==================== Default Configuration ====================
 
-type FilledOptions = Omit<
-  ImageProcessingOptions,
-  'cropRegion'
-> &
-  Required<Pick<ImageProcessingOptions, 'maxSize' | 'quality' | 'format' | 'viewportCrop' | 'isHybridRegions'>> & {
-  cropRegion?: { top: number; height: number };
-};
+type FilledOptions = Omit<ImageProcessingOptions, 'cropRegion'> &
+  Required<
+    Pick<
+      ImageProcessingOptions,
+      'maxSize' | 'quality' | 'format' | 'viewportCrop' | 'isHybridRegions'
+    >
+  > & {
+    cropRegion?: { top: number; height: number };
+  };
 
 export const DEFAULT_OPTIONS: FilledOptions = {
   /**
@@ -95,7 +97,9 @@ export function shouldPreserveTallMangaPage(
   }
 
   const aspectRatio = height / width;
-  return width <= Math.min(maxSize, 1400) && height > maxSize && aspectRatio >= 2.4;
+  return (
+    width <= Math.min(maxSize, 1400) && height > maxSize && aspectRatio >= 2.4
+  );
 }
 
 // ==================== Core Functions ====================
@@ -175,7 +179,14 @@ export function compressImage(
   viewportCrop: boolean = false,
   format: string = 'jpeg',
   cropRegion?: { top: number; height: number }
-): { base64: string; width: number; height: number; wasCompressed: boolean; cropY: number; cropHeight: number } {
+): {
+  base64: string;
+  width: number;
+  height: number;
+  wasCompressed: boolean;
+  cropY: number;
+  cropHeight: number;
+} {
   // Guard against zero-dimension images (e.g. failed image loads) so we
   // don't produce NaN canvas dimensions or empty base64.
   if (
@@ -202,7 +213,8 @@ export function compressImage(
     );
   } else if (viewportCrop) {
     const rect = image.getBoundingClientRect();
-    const windowHeight = window.innerHeight || document.documentElement.clientHeight;
+    const windowHeight =
+      window.innerHeight || document.documentElement.clientHeight;
 
     // 如果图片完全不在视口中，就不裁剪了（或给一个默认行为），但通常我们只有在 hover/click 时才调用这个
     if (rect.bottom >= 0 && rect.top <= windowHeight) {
@@ -273,7 +285,17 @@ export function compressImage(
   ctx.imageSmoothingQuality = 'high';
 
   // ctx.drawImage(image, sx, sy, sWidth, sHeight, dx, dy, dWidth, dHeight)
-  ctx.drawImage(image, 0, sourceY, sourceWidth, sourceHeight, 0, 0, targetWidth, targetHeight);
+  ctx.drawImage(
+    image,
+    0,
+    sourceY,
+    sourceWidth,
+    sourceHeight,
+    0,
+    0,
+    targetWidth,
+    targetHeight
+  );
 
   // Compress to base64
   const mimeType = format === 'webp' ? 'image/webp' : 'image/jpeg';
@@ -313,14 +335,15 @@ export async function processImage(
 
   try {
     // Try canvas path first (same-origin or CORS-enabled images)
-    const { base64, width, height, wasCompressed, cropY, cropHeight } = compressImage(
-      image,
-      opts.maxSize,
-      opts.quality,
-      opts.viewportCrop,
-      opts.format,
-      opts.cropRegion
-    );
+    const { base64, width, height, wasCompressed, cropY, cropHeight } =
+      compressImage(
+        image,
+        opts.maxSize,
+        opts.quality,
+        opts.viewportCrop,
+        opts.format,
+        opts.cropRegion
+      );
 
     const hash = await calculateHash(base64);
 
@@ -342,7 +365,12 @@ export async function processImage(
       '[ImageProcessor] Canvas path failed, falling back to background proxy:',
       getErrorMessage(error)
     );
-    return processImageViaBackground(image.src, originalWidth, originalHeight);
+    return processImageViaBackground(
+      image.src,
+      originalWidth,
+      originalHeight,
+      options
+    );
   }
 }
 
@@ -363,33 +391,76 @@ export async function processImage(
 async function processImageViaBackground(
   imageUrl: string,
   originalWidth: number,
-  originalHeight: number
+  originalHeight: number,
+  options: ImageProcessingOptions = {}
 ): Promise<ProcessedImage> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+
   const response = await chrome.runtime.sendMessage({
     action: 'fetchImage',
     url: imageUrl,
   });
 
   if (!response?.success || !response.imageBase64) {
-    throw new Error(`Failed to fetch image via background: ${response?.error || 'Unknown error'}`);
+    throw new Error(
+      `Failed to fetch image via background: ${response?.error || 'Unknown error'}`
+    );
   }
 
-  const base64: string = response.imageBase64;
   const mimeType: string = response.mimeType || 'image/jpeg';
-  const hash = await calculateHash(base64);
+  const source = `data:${mimeType};base64,${response.imageBase64}`;
+  const image = await loadImage(source);
 
-  return {
-    base64,
-    mimeType,
-    originalWidth,
-    originalHeight,
-    width: originalWidth,
-    height: originalHeight,
-    wasCompressed: false,
-    hash,
-    cropY: 0,
-    cropHeight: originalHeight,
-  };
+  try {
+    // Downscale the fetched bytes the same way the same-origin path does, so
+    // CORS images don't ship across as huge originals (which blew up payloads
+    // and hit the 30s timeout). cropRegion is preserved so tiled translation
+    // still sends only the requested strip for CORS-protected images.
+    const { base64, width, height, wasCompressed, cropY, cropHeight } =
+      compressImage(
+        image,
+        opts.maxSize,
+        opts.quality,
+        false,
+        opts.format,
+        opts.cropRegion
+      );
+
+    const hash = await calculateHash(base64);
+
+    return {
+      base64,
+      mimeType: opts.format === 'webp' ? 'image/webp' : 'image/jpeg',
+      originalWidth,
+      originalHeight,
+      width,
+      height,
+      wasCompressed,
+      hash,
+      cropY,
+      cropHeight,
+    };
+  } catch (error) {
+    // Re-compress failed (e.g. corrupt bytes) — fall back to the raw fetched
+    // bytes rather than dropping the translation.
+    console.log(
+      '[ImageProcessor] Background re-compress failed, returning raw bytes:',
+      getErrorMessage(error)
+    );
+    const hash = await calculateHash(response.imageBase64);
+    return {
+      base64: response.imageBase64,
+      mimeType,
+      originalWidth,
+      originalHeight,
+      width: originalWidth,
+      height: originalHeight,
+      wasCompressed: false,
+      hash,
+      cropY: 0,
+      cropHeight: originalHeight,
+    };
+  }
 }
 
 /**
@@ -545,10 +616,23 @@ export async function cropRegions(
     // Ensure valid dimensions
     const cropX = Math.max(0, Math.min(x, imgElement.naturalWidth - 1));
     const cropY = Math.max(0, Math.min(y, imgElement.naturalHeight - 1));
-    const cropWidth = Math.max(1, Math.min(width, imgElement.naturalWidth - cropX));
-    const cropHeight = Math.max(1, Math.min(height, imgElement.naturalHeight - cropY));
+    const cropWidth = Math.max(
+      1,
+      Math.min(width, imgElement.naturalWidth - cropX)
+    );
+    const cropHeight = Math.max(
+      1,
+      Math.min(height, imgElement.naturalHeight - cropY)
+    );
 
-    const cropped = cropImageElement(imgElement, cropX, cropY, cropWidth, cropHeight, opts);
+    const cropped = cropImageElement(
+      imgElement,
+      cropX,
+      cropY,
+      cropWidth,
+      cropHeight,
+      opts
+    );
     croppedImages.push(cropped);
   }
 
@@ -566,7 +650,9 @@ async function ensureImageElement(
   }
 
   // It's a base64 string, load it into an image
-  return loadImage(image.startsWith('data:') ? image : `data:image/png;base64,${image}`);
+  return loadImage(
+    image.startsWith('data:') ? image : `data:image/png;base64,${image}`
+  );
 }
 
 /**
@@ -630,7 +716,7 @@ export async function combineCroppedRegions(
 
   // First, load all images to get their dimensions (parallel, tolerating individual failures)
   const settledResults = await Promise.allSettled(
-    croppedImages.map((base64) => imageFromBase64(base64))
+    croppedImages.map(base64 => imageFromBase64(base64))
   );
 
   const images: HTMLImageElement[] = [];
@@ -638,7 +724,10 @@ export async function combineCroppedRegions(
     if (result.status === 'fulfilled') {
       images.push(result.value);
     } else {
-      console.error('[ImageProcessor] Failed to load image in combineCroppedRegions:', result.reason);
+      console.error(
+        '[ImageProcessor] Failed to load image in combineCroppedRegions:',
+        result.reason
+      );
     }
   }
 

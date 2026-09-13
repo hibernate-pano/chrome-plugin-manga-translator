@@ -19,29 +19,38 @@ manga site.
 ### 1. Install the extension
 
 The extension is not on the Chrome Web Store yet (see [`ROADMAP.md`](./ROADMAP.md)).
-To use it now:
+For a private build with preloaded credentials:
 
 ```bash
-git clone <repo>
+git clone https://github.com/hibernate-pano/chrome-plugin-manga-translator.git
 cd chrome-plugin-manga-translator
 pnpm install
+cp .env.example .env
+# Fill in the provider values you want to preload, then:
 pnpm build
 ```
 
+For a shareable build with no embedded credentials:
+
+```bash
+pnpm build:public
+```
+
 Then open `chrome://extensions/`, enable **Developer mode**, click **Load unpacked**
-and pick the `dist/` directory.
+and pick the `dist/` directory. A public build asks the user to enter provider
+settings in the extension's Settings page; a private build can be ready on first run.
 
 ### 2. Pick a backend
 
-Open the extension's **Settings** page. On first install you'll see a 3-step
+Open the extension's **Settings** page. On first install you'll see a short
 onboarding modal:
 
 1. **Welcome** — what this extension does, where your images go.
-2. **Backend** — pick `OpenAI-compatible`, `Ollama`, or `LM Studio`.
-3. **Ready** — finish, enable translation.
+2. **Ready** — finish and enable translation.
 
-You can skip the onboarding and configure later. The extension will not translate
-or bill you until you explicitly enable it.
+Provider cards let you use preloaded values or enter your own API key, Base URL,
+and model. You can skip onboarding and configure later. The extension will not
+translate or bill you until you explicitly enable it.
 
 ### 3. Translate a page
 
@@ -55,6 +64,8 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
   while keeping the surrounding art intact.
 - **Auto-continue**: new images that scroll into view are translated automatically
   (toggle in Settings).
+- **MiniMax-M3 fast mode**: thinking is disabled for structured manga
+  translation, avoiding wasted `<think>` tokens and reducing response time.
 - **Reading mode side panel**: a right-side panel listing every translation in
   reading order, with numbered anchors on each image. Click a panel entry to jump
   to the image; click an image badge to jump to its panel entry.
@@ -63,8 +74,9 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
 - **Errors as repair menus**: every common failure has a fix-it button. Ollama
   not running? Copy `ollama serve`. CORS blocked? Copy
   `OLLAMA_ORIGINS=chrome-extension://* ollama serve`. Auth failed? Open Settings.
-- **Local-first**: config + obfuscated API keys live in `chrome.storage.local`.
-  Nothing syncs to your Google account. No telemetry. No analytics.
+- **Local-first**: user-entered config and obfuscated API keys live in
+  `chrome.storage.local`. Nothing syncs to your Google account. No telemetry.
+  No analytics.
 
 ---
 
@@ -111,7 +123,9 @@ See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for the longer story.
 ```bash
 pnpm install              # Install deps
 pnpm dev                  # Vite dev server (HMR for popup/options)
-pnpm build                # Type-check + production build
+pnpm build                # Private build: preload values from .env
+pnpm build:public         # Public build: refuse to embed provider keys
+pnpm package:public       # Build + write a versioned, checksummed ZIP
 pnpm test:run             # Run tests once
 pnpm lint                 # ESLint
 pnpm lint:strict          # ESLint with --max-warnings 0
@@ -126,14 +140,20 @@ pnpm build && pnpm lint:strict && pnpm test:run
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
+For store submission and final smoke testing, see
+[`docs/chrome-web-store-release.md`](./docs/chrome-web-store-release.md).
+
 ---
 
 ## Privacy
 
-- Your API key and config live in `chrome.storage.local` only. Nothing syncs to
-  your Google account.
-- When you translate, the image is sent **directly** from the content script to
-  your configured VLM endpoint. The extension author never sees it.
+- API keys entered in Settings live in `chrome.storage.local` only. Nothing syncs
+  to your Google account.
+- `pnpm build` may deliberately embed private provider defaults for personal
+  builds. `pnpm build:public` strips provider keys and fails the build if any
+  remain.
+- When you translate, the extension sends the image **directly** to your
+  configured VLM endpoint. The extension author never sees it.
 - No analytics, no telemetry, no remote logging. See [`docs/privacy-policy.md`](./docs/privacy-policy.md).
 
 ---
@@ -142,7 +162,10 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 
 | Version | Status | Highlights |
 |---|---|---|
-| v1.3.2 | current | Tiled webtoon pipeline, auto-degradation, Korean-aware prompts |
+| v1.3.3 | current | Reliable long-strip tiling, safe public builds, editable providers |
+| v1.3.2 | shipped | Tiled result caching |
+| v1.3.1 | shipped | Parallel tile translation |
+| v1.3.0 | shipped | Auto-degradation, Korean-aware prompts |
 | v1.2.0 | shipped | Tiled pipeline for long webtoon strips + quality gates |
 | v1.1.0 | shipped | Zero-config personal setup via .env injection |
 | v1.0.0 | shipped | First stable release |
