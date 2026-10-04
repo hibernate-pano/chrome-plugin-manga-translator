@@ -5,44 +5,94 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Manga Translator Smoke Test</title>
     <style>
+      :root {
+        color-scheme: dark;
+      }
       body {
-        font-family: sans-serif;
+        font-family: ui-sans-serif, system-ui, sans-serif;
         margin: 0;
         padding: 24px;
-        background: #111827;
-        color: white;
+        background: #0f172a;
+        color: #e2e8f0;
       }
-
       main {
         max-width: 960px;
         margin: 0 auto;
       }
-
-      .images {
+      h2 {
+        font-size: 1rem;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        color: #94a3b8;
+        margin: 32px 0 12px;
+      }
+      .panel {
         display: grid;
         gap: 24px;
       }
-
       img {
         width: 100%;
         max-width: 720px;
         display: block;
-        background: white;
+        background: #fff;
+        border-radius: 6px;
+      }
+      code {
+        color: #7dd3fc;
       }
     </style>
   </head>
   <body>
     <main>
       <h1>Manga Translator Smoke Test</h1>
-      <p>This page provides predictable images for extension injection tests.</p>
-      <div class="images">
+      <p>
+        Load the unpacked extension from <code>dist/</code>, open this file with
+        <code>file://</code> or serve it, then run a page translation. Every
+        image below is generated inline, so the page works offline and always
+        produces the same input.
+      </p>
+
+      <h2>1. Ordinary page (same-origin canvas path)</h2>
+      <div class="panel">
         <img
-          alt="panel-one"
-          src="https://dummyimage.com/720x960/ffffff/000000&text=Panel+One"
+          id="panel-one"
+          alt="panel-one, several speech bubbles"
+          src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='720' height='960'%3E%3Crect width='720' height='960' fill='%23ffffff'/%3E%3Crect x='40' y='60' width='300' height='160' rx='80' fill='%23ffffff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='70' y='130' font-family='sans-serif' font-size='30' fill='%23111827'%3Eこんにちは%3C/text%3E%3Ctext x='70' y='180' font-family='sans-serif' font-size='30' fill='%23111827'%3E元気ですか%3C/text%3E%3Crect x='360' y='380' width='320' height='180' rx='90' fill='%23ffffff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='390' y='450' font-family='sans-serif' font-size='28' fill='%23111827'%3E그래, 고마워%3C/text%3E%3Ctext x='390' y='500' font-family='sans-serif' font-size='28' fill='%23111827'%3E또 만나자%3C/text%3E%3Crect x='80' y='700' width='260' height='120' rx='60' fill='%23ffffff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='110' y='760' font-family='sans-serif' font-size='26' fill='%23111827'%3EReally?%3C/text%3E%3C/svg%3E"
         />
+      </div>
+
+      <h2>2. Long strip (tiled pipeline, height &gt;= 2200px)</h2>
+      <div class="panel">
         <img
-          alt="panel-two"
-          src="https://dummyimage.com/720x960/f8fafc/111827&text=Panel+Two"
+          id="webtoon-strip"
+          alt="long webtoon strip"
+          src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='800' height='4000'%3E%3Crect width='800' height='4000' fill='%23f8fafc'/%3E%3Cg font-family='sans-serif' font-size='34' fill='%23111827'%3E%3Crect x='60' y='120' width='360' height='140' rx='70' fill='%23fff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='90' y='205'%3E첫 번째 대사%3C/text%3E%3Crect x='340' y='1200' width='380' height='150' rx='75' fill='%23fff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='370' y='1290'%3E두 번째 대사%3C/text%3E%3Crect x='80' y='2400' width='400' height='140' rx='70' fill='%23fff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='110' y='2485'%3E세 번째 대사%3C/text%3E%3Crect x='300' y='3500' width='400' height='150' rx='75' fill='%23fff' stroke='%23111827' stroke-width='4'/%3E%3Ctext x='330' y='3590'%3E네 번째 대사%3C/text%3E%3C/g%3E%3C/svg%3E"
+        />
+      </div>
+
+      <h2>3. Cross-origin image (background proxy path)</h2>
+      <div class="panel">
+        <img
+          id="cors-image"
+          alt="cross-origin image for the CORS fallback path"
+          src="https://upload.wikimedia.org/wikipedia/commons/thumb/4/47/PNG_transparency_demonstration_1.png/640px-PNG_transparency_demonstration_1.png"
+        />
+      </div>
+
+      <h2>4. Ignored content (must not be translated)</h2>
+      <div class="panel">
+        <header>
+          <img
+            alt="logo, should be filtered by the header rule"
+            src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='300'%3E%3Crect width='300' height='300' fill='%23e2e8f0'/%3E%3Ctext x='40' y='160' font-family='sans-serif' font-size='28'%3Esite logo%3C/text%3E%3C/svg%3E"
+          />
+        </header>
+        <img
+          id="too-small"
+          alt="120px wide, below the minimum size"
+          width="120"
+          height="120"
+          src="data:image/svg+xml;utf8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='120' height='120'%3E%3Crect width='120' height='120' fill='%23fde68a'/%3E%3C/svg%3E"
         />
       </div>
     </main>

@@ -149,9 +149,7 @@ try {
   );
   process.exit(1);
 }
-findings.push(
-  ...scanFile(generatedPath, 'src/shared/env-config.generated.ts')
-);
+findings.push(...scanFile(generatedPath, 'src/shared/env-config.generated.ts'));
 
 // 2. The shipped bundle. Skipped with `--source-only` when invoked before the
 //    build (dist/ still holds the previous, possibly private, build).

@@ -1,11 +1,16 @@
-node_modules
-dist
-coverage
-.git
+# Prose and generated data are exempt: reformatting them produces large
+# diffs that obscure real changes, and they are reviewed by reading.
 *.md
 *.json
 *.yml
 *.yaml
+
+node_modules
+dist
+coverage
+.git
 public
 .vscode
 .idea
+server/.runtime
+release

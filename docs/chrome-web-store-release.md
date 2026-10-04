@@ -62,17 +62,30 @@ Use the hosted `docs/privacy-policy.md` page as the privacy-policy URL.
 
 ## Manual Smoke Test
 
+`smoke-test-page.html` in the repository root is the fixture for steps 3-5. It
+generates its images inline, so it works offline on `file://` and always
+produces the same input: an ordinary page with CJK and Latin bubbles, a
+4000px-tall webtoon strip for the tiled pipeline, one cross-origin image for
+the background proxy path, and content that must be skipped (a logo inside
+`<header>`, and an image below the 200px minimum).
+
 1. Load `dist/` in a clean Chrome profile and complete onboarding.
-2. Configure an OpenAI-compatible provider and run "测试配置".
-3. Translate a page with one normal image, one long strip, and one CORS-only
-   image.
+2. Configure an OpenAI-compatible provider and run "测试配置". It should now
+   report an auth failure for a wrong key and an unreachable host for a wrong
+   base URL, rather than always reporting success.
+3. Open `smoke-test-page.html` and translate it. Expect both bubbles in panel 1,
+   all four bubbles in the strip, the cross-origin image, and nothing from
+   section 4.
 4. Revisit the same page with cache enabled and verify zero provider calls.
 5. Switch provider/model and verify the cache is not reused across the change.
 6. Cancel a queued translation and verify no new jobs start.
 7. Reload the extension and verify settings survive, while no API key appears in
    `chrome.storage.sync`.
-8. Install the public ZIP on a second clean profile and verify it asks for
-   provider configuration instead of using Jasper's private defaults.
+8. Verify automatic translation does NOT happen on an ordinary site. Add the
+   fixture's host to the allowlist from the popup, reload, and confirm it now
+   translates on load.
+9. Install the public ZIP on a second clean profile and verify it asks for
+   provider configuration instead of using the author's private defaults.
 
 ## Assets Still Required
 

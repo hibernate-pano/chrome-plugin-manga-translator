@@ -22,17 +22,17 @@ export default defineConfig({
         'dist/',
         'coverage/',
         '**/*.test.{ts,tsx,js,jsx}',
-        '**/*.spec.{ts,tsx,js,jsx}'
+        '**/*.spec.{ts,tsx,js,jsx}',
       ],
       thresholds: {
         global: {
           branches: 70,
           functions: 70,
           lines: 70,
-          statements: 70
-        }
-      }
-    }
+          statements: 70,
+        },
+      },
+    },
   },
   resolve: {
     alias: {
@@ -41,7 +41,7 @@ export default defineConfig({
       '@/utils': path.resolve(__dirname, './src/utils'),
       '@/api': path.resolve(__dirname, './src/api'),
       '@/stores': path.resolve(__dirname, './src/stores'),
-      '@/types': path.resolve(__dirname, './src/types')
-    }
-  }
+      '@/types': path.resolve(__dirname, './src/types'),
+    },
+  },
 });

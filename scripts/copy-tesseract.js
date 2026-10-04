@@ -57,7 +57,9 @@ for (const [srcRelPath, destName] of filesToCopy) {
 }
 
 // eslint-disable-next-line no-console
-console.log(`[CopyTesseract] 拷贝完成。成功: ${successCount}/${filesToCopy.length}`);
+console.log(
+  `[CopyTesseract] 拷贝完成。成功: ${successCount}/${filesToCopy.length}`
+);
 if (successCount < filesToCopy.length) {
   process.exit(1);
 }

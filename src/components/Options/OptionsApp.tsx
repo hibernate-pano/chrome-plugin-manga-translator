@@ -108,6 +108,15 @@ const OptionsApp: React.FC = () => {
   const setAutoContinueEnabled = useAppConfigStore(
     state => state.setAutoContinueEnabled
   );
+  const autoTranslateHosts = useAppConfigStore(
+    state => state.autoTranslateHosts
+  );
+  const addAutoTranslateHost = useAppConfigStore(
+    state => state.addAutoTranslateHost
+  );
+  const removeAutoTranslateHost = useAppConfigStore(
+    state => state.removeAutoTranslateHost
+  );
   const setCacheEnabled = useAppConfigStore(state => state.setCacheEnabled);
   const setTranslationStylePreset = useAppConfigStore(
     state => state.setTranslationStylePreset
@@ -120,6 +129,7 @@ const OptionsApp: React.FC = () => {
   const [testingProvider, setTestingProvider] = useState<ProviderType | null>(
     null
   );
+  const [newAutoHost, setNewAutoHost] = useState('');
   const [showApiKey, setShowApiKey] = useState<Record<ProviderType, boolean>>({
     'openai-compatible': false,
     ollama: false,
@@ -578,6 +588,66 @@ const OptionsApp: React.FC = () => {
                   aria-label='自动续翻'
                 />
               </label>
+
+              <div className='rounded-lg border border-white/10 bg-slate-950/70 px-3 py-3'>
+                <div className='text-sm font-medium'>自动翻译站点</div>
+                <div className='mt-1 text-xs text-slate-400'>
+                  只有列表中的站点会在打开页面时自动翻译。其他站点需要你手动点一下按钮，
+                  避免把不相关页面的图片发给模型并产生费用。
+                </div>
+                {autoTranslateHosts.length === 0 ? (
+                  <div className='mt-3 rounded-lg border border-dashed border-white/10 px-3 py-2 text-xs text-slate-500'>
+                    列表为空，不会自动翻译任何站点。可在此添加，或在弹窗中一键添加当前站点。
+                  </div>
+                ) : (
+                  <ul className='mt-3 space-y-2'>
+                    {autoTranslateHosts.map(host => (
+                      <li
+                        key={host}
+                        className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-950 px-3 py-2'
+                      >
+                        <span className='font-mono text-xs text-slate-200'>
+                          {host}
+                        </span>
+                        <button
+                          type='button'
+                          onClick={() => removeAutoTranslateHost(host)}
+                          className='text-xs text-slate-400 transition hover:text-rose-300'
+                        >
+                          移除
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+                <form
+                  className='mt-3 flex gap-2'
+                  onSubmit={event => {
+                    event.preventDefault();
+                    if (!newAutoHost.trim()) return;
+                    addAutoTranslateHost(newAutoHost);
+                    setNewAutoHost('');
+                  }}
+                >
+                  <input
+                    value={newAutoHost}
+                    onChange={event => setNewAutoHost(event.target.value)}
+                    placeholder='example.com 或 *.example.com'
+                    autoComplete='off'
+                    className='flex-1 rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
+                  />
+                  <button
+                    type='submit'
+                    className='rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
+                  >
+                    添加
+                  </button>
+                </form>
+                <div className='mt-2 text-xs text-slate-500'>
+                  只匹配主机名。manga.example.com 不会匹配
+                  notmanga.example.com。
+                </div>
+              </div>
 
               <label className='flex items-center justify-between rounded-lg border border-white/10 bg-slate-950/70 px-3 py-3'>
                 <div>

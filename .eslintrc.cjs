@@ -4,14 +4,14 @@ module.exports = {
     browser: true,
     es2020: true,
     webextensions: true,
-    node: true
+    node: true,
   },
   extends: [
     'eslint:recommended',
     'plugin:@typescript-eslint/recommended',
     'plugin:react-hooks/recommended',
     'plugin:react/recommended',
-    'plugin:react/jsx-runtime'
+    'plugin:react/jsx-runtime',
   ],
   ignorePatterns: ['dist', '.eslintrc.cjs', 'node_modules', 'public'],
   parser: '@typescript-eslint/parser',
@@ -19,15 +19,10 @@ module.exports = {
     ecmaVersion: 'latest',
     sourceType: 'module',
     ecmaFeatures: {
-      jsx: true
-    }
+      jsx: true,
+    },
   },
-  plugins: [
-    'react-refresh',
-    '@typescript-eslint',
-    'react',
-    'react-hooks'
-  ],
+  plugins: ['react-refresh', '@typescript-eslint', 'react', 'react-hooks'],
   rules: {
     'react-refresh/only-export-components': [
       'warn',
@@ -38,8 +33,8 @@ module.exports = {
       {
         argsIgnorePattern: '^_',
         varsIgnorePattern: '^_',
-        caughtErrorsIgnorePattern: '^_'
-      }
+        caughtErrorsIgnorePattern: '^_',
+      },
     ],
     '@typescript-eslint/no-explicit-any': 'warn',
     '@typescript-eslint/no-non-null-assertion': 'warn',
@@ -51,16 +46,19 @@ module.exports = {
     'prefer-const': 'error',
     'no-var': 'error',
     'object-shorthand': 'error',
-    'prefer-template': 'error'
+    'prefer-template': 'error',
   },
   settings: {
     react: {
-      version: 'detect'
-    }
+      version: 'detect',
+    },
   },
   overrides: [
     {
-      files: ['src/components/theme-provider.tsx', 'src/components/ui/**/*.tsx'],
+      files: [
+        'src/components/theme-provider.tsx',
+        'src/components/ui/**/*.tsx',
+      ],
       rules: {
         'react-refresh/only-export-components': 'off',
       },
