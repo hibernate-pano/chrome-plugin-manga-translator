@@ -60,13 +60,7 @@ export default defineConfig({
     },
   },
   optimizeDeps: {
-    include: [
-      'react',
-      'react-dom',
-      'zustand',
-      'clsx',
-      'class-variance-authority',
-    ],
+    include: ['react', 'react-dom', 'zustand', 'clsx'],
   },
   build: {
     target: 'es2020',
@@ -105,7 +99,7 @@ export default defineConfig({
           'react-vendor': ['react'],
           'react-dom-vendor': ['react-dom', 'react-dom/client'],
           'state-vendor': ['zustand'],
-          'utils-vendor': ['clsx', 'class-variance-authority'],
+          'utils-vendor': ['clsx'],
         },
       },
     },

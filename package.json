@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && vite",
-    "build": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && tsc && vite build",
-    "build:public": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs --public-build && node scripts/check-public-build.mjs --source-only && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-public-build.mjs",
+    "build": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-release-consistency.mjs",
+    "build:public": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs --public-build && node scripts/check-public-build.mjs --source-only && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-public-build.mjs && node scripts/check-release-consistency.mjs",
     "package:public": "pnpm build:public && node scripts/package-extension.mjs",
     "release:check": "node scripts/check-release-consistency.mjs",
     "preview": "vite preview",
