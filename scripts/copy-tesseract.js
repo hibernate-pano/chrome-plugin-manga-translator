@@ -14,12 +14,23 @@ if (!fs.existsSync(targetDir)) {
 }
 
 // 待拷贝文件映射：[源文件路径（相对于 node_modules）, 目标文件名]
+//
+// Only the SIMD core pair is copied. `text-detector.ts` passes an explicit
+// `corePath` ending in `.js`, and tesseract.js's worker uses such a path
+// verbatim instead of auto-selecting a variant. That makes the non-SIMD
+// (`tesseract-core-lstm.*`) and the non-LSTM variants unreachable, and they
+// were 6.8 MB of dead weight in every package. SHA-256 of the payload is not
+// affected because these files ship as-is.
 const filesToCopy = [
   ['tesseract.js/dist/worker.min.js', 'worker.min.js'],
-  ['tesseract.js-core/tesseract-core-simd-lstm.wasm.js', 'tesseract-core-simd-lstm.wasm.js'],
-  ['tesseract.js-core/tesseract-core-simd-lstm.wasm', 'tesseract-core-simd-lstm.wasm'],
-  ['tesseract.js-core/tesseract-core-lstm.wasm.js', 'tesseract-core-lstm.wasm.js'],
-  ['tesseract.js-core/tesseract-core-lstm.wasm', 'tesseract-core-lstm.wasm']
+  [
+    'tesseract.js-core/tesseract-core-simd-lstm.wasm.js',
+    'tesseract-core-simd-lstm.wasm.js',
+  ],
+  [
+    'tesseract.js-core/tesseract-core-simd-lstm.wasm',
+    'tesseract-core-simd-lstm.wasm',
+  ],
 ];
 
 // eslint-disable-next-line no-console

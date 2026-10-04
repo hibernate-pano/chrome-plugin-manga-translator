@@ -1,0 +1,12 @@
+#!/usr/bin/env sh
+#
+# `.husky/` shipped with only the `_/` helper directory and no hook files, so
+# `core.hooksPath=.husky` pointed at nothing and the `lint-staged` config in
+# package.json never ran. That is why the tree had drifted 39 files away from
+# its own Prettier config.
+#
+# Keep this hook fast: format and lint only what is staged. Full
+# type-check/build/test belong to CI.
+. "$(dirname "$0")/_/husky.sh"
+
+pnpm exec lint-staged

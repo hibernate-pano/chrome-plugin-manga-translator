@@ -34,8 +34,16 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      # CLAUDE.md mandates these must pass before merge.
+      # AGENTS.md mandates these must pass before merge.
       # lint:strict uses --max-warnings 0; any new warning fails CI.
+      #
+      # Formatting is checked in CI as well as in the pre-commit hook: the
+      # hook only runs for contributors who have it installed, and the tree
+      # had previously drifted 39 files away from its own Prettier config
+      # without anything noticing.
+      - name: Format check
+        run: pnpm format:check
+
       - name: Lint (strict)
         run: pnpm lint:strict
 
@@ -47,6 +55,18 @@ jobs:
 
       - name: Build
         run: pnpm build
+
+      # The content script is injected into every page, so its size is a
+      # user-visible cost. `check-release-consistency` enforces the budget and
+      # fails the build if it is exceeded.
+      - name: Verify release consistency and size budget
+        run: pnpm release:check
+
+      # The artifact below is uploaded from this job. Scanning the emitted
+      # bundle means a credential cannot ride along even if a runner ever has
+      # a populated .env.
+      - name: Scan built bundle for embedded credentials
+        run: node scripts/check-public-build.mjs
 
       - name: Upload dist artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

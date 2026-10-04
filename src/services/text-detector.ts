@@ -102,8 +102,20 @@ async function getWorker(languages: string[]): Promise<Worker> {
     workerOptions['corePath'] = chrome.runtime.getURL(
       'tesseract/tesseract-core-simd-lstm.wasm.js'
     );
-    workerOptions['langPath'] =
-      'https://npm.elemecdn.com/@tesseract.js/langs/dist/';
+    // `langPath` is deliberately NOT set.
+    //
+    // It used to point at npm.elemecdn.com, an unofficial third-party npm
+    // mirror. That is a supply-chain dependency on infrastructure this project
+    // does not control, it is an undisclosed third-party request in a
+    // local-first product, and it fails outright wherever that host is
+    // unreachable. Leaving it unset makes tesseract.js use its own canonical
+    // data source (the @tesseract.js-data package on jsdelivr), which is what
+    // every other tesseract.js integration uses and what the library
+    // maintains.
+    //
+    // The OCR path is a fallback, not the default pipeline, so this download
+    // only happens when a page needs it. It is disclosed in
+    // docs/privacy-policy.md.
     workerOptions['workerBlobURL'] = false;
   }
 

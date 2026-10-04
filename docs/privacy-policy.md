@@ -54,6 +54,21 @@ The extension integrates with third-party Vision LLM providers. When you configu
 
 You are responsible for reviewing the privacy policies of any third-party API providers you choose to use.
 
+## OCR Language Data
+
+The extension ships its OCR engine locally. When the OCR fallback path is used
+— only for pages where the configured vision model returns no text, or when the
+user selects the OCR-assisted pipeline — Tesseract downloads the language model
+(`.traineddata`) for the languages being detected from the official
+`@tesseract.js-data` package on jsdelivr.
+
+- No image content, page content, or user data is included in that request.
+- The request is a plain download of a public language model file.
+- The download is cached by the browser after the first use.
+
+This is the only network request the extension makes that is not directed at
+the vision provider you configure.
+
 ## No Analytics or Tracking
 
 This extension contains **no analytics, no tracking scripts, no telemetry, and no crash reporting**. There are no third-party SDKs for analytics or advertising. The extension does not use cookies or any form of user tracking.
