@@ -169,7 +169,8 @@ For store submission and final smoke testing, see
 
 | Version | Status | Highlights |
 |---|---|---|
-| v1.3.3 | current | Reliable long-strip tiling, safe public builds, editable providers |
+| v2.0.0 | current | Opt-in per-site auto-translation, config storage loop fixed, guarded image proxy, 65% smaller content script, enforced quality gates |
+| v1.3.3 | shipped | Reliable long-strip tiling, safe public builds, editable providers |
 | v1.3.2 | shipped | Tiled result caching |
 | v1.3.1 | shipped | Parallel tile translation |
 | v1.3.0 | shipped | Auto-degradation, Korean-aware prompts |

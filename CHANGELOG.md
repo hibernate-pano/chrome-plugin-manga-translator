@@ -5,21 +5,28 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [2.0.0] - 2026-10-05
 
-Reliability, security and build-integrity work. No version bump yet — cutting a
-release is a separate decision, and `scripts/check-release-consistency.mjs`
-requires `package.json` and `manifest.json` to move together.
+Reliability, security and build-integrity work.
+
+### BREAKING
+
+- **Automatic page translation is off by default and opt-in per site.** In
+  1.3.x, turning the extension on translated every navigation in every tab. From
+  2.0.0 a page is only translated unprompted when its host is on the new
+  `autoTranslateHosts` allowlist (empty by default). Existing users who relied on
+  automatic translation must re-add their manga/webtoon sites — from the popup
+  ("auto translate this site") or the Options page. Manual translation (popup
+  button, context menu) is unchanged and still works on any site. This is the
+  reason for the major bump: it is a user-visible behaviour change.
 
 ### Security
 
-- **Automatic page translation is now opt-in per site.** Enabling the extension
-  used to translate every navigation in every tab (`<all_urls>` host permission,
-  no site control), sending large images from banking, webmail and intranet
-  pages to the configured provider and billing for them. A new
-  `autoTranslateHosts` allowlist (empty by default) gates both auto-translate
-  entry points; manual actions still work anywhere. Managed from the popup and
-  the Options page.
+- The `autoTranslateHosts` allowlist (see BREAKING) gates both auto-translate
+  entry points — `tabs.onUpdated` and the content script's `READY` — through a
+  single `shouldAutoTranslatePage(config, url)` check with boundary-aware host
+  matching (`example.com` does not match `notexample.com`). Previously both paths
+  fired on the master switch alone, with `<all_urls>` and no site control.
 - **The background image proxy is no longer an open fetcher.** Requests are now
   sender-scoped (extension pages refused, cross-origin limited to image-shaped
   URLs), private address ranges are blocked (including CGNAT, `0.x`, `224+`,
