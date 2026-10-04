@@ -251,7 +251,6 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
     (isRecord(state.ollama)
       ? (state.ollama as Partial<ProviderSettings>)
       : null) ?? getRecordEntry(providersRecord, 'ollama');
-  void ollamaSource; // v1.1.1: Ollama is fully env-driven; source is intentionally ignored.
 
   const lmStudioSource =
     (isRecord(state.lmStudio)

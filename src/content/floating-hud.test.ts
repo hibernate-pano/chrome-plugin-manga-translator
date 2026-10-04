@@ -69,7 +69,12 @@ describe('FloatingHud', () => {
     });
 
     it('有 currentImageIndex 时显示"第 N 张"格式', () => {
-      const state: HudState = { status: 'translating', current: 3, total: 10, currentImageIndex: 2 };
+      const state: HudState = {
+        status: 'translating',
+        current: 3,
+        total: 10,
+        currentImageIndex: 2,
+      };
       hud.update(state);
 
       const host = getHudHost() as HTMLElement;

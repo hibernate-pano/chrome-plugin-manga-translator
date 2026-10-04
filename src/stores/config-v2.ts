@@ -16,6 +16,7 @@ import {
   type TranslationStylePreset,
 } from '@/utils/translation-style';
 import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
+import { isConfigValueEqual, pickConfigFields } from '@/stores/config-equality';
 
 export interface ProviderSettings extends RuntimeProviderSettings {}
 
@@ -128,6 +129,39 @@ const LEGACY_OPENAI_COMPATIBLE_PROVIDER_KEYS: readonly string[] = [
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
+
+/**
+ * The persisted field whitelist.
+ *
+ * This single list is used for three things that must never drift apart:
+ *   1. what `partialize` writes,
+ *   2. what the storage-change listener compares,
+ *   3. what a trusted external write is allowed to overwrite.
+ *
+ * Keeping them separate is what allowed the v1.3.x write storm: `partialize`
+ * wrote 19 fields while the listener compared against all 42 runtime keys.
+ */
+export const PERSISTED_CONFIG_FIELDS = [
+  'enabled',
+  'provider',
+  'openaiCompatible',
+  'ollama',
+  'lmStudio',
+  'providers',
+  'targetLanguage',
+  'maxImageSize',
+  'parallelLimit',
+  'cacheEnabled',
+  'autoContinueEnabled',
+  'translationStylePreset',
+  'readingMode',
+  'renderMode',
+  'translationPipeline',
+  'regionBatchSize',
+  'fallbackToFullImage',
+  'overlayStyle',
+  'onboardingCompleted',
+] as const satisfies readonly (keyof AppConfigState)[];
 
 function pickLegacyProviderEntry(
   providersRecord: Record<string, unknown>,
@@ -557,46 +591,39 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
           ...settings,
           apiKey: settings.apiKey === buildDefaultKey ? '' : settings.apiKey,
         });
-        return {
-          enabled: state.enabled,
-          provider: state.provider,
-          openaiCompatible: serializeProvider(
-            state.openaiCompatible,
+        const snapshot: Record<string, unknown> = pickConfigFields(
+          state,
+          PERSISTED_CONFIG_FIELDS
+        );
+
+        snapshot['openaiCompatible'] = serializeProvider(
+          state.openaiCompatible,
+          DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
+        );
+        snapshot['ollama'] = serializeProvider(
+          state.ollama,
+          DEFAULT_OLLAMA_CONFIG.apiKey
+        );
+        snapshot['lmStudio'] = serializeProvider(
+          state.lmStudio,
+          DEFAULT_LM_STUDIO_CONFIG.apiKey
+        );
+        snapshot['providers'] = {
+          'openai-compatible': serializeProvider(
+            state.providers['openai-compatible'],
             DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
           ),
-          ollama: serializeProvider(state.ollama, DEFAULT_OLLAMA_CONFIG.apiKey),
-          lmStudio: serializeProvider(
-            state.lmStudio,
+          ollama: serializeProvider(
+            state.providers.ollama,
+            DEFAULT_OLLAMA_CONFIG.apiKey
+          ),
+          'lm-studio': serializeProvider(
+            state.providers['lm-studio'],
             DEFAULT_LM_STUDIO_CONFIG.apiKey
           ),
-          providers: {
-            'openai-compatible': serializeProvider(
-              state.providers['openai-compatible'],
-              DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
-            ),
-            ollama: serializeProvider(
-              state.providers.ollama,
-              DEFAULT_OLLAMA_CONFIG.apiKey
-            ),
-            'lm-studio': serializeProvider(
-              state.providers['lm-studio'],
-              DEFAULT_LM_STUDIO_CONFIG.apiKey
-            ),
-          },
-          targetLanguage: state.targetLanguage,
-          maxImageSize: state.maxImageSize,
-          parallelLimit: state.parallelLimit,
-          cacheEnabled: state.cacheEnabled,
-          autoContinueEnabled: state.autoContinueEnabled,
-          translationStylePreset: state.translationStylePreset,
-          readingMode: state.readingMode,
-          renderMode: state.renderMode,
-          translationPipeline: state.translationPipeline,
-          regionBatchSize: state.regionBatchSize,
-          fallbackToFullImage: state.fallbackToFullImage,
-          overlayStyle: state.overlayStyle,
-          onboardingCompleted: state.onboardingCompleted,
         };
+
+        return snapshot;
       },
     }
   )
@@ -627,12 +654,22 @@ export const useOverlayStyle = () =>
  * This handles cases where the background script writes to storage directly
  * (e.g. setConfig in background.ts) so the Options page reflects them.
  *
- * v1.1.1 fix: zustand persist also writes to chrome.storage on every state
- * change. Without a guard, this listener fires for our own writes too and
- * calls setState({...state, ...newState}) unconditionally — every call
- * produces fresh object references for nested fields, which triggers
- * re-renders for every subscriber, which can loop. We now bail out unless
- * at least one top-level field actually differs from current state.
+ * Three defects made this listener dangerous before v1.4.0:
+ *
+ * 1. It fired for our own `persist` writes and applied them unconditionally.
+ *    Because `partialize` rebuilds `providers` / `overlayStyle` on every call,
+ *    each application produced fresh references, which re-rendered every
+ *    subscriber, which wrote again: an unbounded storage write storm.
+ * 2. The guard compared *key counts* (19 persisted vs 42 runtime, since the
+ *    store also carries 23 actions), so it always reported "changed" and could
+ *    never break the loop.
+ * 3. The stored snapshot holds `obf:`-obfuscated API keys. Applying it
+ *    verbatim replaced the in-memory plaintext key with the obfuscated form,
+ *    which was then sent to the provider and always failed auth.
+ *
+ * The fix: compare by value over `PERSISTED_CONFIG_FIELDS` only, and
+ * deobfuscate before applying. A self-write therefore decodes back to exactly
+ * the current state and is a no-op.
  */
 let storageChangeListenerInitialized = false;
 
@@ -640,22 +677,16 @@ export function shallowChanged(
   candidate: Record<string, unknown>,
   current: Record<string, unknown>
 ): boolean {
-  // Different key sets?
-  const candidateKeys = Object.keys(candidate);
-  if (candidateKeys.length !== Object.keys(current).length) {
-    return true;
-  }
-  for (const key of candidateKeys) {
-    if (!Object.is(candidate[key], current[key])) {
-      // Object identity differs. For primitives this is a real change; for
-      // object references (e.g. providers) it's a reference change. We
-      // treat the latter conservatively as a change because the source
-      // (background migrateSettings / setConfig) only writes when it
-      // intends to.
-      return true;
-    }
-  }
-  return false;
+  // Compare only the persisted field set. Extra runtime keys (actions) must
+  // not influence the result, and persisted keys the candidate omits are
+  // ignored so a partial external write cannot blank unrelated settings.
+  const projectedCandidate = pickConfigFields(
+    candidate,
+    PERSISTED_CONFIG_FIELDS
+  );
+  const projectedCurrent = pickConfigFields(current, PERSISTED_CONFIG_FIELDS);
+
+  return !isConfigValueEqual(projectedCandidate, projectedCurrent);
 }
 
 function setupStorageChangeListener(): void {
@@ -677,10 +708,15 @@ function setupStorageChangeListener(): void {
       if (!newValue) {
         return;
       }
-      const candidate =
-        isRecord(newValue) && isRecord(newValue['state'])
+
+      const candidate: Record<string, unknown> = {
+        ...(isRecord(newValue) && isRecord(newValue['state'])
           ? (newValue['state'] as Record<string, unknown>)
-          : (newValue as Record<string, unknown>);
+          : (newValue as Record<string, unknown>)),
+      };
+
+      // Storage holds obfuscated keys; memory state must stay plaintext.
+      deobfuscateAllApiKeys(candidate);
 
       const current = useAppConfigStore.getState() as unknown as Record<
         string,
@@ -690,10 +726,10 @@ function setupStorageChangeListener(): void {
         return;
       }
 
-      useAppConfigStore.setState(state => ({
-        ...state,
-        ...candidate,
-      }));
+      // Apply only whitelisted fields so an unexpected key in storage can
+      // never inject actions or overwrite internals.
+      const trustedPatch = pickConfigFields(candidate, PERSISTED_CONFIG_FIELDS);
+      useAppConfigStore.setState(state => ({ ...state, ...trustedPatch }));
     });
   }
 }

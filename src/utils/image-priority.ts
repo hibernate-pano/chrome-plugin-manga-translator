@@ -178,7 +178,8 @@ export async function processInParallel<T, R>(
   processor: (item: T, index: number) => Promise<R>,
   options: ParallelProcessingOptions
 ): Promise<R[]> {
-  const { maxConcurrent, onItemStart, onItemComplete, onError, signal } = options;
+  const { maxConcurrent, onItemStart, onItemComplete, onError, signal } =
+    options;
   const results: R[] = new Array(items.length);
   let currentIndex = 0;
   let completedCount = 0;

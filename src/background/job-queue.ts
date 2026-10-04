@@ -39,7 +39,7 @@ export class BackgroundJobQueue {
       promise: Promise<unknown>;
     }
   >();
-  
+
   // Rate limiting variables
   private lastRequestTime = 0;
   private readonly minIntervalMs: number;

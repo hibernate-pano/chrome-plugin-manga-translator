@@ -37,16 +37,16 @@ export const ENV_CONFIG: EnvConfig = GENERATED;
 export function hasMinimaxCredentials(): boolean {
   return Boolean(
     ENV_CONFIG.minimax.apiKey &&
-      ENV_CONFIG.minimax.baseUrl &&
-      ENV_CONFIG.minimax.model
+    ENV_CONFIG.minimax.baseUrl &&
+    ENV_CONFIG.minimax.model
   );
 }
 
 export function hasOpencodeCredentials(): boolean {
   return Boolean(
     ENV_CONFIG.opencode.apiKey &&
-      ENV_CONFIG.opencode.baseUrl &&
-      ENV_CONFIG.opencode.model
+    ENV_CONFIG.opencode.baseUrl &&
+    ENV_CONFIG.opencode.model
   );
 }
 

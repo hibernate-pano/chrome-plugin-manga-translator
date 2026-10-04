@@ -11,8 +11,14 @@ describe('OverlayRenderer adaptive layout', () => {
     `;
 
     const img = document.getElementById('manga-image') as HTMLImageElement;
-    Object.defineProperty(img, 'offsetWidth', { configurable: true, value: 720 });
-    Object.defineProperty(img, 'offsetHeight', { configurable: true, value: 1000 });
+    Object.defineProperty(img, 'offsetWidth', {
+      configurable: true,
+      value: 720,
+    });
+    Object.defineProperty(img, 'offsetHeight', {
+      configurable: true,
+      value: 1000,
+    });
 
     const renderer = new OverlayRenderer();
     const textAreas: TextArea[] = [
@@ -28,7 +34,9 @@ describe('OverlayRenderer adaptive layout', () => {
 
     renderer.render(img, textAreas, true);
 
-    const overlay = document.querySelector('.manga-translator-overlay') as HTMLElement;
+    const overlay = document.querySelector(
+      '.manga-translator-overlay'
+    ) as HTMLElement;
     expect(parseFloat(overlay.style.width)).toBeLessThan(360);
     expect(parseFloat(overlay.style.height)).toBeLessThan(200);
     expect(overlay.style.whiteSpace).toBe('pre-wrap');

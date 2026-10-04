@@ -41,7 +41,10 @@ describe('LMStudioProvider', () => {
       await provider.initialize({ baseUrl: 'http://localhost:1234/v1' });
       const result = await provider.checkHealth();
 
-      expect(global.fetch).toHaveBeenCalledWith('http://localhost:1234/v1/models', expect.any(Object));
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:1234/v1/models',
+        expect.any(Object)
+      );
       expect(result).toEqual({
         healthy: true,
         message: 'LM Studio 服务运行正常',
@@ -91,17 +94,16 @@ describe('LMStudioProvider', () => {
       vi.mocked(global.fetch).mockResolvedValue({
         ok: true,
         json: async () => ({
-          data: [
-            { id: 'model-a' },
-            { id: 'model-b' },
-          ],
+          data: [{ id: 'model-a' }, { id: 'model-b' }],
         }),
       } as Response);
 
       await provider.initialize({ baseUrl: 'http://localhost:1234/v1' });
       const models = await provider.getAvailableModels();
 
-      expect(global.fetch).toHaveBeenCalledWith('http://localhost:1234/v1/models');
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://localhost:1234/v1/models'
+      );
       expect(models).toEqual(['model-a', 'model-b']);
     });
 
@@ -129,7 +131,10 @@ describe('LMStudioProvider', () => {
           }),
         } as Response); // getAvailableModels
 
-      await provider.initialize({ baseUrl: 'http://localhost:1234/v1', model: 'model-a' });
+      await provider.initialize({
+        baseUrl: 'http://localhost:1234/v1',
+        model: 'model-a',
+      });
       const result = await provider.validateConfig();
 
       expect(result.valid).toBe(true);
@@ -151,7 +156,8 @@ describe('LMStudioProvider', () => {
   });
 
   describe('analyzeAndTranslate', () => {
-    const base64Image = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const base64Image =
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
 
     it('should call httpRequest with proper payload and parse response', async () => {
       vi.mocked(httpRequest).mockResolvedValue({

@@ -25,7 +25,7 @@ vi.mock('tesseract.js', () => {
             bbox: { x0: 400, y0: 500, x1: 500, y1: 600 },
             text: 'LowConf',
             confidence: 10,
-          }
+          },
         ],
       },
     }),
@@ -82,7 +82,14 @@ describe('text-detector', () => {
       const regions = [
         { x: 10, y: 10, width: 20, height: 20, text: 'Hello', confidence: 0.9 },
         { x: 15, y: 15, width: 20, height: 20, text: 'World', confidence: 0.8 },
-        { x: 100, y: 100, width: 30, height: 30, text: 'Unrelated', confidence: 0.9 },
+        {
+          x: 100,
+          y: 100,
+          width: 30,
+          height: 30,
+          text: 'Unrelated',
+          confidence: 0.9,
+        },
       ];
 
       const merged = mergeOverlappingRegions(regions, 0.1);

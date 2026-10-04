@@ -60,7 +60,8 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
     request: TranslationTransportRequest
   ): Promise<TranslationTransportResponse> {
     const requestedPath = this.resolveRequestedPath(request);
-    const pageKey = request.pageKey || request.imageUrl || request.imageKey || 'inline-image';
+    const pageKey =
+      request.pageKey || request.imageUrl || request.imageKey || 'inline-image';
 
     const response = this.normalizeJobResponse(
       (await chrome.runtime.sendMessage({

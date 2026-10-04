@@ -80,11 +80,7 @@ describe('content page translation settings', () => {
 describe('content handleMessage routing', () => {
   it('GET_STATE returns the current ContentState', () => {
     const sendResponse = vi.fn();
-    handleMessage(
-      { type: 'GET_STATE' },
-      makeSender(),
-      sendResponse
-    );
+    handleMessage({ type: 'GET_STATE' }, makeSender(), sendResponse);
 
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({ success: true, state: expect.any(Object) })
@@ -94,11 +90,7 @@ describe('content handleMessage routing', () => {
   it('CANCEL_TRANSLATION returns success without throwing', () => {
     const sendResponse = vi.fn();
     expect(() =>
-      handleMessage(
-        { type: 'CANCEL_TRANSLATION' },
-        makeSender(),
-        sendResponse
-      )
+      handleMessage({ type: 'CANCEL_TRANSLATION' }, makeSender(), sendResponse)
     ).not.toThrow();
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
   });
@@ -106,11 +98,7 @@ describe('content handleMessage routing', () => {
   it('CLEAR_ALL returns success without throwing', () => {
     const sendResponse = vi.fn();
     expect(() =>
-      handleMessage(
-        { type: 'CLEAR_ALL' },
-        makeSender(),
-        sendResponse
-      )
+      handleMessage({ type: 'CLEAR_ALL' }, makeSender(), sendResponse)
     ).not.toThrow();
     expect(sendResponse).toHaveBeenCalledWith({ success: true });
   });

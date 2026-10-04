@@ -69,7 +69,8 @@ const HOVER_HIDE_DELAY = 120; // delay hide on mouseleave to prevent rapid toggl
 const DEFAULT_STYLE: OverlayStyle = {
   backgroundColor: 'rgba(240, 240, 235, 0.94)',
   textColor: '#111111',
-  fontFamily: '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif',
+  fontFamily:
+    '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif',
   borderRadius: 6,
   padding: 7,
   minFontSize: 10,
@@ -88,7 +89,8 @@ export const DEFAULT_OVERLAY_STYLE_CONFIG: OverlayStyleConfig = {
 // ==================== Utility Functions ====================
 
 // 全角字符正则表达式：涵盖汉字、日文平假名/片假名、韩文音节、全角标点符号等，实现更精准的多语言宽度估算
-const FULL_WIDTH_REGEX = /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f]/g;
+const FULL_WIDTH_REGEX =
+  /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f]/g;
 
 /**
  * 计算最优字体大小（感知中文字符宽度）
@@ -111,9 +113,10 @@ export function calculateFontSize(
   const effectiveLength = fullWidthCount * 2 + asciiCount;
 
   // 估算单行最大字体：宽度优先
-  const fontByWidth = effectiveLength > 0
-    ? Math.floor(availWidth / (effectiveLength / 2))
-    : availHeight;
+  const fontByWidth =
+    effectiveLength > 0
+      ? Math.floor(availWidth / (effectiveLength / 2))
+      : availHeight;
 
   // 高度限制：单行场景
   const fontByHeight = Math.floor(availHeight * 0.7);
@@ -246,7 +249,12 @@ function computeAdaptiveOverlayLayout(
   // 引入 5% 的排版折行安全宽度缓冲区，以克服浏览器不同渲染引擎在文字排版上的像素级计算误差
   const safeContentWidth = Math.max((maxWidth - style.padding * 2) * 0.95, 1);
 
-  let fontSize = calculateFontSize(maxWidth, maxHeight, area.translatedText, style);
+  let fontSize = calculateFontSize(
+    maxWidth,
+    maxHeight,
+    area.translatedText,
+    style
+  );
   let lines = wrapTextToWidth(
     area.translatedText,
     safeContentWidth,
@@ -263,14 +271,19 @@ function computeAdaptiveOverlayLayout(
     );
     const lineHeight = fontSize * 1.3;
     const textHeight = lines.length * lineHeight + style.padding * 2;
-    const textWidth = Math.max(
-      ...lines.map(line => measureTextWidth(line, fontSize, style)),
-      fontSize
-    ) + style.padding * 2;
+    const textWidth =
+      Math.max(
+        ...lines.map(line => measureTextWidth(line, fontSize, style)),
+        fontSize
+      ) +
+      style.padding * 2;
 
     if (textHeight <= maxHeight && textWidth <= maxWidth) {
       const minimumWidth = Math.min(maxWidth, Math.max(fontSize * 2.4, 48));
-      const minimumHeight = Math.min(maxHeight, Math.max(lineHeight + style.padding * 2, 28));
+      const minimumHeight = Math.min(
+        maxHeight,
+        Math.max(lineHeight + style.padding * 2, 28)
+      );
       const width = Math.min(
         maxWidth,
         Math.max(textWidth + visualPaddingX, minimumWidth)
@@ -321,7 +334,10 @@ function computeAdaptiveOverlayLayout(
   );
   const width = Math.min(
     maxWidth,
-    Math.max(textWidth + visualPaddingX, Math.min(maxWidth, Math.max(style.minFontSize * 2.4, 48)))
+    Math.max(
+      textWidth + visualPaddingX,
+      Math.min(maxWidth, Math.max(style.minFontSize * 2.4, 48))
+    )
   );
   const height = Math.min(
     maxHeight,
@@ -532,7 +548,10 @@ export class OverlayRenderer {
   private style: OverlayStyle;
   private renderedOverlays: Map<HTMLImageElement, RenderedOverlay> = new Map();
   // Hover debounce timers - keyed by image element
-  private hoverTimers: Map<HTMLImageElement, ReturnType<typeof setTimeout> | null> = new Map();
+  private hoverTimers: Map<
+    HTMLImageElement,
+    ReturnType<typeof setTimeout> | null
+  > = new Map();
 
   constructor(style: Partial<OverlayStyle> = {}) {
     this.style = { ...DEFAULT_STYLE, ...style };
@@ -542,7 +561,11 @@ export class OverlayRenderer {
   /**
    * Render translation overlays on an image
    */
-  render(image: HTMLImageElement, textAreas: TextArea[], autoPinned = false): HTMLElement {
+  render(
+    image: HTMLImageElement,
+    textAreas: TextArea[],
+    autoPinned = false
+  ): HTMLElement {
     // Remove existing overlays for this image
     this.remove(image);
 
@@ -749,47 +772,51 @@ export class OverlayRenderer {
   ): void {
     const spacing = 4;
     const maxIterations = 3; // 采用迭代松弛法，上限 3 次以防止多重重叠场景无法收敛，确保性能无感
-    
+
     for (let iter = 0; iter < maxIterations; iter++) {
       let hasCollision = false;
-      
+
       for (let i = 0; i < overlays.length; i++) {
         const current = overlays[i];
         if (!current) continue;
-        
+
         let currentRect = getStyledRect(current);
-        
+
         for (let j = 0; j < overlays.length; j++) {
           if (i === j) continue;
           const other = overlays[j];
           if (!other) continue;
-          
+
           const otherRect = getStyledRect(other);
           if (!overlaps(currentRect, otherRect)) {
             continue;
           }
-          
+
           hasCollision = true;
-          
+
           // 计算 X 和 Y 轴上的重叠像素值
-          const overlapX = Math.min(currentRect.right, otherRect.right) - Math.max(currentRect.left, otherRect.left);
-          const overlapY = Math.min(currentRect.bottom, otherRect.bottom) - Math.max(currentRect.top, otherRect.top);
-          
+          const overlapX =
+            Math.min(currentRect.right, otherRect.right) -
+            Math.max(currentRect.left, otherRect.left);
+          const overlapY =
+            Math.min(currentRect.bottom, otherRect.bottom) -
+            Math.max(currentRect.top, otherRect.top);
+
           if (overlapX <= 0 || overlapY <= 0) continue;
-          
+
           // 计算两翻译文本块的几何中心，决定避让反推的方向
           const currentCenter = {
             x: currentRect.left + currentRect.width / 2,
-            y: currentRect.top + currentRect.height / 2
+            y: currentRect.top + currentRect.height / 2,
           };
           const otherCenter = {
             x: otherRect.left + otherRect.width / 2,
-            y: otherRect.top + otherRect.height / 2
+            y: otherRect.top + otherRect.height / 2,
           };
-          
+
           let dx = 0;
           let dy = 0;
-          
+
           // 选择重叠度最小的维度轴线进行移动（最少干扰避让）
           if (overlapX < overlapY) {
             // 水平重叠较小，做左右推移
@@ -800,19 +827,25 @@ export class OverlayRenderer {
             const direction = currentCenter.y >= otherCenter.y ? 1 : -1;
             dy = direction * (overlapY + spacing);
           }
-          
+
           // 将避让后的坐标裁剪限制在原图片画布矩形内部
-          const newLeft = Math.max(0, Math.min(imageWidth - currentRect.width, currentRect.left + dx));
-          const newTop = Math.max(0, Math.min(imageHeight - currentRect.height, currentRect.top + dy));
-          
+          const newLeft = Math.max(
+            0,
+            Math.min(imageWidth - currentRect.width, currentRect.left + dx)
+          );
+          const newTop = Math.max(
+            0,
+            Math.min(imageHeight - currentRect.height, currentRect.top + dy)
+          );
+
           current.style.left = `${newLeft}px`;
           current.style.top = `${newTop}px`;
-          
+
           // 更新临时包围盒位置，使后续碰撞检测链路基于新避让位置执行
           currentRect = getStyledRect(current);
         }
       }
-      
+
       // 如果本轮没有触发任何重合，意味着所有的碰撞已被完全消解，可提前退出
       if (!hasCollision) {
         break;

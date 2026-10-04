@@ -84,7 +84,9 @@ export class ReadingPanel {
     this.root = this.shadow.getElementById('root') as HTMLElement;
     this.header = this.shadow.getElementById('header') as HTMLElement;
     this.list = this.shadow.getElementById('list') as HTMLElement;
-    this.collapseBtn = this.shadow.getElementById('collapse-btn') as HTMLButtonElement;
+    this.collapseBtn = this.shadow.getElementById(
+      'collapse-btn'
+    ) as HTMLButtonElement;
 
     const empty = this.shadow.getElementById('empty') as HTMLElement;
     this.collapseBtn.addEventListener('click', () => this.toggleCollapsed());

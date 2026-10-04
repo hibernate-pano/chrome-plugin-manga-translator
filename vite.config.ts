@@ -33,6 +33,13 @@ function contentScriptRebundler(): Plugin {
         outfile: contentPath,
         allowOverwrite: true,
         format: 'esm',
+        // The Vite build minifies each chunk separately, but those chunks are
+        // still emitted as separate modules; this step inlines them into one
+        // file, which creates a fresh opportunity for dead code and repeated
+        // syntax to collapse. Minifying here cut the content script from
+        // ~366 KB to ~135 KB.
+        minify: true,
+        target: 'es2020',
         logLevel: 'info',
       });
     },
@@ -90,7 +97,13 @@ export default defineConfig({
         assetFileNames: 'assets/[name]-[hash].[ext]',
         manualChunks: {
           // 将React相关库分离到单独的chunk（popup/options 受益于代码分割）
-          'react-vendor': ['react', 'react-dom'],
+          // react and react-dom must stay in SEPARATE chunks. The content
+          // script pulls in `react` transitively (zustand), but never
+          // react-dom. Sharing one chunk made the post-build rebundler inline
+          // all of react-dom into content.js — roughly 110 KB of DOM
+          // renderer the content script never calls.
+          'react-vendor': ['react'],
+          'react-dom-vendor': ['react-dom', 'react-dom/client'],
           'state-vendor': ['zustand'],
           'utils-vendor': ['clsx', 'class-variance-authority'],
         },

@@ -19,7 +19,8 @@ export function obfuscateApiKey(key: string): string {
 
     let hex = '';
     for (let i = 0; i < latin1Key.length; i++) {
-      const charCode = latin1Key.charCodeAt(i) ^ SALT.charCodeAt(i % SALT.length);
+      const charCode =
+        latin1Key.charCodeAt(i) ^ SALT.charCodeAt(i % SALT.length);
       hex += charCode.toString(16).padStart(2, '0');
     }
 
@@ -42,7 +43,8 @@ export function deobfuscateApiKey(obfuscatedKey: string): string {
     let latin1Key = '';
     for (let i = 0; i < hex.length; i += 2) {
       const charHex = hex.substring(i, i + 2);
-      const charCode = parseInt(charHex, 16) ^ SALT.charCodeAt((i / 2) % SALT.length);
+      const charCode =
+        parseInt(charHex, 16) ^ SALT.charCodeAt((i / 2) % SALT.length);
       latin1Key += String.fromCharCode(charCode);
     }
 
@@ -81,7 +83,11 @@ export function processAllApiKeys(
     const value = obj[key];
     if (SENSITIVE_KEYS.has(key) && typeof value === 'string') {
       obj[key] = processFn(value);
-    } else if (typeof value === 'object' && value !== null && !Array.isArray(value)) {
+    } else if (
+      typeof value === 'object' &&
+      value !== null &&
+      !Array.isArray(value)
+    ) {
       processAllApiKeys(value as Record<string, unknown>, processFn);
     }
   }
@@ -100,5 +106,3 @@ export function obfuscateAllApiKeys(config: Record<string, unknown>): void {
 export function deobfuscateAllApiKeys(config: Record<string, unknown>): void {
   processAllApiKeys(config, deobfuscateApiKey);
 }
-
-

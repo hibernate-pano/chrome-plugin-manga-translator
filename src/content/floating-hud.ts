@@ -213,9 +213,13 @@ export class FloatingHud {
           <div class="hud-card hud-card--error">
             <div class="hud-title">翻译出错</div>
             <div class="hud-message">${escapeHtml(state.message)}</div>
-            ${state.suggestion ? `
+            ${
+              state.suggestion
+                ? `
               <div class="hud-suggestion">${escapeHtml(state.suggestion)}</div>
-            ` : ''}
+            `
+                : ''
+            }
             ${
               state.action
                 ? `<button id="error-action-btn" class="hud-action" data-action-type="${state.action.type}"${state.action.command ? ` data-action-command="${escapeHtml(state.action.command)}"` : ''}>${escapeHtml(state.action.label)}</button>`

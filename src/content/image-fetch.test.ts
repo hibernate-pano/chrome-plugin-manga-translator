@@ -5,10 +5,7 @@ import {
   shouldRetryWithPageImageFetch,
 } from './image-fetch';
 
-function createBinaryResponse(
-  bytes: number[],
-  mimeType: string
-): Response {
+function createBinaryResponse(bytes: number[], mimeType: string): Response {
   return {
     ok: true,
     status: 200,

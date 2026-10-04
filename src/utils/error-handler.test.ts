@@ -1,9 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  parseTranslationError,
-  TranslationErrorCode,
-} from './error-handler';
+import { parseTranslationError, TranslationErrorCode } from './error-handler';
 
 describe('parseTranslationError', () => {
   it('keeps original message for unknown errors', () => {
@@ -17,7 +14,9 @@ describe('parseTranslationError', () => {
   });
 
   it('maps chapter waiting timeout to timeout error', () => {
-    const result = parseTranslationError(new Error('章节图片未在预期时间内出现'));
+    const result = parseTranslationError(
+      new Error('章节图片未在预期时间内出现')
+    );
 
     expect(result.code).toBe(TranslationErrorCode.TIMEOUT_ERROR);
   });

@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
@@ -60,7 +66,9 @@ async function sendToContent(
 }
 
 const PopupApp: React.FC = () => {
-  const [contentState, setContentState] = useState<ContentState>({ status: 'idle' });
+  const [contentState, setContentState] = useState<ContentState>({
+    status: 'idle',
+  });
   const [isLoading, setIsLoading] = useState(true);
   const [pageAvailability, setPageAvailability] = useState<PageAvailability>({
     state: 'ready',
@@ -74,7 +82,9 @@ const PopupApp: React.FC = () => {
   const providers = useAppConfigStore(state => state.providers);
   const targetLanguage = useAppConfigStore(state => state.targetLanguage);
   const enabled = useAppConfigStore(state => state.enabled);
-  const isProviderConfigured = useAppConfigStore(state => state.isProviderConfigured);
+  const isProviderConfigured = useAppConfigStore(
+    state => state.isProviderConfigured
+  );
   const setProvider = useAppConfigStore(state => state.setProvider);
   const setTargetLanguage = useAppConfigStore(state => state.setTargetLanguage);
   const setEnabled = useAppConfigStore(state => state.setEnabled);
@@ -83,8 +93,8 @@ const PopupApp: React.FC = () => {
     provider === 'ollama'
       ? 'Ollama'
       : provider === 'lm-studio'
-      ? 'LM Studio'
-      : 'OpenAI-compatible';
+        ? 'LM Studio'
+        : 'OpenAI-compatible';
   const providerSettings = providers[provider];
   const isConfigured = isProviderConfigured(provider);
   const pathLabel =
@@ -141,11 +151,13 @@ const PopupApp: React.FC = () => {
       changeInfo: chrome.tabs.TabChangeInfo
     ) => {
       if (changeInfo.status === 'complete' || changeInfo.url) {
-        void chrome.tabs.query({ active: true, currentWindow: true }).then(([tab]) => {
-          if (tab?.id === tabId) {
-            void refreshPageStatus();
-          }
-        });
+        void chrome.tabs
+          .query({ active: true, currentWindow: true })
+          .then(([tab]) => {
+            if (tab?.id === tabId) {
+              void refreshPageStatus();
+            }
+          });
       }
     };
 
@@ -288,7 +300,9 @@ const PopupApp: React.FC = () => {
         <label className='flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-3'>
           <div>
             <div className='text-sm font-medium'>启用扩展</div>
-            <div className='text-xs text-slate-400'>页面加载后允许自动续翻新出现的图片</div>
+            <div className='text-xs text-slate-400'>
+              页面加载后允许自动续翻新出现的图片
+            </div>
           </div>
           <Switch
             checked={enabled}
@@ -314,7 +328,9 @@ const PopupApp: React.FC = () => {
                   onClick={() => {
                     if (provider === option.value) return;
                     setProvider(option.value);
-                    void chrome.runtime.sendMessage({ type: 'CONFIG_UPDATED' }).catch(() => undefined);
+                    void chrome.runtime
+                      .sendMessage({ type: 'CONFIG_UPDATED' })
+                      .catch(() => undefined);
                   }}
                   className={`rounded-lg border px-3 py-2 text-sm transition ${
                     active
@@ -378,7 +394,8 @@ const PopupApp: React.FC = () => {
         </div>
 
         <div className='space-y-2'>
-          {contentState.status === 'translating' || contentState.status === 'scanning' ? (
+          {contentState.status === 'translating' ||
+          contentState.status === 'scanning' ? (
             <button
               type='button'
               onClick={handleCancel}
@@ -409,7 +426,7 @@ const PopupApp: React.FC = () => {
                 <Trash2 className='h-4 w-4' />
                 彻底重置
               </button>
-              <div className='absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-200 opacity-0 shadow-xl pointer-events-none group-hover:opacity-100 transition-opacity z-10'>
+              <div className='pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-200 opacity-0 shadow-xl transition-opacity group-hover:opacity-100'>
                 清除所有覆盖层+缓存+状态
                 <div className='absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-800' />
               </div>
@@ -424,7 +441,7 @@ const PopupApp: React.FC = () => {
                 <RefreshCw className='h-4 w-4' />
                 强制重翻
               </button>
-              <div className='absolute bottom-full left-1/2 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-200 opacity-0 shadow-xl pointer-events-none group-hover:opacity-100 transition-opacity z-10'>
+              <div className='pointer-events-none absolute bottom-full left-1/2 z-10 mb-2 -translate-x-1/2 whitespace-nowrap rounded-lg border border-white/10 bg-slate-800 px-3 py-2 text-xs text-slate-200 opacity-0 shadow-xl transition-opacity group-hover:opacity-100'>
                 忽略缓存，重新翻译所有图片
                 <div className='absolute left-1/2 top-full -translate-x-1/2 border-4 border-transparent border-t-slate-800' />
               </div>

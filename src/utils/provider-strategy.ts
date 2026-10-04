@@ -27,7 +27,8 @@ const PROVIDER_STRATEGY: Record<ProviderType, ProviderStrategy> = {
     recommendation: '适合隐私优先或离线环境用户。',
     tradeoff: '本地自由度高，但模型和机器配置决定上限。',
     suggestedModel: 'llava',
-    fallbackAdvice: '本地效果不稳时，先换更强视觉模型，或改用 OpenAI-compatible 直连。',
+    fallbackAdvice:
+      '本地效果不稳时，先换更强视觉模型，或改用 OpenAI-compatible 直连。',
     speedLabel: '慢',
     qualityLabel: '中',
     costLabel: '本地',
@@ -37,19 +38,22 @@ const PROVIDER_STRATEGY: Record<ProviderType, ProviderStrategy> = {
     recommendation: '适合使用 LM Studio 进行本地部署，且追求隐私的用户。',
     tradeoff: '零服务商费用、零数据泄漏，但依赖本地 GPU 算力。',
     suggestedModel: 'llava',
-    fallbackAdvice: '建议使用带视觉能力的模型，若效果不佳可切至 OpenAI-compatible 尝试。',
+    fallbackAdvice:
+      '建议使用带视觉能力的模型，若效果不佳可切至 OpenAI-compatible 尝试。',
     speedLabel: '中',
     qualityLabel: '中高',
     costLabel: '本地',
   },
 };
 
-const PROVIDER_PRICING: Record<ProviderType, { input: number; output: number }> =
-  {
-    'openai-compatible': { input: 0.005, output: 0.015 },
-    ollama: { input: 0, output: 0 },
-    'lm-studio': { input: 0, output: 0 },
-  };
+const PROVIDER_PRICING: Record<
+  ProviderType,
+  { input: number; output: number }
+> = {
+  'openai-compatible': { input: 0.005, output: 0.015 },
+  ollama: { input: 0, output: 0 },
+  'lm-studio': { input: 0, output: 0 },
+};
 
 export function getProviderStrategy(provider: ProviderType): ProviderStrategy {
   return PROVIDER_STRATEGY[provider];

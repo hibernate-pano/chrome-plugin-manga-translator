@@ -31,7 +31,8 @@ export class LMStudioProvider extends OpenAICompatibleProvider {
     }
 
     const models = await this.getAvailableModels();
-    const activeModel = this.config.model || (models.length > 0 ? models[0] : '');
+    const activeModel =
+      this.config.model || (models.length > 0 ? models[0] : '');
 
     if (activeModel) {
       return {

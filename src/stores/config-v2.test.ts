@@ -9,30 +9,76 @@ describe('AppConfigStore', () => {
     useAppConfigStore.getState().resetToDefaults();
   });
 
-  // Regression for v1.1.1: chrome.storage.onChanged was firing for our own
-  // persist writes and unconditionally calling setState({...state, ...new}),
-  // which produced fresh object references for nested fields and triggered
-  // cascading re-renders (manifesting as the auto-enable switch flashing +
-  // page freeze). shallowChanged is the guard that breaks the feedback loop.
+  // Regression for v1.1.1 / v1.4.0: chrome.storage.onChanged fires for our own
+  // persist writes too. Comparing raw key counts or object references always
+  // reported "changed" (the snapshot has 19 fields, the runtime store 42),
+  // which produced an unbounded write storm and pushed `obf:`-obfuscated API
+  // keys back into memory. shallowChanged now compares by value, restricted to
+  // the persisted field whitelist.
   describe('shallowChanged (storage-change listener guard)', () => {
-    it('returns false when every top-level key is the same reference', () => {
-      const current = { a: 1, b: 'x', c: true };
-      expect(shallowChanged({ a: 1, b: 'x', c: true }, current)).toBe(false);
+    it('returns false when every persisted field holds the same value', () => {
+      const current = { enabled: true, targetLanguage: 'zh-CN' };
+      expect(
+        shallowChanged({ enabled: true, targetLanguage: 'zh-CN' }, current)
+      ).toBe(false);
     });
 
     it('returns true when a primitive differs', () => {
-      const current = { enabled: false };
-      expect(shallowChanged({ enabled: true }, current)).toBe(true);
+      expect(shallowChanged({ enabled: true }, { enabled: false })).toBe(true);
     });
 
-    it('returns true when the candidate has additional keys', () => {
-      const current = { a: 1 };
-      expect(shallowChanged({ a: 1, b: 2 }, current)).toBe(true);
+    it('returns false when nested values are equal but references differ', () => {
+      // This is the exact shape of a persist echo: same data, new objects.
+      const candidate = {
+        overlayStyle: {
+          backgroundColor: 'rgba(240, 240, 235, 0.94)',
+          textColor: '#111111',
+          minFontSize: 10,
+          maxFontSize: 22,
+          verticalText: false,
+        },
+      };
+      const current = {
+        overlayStyle: {
+          backgroundColor: 'rgba(240, 240, 235, 0.94)',
+          textColor: '#111111',
+          minFontSize: 10,
+          maxFontSize: 22,
+          verticalText: false,
+        },
+      };
+      expect(shallowChanged(candidate, current)).toBe(false);
     });
 
-    it('returns true when a nested object reference differs', () => {
-      const o = { x: 1 };
-      expect(shallowChanged({ o: { x: 1 } }, { o })).toBe(true);
+    it('returns true when a nested value actually differs', () => {
+      expect(
+        shallowChanged(
+          { overlayStyle: { minFontSize: 12 } },
+          { overlayStyle: { minFontSize: 10 } }
+        )
+      ).toBe(true);
+    });
+
+    it('ignores keys outside the persisted whitelist', () => {
+      // The runtime store carries ~23 action fields the snapshot never has.
+      // Those must not make every echo look like a change.
+      const candidate = { targetLanguage: 'zh-CN' };
+      const current = {
+        targetLanguage: 'zh-CN',
+        setEnabled: () => undefined,
+        resetToDefaults: () => undefined,
+      };
+      expect(shallowChanged(candidate, current)).toBe(false);
+    });
+
+    it('ignores unknown injected keys in the snapshot', () => {
+      const current = { targetLanguage: 'zh-CN' };
+      expect(
+        shallowChanged(
+          { targetLanguage: 'zh-CN', somethingInjected: 'x' },
+          current
+        )
+      ).toBe(false);
     });
   });
 

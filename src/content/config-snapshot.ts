@@ -18,7 +18,8 @@ export function extractPersistedConfigState(
 
 export function getEnabledFromConfig(config: unknown): boolean {
   const state = extractPersistedConfigState(config);
-  const enabled = typeof state['enabled'] === 'boolean' ? state['enabled'] : false;
+  const enabled =
+    typeof state['enabled'] === 'boolean' ? state['enabled'] : false;
   const autoContinueEnabled =
     typeof state['autoContinueEnabled'] === 'boolean'
       ? state['autoContinueEnabled']

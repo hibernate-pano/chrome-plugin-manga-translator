@@ -52,12 +52,7 @@ describe('computeTiles', () => {
 });
 
 describe('filterOverlapDuplicates', () => {
-  function area(
-    x: number,
-    y: number,
-    width: number,
-    height: number
-  ): TextArea {
+  function area(x: number, y: number, width: number, height: number): TextArea {
     return {
       x,
       y,

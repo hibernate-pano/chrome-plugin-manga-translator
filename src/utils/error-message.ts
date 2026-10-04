@@ -7,10 +7,7 @@ export function getErrorMessage(error: unknown): string {
     return error;
   }
 
-  if (
-    typeof DOMException !== 'undefined' &&
-    error instanceof DOMException
-  ) {
+  if (typeof DOMException !== 'undefined' && error instanceof DOMException) {
     return error.message || error.name;
   }
 

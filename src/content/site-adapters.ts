@@ -53,8 +53,7 @@ interface ChapterPageRecord {
   h?: number;
 }
 
-const MANHWAREAD_CHAPTER_PATTERN =
-  /^\/manhwa\/[^/]+\/chapter-[^/]+\/?$/;
+const MANHWAREAD_CHAPTER_PATTERN = /^\/manhwa\/[^/]+\/chapter-[^/]+\/?$/;
 
 function decodeChapterPages(encoded: string): ChapterPageRecord[] {
   try {
@@ -215,9 +214,7 @@ export function matchSiteAdapter(
   value: string | URL = window.location.href
 ): SiteAdapter | null {
   const url = typeof value === 'string' ? new URL(value) : value;
-  return MANHWAREAD_ADAPTER.matchesChapter(url)
-    ? MANHWAREAD_ADAPTER
-    : null;
+  return MANHWAREAD_ADAPTER.matchesChapter(url) ? MANHWAREAD_ADAPTER : null;
 }
 
 export function collectSiteCandidateImages(

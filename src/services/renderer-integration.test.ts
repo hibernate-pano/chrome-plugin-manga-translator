@@ -17,16 +17,33 @@ describe('OverlayRenderer Integration', () => {
   let renderer: OverlayRenderer;
   let container: HTMLDivElement;
 
-  const createMockImage = (id: string, width: number, height: number): HTMLImageElement => {
+  const createMockImage = (
+    id: string,
+    width: number,
+    height: number
+  ): HTMLImageElement => {
     const img = document.createElement('img');
     img.id = id;
-    img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    img.src =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     img.style.width = `${width}px`;
     img.style.height = `${height}px`;
-    Object.defineProperty(img, 'offsetWidth', { value: width, configurable: true });
-    Object.defineProperty(img, 'offsetHeight', { value: height, configurable: true });
-    Object.defineProperty(img, 'naturalWidth', { value: width, configurable: true });
-    Object.defineProperty(img, 'naturalHeight', { value: height, configurable: true });
+    Object.defineProperty(img, 'offsetWidth', {
+      value: width,
+      configurable: true,
+    });
+    Object.defineProperty(img, 'offsetHeight', {
+      value: height,
+      configurable: true,
+    });
+    Object.defineProperty(img, 'naturalWidth', {
+      value: width,
+      configurable: true,
+    });
+    Object.defineProperty(img, 'naturalHeight', {
+      value: height,
+      configurable: true,
+    });
     return img;
   };
 
@@ -73,9 +90,30 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'Hello', translatedText: '你好' },
-        { x: 0.5, y: 0.3, width: 0.2, height: 0.1, originalText: 'World', translatedText: '世界' },
-        { x: 0.2, y: 0.5, width: 0.4, height: 0.15, originalText: 'Test', translatedText: '测试' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'Hello',
+          translatedText: '你好',
+        },
+        {
+          x: 0.5,
+          y: 0.3,
+          width: 0.2,
+          height: 0.1,
+          originalText: 'World',
+          translatedText: '世界',
+        },
+        {
+          x: 0.2,
+          y: 0.5,
+          width: 0.4,
+          height: 0.15,
+          originalText: 'Test',
+          translatedText: '测试',
+        },
       ];
 
       renderer.render(img, textAreas, false);
@@ -90,11 +128,32 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas1: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'A', translatedText: '甲' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'A',
+          translatedText: '甲',
+        },
       ];
       const textAreas2: TextArea[] = [
-        { x: 0.2, y: 0.2, width: 0.4, height: 0.15, originalText: 'B', translatedText: '乙' },
-        { x: 0.3, y: 0.3, width: 0.3, height: 0.1, originalText: 'C', translatedText: '丙' },
+        {
+          x: 0.2,
+          y: 0.2,
+          width: 0.4,
+          height: 0.15,
+          originalText: 'B',
+          translatedText: '乙',
+        },
+        {
+          x: 0.3,
+          y: 0.3,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'C',
+          translatedText: '丙',
+        },
       ];
 
       renderer.render(img, textAreas1, false);
@@ -114,7 +173,14 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'Hello', translatedText: '你好' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'Hello',
+          translatedText: '你好',
+        },
       ];
 
       const wrapper = renderer.render(img, textAreas, true);
@@ -127,18 +193,32 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'Hello', translatedText: '你好' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'Hello',
+          translatedText: '你好',
+        },
       ];
 
       renderer.render(img, textAreas, true);
 
       const _overlay = container.querySelector('.manga-translator-overlay');
-      const overlayContainer = container.querySelector('.manga-translator-overlay-container') as HTMLElement;
-      const wrapper = container.querySelector('.manga-translator-wrapper') as HTMLElement;
+      const overlayContainer = container.querySelector(
+        '.manga-translator-overlay-container'
+      ) as HTMLElement;
+      const wrapper = container.querySelector(
+        '.manga-translator-wrapper'
+      ) as HTMLElement;
 
       // Auto-pinned means overlay container should be visible (opacity: 1)
       // Check via computed styles or wrapper class
-      expect(overlayContainer.style.opacity !== '0' || wrapper.classList.contains('manga-translator-pinned')).toBeTruthy();
+      expect(
+        overlayContainer.style.opacity !== '0' ||
+          wrapper.classList.contains('manga-translator-pinned')
+      ).toBeTruthy();
     });
   });
 
@@ -148,7 +228,14 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'Hello', translatedText: '你好' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'Hello',
+          translatedText: '你好',
+        },
       ];
 
       renderer.render(img, textAreas, false);
@@ -165,8 +252,34 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img1);
       container.appendChild(img2);
 
-      renderer.render(img1, [{ x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'A', translatedText: '甲' }], false);
-      renderer.render(img2, [{ x: 0.2, y: 0.2, width: 0.3, height: 0.1, originalText: 'B', translatedText: '乙' }], false);
+      renderer.render(
+        img1,
+        [
+          {
+            x: 0.1,
+            y: 0.1,
+            width: 0.3,
+            height: 0.1,
+            originalText: 'A',
+            translatedText: '甲',
+          },
+        ],
+        false
+      );
+      renderer.render(
+        img2,
+        [
+          {
+            x: 0.2,
+            y: 0.2,
+            width: 0.3,
+            height: 0.1,
+            originalText: 'B',
+            translatedText: '乙',
+          },
+        ],
+        false
+      );
 
       expect(renderer.getOverlayCount()).toBe(2);
 
@@ -180,7 +293,20 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
       const parent = img.parentElement;
 
-      renderer.render(img, [{ x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'A', translatedText: '甲' }], false);
+      renderer.render(
+        img,
+        [
+          {
+            x: 0.1,
+            y: 0.1,
+            width: 0.3,
+            height: 0.1,
+            originalText: 'A',
+            translatedText: '甲',
+          },
+        ],
+        false
+      );
 
       renderer.remove(img);
 
@@ -218,7 +344,20 @@ describe('OverlayRenderer Integration', () => {
       const img = createMockImage('test-img-12', 720, 1000);
       container.appendChild(img);
 
-      renderer.render(img, [{ x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'A', translatedText: '甲' }], false);
+      renderer.render(
+        img,
+        [
+          {
+            x: 0.1,
+            y: 0.1,
+            width: 0.3,
+            height: 0.1,
+            originalText: 'A',
+            translatedText: '甲',
+          },
+        ],
+        false
+      );
 
       const controls = container.querySelector('.manga-translator-controls');
       expect(controls).toBeTruthy();
@@ -241,9 +380,24 @@ describe('OverlayRenderer Integration', () => {
       const img = createMockImage('test-img-13', 720, 1000);
       container.appendChild(img);
 
-      customRenderer.render(img, [{ x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'A', translatedText: '甲' }], false);
+      customRenderer.render(
+        img,
+        [
+          {
+            x: 0.1,
+            y: 0.1,
+            width: 0.3,
+            height: 0.1,
+            originalText: 'A',
+            translatedText: '甲',
+          },
+        ],
+        false
+      );
 
-      const overlay = container.querySelector('.manga-translator-overlay') as HTMLElement;
+      const overlay = container.querySelector(
+        '.manga-translator-overlay'
+      ) as HTMLElement;
       expect(overlay.style.backgroundColor).toContain('255, 255, 0');
       expect(overlay.style.color).toBe('rgb(255, 0, 0)');
 
@@ -253,7 +407,16 @@ describe('OverlayRenderer Integration', () => {
     it('updates style dynamically', () => {
       renderer.render(
         createMockImage('test-img-14', 720, 1000),
-        [{ x: 0.1, y: 0.1, width: 0.3, height: 0.1, originalText: 'A', translatedText: '甲' }],
+        [
+          {
+            x: 0.1,
+            y: 0.1,
+            width: 0.3,
+            height: 0.1,
+            originalText: 'A',
+            translatedText: '甲',
+          },
+        ],
         false
       );
 
@@ -283,12 +446,21 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.4, height: 0.15, originalText: 'Special: !@#$%^&*()', translatedText: '特殊字符：！@#￥%……&*（）' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.4,
+          height: 0.15,
+          originalText: 'Special: !@#$%^&*()',
+          translatedText: '特殊字符：！@#￥%……&*（）',
+        },
       ];
 
       renderer.render(img, textAreas, true);
 
-      const overlay = container.querySelector('.manga-translator-overlay') as HTMLElement;
+      const overlay = container.querySelector(
+        '.manga-translator-overlay'
+      ) as HTMLElement;
       expect(overlay.textContent).toContain('特殊字符');
     });
 
@@ -297,12 +469,21 @@ describe('OverlayRenderer Integration', () => {
       container.appendChild(img);
 
       const textAreas: TextArea[] = [
-        { x: 0.1, y: 0.1, width: 0.5, height: 0.2, originalText: 'Line1\nLine2\nLine3', translatedText: '第一行\n第二行\n第三行' },
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.5,
+          height: 0.2,
+          originalText: 'Line1\nLine2\nLine3',
+          translatedText: '第一行\n第二行\n第三行',
+        },
       ];
 
       renderer.render(img, textAreas, true);
 
-      const overlay = container.querySelector('.manga-translator-overlay') as HTMLElement;
+      const overlay = container.querySelector(
+        '.manga-translator-overlay'
+      ) as HTMLElement;
       expect(overlay.textContent).toContain('\n');
     });
   });
@@ -312,16 +493,33 @@ describe('Overlay Collision Resolution', () => {
   let renderer: OverlayRenderer;
   let container: HTMLDivElement;
 
-  const createMockImage = (id: string, width: number, height: number): HTMLImageElement => {
+  const createMockImage = (
+    id: string,
+    width: number,
+    height: number
+  ): HTMLImageElement => {
     const img = document.createElement('img');
     img.id = id;
-    img.src = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    img.src =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
     img.style.width = `${width}px`;
     img.style.height = `${height}px`;
-    Object.defineProperty(img, 'offsetWidth', { value: width, configurable: true });
-    Object.defineProperty(img, 'offsetHeight', { value: height, configurable: true });
-    Object.defineProperty(img, 'naturalWidth', { value: width, configurable: true });
-    Object.defineProperty(img, 'naturalHeight', { value: height, configurable: true });
+    Object.defineProperty(img, 'offsetWidth', {
+      value: width,
+      configurable: true,
+    });
+    Object.defineProperty(img, 'offsetHeight', {
+      value: height,
+      configurable: true,
+    });
+    Object.defineProperty(img, 'naturalWidth', {
+      value: width,
+      configurable: true,
+    });
+    Object.defineProperty(img, 'naturalHeight', {
+      value: height,
+      configurable: true,
+    });
     return img;
   };
 
@@ -342,8 +540,22 @@ describe('Overlay Collision Resolution', () => {
 
     // Two overlapping text areas
     const textAreas: TextArea[] = [
-      { x: 0.2, y: 0.2, width: 0.3, height: 0.2, originalText: 'A', translatedText: '甲' },
-      { x: 0.25, y: 0.25, width: 0.3, height: 0.2, originalText: 'B', translatedText: '乙' }, // Overlaps with A
+      {
+        x: 0.2,
+        y: 0.2,
+        width: 0.3,
+        height: 0.2,
+        originalText: 'A',
+        translatedText: '甲',
+      },
+      {
+        x: 0.25,
+        y: 0.25,
+        width: 0.3,
+        height: 0.2,
+        originalText: 'B',
+        translatedText: '乙',
+      }, // Overlaps with A
     ];
 
     renderer.render(img, textAreas, true);
@@ -352,7 +564,9 @@ describe('Overlay Collision Resolution', () => {
     expect(overlays.length).toBe(2);
 
     // Get the top positions of both overlays
-    const positions = Array.from(overlays).map(el => parseFloat((el as HTMLElement).style.top || '0'));
+    const positions = Array.from(overlays).map(el =>
+      parseFloat((el as HTMLElement).style.top || '0')
+    );
     // They should have different top positions after collision resolution
     expect(positions[0]).not.toBe(positions[1]);
   });
@@ -363,8 +577,22 @@ describe('Overlay Collision Resolution', () => {
 
     // Two non-overlapping text areas
     const textAreas: TextArea[] = [
-      { x: 0.1, y: 0.1, width: 0.2, height: 0.1, originalText: 'A', translatedText: '甲' },
-      { x: 0.5, y: 0.5, width: 0.2, height: 0.1, originalText: 'B', translatedText: '乙' },
+      {
+        x: 0.1,
+        y: 0.1,
+        width: 0.2,
+        height: 0.1,
+        originalText: 'A',
+        translatedText: '甲',
+      },
+      {
+        x: 0.5,
+        y: 0.5,
+        width: 0.2,
+        height: 0.1,
+        originalText: 'B',
+        translatedText: '乙',
+      },
     ];
 
     renderer.render(img, textAreas, true);
@@ -392,16 +620,22 @@ describe('Font Size Calculation', () => {
       const availHeight = Math.max(areaHeight - padding, 1);
 
       // Count CJK characters (width ~2x ASCII)
-      const cjkCount = (text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []).length;
+      const cjkCount = (
+        text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []
+      ).length;
       const asciiCount = text.length - cjkCount;
       const effectiveLength = cjkCount * 2 + asciiCount;
 
-      const fontByWidth = effectiveLength > 0
-        ? Math.floor(availWidth / (effectiveLength / 2))
-        : availHeight;
+      const fontByWidth =
+        effectiveLength > 0
+          ? Math.floor(availWidth / (effectiveLength / 2))
+          : availHeight;
       const fontByHeight = Math.floor(availHeight * 0.7);
 
-      return Math.max(minFontSize, Math.min(maxFontSize, Math.min(fontByWidth, fontByHeight)));
+      return Math.max(
+        minFontSize,
+        Math.min(maxFontSize, Math.min(fontByWidth, fontByHeight))
+      );
     };
 
     const shortFontSize = calculateFontSize(200, 100, shortText);

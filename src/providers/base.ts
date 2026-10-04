@@ -111,10 +111,7 @@ export interface ValidationResult {
 /**
  * Supported provider types
  */
-export type ProviderType =
-  | 'openai-compatible'
-  | 'ollama'
-  | 'lm-studio';
+export type ProviderType = 'openai-compatible' | 'ollama' | 'lm-studio';
 
 /**
  * Providers that run a local OpenAI-compatible server and therefore do not
@@ -330,15 +327,25 @@ function validateAndNormalize(
       const hasTranslatedText = typeof a['translatedText'] === 'string';
       const isXValid = a['x'] === undefined || typeof a['x'] === 'number';
       const isYValid = a['y'] === undefined || typeof a['y'] === 'number';
-      const isWValid = a['width'] === undefined || typeof a['width'] === 'number';
-      const isHValid = a['height'] === undefined || typeof a['height'] === 'number';
+      const isWValid =
+        a['width'] === undefined || typeof a['width'] === 'number';
+      const isHValid =
+        a['height'] === undefined || typeof a['height'] === 'number';
       return hasTranslatedText && isXValid && isYValid && isWValid && isHValid;
     })
     .map((area: Record<string, unknown>) => ({
-      x: typeof area['x'] === 'number' ? Math.max(0, Math.min(1, area['x'])) : 0,
-      y: typeof area['y'] === 'number' ? Math.max(0, Math.min(1, area['y'])) : 0,
-      width: typeof area['width'] === 'number' ? Math.max(0, Math.min(1, area['width'])) : 0,
-      height: typeof area['height'] === 'number' ? Math.max(0, Math.min(1, area['height'])) : 0,
+      x:
+        typeof area['x'] === 'number' ? Math.max(0, Math.min(1, area['x'])) : 0,
+      y:
+        typeof area['y'] === 'number' ? Math.max(0, Math.min(1, area['y'])) : 0,
+      width:
+        typeof area['width'] === 'number'
+          ? Math.max(0, Math.min(1, area['width']))
+          : 0,
+      height:
+        typeof area['height'] === 'number'
+          ? Math.max(0, Math.min(1, area['height']))
+          : 0,
       originalText: (area['originalText'] as string) || '',
       translatedText: area['translatedText'] as string,
       index: typeof area['index'] === 'number' ? area['index'] : undefined,

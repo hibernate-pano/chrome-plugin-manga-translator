@@ -7,9 +7,7 @@ function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bufferCtor = (
     globalThis as {
       Buffer?: {
-        from: (
-          data: ArrayBuffer
-        ) => { toString: (encoding: string) => string };
+        from: (data: ArrayBuffer) => { toString: (encoding: string) => string };
       };
     }
   ).Buffer;

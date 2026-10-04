@@ -1,7 +1,12 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { ReadingAnchors } from './reading-anchors';
 
-function makeImage(width = 200, height = 100, left = 0, top = 0): HTMLImageElement {
+function makeImage(
+  width = 200,
+  height = 100,
+  left = 0,
+  top = 0
+): HTMLImageElement {
   const img = document.createElement('img');
   Object.defineProperty(img, 'getBoundingClientRect', {
     value: () => ({

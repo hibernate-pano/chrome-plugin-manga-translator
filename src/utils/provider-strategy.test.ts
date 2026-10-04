@@ -8,6 +8,8 @@ describe('provider strategy', () => {
   });
 
   it('estimates a positive cost for openai-compatible', () => {
-    expect(estimateProviderCost('openai-compatible', 1200, 5)).toBeGreaterThan(0);
+    expect(estimateProviderCost('openai-compatible', 1200, 5)).toBeGreaterThan(
+      0
+    );
   });
 });

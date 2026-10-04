@@ -60,24 +60,34 @@ interface MessageResponse {
 
 const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
-// 默认并发度使用 DEFAULT_CONFIG.parallelLimit 
-const translationJobQueue = new BackgroundJobQueue(DEFAULT_CONFIG.parallelLimit, 500);
+// 默认并发度使用 DEFAULT_CONFIG.parallelLimit
+const translationJobQueue = new BackgroundJobQueue(
+  DEFAULT_CONFIG.parallelLimit,
+  500
+);
 
 // 同步并发度配置
 function syncQueueLimit(config: Record<string, unknown>): void {
   const state = (config['state'] || config) as Record<string, unknown>;
-  const limit = (typeof state['parallelLimit'] === 'number' ? state['parallelLimit'] : null)
-    || (typeof config['parallelLimit'] === 'number' ? config['parallelLimit'] : null)
-    || DEFAULT_CONFIG.parallelLimit;
+  const limit =
+    (typeof state['parallelLimit'] === 'number'
+      ? state['parallelLimit']
+      : null) ||
+    (typeof config['parallelLimit'] === 'number'
+      ? config['parallelLimit']
+      : null) ||
+    DEFAULT_CONFIG.parallelLimit;
   translationJobQueue.updateMaxConcurrent(limit);
 }
 
 // 启动时自动同步一次并发度配置
-void getConfig().then(config => {
-  syncQueueLimit(config);
-}).catch(err => {
-  console.error('[Background] 无法在启动时同步队列限制:', err);
-});
+void getConfig()
+  .then(config => {
+    syncQueueLimit(config);
+  })
+  .catch(err => {
+    console.error('[Background] 无法在启动时同步队列限制:', err);
+  });
 
 // 监听外部配置变更，自动同步并发度
 chrome.storage.onChanged.addListener((changes, areaName) => {
@@ -102,7 +112,9 @@ function extractPersistedState(value: unknown): Record<string, unknown> {
   return isRecord(value) ? value : {};
 }
 
-function normalizeStoredConfigSnapshot(value: unknown): Record<string, unknown> {
+function normalizeStoredConfigSnapshot(
+  value: unknown
+): Record<string, unknown> {
   const state = extractPersistedState(value);
   const normalizedRuntime = normalizeRuntimeAppConfig(value);
 
@@ -257,8 +269,7 @@ async function handleMessage(
     // 也不应改写配置。其它 job / fetch / state 接口对两者都开放。
     const requestAction =
       typeof request.action === 'string' ? request.action : null;
-    const requestType =
-      typeof request.type === 'string' ? request.type : null;
+    const requestType = typeof request.type === 'string' ? request.type : null;
     const isSensitiveRequest =
       requestAction === 'getConfig' || requestAction === 'setConfig';
     if (isSensitiveRequest && !isExtensionOrigin) {
@@ -280,7 +291,11 @@ async function handleMessage(
         case 'JOB_QUERY_STATUS': {
           const statusRequest = request as unknown as QueryJobStatusRequest;
           const job = translationJobQueue.getJob(statusRequest.jobId);
-          sendResponse(job ? { success: true, job } : { success: false, error: 'Job not found' });
+          sendResponse(
+            job
+              ? { success: true, job }
+              : { success: false, error: 'Job not found' }
+          );
           return;
         }
         case 'STATE_UPDATE':
@@ -329,7 +344,9 @@ async function handleMessage(
         return;
       case 'toggleTranslation':
         await forwardToActiveTab(
-          request.enabled ? { type: 'TRANSLATE_PAGE' } : { type: 'CANCEL_TRANSLATION' },
+          request.enabled
+            ? { type: 'TRANSLATE_PAGE' }
+            : { type: 'CANCEL_TRANSLATION' },
           sendResponse
         );
         return;
@@ -357,7 +374,10 @@ async function handleMessage(
         return;
       }
       default:
-        sendResponse({ success: false, error: `Unknown action: ${request.action}` });
+        sendResponse({
+          success: false,
+          error: `Unknown action: ${request.action}`,
+        });
     }
   } catch (error) {
     sendResponse({
@@ -469,11 +489,16 @@ async function forwardToActiveTab(
   }
 }
 
-async function broadcastToAllTabs(message: Record<string, unknown>): Promise<void> {
+async function broadcastToAllTabs(
+  message: Record<string, unknown>
+): Promise<void> {
   const tabs = await chrome.tabs.query({});
   await Promise.all(
     tabs
-      .filter((tab): tab is chrome.tabs.Tab & { id: number } => typeof tab.id === 'number')
+      .filter(
+        (tab): tab is chrome.tabs.Tab & { id: number } =>
+          typeof tab.id === 'number'
+      )
       .map(tab => sendToTab(tab.id, message).catch(() => undefined))
   );
 }
@@ -494,14 +519,20 @@ function isValidImageUrl(url: string): boolean {
     // 阻止 SSRF：拒绝内网/本地地址
     const hostname = parsed.hostname.toLowerCase();
     const privateHosts = [
-      'localhost', '127.0.0.1', '0.0.0.0', '::1',
-      '[::1]', '169.254.169.254',
+      'localhost',
+      '127.0.0.1',
+      '0.0.0.0',
+      '::1',
+      '[::1]',
+      '169.254.169.254',
     ];
     if (privateHosts.includes(hostname)) {
       return false;
     }
     // 检查私有 IP 段
-    const ipv4Match = hostname.match(/^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/);
+    const ipv4Match = hostname.match(
+      /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
+    );
     if (ipv4Match) {
       const [, a, b] = ipv4Match.map(Number) as [string, number, number];
       if (a === 10) return false;
@@ -521,7 +552,8 @@ function isValidImageUrl(url: string): boolean {
       // 2001:db8::/32 - Documentation
       if (ipv6.startsWith('2001:db8')) return false;
       // ::ffff:0:0:0/96 - IPv4-mapped (多种写法)
-      if (ipv6.startsWith('::ffff:0') || ipv6.startsWith('::ffff:')) return false;
+      if (ipv6.startsWith('::ffff:0') || ipv6.startsWith('::ffff:'))
+        return false;
     }
     return true;
   } catch {
@@ -529,7 +561,9 @@ function isValidImageUrl(url: string): boolean {
   }
 }
 
-async function fetchImageBytesResponse(imageUrl: string): Promise<MessageResponse> {
+async function fetchImageBytesResponse(
+  imageUrl: string
+): Promise<MessageResponse> {
   if (!isValidImageUrl(imageUrl)) {
     return { success: false, error: 'Invalid or blocked image URL' };
   }

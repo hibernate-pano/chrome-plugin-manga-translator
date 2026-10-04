@@ -88,15 +88,22 @@ async function getWorker(languages: string[]): Promise<Worker> {
   const workerOptions: Record<string, unknown> = {
     logger: (m: { status: string; progress: number }) => {
       if (import.meta.env.DEV && m.status === 'recognizing text') {
-        console.log(`[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`);
+        console.log(
+          `[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`
+        );
       }
     },
   };
 
   if (isExtension) {
-    workerOptions['workerPath'] = chrome.runtime.getURL('tesseract/worker.min.js');
-    workerOptions['corePath'] = chrome.runtime.getURL('tesseract/tesseract-core-simd-lstm.wasm.js');
-    workerOptions['langPath'] = 'https://npm.elemecdn.com/@tesseract.js/langs/dist/';
+    workerOptions['workerPath'] = chrome.runtime.getURL(
+      'tesseract/worker.min.js'
+    );
+    workerOptions['corePath'] = chrome.runtime.getURL(
+      'tesseract/tesseract-core-simd-lstm.wasm.js'
+    );
+    workerOptions['langPath'] =
+      'https://npm.elemecdn.com/@tesseract.js/langs/dist/';
     workerOptions['workerBlobURL'] = false;
   }
 
@@ -171,7 +178,13 @@ export async function detectTextRegions(
 
     // Convert words to regions
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const words = (data as any).words as Array<{ bbox: { x0: number; y0: number; x1: number; y1: number }; text: string; confidence: number }> | undefined;
+    const words = (data as any).words as
+      | Array<{
+          bbox: { x0: number; y0: number; x1: number; y1: number };
+          text: string;
+          confidence: number;
+        }>
+      | undefined;
     const regions = convertToRegions(
       words,
       data.confidence ?? 0,
@@ -198,7 +211,13 @@ export async function detectTextRegions(
  * Convert Tesseract words to TextRegion format with optional expansion
  */
 function convertToRegions(
-  words: Array<{ bbox: { x0: number; y0: number; x1: number; y1: number }; text: string; confidence: number }> | undefined,
+  words:
+    | Array<{
+        bbox: { x0: number; y0: number; x1: number; y1: number };
+        text: string;
+        confidence: number;
+      }>
+    | undefined,
   overallConfidence: number,
   expandMargin: number,
   minConfidence: number
@@ -330,7 +349,10 @@ export function mergeOverlappingRegions(
         const minX = Math.min(current.x, other.x);
         const minY = Math.min(current.y, other.y);
         const maxX = Math.max(current.x + current.width, other.x + other.width);
-        const maxY = Math.max(current.y + current.height, other.y + other.height);
+        const maxY = Math.max(
+          current.y + current.height,
+          other.y + other.height
+        );
 
         current = {
           x: minX,

@@ -52,13 +52,9 @@ describe('site-adapters', () => {
 
   it('matches only ManhwaRead chapter pages', () => {
     expect(
-      matchSiteAdapter(
-        'https://manhwaread.com/manhwa/outro/chapter-1/'
-      )?.id
+      matchSiteAdapter('https://manhwaread.com/manhwa/outro/chapter-1/')?.id
     ).toBe('manhwaread');
-    expect(
-      matchSiteAdapter('https://manhwaread.com/manhwa/outro/')
-    ).toBeNull();
+    expect(matchSiteAdapter('https://manhwaread.com/manhwa/outro/')).toBeNull();
     expect(matchSiteAdapter('https://example.com')).toBeNull();
   });
 
@@ -165,13 +161,11 @@ describe('site-adapters', () => {
 
   it('returns null when chapter bootstrap data is missing', () => {
     const adapter = getAdapter();
-    const bootstrap = adapter?.getChapterBootstrap(
-      {
-        location: {
-          href: 'https://manhwaread.com/manhwa/outro/chapter-1/',
-        },
-      } as unknown as Window & typeof globalThis
-    );
+    const bootstrap = adapter?.getChapterBootstrap({
+      location: {
+        href: 'https://manhwaread.com/manhwa/outro/chapter-1/',
+      },
+    } as unknown as Window & typeof globalThis);
 
     expect(bootstrap).toBeNull();
   });
@@ -297,14 +291,12 @@ describe('site-adapters', () => {
 
     // Intercept window.setTimeout so we can manually fire the timeout
     // without waiting 10 real seconds. fake-timers are unreliable in jsdom.
-    const setTimeoutSpy = vi
-      .spyOn(window, 'setTimeout')
-      .mockImplementation(((
-        cb: (...args: unknown[]) => void
-      ): ReturnType<typeof window.setTimeout> => {
-        timeoutCallback = cb as () => void;
-        return 1 as unknown as ReturnType<typeof window.setTimeout>;
-      }) as typeof window.setTimeout);
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout').mockImplementation(((
+      cb: (...args: unknown[]) => void
+    ): ReturnType<typeof window.setTimeout> => {
+      timeoutCallback = cb as () => void;
+      return 1 as unknown as ReturnType<typeof window.setTimeout>;
+    }) as typeof window.setTimeout);
 
     const clearTimeoutSpy = vi
       .spyOn(window, 'clearTimeout')
@@ -425,9 +417,9 @@ describe('site-adapters', () => {
     if (!adapter) throw new Error('expected adapter');
 
     // No images are ever added — the timeout should fire
-    await expect(
-      waitForRenderablePages(adapter, 50)
-    ).rejects.toThrow('章节图片未在预期时间内出现');
+    await expect(waitForRenderablePages(adapter, 50)).rejects.toThrow(
+      '章节图片未在预期时间内出现'
+    );
   });
 
   it('observer skips mutations when bootstrap becomes unavailable', async () => {

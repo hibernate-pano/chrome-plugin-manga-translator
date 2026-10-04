@@ -18,7 +18,9 @@ interface ProviderDirectTranslationResponse {
 }
 
 function isProviderType(value: unknown): value is ProviderType {
-  return value === 'openai-compatible' || value === 'ollama' || value === 'lm-studio';
+  return (
+    value === 'openai-compatible' || value === 'ollama' || value === 'lm-studio'
+  );
 }
 
 function isTranslationStylePreset(
