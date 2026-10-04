@@ -844,7 +844,9 @@ function cleanup(): void {
     abortController.abort();
   }
   if (renderer) {
-    renderer.removeAll();
+    // dispose() also releases the ResizeObserver and the window resize
+    // listener; removeAll() alone would leave both attached to the page.
+    renderer.dispose();
   }
   if (hud) {
     hud.destroy();

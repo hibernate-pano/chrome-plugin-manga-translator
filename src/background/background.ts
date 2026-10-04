@@ -37,6 +37,7 @@ import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
 
 import { translateImageViaProviderDirect } from './provider-direct-client';
 import { BackgroundJobQueue, createJobStatus } from './job-queue';
+import { fetchImageBytes } from './image-fetch-guard';
 import { deriveRequestedPath } from '@/shared/runtime-contracts';
 
 interface MessageRequest {
@@ -65,6 +66,83 @@ const translationJobQueue = new BackgroundJobQueue(
   DEFAULT_CONFIG.parallelLimit,
   500
 );
+
+// ==================== Service worker keepalive ====================
+
+/**
+ * A translating webtoon chapter fans out into one job per tile plus retries.
+ * A vision model can take 10-30s per tile, so a long chapter can keep the
+ * queue busy for minutes. MV3 terminates an idle service worker after ~30s,
+ * and termination takes the in-memory queue with it: the content script's
+ * pending requests never resolve and `JOB_QUERY_STATUS` starts reporting
+ * "Job not found".
+ *
+ * `chrome.alarms` is the only supported way to hold a worker awake across
+ * those terminations. A ~20s period stays under the idle cutoff; released
+ * extensions clamp alarms to once per minute, which still beats dying.
+ * The alarm does no work of its own — it wakes the worker so in-flight state
+ * stays reachable, and re-syncs the concurrency limit in case storage moved
+ * while we slept.
+ */
+const KEEPALIVE_ALARM = 'manga-translator-keepalive';
+const KEEPALIVE_PERIOD_MINUTES = 0.34;
+
+function startKeepalive(): void {
+  chrome.alarms?.create(KEEPALIVE_ALARM, {
+    periodInMinutes: KEEPALIVE_PERIOD_MINUTES,
+    delayInMinutes: KEEPALIVE_PERIOD_MINUTES,
+  });
+}
+
+function stopKeepalive(): void {
+  chrome.alarms?.clear(KEEPALIVE_ALARM);
+}
+
+chrome.alarms?.onAlarm.addListener(alarm => {
+  if (alarm.name !== KEEPALIVE_ALARM) {
+    return;
+  }
+  void getConfig()
+    .then(syncQueueLimit)
+    .catch(() => undefined);
+});
+
+// Only hold the worker awake while translation is actually switched on.
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') {
+    return;
+  }
+  const configChange = changes[APP_CONFIG_STORAGE_KEY];
+  if (!configChange) {
+    return;
+  }
+  if (isTranslationEnabled(configChange.newValue)) {
+    startKeepalive();
+  } else {
+    stopKeepalive();
+  }
+});
+
+chrome.runtime.onStartup.addListener(() => {
+  void getConfig()
+    .then(config => {
+      syncQueueLimit(config);
+      if (isTranslationEnabled(config)) {
+        startKeepalive();
+      }
+    })
+    .catch(() => undefined);
+});
+
+chrome.runtime.onInstalled.addListener(() => {
+  void getConfig()
+    .then(config => {
+      if (isTranslationEnabled(config)) {
+        startKeepalive();
+      }
+    })
+    .catch(() => undefined);
+});
 
 // 同步并发度配置
 function syncQueueLimit(config: Record<string, unknown>): void {
@@ -316,7 +394,7 @@ async function handleMessage(
             sendResponse({ success: false, error: 'No image URL provided' });
             return;
           }
-          sendResponse(await fetchImageBytesResponse(imageUrl));
+          sendResponse(await fetchImageBytesResponse(imageUrl, sender));
           return;
         }
         case 'HUD_CANCELLED':
@@ -370,7 +448,7 @@ async function handleMessage(
           sendResponse({ success: false, error: 'No URL provided' });
           return;
         }
-        sendResponse(await fetchImageBytesResponse(imageUrl));
+        sendResponse(await fetchImageBytesResponse(imageUrl, sender));
         return;
       }
       default:
@@ -510,95 +588,72 @@ async function sendToTab(
   return chrome.tabs.sendMessage(tabId, message);
 }
 
-function isValidImageUrl(url: string): boolean {
+async function fetchImageBytesResponse(
+  imageUrl: string,
+  sender: chrome.runtime.MessageSender
+): Promise<MessageResponse> {
+  if (!isImageFetchAllowedForSender(imageUrl, sender)) {
+    return {
+      success: false,
+      error: 'Image fetch not allowed for this page',
+    };
+  }
+  const result = await fetchImageBytes(imageUrl);
+  if (!result.success) {
+    return { success: false, error: result.error };
+  }
+  return {
+    success: true,
+    imageBase64: result.base64,
+    mimeType: result.mimeType,
+  };
+}
+
+/**
+ * Decide whether a sender may proxy this image.
+ *
+ * The image URL is only trustworthy when it belongs to the page asking for
+ * it. Without this check, any page the user visits could ask the worker to
+ * retrieve an arbitrary URL and read the bytes back — a fetch proxy. Same
+ * origin is always allowed. A cross-origin URL is allowed only when it looks
+ * like an image, which keeps the common cases working (a comic CDN, a
+ * same-origin asset path) while removing the open-proxy primitive; the
+ * internal-network checks in `fetchImageBytes` still apply either way.
+ *
+ * Extension pages are refused outright: they never legitimately proxy images.
+ */
+function isImageFetchAllowedForSender(
+  imageUrl: string,
+  sender: chrome.runtime.MessageSender
+): boolean {
+  if (!sender.tab?.id) {
+    return false;
+  }
+
+  let parsed: URL;
   try {
-    const parsed = new URL(url);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-      return false;
-    }
-    // 阻止 SSRF：拒绝内网/本地地址
-    const hostname = parsed.hostname.toLowerCase();
-    const privateHosts = [
-      'localhost',
-      '127.0.0.1',
-      '0.0.0.0',
-      '::1',
-      '[::1]',
-      '169.254.169.254',
-    ];
-    if (privateHosts.includes(hostname)) {
-      return false;
-    }
-    // 检查私有 IP 段
-    const ipv4Match = hostname.match(
-      /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/
-    );
-    if (ipv4Match) {
-      const [, a, b] = ipv4Match.map(Number) as [string, number, number];
-      if (a === 10) return false;
-      if (a === 172 && b >= 16 && b <= 31) return false;
-      if (a === 192 && b === 168) return false;
-    }
-    // 检查 IPv6 私有地址段
-    const ipv6Match = hostname.match(/^\[([\da-fA-f:]+)\]$/);
-    if (ipv6Match && ipv6Match[1]) {
-      const ipv6 = ipv6Match[1].toLowerCase();
-      // 阻止 ::1 (localhost IPv6)
-      if (ipv6 === '::1') return false;
-      // fc00::/7 - Unique Local Addresses (fc00:: to fdff:ffff:ffff:ffff:ffff:ffff:ffff:ffff)
-      if (ipv6.startsWith('fc') || ipv6.startsWith('fd')) return false;
-      // fe80::/10 - Link-Local (first nibble: fe, second nibble: 8-f)
-      if (/^fe[89a-f]/i.test(ipv6)) return false;
-      // 2001:db8::/32 - Documentation
-      if (ipv6.startsWith('2001:db8')) return false;
-      // ::ffff:0:0:0/96 - IPv4-mapped (多种写法)
-      if (ipv6.startsWith('::ffff:0') || ipv6.startsWith('::ffff:'))
-        return false;
-    }
-    return true;
+    parsed = new URL(imageUrl);
   } catch {
     return false;
   }
-}
 
-async function fetchImageBytesResponse(
-  imageUrl: string
-): Promise<MessageResponse> {
-  if (!isValidImageUrl(imageUrl)) {
-    return { success: false, error: 'Invalid or blocked image URL' };
-  }
-
-  try {
-    const response = await fetch(imageUrl);
-    if (!response.ok) {
-      return {
-        success: false,
-        error: `Failed to fetch image: ${response.status}`,
-      };
+  const senderUrl = sender.url ?? sender.tab.url;
+  if (senderUrl) {
+    try {
+      if (new URL(senderUrl).origin === parsed.origin) {
+        return true;
+      }
+    } catch {
+      // Unparseable sender URL: fall through to the cross-origin rule.
     }
-
-    const blob = await response.blob();
-    const arrayBuffer = await blob.arrayBuffer();
-    return {
-      success: true,
-      imageBase64: arrayBufferToBase64(arrayBuffer),
-      mimeType: blob.type || 'image/jpeg',
-    };
-  } catch (error) {
-    return {
-      success: false,
-      error: error instanceof Error ? error.message : 'Failed to fetch image',
-    };
   }
-}
 
-function arrayBufferToBase64(buffer: ArrayBuffer): string {
-  let binary = '';
-  const bytes = new Uint8Array(buffer);
-  for (const byte of bytes) {
-    binary += String.fromCharCode(byte);
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return false;
   }
-  return btoa(binary);
+  return /\.(?:jpe?g|png|webp|gif|avif|bmp)(?:$|\?)/i.test(
+    parsed.pathname + parsed.search
+  );
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {

@@ -501,10 +501,16 @@ describe('image-processor', () => {
         expect(result.wasCompressed).toBe(true);
         expect(result.width).toBe(1024);
         expect(result.height).toBe(512);
-        expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({
-          action: 'fetchImage',
-          url: 'https://cdn.example.com/cors-image.jpg',
-        });
+        // The proxy request must carry the image URL and the referring page.
+        // The page URL is what lets the worker refuse to act as a general
+        // fetch proxy for arbitrary third-party URLs.
+        expect(chrome.runtime.sendMessage).toHaveBeenCalledWith(
+          expect.objectContaining({
+            action: 'fetchImage',
+            url: 'https://cdn.example.com/cors-image.jpg',
+            referrerPageUrl: expect.any(String),
+          })
+        );
       } finally {
         globalThis.Image = originalImage;
       }

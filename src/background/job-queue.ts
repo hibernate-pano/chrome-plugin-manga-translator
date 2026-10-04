@@ -44,6 +44,15 @@ export class BackgroundJobQueue {
   private lastRequestTime = 0;
   private readonly minIntervalMs: number;
   private drainTimeout: NodeJS.Timeout | null = null;
+  /**
+   * Cap on retained job records.
+   *
+   * `jobs` is the map `JOB_QUERY_STATUS` reads from. Nothing ever removed
+   * entries, so a long browsing session accumulated one record per translated
+   * image for the lifetime of the service worker. Terminal jobs are of no use
+   * once the caller has its response, so they are dropped oldest-first.
+   */
+  private readonly maxRetainedJobs = 500;
 
   constructor(maxConcurrent = 2, minIntervalMs = 0) {
     this.maxConcurrent = maxConcurrent;
@@ -75,7 +84,32 @@ export class BackgroundJobQueue {
 
     const next = { ...current, ...patch };
     this.jobs.set(jobId, next);
+    this.pruneJobs();
     return next;
+  }
+
+  /**
+   * Drop the oldest terminal jobs once the retention cap is exceeded.
+   * Running jobs are never pruned: their record is still meaningful.
+   */
+  private pruneJobs(): void {
+    if (this.jobs.size <= this.maxRetainedJobs) {
+      return;
+    }
+    const terminal: Array<[string, JobStatusPayload]> = [];
+    for (const [jobId, job] of this.jobs) {
+      if (job.state !== 'running' && job.state !== 'queued') {
+        terminal.push([jobId, job]);
+      }
+    }
+    // Oldest first: insertion order approximates completion order.
+    const excess = this.jobs.size - this.maxRetainedJobs;
+    for (let i = 0; i < Math.min(excess, terminal.length); i += 1) {
+      const entry = terminal[i];
+      if (entry) {
+        this.jobs.delete(entry[0]);
+      }
+    }
   }
 
   /**

@@ -399,6 +399,10 @@ async function processImageViaBackground(
   const response = await chrome.runtime.sendMessage({
     action: 'fetchImage',
     url: imageUrl,
+    // The background worker verifies this against the sending tab's URL, so a
+    // page cannot borrow the proxy to fetch arbitrary third-party URLs.
+    referrerPageUrl:
+      typeof window !== 'undefined' ? window.location.href : undefined,
   });
 
   if (!response?.success || !response.imageBase64) {

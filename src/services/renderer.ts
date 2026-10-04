@@ -53,6 +53,13 @@ export interface RenderedOverlay {
   overlayContainer: HTMLElement;
   /** Whether translation is pinned (manually toggled on) */
   pinned: boolean;
+  /**
+   * The source text areas, kept so overlays can be re-laid out when the image
+   * is resized. Without this, a window resize or a responsive layout change
+   * leaves every overlay at the pixel coordinates captured at render time,
+   * which drifts away from the artwork.
+   */
+  textAreas: TextArea[];
 }
 
 // ==================== Constants ====================
@@ -552,6 +559,8 @@ export class OverlayRenderer {
     HTMLImageElement,
     ReturnType<typeof setTimeout> | null
   > = new Map();
+  private resizeObserver: ResizeObserver | null = null;
+  private onWindowResize: (() => void) | null = null;
 
   constructor(style: Partial<OverlayStyle> = {}) {
     this.style = { ...DEFAULT_STYLE, ...style };
@@ -642,6 +651,7 @@ export class OverlayRenderer {
       overlays,
       overlayContainer,
       pinned: autoPinned,
+      textAreas,
     });
 
     // Setup hover debounce handlers (CSS :hover alone causes flicker on fast mouse movement)
@@ -668,7 +678,112 @@ export class OverlayRenderer {
       toggleBtn.textContent = '👁';
     }
 
+    this.observeImage(image);
+
     return wrapper;
+  }
+
+  /**
+   * Re-lay out every overlay for one image against its current box.
+   *
+   * Overlay geometry is stored in absolute pixels, so it is only correct for
+   * the image size at render time. Anything that changes that size — a window
+   * resize, a responsive breakpoint, a lazy-load that finally reports real
+   * dimensions, or the host site toggling a zoom class — would otherwise leave
+   * the translation floating off the speech bubble.
+   */
+  reposition(image: HTMLImageElement): void {
+    const rendered = this.renderedOverlays.get(image);
+    if (!rendered) {
+      return;
+    }
+
+    const imageWidth = image.offsetWidth || image.naturalWidth;
+    const imageHeight = image.offsetHeight || image.naturalHeight;
+    if (imageWidth <= 0 || imageHeight <= 0) {
+      return;
+    }
+
+    rendered.overlays.forEach((overlay, index) => {
+      const area = rendered.textAreas[index];
+      if (!area) {
+        return;
+      }
+      const layout = computeAdaptiveOverlayLayout(
+        area,
+        imageWidth,
+        imageHeight,
+        this.style
+      );
+      overlay.style.left = `${layout.left}px`;
+      overlay.style.top = `${layout.top}px`;
+      overlay.style.width = `${layout.width}px`;
+      overlay.style.height = `${layout.height}px`;
+      overlay.style.fontSize = `${layout.fontSize}px`;
+    });
+
+    // Re-run collision resolution: at a different scale the previous pass may
+    // have produced overlaps that no longer exist, or new ones that do.
+    this.resolveOverlayCollisions(rendered.overlays, imageWidth, imageHeight);
+  }
+
+  /**
+   * Re-lay out every rendered image. Safe to call on scroll/resize storms.
+   */
+  repositionAll(): void {
+    for (const image of this.renderedOverlays.keys()) {
+      this.reposition(image);
+    }
+  }
+
+  /**
+   * Track an image so layout changes re-flow its overlays.
+   *
+   * One shared ResizeObserver covers every rendered image; the window resize
+   * listener is a fallback for browsers or environments where the observer
+   * does not fire (and for zoom changes that do not alter the element box).
+   */
+  private observeImage(image: HTMLImageElement): void {
+    if (typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    this.ensureResizeObserver();
+    this.resizeObserver?.observe(image);
+  }
+
+  private ensureResizeObserver(): void {
+    if (this.resizeObserver || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+    this.resizeObserver = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        const target = entry.target;
+        if (target instanceof HTMLImageElement) {
+          this.reposition(target);
+        }
+      }
+    });
+    if (typeof window !== 'undefined') {
+      this.onWindowResize = () => this.repositionAll();
+      window.addEventListener('resize', this.onWindowResize, {
+        passive: true,
+      });
+    }
+  }
+
+  /**
+   * Release observers and window listeners. Call when the page-level renderer
+   * is torn down so a re-initialised renderer does not stack listeners.
+   */
+  dispose(): void {
+    this.resizeObserver?.disconnect();
+    this.resizeObserver = null;
+    if (this.onWindowResize) {
+      window.removeEventListener('resize', this.onWindowResize);
+      this.onWindowResize = null;
+    }
+    this.removeAll();
+    this.hoverTimers.clear();
   }
 
   /**
@@ -869,6 +984,8 @@ export class OverlayRenderer {
       return;
     }
 
+    this.resizeObserver?.unobserve(rendered.image);
+
     // Clean up hover timer
     this.clearHoverTimer(image as HTMLImageElement);
     this.hoverTimers.delete(image as HTMLImageElement);
@@ -892,6 +1009,7 @@ export class OverlayRenderer {
     for (const image of images) {
       this.remove(image);
     }
+    this.hoverTimers.clear();
   }
 
   /**
