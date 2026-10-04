@@ -38,8 +38,10 @@ release notes below; the live version is whatever's at the top of
 
 ## Phase 5 — Next
 
-- Produce a credential-free `pnpm build:public` artifact and smoke-test it on
-  a clean Chrome profile.
+- Smoke-test the credential-free `pnpm build:public` artifact on a clean Chrome
+  profile. `pnpm package:public` now produces a verified, checksummed ZIP whose
+  bundle is scanned for credentials on every build; the remaining step is the
+  manual profile check against `docs/chrome-web-store-release.md`.
 - Create Chrome Web Store assets: screenshots and a 30-second demo. Listing copy,
   permission justifications, and the smoke-test checklist are in
   `docs/chrome-web-store-release.md`.
@@ -55,6 +57,23 @@ release notes below; the live version is whatever's at the top of
 
 ## Recently closed
 
+- Config storage no longer loops: the persisted-snapshot comparison matched on
+  key count (19 persisted vs 42 runtime), so every write re-triggered itself and
+  pushed `obf:`-obfuscated API keys back into memory, breaking every cloud
+  provider. Now compared by value over a shared field whitelist.
+- A stale storage echo could revert a newer edit (a typed API key silently
+  became its previous value). Self-writes are now recognised and dropped.
+- Automatic page translation is opt-in per host (`autoTranslateHosts`, empty by
+  default). Previously, enabling the extension translated every navigation in
+  every tab, sending images from banking/webmail/intranet pages to the provider.
+- The background image proxy is no longer an open fetcher: sender-scoped,
+  private-address blocked, credential-free, size- and time-bounded.
+- Content script bundle cut from ~366 KB to ~127 KB (React and ReactDOM kept out
+  of it), with a 200 KB budget now enforced by the build.
+- The public-build credential guard actually works (its regex never matched the
+  generated file's shape) and now scans the emitted bundle, not just the source.
+- Coverage threshold is enforced (70%); it was configured in a shape Vitest 0.34
+  ignores, so it never applied.
 - Long-strip images now always enter the tiled pipeline instead of translating
   only their visible viewport slice.
 - CORS image fallback preserves tile crop regions instead of resending the full
@@ -93,10 +112,15 @@ These are unresolved and we'd like feedback:
 
 ## Performance budget
 
-- Content script bundle (currently ~330 KB unminified, ~24 KB gzipped) must
-  stay under 500 KB unminified. The reading panel and HUD are the largest
-  contributors; if either grows past 100 KB we'll reconsider whether to
-  split into per-page lazy chunks.
+- The content script is injected into every page, so its size is paid on page
+  load, not on install. `pnpm build` fails if `dist/content.js` exceeds
+  **200 KB** (enforced by `scripts/check-release-consistency.mjs`, run before
+  and after the build, and in CI). Current size is ~127 KB / ~42 KB gzipped.
+  The largest contributors are `renderer.ts`, `translator.ts`,
+  `error-handler.ts` and the content-script modules themselves — no single
+  vendor dominates, because React and ReactDOM are kept out of this bundle
+  entirely (see `docs/architecture-notes.md`). If any one module grows past
+  ~100 KB, reconsider splitting it into a per-page lazy chunk.
 - HUD updates throttle to one render per ~100 ms. Don't bypass this without
   a measured reason.
 

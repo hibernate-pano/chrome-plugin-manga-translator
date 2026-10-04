@@ -5,6 +5,127 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Reliability, security and build-integrity work. No version bump yet — cutting a
+release is a separate decision, and `scripts/check-release-consistency.mjs`
+requires `package.json` and `manifest.json` to move together.
+
+### Security
+
+- **Automatic page translation is now opt-in per site.** Enabling the extension
+  used to translate every navigation in every tab (`<all_urls>` host permission,
+  no site control), sending large images from banking, webmail and intranet
+  pages to the configured provider and billing for them. A new
+  `autoTranslateHosts` allowlist (empty by default) gates both auto-translate
+  entry points; manual actions still work anywhere. Managed from the popup and
+  the Options page.
+- **The background image proxy is no longer an open fetcher.** Requests are now
+  sender-scoped (extension pages refused, cross-origin limited to image-shaped
+  URLs), private address ranges are blocked (including CGNAT, `0.x`, `224+`,
+  IPv4-mapped IPv6), credentials are omitted, and responses are bounded by
+  timeout, `content-length` and a byte cap.
+- **The public-build credential guard was inert.** Its regex looked for
+  `apiKey:\s*"..."` while the generated file is JSON-shaped (`"apiKey": "..."`),
+  so it matched nothing and always reported success. It now scans both the
+  generated source and the emitted `dist/` bundle, at both the pre-build and
+  post-build stages, and CI scans the artifact before upload.
+- **The theme preference no longer syncs.** It was written to
+  `chrome.storage.sync`, contradicting the privacy policy and re-introducing
+  what the background worker deletes on startup. Now `storage.local`.
+- `web_accessible_resources` no longer exposes `icons/*`; only the Tesseract
+  worker files the content script actually loads remain.
+
+### Fixed
+
+- **Config storage feedback loop.** The persisted snapshot was compared to the
+  full runtime store by key count (19 vs 42, the difference being action
+  functions), so it always reported a change: every write re-triggered
+  `onChanged`, which re-applied the snapshot, which wrote again — unbounded. It
+  also pushed `obf:`-obfuscated API keys back into memory, so the provider layer
+  sent garbage and every cloud call failed auth. Comparison is now by value over
+  a shared `PERSISTED_CONFIG_FIELDS` whitelist, and snapshots are deobfuscated
+  before being applied.
+- **Stale echo reverting edits.** `persist` writes asynchronously, so an older
+  write's `onChanged` could arrive after a newer edit and overwrite it — a typed
+  API key silently became its previous value (reproduced at ~4 runs in 10).
+  Self-writes are now recognised by payload and dropped.
+- **Ollama / LM Studio endpoints were discarded.** `normalizeRuntimeAppConfig`
+  read the stored Ollama settings and then dropped them via `void ollamaSource`,
+  so anything typed in Settings was reverted on the next echo.
+- **The Settings "test connection" button lied for cloud providers.** It called
+  `validateConfig`, which only checks that a key is present and long enough, so
+  a wrong base URL, revoked key or nonexistent model all reported success. A new
+  optional `testConnection()` probes the endpoint (`/models`, falling back to a
+  one-token chat completion) and reports auth, URL and model problems distinctly.
+  `validateConfig` stays network-free because the content script's preflight runs
+  under the page's CORS rules.
+- **Overlays drifted on resize.** They were positioned from the image box
+  captured at render time with no re-layout, so any window resize or responsive
+  reflow left the text off the artwork (the reading anchors already repositioned;
+  the overlays did not). A shared `ResizeObserver` plus a window-resize fallback
+  now re-lays them out, and `dispose()` releases both.
+
+### Changed
+
+- **Content script bundle ~366 KB to ~127 KB.** `manualChunks` lumped React and
+  ReactDOM together, and the post-build rebundler (not minifying) inlined all of
+  ReactDOM into a bundle that uses no React. The two are separate chunks now and
+  the rebundler minifies. A 200 KB budget is enforced by the build and CI.
+- **MV3 service worker stays alive during long translations** via an
+  `alarms`-based keepalive (only while translation is enabled), and the job map is
+  capped at 500 terminal records instead of growing for the worker's lifetime.
+- **Coverage threshold is real.** It was configured in the nested
+  `coverage.thresholds.global` shape that Vitest 0.34 ignores, so the documented
+  70% never applied. Moved to the top-level keys 0.34 reads, and CI runs
+  `test:coverage`. Verified by setting an impossible limit and confirming the run
+  fails.
+- **Base64 encoding no longer uses `btoa` plus per-byte string concatenation**
+  (quadratic on multi-megabyte strips, and unreliable under jsdom). A table
+  encoder is pinned against Node's `Buffer` reference output in tests.
+- **Tesseract language data no longer comes from `npm.elemecdn.com`**, an
+  unofficial third-party mirror that contradicted the privacy policy and failed
+  wherever that host is blocked. Leaving `langPath` unset uses the library's own
+  canonical source. The non-SIMD core pair (unreachable, since an explicit
+  `corePath` is passed) was removed, taking the OCR payload from 13.8 MB to
+  6.6 MB; `minimum_chrome_version` is pinned to 110.
+- **Quality gates are enforced.** `.husky/` had no hook files, so `lint-staged`
+  never ran; a `pre-commit` hook now exists. `format:check` covers the whole
+  repository, and CI runs format, lint, type-check, coverage, build, the size
+  budget and a credential scan.
+
+### Removed
+
+- ~1500 lines of dead code (font-style-matcher, validation, provider-strategy,
+  content/image-fetch, content/page-context, the empty `src/types/`, unused
+  stores/services barrels, ten unused shadcn primitives) and their tests, which
+  had tested the mocks rather than the code.
+- 15 unused dependencies (13 Radix packages, zod, react-hook-form,
+  @hookform/resolvers, framer-motion, tailwindcss-animate,
+  class-variance-authority). `dependencies` went from 29 to 10.
+- The fabricated per-token price table in `usage-store.ts`. It priced every
+  `openai-compatible` endpoint at $0.005/$0.015 per 1K tokens — wrong for MiniMax,
+  SiliconFlow, OpenRouter and any self-hosted endpoint — omitted `lm-studio`
+  entirely, and was never rendered. Removed rather than shipped.
+- `fix-typescript-errors.sh` (a `sed` script that rewrote source in place),
+  `build.sh` (a broken duplicate of `pnpm build`), and the dead `resetRenderer()`
+  singleton helper (which leaked its resize listeners).
+
+### Documentation
+
+- `AGENTS.md` described a different project: TanStack Query, React Hook Form,
+  Zod, Framer Motion, `src/api/` and `src/hooks/`, none of which were ever
+  installed or imported. Corrected, and `docs/architecture-notes.md` added to
+  record the contracts that are easy to break (config round-trip, bundle budget,
+  image-proxy gating, worker lifetime, OCR core selection).
+- `ARCHITECTURE.md`, `README.md`, `CONTRIBUTING.md`, the privacy policy, the Web
+  Store checklist and the `ROADMAP.md` performance budget were synced to the code.
+  The deprecated `server/` directory's run scripts moved into `server/` so the
+  extension's `scripts/` is extension-only, and its README states plainly that
+  the extension has no references to it.
+- CHANGELOG version dates that read `2026-XX-XX` were filled from git history,
+  and the missing 1.3.1 / 1.3.2 entries added.
+
 ## [1.3.3] - 2026-09-13
 
 ### Fixed

@@ -55,15 +55,30 @@ DOM, its own `window`, and a constrained message bridge to the others.
 ### 3. Background — `src/background/background.ts`
 
 - Service worker (`src/background/background.ts`).
-- Owns the translation job queue and the provider-direct translation path.
+- Owns the translation job queue and the provider-direct translation path. The
+  job map is capped at 500 terminal records so a long session cannot grow it
+  without bound.
 - Bridges Popup/Options ↔ Content Script messages.
 - Validates message senders: sensitive actions (`getConfig`, `setConfig`)
   are restricted to extension-origin senders; content scripts can use
   job / fetch / state endpoints.
+- Holds an `alarms`-based keepalive **only while translation is enabled**.
+  MV3 terminates an idle worker after ~30s, which would drop the in-memory
+  queue mid-chapter; the alarm keeps the worker reachable. See
+  `docs/architecture-notes.md`.
+- Decides automatic page translation via `shouldAutoTranslatePage(config, url)`
+  in `auto-translate.ts`: the master switch **and** the host must be on the
+  user's `autoTranslateHosts` allowlist. Both auto-translate entry points
+  (`tabs.onUpdated` and the content script's `READY`) use it.
+- Guards the image proxy in `image-fetch-guard.ts` + a sender check: extension
+  pages are refused, cross-origin is limited to image-shaped URLs, private
+  address ranges are blocked, and fetches omit credentials with a size cap.
 
 ### 4. Content Script — `src/content/content.ts`
 
-- Injected into every page (manifest `content_scripts.matches = ["<all_urls>"]`).
+- Injected into every page (manifest `content_scripts.matches = ["<all_urls>"]`),
+  but does nothing unprompted unless the host is on the auto-translate
+  allowlist. Manual actions (popup button, context menu) work anywhere.
 - Owns the page-level translation flow:
   1. Scan → filter (`image-filter.ts`) → dedupe → candidate list.
   2. Translate each image via the background service worker (job envelope).
@@ -195,6 +210,14 @@ the content script substitutes the active provider's model name at render time.
   be used for shared or store-distributed artifacts.
 - `host_permissions: ["<all_urls>"]` is required to fetch CORS-tainted
   images from manga sites. The extension does not exfiltrate data; it only
-  forwards images to the user's configured VLM endpoint.
+  forwards images to the user's configured VLM endpoint, and only for pages the
+  user translates (manually, or on an allowlisted host).
+- The background image proxy is a fetch primitive driven by page content, so it
+  is gated twice: `isImageFetchAllowedForSender` (extension pages refused,
+  cross-origin limited to image-shaped URLs) and `isSafeImageUrl` (private
+  address ranges blocked). Fetches omit credentials and are bounded by timeout
+  and byte cap. See `docs/architecture-notes.md`.
 - Background message validation restricts `getConfig` / `setConfig` to
   extension-origin senders (introduced in v0.3.3 after a trust-boundary audit).
+- The theme preference is stored in `chrome.storage.local`, not `sync`, so no
+  setting follows the user's Google account between devices.
