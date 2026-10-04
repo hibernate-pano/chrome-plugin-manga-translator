@@ -6,10 +6,11 @@ import sys
 from pathlib import Path
 
 
-ROOT_DIR = Path(__file__).resolve().parents[1]
-SERVER_DIR = ROOT_DIR / "server"
+# This script lives in server/scripts/, so the server root is its parent directory.
+SERVER_DIR = Path(__file__).resolve().parents[1]
+ROOT_DIR = SERVER_DIR
 RUNTIME_DIR = ROOT_DIR / ".runtime"
-LOG_DIR = ROOT_DIR / ".logs"
+LOG_DIR = ROOT_DIR / ".runtime"
 PID_FILE = RUNTIME_DIR / "manga-translator-server.pid"
 LOG_FILE = LOG_DIR / "manga-translator-server.log"
 HOST = "127.0.0.1"

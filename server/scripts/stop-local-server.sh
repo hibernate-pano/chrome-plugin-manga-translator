@@ -1,8 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PID_FILE="$ROOT_DIR/.runtime/manga-translator-server.pid"
+SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PID_FILE="$SERVER_DIR/.runtime/manga-translator-server.pid"
 
 if [[ ! -f "$PID_FILE" ]]; then
   echo "未找到 PID 文件，服务可能未运行。"

@@ -1,10 +1,9 @@
 #!/bin/zsh
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-SERVER_DIR="$ROOT_DIR/server"
-RUNTIME_DIR="$ROOT_DIR/.runtime"
-LOG_DIR="$ROOT_DIR/.logs"
+SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+RUNTIME_DIR="$SERVER_DIR/.runtime"
+LOG_DIR="$SERVER_DIR/.runtime"
 PID_FILE="$RUNTIME_DIR/manga-translator-server.pid"
 LOG_FILE="$LOG_DIR/manga-translator-server.log"
 HOST="127.0.0.1"
@@ -49,7 +48,7 @@ if is_running; then
 fi
 
 PYTHON_BIN="$(resolve_python)"
-SERVER_PID="$("$PYTHON_BIN" "$ROOT_DIR/scripts/launch_server_daemon.py")"
+SERVER_PID="$("$PYTHON_BIN" "$SERVER_DIR/scripts/launch_server_daemon.py")"
 
 for _ in {1..60}; do
   if curl --silent --fail "http://$HOST:$PORT/api/v1/health" >/dev/null 2>&1; then

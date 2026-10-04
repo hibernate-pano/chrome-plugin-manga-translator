@@ -1,8 +1,8 @@
 #!/bin/zsh
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-LOG_FILE="$ROOT_DIR/.logs/manga-translator-server.log"
+SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LOG_FILE="$SERVER_DIR/.runtime/manga-translator-server.log"
 
 if [[ ! -f "$LOG_FILE" ]]; then
   echo "暂无日志: $LOG_FILE"

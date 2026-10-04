@@ -27,3 +27,6 @@ coverage/
 .conductor/
 .kiro/
 .omx/
+
+# Deprecated server runtime state (pid file + log); see server/README.md
+server/.runtime/

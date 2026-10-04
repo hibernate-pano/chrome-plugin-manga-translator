@@ -242,7 +242,13 @@ const OptionsApp: React.FC = () => {
       try {
         const settings = providers[providerType];
         const instance = await createProvider(providerType, settings);
-        const result = await instance.validateConfig();
+        // Prefer a real endpoint probe. `validateConfig` can only inspect
+        // strings for OpenAI-compatible providers, so the button used to
+        // report "配置有效" for a wrong base URL or a revoked key; Ollama and
+        // LM Studio already perform live checks inside validateConfig.
+        const result = instance.testConnection
+          ? await instance.testConnection()
+          : await instance.validateConfig();
         setTestResults(current => ({
           ...current,
           [providerType]: {

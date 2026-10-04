@@ -1,9 +1,9 @@
 #!/bin/zsh
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-PID_FILE="$ROOT_DIR/.runtime/manga-translator-server.pid"
-LOG_FILE="$ROOT_DIR/.logs/manga-translator-server.log"
+SERVER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+PID_FILE="$SERVER_DIR/.runtime/manga-translator-server.pid"
+LOG_FILE="$SERVER_DIR/.runtime/manga-translator-server.log"
 HEALTH_URL="http://127.0.0.1:8000/api/v1/health"
 
 if [[ -f "$PID_FILE" ]]; then

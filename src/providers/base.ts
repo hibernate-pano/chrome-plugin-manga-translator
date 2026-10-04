@@ -158,10 +158,23 @@ export interface VisionProvider {
   ): Promise<VisionResponse>;
 
   /**
-   * Validate the current configuration
-   * @returns Promise resolving to validation result
+   * Check the configuration locally, without touching the network.
+   *
+   * This is the check the content script can run: it executes inside the page
+   * and is subject to the page's CORS rules, so it must not make provider
+   * requests. It answers "is this configuration complete?", not "does this
+   * endpoint work?".
    */
   validateConfig(): Promise<ValidationResult>;
+
+  /**
+   * Probe the configured endpoint for real.
+   *
+   * Only safe to call from an extension page (Options), which has host
+   * permissions and is not subject to page CORS. Optional: callers should
+   * fall back to `validateConfig` when a provider does not implement it.
+   */
+  testConnection?(): Promise<ValidationResult>;
 }
 
 /**

@@ -150,6 +150,65 @@ export abstract class OpenAICompatibleProvider
     return { valid: true, message: `${this.name} 配置有效` };
   }
 
+  /**
+   * Probe the endpoint for real.
+   *
+   * `validateConfig` can only inspect strings, so the Settings "test
+   * connection" button used to report success for a wrong base URL, a revoked
+   * key, or a model that does not exist. That is worse than no button: it
+   * sends the user looking for the fault somewhere else.
+   *
+   * This asks the OpenAI-compatible `/models` endpoint, which every
+   * implementation of this API is expected to expose. Only call it from an
+   * extension page: a content script's request would be blocked by the page's
+   * CORS rules.
+   */
+  async testConnection(): Promise<ValidationResult> {
+    const local = await this.validateConfig();
+    if (!local.valid) {
+      return local;
+    }
+
+    const headers: Record<string, string> = {};
+    if (this.config.apiKey) {
+      headers['Authorization'] = `Bearer ${this.config.apiKey}`;
+    }
+
+    const response = await httpRequest<unknown>(
+      `${this.config.baseUrl}/models`,
+      { method: 'GET', headers, timeout: 10_000 }
+    );
+
+    if (response.ok) {
+      return { valid: true, message: `已连接 ${this.name}` };
+    }
+
+    if (response.status === 401 || response.status === 403) {
+      return {
+        valid: false,
+        message: `${this.name} 拒绝了该 API 密钥（${response.status}）`,
+      };
+    }
+    if (response.status === 404) {
+      return {
+        valid: false,
+        message: `${this.name} 未找到 Base URL：${this.config.baseUrl}（404）`,
+      };
+    }
+    if (response.status === 408 || response.status === 0) {
+      return {
+        valid: false,
+        message: `无法连接 ${this.config.baseUrl}：${response.error ?? '网络错误'}`,
+      };
+    }
+    return {
+      valid: false,
+      message: `${this.name} 返回 ${response.status}: ${
+        response.error ?? response.statusText
+      }`,
+    };
+  }
+
   protected ensureConfigured(): void {
     if (this.requiresAuth()) {
       if (!this.config.apiKey) {
