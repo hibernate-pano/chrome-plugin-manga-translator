@@ -136,7 +136,14 @@ image shape and result quality:
   `chrome.storage.local` (NOT `sync` — see v0.3.5 security fix). The store is
   the single source of truth for: provider, model, base URL, language, target
   language, parallel limit, cache toggle, render mode, translation pipeline,
-  onboarding completion flag, overlay style.
+  onboarding completion flag, overlay style, and the per-site
+  `autoTranslateHosts` allowlist.
+
+  The persisted field set is a whitelist (`PERSISTED_CONFIG_FIELDS`) shared by
+  `partialize`, the storage-change listener, and the trusted-write patch. API
+  keys are obfuscated on write and deobfuscated on read, so anything comparing
+  or merging this data must go through `src/stores/config-equality.ts` rather
+  than object identity. See `docs/architecture-notes.md`.
 - **`src/stores/cache-v2.ts`** — translation cache, scoped per-image hash.
   The cache key binds image hash, provider, model, target language, style,
   render mode, and pipeline versions.

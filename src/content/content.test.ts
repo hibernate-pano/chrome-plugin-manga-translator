@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
   extractPersistedConfigState,
+  getAutoContinueFromConfig,
+  getAutoTranslateHostsFromConfig,
   getEnabledFromConfig,
   getOverlayStyleFromConfig,
 } from './config-snapshot';
@@ -25,7 +27,10 @@ describe('content page translation settings', () => {
     expect(clampPageTranslationConcurrency(Number.POSITIVE_INFINITY)).toBe(3);
   });
 
-  it('reads enabled state from persisted config envelopes', () => {
+  it('reads the master switch from persisted config envelopes', () => {
+    // getEnabledFromConfig reports the master switch only. Auto-continue is a
+    // separate setting with its own reader; conflating them is what made the
+    // extension start translating pages the user never asked about.
     expect(
       getEnabledFromConfig({
         state: { enabled: true, autoContinueEnabled: true },
@@ -35,13 +40,36 @@ describe('content page translation settings', () => {
       getEnabledFromConfig({
         state: { enabled: true, autoContinueEnabled: false },
       })
-    ).toBe(false);
+    ).toBe(true);
     expect(
       getEnabledFromConfig({
         enabled: true,
         autoContinueEnabled: true,
       })
     ).toBe(true);
+    expect(getEnabledFromConfig({ state: { enabled: false } })).toBe(false);
+    expect(getEnabledFromConfig(undefined)).toBe(false);
+  });
+
+  it('reads auto-continue separately, defaulting on', () => {
+    expect(getAutoContinueFromConfig({ state: { enabled: true } })).toBe(true);
+    expect(
+      getAutoContinueFromConfig({ state: { autoContinueEnabled: false } })
+    ).toBe(false);
+  });
+
+  it('normalises the auto-translate host allowlist', () => {
+    expect(
+      getAutoTranslateHostsFromConfig({
+        state: {
+          autoTranslateHosts: ['Example.com', 'example.com', '  a.io  '],
+        },
+      })
+    ).toEqual(['example.com', 'a.io']);
+    expect(getAutoTranslateHostsFromConfig({ state: {} })).toEqual([]);
+    expect(
+      getAutoTranslateHostsFromConfig({ state: { autoTranslateHosts: 'x' } })
+    ).toEqual([]);
   });
 
   it('reads overlay style from persisted config envelopes and flat snapshots', () => {

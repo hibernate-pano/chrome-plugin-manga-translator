@@ -54,6 +54,17 @@ The extension integrates with third-party Vision LLM providers. When you configu
 
 You are responsible for reviewing the privacy policies of any third-party API providers you choose to use.
 
+## When Images Are Sent
+
+Images leave your device only when the extension translates them. That happens
+when you ask for it — the popup button, the context menu, or by translating a
+page and then scrolling images into view — or when the page's site is on the
+auto-translate list you control from the popup.
+
+The auto-translate list is empty by default, so enabling the extension does not
+by itself cause any image to be uploaded. Nothing is ever sent from a site you
+have not chosen to translate.
+
 ## OCR Language Data
 
 The extension ships its OCR engine locally. When the OCR fallback path is used

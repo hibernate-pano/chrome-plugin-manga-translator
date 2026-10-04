@@ -42,6 +42,14 @@ returned translation on the source page.
 The content script is injected on normal web pages but performs no image
 processing until the user enables the extension and starts translation.
 
+Automatic translation is opt-in per site. Enabling the extension does not make
+it translate pages by itself: a page is only translated without an explicit
+action when its host has been added to the user's auto-translate list from the
+popup. Manual actions (the popup button and the context-menu item) work on any
+site the user chooses. This is worth stating explicitly in the review notes
+because `<all_urls>` plus unattended operation is the combination reviewers
+scrutinise most.
+
 ## Privacy Disclosure
 
 Use the hosted `docs/privacy-policy.md` page as the privacy-policy URL.

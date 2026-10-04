@@ -31,6 +31,31 @@ Consequences that have caused real bugs:
 
 Regression coverage: `src/stores/config-storage-sync.test.ts`.
 
+## Who may translate without being asked
+
+Three settings are easy to conflate, and conflating them once caused the
+extension to translate every site the user visited:
+
+| Setting | Meaning |
+|---|---|
+| `enabled` | master switch; gates everything, including manual actions |
+| `autoTranslateHosts` | hosts where a page translates on load, unprompted |
+| `autoContinueEnabled` | within an already-translated page, keep translating images that load later |
+
+`isTranslationEnabled` returns the master switch only. Use
+`shouldAutoTranslatePage(config, url)` to decide whether to act unprompted;
+`isAutoContinueEnabled` covers the in-page case. Background gates
+`tabs.onUpdated` and the content script's `READY` handler with the allowlist,
+and the content script arms auto-continue only after the user has requested the
+page (or the host is allowlisted).
+
+The allowlist is empty by default. Keep it that way: `<all_urls>` plus
+unattended operation is the combination that sends a user's banking or webmail
+images to a third-party endpoint, and it is what Chrome Web Store review
+scrutinises.
+
+Regression coverage: `src/background/auto-translate.test.ts`.
+
 ## Content script size
 
 The content script is injected into every page the user opens, so its weight is

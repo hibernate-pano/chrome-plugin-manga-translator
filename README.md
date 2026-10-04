@@ -62,8 +62,14 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
 
 - **In-place overlay translation**: detected text is replaced with the translation
   while keeping the surrounding art intact.
-- **Auto-continue**: new images that scroll into view are translated automatically
-  (toggle in Settings).
+- **Auto-continue**: once you have translated a page, images that load later
+  (webtoon readers replace them as you scroll) are translated too.
+- **Per-site automation, off by default**: the extension only translates a page
+  on its own for sites you add to the auto-translate list from the popup. Every
+  other site waits for you to press the button. Automatic translation used to
+  fire on every navigation in every tab once the extension was enabled, which
+  sent images from whatever you were browsing to your provider and billed for
+  them.
 - **MiniMax-M3 fast mode**: thinking is disabled for structured manga
   translation, avoiding wasted `<think>` tokens and reducing response time.
 - **Reading mode side panel**: a right-side panel listing every translation in

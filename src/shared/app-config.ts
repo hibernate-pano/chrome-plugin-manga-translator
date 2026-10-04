@@ -20,7 +20,26 @@ export interface RuntimeAppConfig {
   lmStudio: ProviderSettings;
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
+  /**
+   * Continue translating images that load later, within a page that has
+   * already been translated.
+   */
   autoContinueEnabled: boolean;
+  /**
+   * Sites where a page is translated automatically on load.
+   *
+   * Empty by default, and deliberately so: `chrome.tabs.onUpdated` used to
+   * fire a full-page translation on every navigation once the extension was
+   * enabled, with `<all_urls>` host permission and no site control. That sent
+   * large images from banking, webmail and intranet pages to a third-party
+   * vision endpoint and billed for them. Automatic translation is now opt-in
+   * per host; the manual actions (popup button, context menu) still work
+   * anywhere.
+   *
+   * Entries are bare hostnames (`example.com`). A leading `*.` matches
+   * subdomains (`*.example.com`).
+   */
+  autoTranslateHosts: string[];
   /**
    * First-run onboarding completed flag.
    *
@@ -67,6 +86,7 @@ export const DEFAULT_RUNTIME_APP_CONFIG: RuntimeAppConfig = {
   targetLanguage: 'zh-CN',
   translationStylePreset: DEFAULT_TRANSLATION_STYLE_PRESET,
   autoContinueEnabled: true,
+  autoTranslateHosts: [],
   // New users must explicitly complete (or skip) the onboarding modal
   // before the extension will run translations. This protects them
   // from being billed for VLM calls without their consent.
@@ -90,7 +110,26 @@ export const DEFAULT_CONFIG: Readonly<{
   };
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
+  /**
+   * Continue translating images that load later, within a page that has
+   * already been translated.
+   */
   autoContinueEnabled: boolean;
+  /**
+   * Sites where a page is translated automatically on load.
+   *
+   * Empty by default, and deliberately so: `chrome.tabs.onUpdated` used to
+   * fire a full-page translation on every navigation once the extension was
+   * enabled, with `<all_urls>` host permission and no site control. That sent
+   * large images from banking, webmail and intranet pages to a third-party
+   * vision endpoint and billed for them. Automatic translation is now opt-in
+   * per host; the manual actions (popup button, context menu) still work
+   * anywhere.
+   *
+   * Entries are bare hostnames (`example.com`). A leading `*.` matches
+   * subdomains (`*.example.com`).
+   */
+  autoTranslateHosts: string[];
   onboardingCompleted: boolean;
   maxImageSize: number;
   parallelLimit: number;
@@ -198,6 +237,94 @@ function normalizeProviderSettings(
   };
 }
 
+/**
+ * Normalise a list of hostnames: trimmed, lower-cased, de-duplicated, with
+ * any scheme or path stripped so `https://Example.com/reader` and
+ * `example.com` do not both get stored.
+ */
+export function normalizeHostList(value: unknown): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const entry of value) {
+    if (typeof entry !== 'string') {
+      continue;
+    }
+    const host = normalizeHostEntry(entry);
+    if (host && !seen.has(host)) {
+      seen.add(host);
+      out.push(host);
+    }
+  }
+  return out;
+}
+
+/**
+ * Reduce arbitrary user input to a bare hostname, preserving an optional
+ * leading `*.` wildcard.
+ */
+export function normalizeHostEntry(value: string): string | null {
+  const trimmed = value.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+  const wildcard = trimmed.startsWith('*.');
+  const body = wildcard ? trimmed.slice(2) : trimmed;
+  let host = body;
+  try {
+    if (body.includes('://')) {
+      host = new URL(body).hostname;
+    } else if (body.includes('/')) {
+      host = new URL(`https://${body}`).hostname;
+    } else if (body.includes(':') && !body.includes(']')) {
+      // host:port -> host
+      host = body.split(':')[0] ?? body;
+    }
+  } catch {
+    return null;
+  }
+  host = host.replace(/^\.+|\.+$/g, '');
+  if (!host || !/^[a-z0-9.*-]+$/.test(host)) {
+    return null;
+  }
+  return wildcard ? `*.${host}` : host;
+}
+
+/**
+ * Should a page at `url` be translated automatically on load?
+ *
+ * Matching is hostname-only and exact unless the entry starts with `*.`, so
+ * `example.com` does not silently cover `notexample.com` (a suffix check
+ * without a boundary would).
+ */
+export function hostMatchesAllowlist(
+  url: string,
+  hosts: readonly string[]
+): boolean {
+  if (hosts.length === 0) {
+    return false;
+  }
+  let hostname: string;
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return false;
+    }
+    hostname = parsed.hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  return hosts.some(entry => {
+    if (entry.startsWith('*.')) {
+      const base = entry.slice(2);
+      return hostname === base || hostname.endsWith(`.${base}`);
+    }
+    return hostname === entry;
+  });
+}
+
 export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
   const envelope = isRecord(value) ? (value as StorageEnvelope) : {};
   const state = isRecord(envelope.state)
@@ -293,6 +420,7 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
       typeof state.autoContinueEnabled === 'boolean'
         ? state.autoContinueEnabled
         : DEFAULT_RUNTIME_APP_CONFIG.autoContinueEnabled,
+    autoTranslateHosts: normalizeHostList(state.autoTranslateHosts),
     onboardingCompleted:
       typeof state.onboardingCompleted === 'boolean'
         ? state.onboardingCompleted

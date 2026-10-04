@@ -19,6 +19,14 @@ interface Harness {
   writeCount: () => number;
   resetWrites: () => void;
   setConfigSnapshot: (snapshot: unknown) => Promise<void>;
+  /** Hold onChanged notifications so a stale echo can be queued on purpose. */
+  pauseDelivery: () => void;
+  /**
+   * Flush withheld notifications. `newestFirst` models the hazard: Chrome
+   * writes asynchronously, so a notification for an older write can be
+   * delivered after a newer one.
+   */
+  resumeDelivery: (options?: { newestFirst?: boolean }) => void;
 }
 
 function installChromeMock(): Harness {
@@ -27,6 +35,16 @@ function installChromeMock(): Harness {
     (changes: Record<string, unknown>, areaName: string) => void
   > = [];
   let writes = 0;
+  const queued: Array<() => void> = [];
+  let deliveryPaused = false;
+
+  const deliver = (fn: () => void) => {
+    if (deliveryPaused) {
+      queued.push(fn);
+      return;
+    }
+    fn();
+  };
 
   const mock = {
     storage: {
@@ -50,9 +68,11 @@ function installChromeMock(): Harness {
           // Chrome delivers onChanged asynchronously, and the writing context
           // receives it as well.
           setTimeout(() => {
-            for (const listener of listeners) {
-              listener(changes, 'local');
-            }
+            deliver(() => {
+              for (const listener of listeners) {
+                listener(changes, 'local');
+              }
+            });
           }, 0);
         },
         remove: async (keys: string | string[]) => {
@@ -83,6 +103,18 @@ function installChromeMock(): Harness {
     },
     setConfigSnapshot: async snapshot => {
       await mock.storage.local.set({ [CONFIG_KEY]: snapshot });
+    },
+    pauseDelivery: () => {
+      deliveryPaused = true;
+    },
+    resumeDelivery: options => {
+      deliveryPaused = false;
+      const pending = options?.newestFirst
+        ? queued.splice(0).reverse()
+        : queued.splice(0);
+      for (const fn of pending) {
+        fn();
+      }
     },
   };
 }
@@ -144,8 +176,11 @@ describe('config store <-> chrome.storage sync', () => {
   });
 
   it('hands the provider layer the user key, not the obfuscated value', async () => {
+    // The store and the translator must come from the SAME module graph:
+    // `translator.ts` captures `useAppConfigStore` at import time, so a
+    // reset in between would hand back a translator bound to a different
+    // store instance and assert against the wrong object.
     const { useAppConfigStore } = await loadStore();
-    vi.resetModules();
     const { createTranslatorFromConfig } =
       await import('@/services/translator');
 
@@ -164,6 +199,38 @@ describe('config store <-> chrome.storage sync', () => {
     expect(createTranslatorFromConfig().getConfig().apiKey).toBe(
       'sk-what-the-provider-sees-1234567890'
     );
+  });
+
+  it('a late echo of our own earlier write cannot revert a newer edit', async () => {
+    // Real ordering: the store hydrates and persists a snapshot, the user
+    // edits before that write's onChanged notification is delivered, and the
+    // stale snapshot arrives last. Value comparison cannot detect this — the
+    // stale snapshot legitimately differs from current state — so the payload
+    // we wrote has to be recognised as ours.
+    //
+    // Delivery is suspended BEFORE the module loads, so the hydration write's
+    // echo is still in flight when the edit happens.
+    harness.pauseDelivery();
+    const { useAppConfigStore } = await loadStore();
+
+    useAppConfigStore.getState().updateProviderSettings('openai-compatible', {
+      apiKey: 'sk-newer-edit-1234567890',
+    });
+    await settle(50);
+    expect(
+      useAppConfigStore.getState().providers['openai-compatible'].apiKey
+    ).toBe('sk-newer-edit-1234567890');
+
+    // Deliver the withheld notifications newest-first. Chrome performs
+    // storage writes asynchronously, and this ordering — an older write's
+    // notification arriving after a newer one's — is what reverted the edit.
+    // That ordering used to fail roughly 4 runs in 10.
+    harness.resumeDelivery({ newestFirst: true });
+    await settle(250);
+
+    expect(
+      useAppConfigStore.getState().providers['openai-compatible'].apiKey
+    ).toBe('sk-newer-edit-1234567890');
   });
 
   it('applies a genuine external write from the background worker', async () => {

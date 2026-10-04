@@ -50,6 +50,22 @@ const PROVIDER_OPTIONS: Array<{ value: ProviderType; label: string }> = [
   { value: 'lm-studio', label: 'LM Studio' },
 ];
 
+/** Bare hostname of a tab URL, or null when it is not a normal web page. */
+function hostFromUrl(url: string | undefined): string | null {
+  if (!url) {
+    return null;
+  }
+  try {
+    const parsed = new URL(url);
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+      return null;
+    }
+    return parsed.hostname.toLowerCase();
+  } catch {
+    return null;
+  }
+}
+
 async function getActiveTab(): Promise<chrome.tabs.Tab | null> {
   const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
   return tab ?? null;
@@ -70,6 +86,7 @@ const PopupApp: React.FC = () => {
     status: 'idle',
   });
   const [isLoading, setIsLoading] = useState(true);
+  const [currentHost, setCurrentHost] = useState<string | null>(null);
   const [pageAvailability, setPageAvailability] = useState<PageAvailability>({
     state: 'ready',
     message: '',
@@ -88,6 +105,21 @@ const PopupApp: React.FC = () => {
   const setProvider = useAppConfigStore(state => state.setProvider);
   const setTargetLanguage = useAppConfigStore(state => state.setTargetLanguage);
   const setEnabled = useAppConfigStore(state => state.setEnabled);
+  const autoContinueEnabled = useAppConfigStore(
+    state => state.autoContinueEnabled
+  );
+  const setAutoContinueEnabled = useAppConfigStore(
+    state => state.setAutoContinueEnabled
+  );
+  const autoTranslateHosts = useAppConfigStore(
+    state => state.autoTranslateHosts
+  );
+  const addAutoTranslateHost = useAppConfigStore(
+    state => state.addAutoTranslateHost
+  );
+  const removeAutoTranslateHost = useAppConfigStore(
+    state => state.removeAutoTranslateHost
+  );
 
   const providerLabel =
     provider === 'ollama'
@@ -104,6 +136,7 @@ const PopupApp: React.FC = () => {
 
   const refreshPageStatus = useCallback(async () => {
     const tab = await getActiveTab();
+    setCurrentHost(hostFromUrl(tab?.url));
     if (!tab) {
       setPageAvailability({
         state: 'unsupported',
@@ -300,9 +333,7 @@ const PopupApp: React.FC = () => {
         <label className='flex items-center justify-between rounded-lg border border-white/10 bg-white/[0.03] px-3 py-3'>
           <div>
             <div className='text-sm font-medium'>启用扩展</div>
-            <div className='text-xs text-slate-400'>
-              页面加载后允许自动续翻新出现的图片
-            </div>
+            <div className='text-xs text-slate-400'>关闭后不会请求任何模型</div>
           </div>
           <Switch
             checked={enabled}
@@ -310,6 +341,53 @@ const PopupApp: React.FC = () => {
             aria-label='启用扩展'
           />
         </label>
+
+        <div className='rounded-lg border border-white/10 bg-white/[0.03] px-3 py-3'>
+          <label className='flex items-center justify-between'>
+            <div>
+              <div className='text-sm font-medium'>自动翻译本站</div>
+              <div className='text-xs text-slate-400'>
+                {currentHost
+                  ? `${currentHost} 打开页面时自动翻译`
+                  : '当前页面不支持自动翻译'}
+              </div>
+            </div>
+            <Switch
+              checked={Boolean(
+                currentHost && autoTranslateHosts.includes(currentHost)
+              )}
+              disabled={!currentHost || !enabled}
+              onCheckedChange={checked => {
+                if (!currentHost) return;
+                if (checked) {
+                  addAutoTranslateHost(currentHost);
+                } else {
+                  removeAutoTranslateHost(currentHost);
+                }
+              }}
+              aria-label='自动翻译本站'
+            />
+          </label>
+          <label className='mt-3 flex items-center justify-between border-t border-white/5 pt-3'>
+            <div>
+              <div className='text-sm font-medium'>自动续翻</div>
+              <div className='text-xs text-slate-400'>
+                本页新加载的图片继续翻译
+              </div>
+            </div>
+            <Switch
+              checked={autoContinueEnabled}
+              disabled={!enabled}
+              onCheckedChange={setAutoContinueEnabled}
+              aria-label='自动续翻'
+            />
+          </label>
+          {autoTranslateHosts.length > 0 && (
+            <div className='mt-2 text-xs text-slate-500'>
+              已开启自动翻译的站点：{autoTranslateHosts.length} 个
+            </div>
+          )}
+        </div>
 
         <div className='rounded-lg border border-white/10 bg-white/[0.03] p-3'>
           <div className='flex items-center justify-between text-sm'>

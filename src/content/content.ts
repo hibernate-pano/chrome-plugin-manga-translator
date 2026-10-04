@@ -35,6 +35,7 @@ import {
   type ParallelProcessingOptions,
 } from '@/utils/image-priority';
 import { useAppConfigStore } from '@/stores/config-v2';
+import { hostMatchesAllowlist } from '@/shared/app-config';
 import { isTranslatableImage } from './image-filter';
 import { FloatingHud } from './floating-hud';
 import { ReadingPanel } from './reading-panel';
@@ -45,6 +46,8 @@ import {
   shouldAutoTranslateFollowUp,
 } from './auto-translate-observer';
 import {
+  getAutoContinueFromConfig,
+  getAutoTranslateHostsFromConfig,
   getEnabledFromConfig,
   getOverlayStyleFromConfig,
 } from './config-snapshot';
@@ -106,6 +109,13 @@ let readingPanel: ReadingPanel | null = null;
 let readingAnchors: ReadingAnchors | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
+/**
+ * Set once the user asks for this page to be translated (popup button, context
+ * menu, or the host being on the auto-translate allowlist). Auto-continue is
+ * meaningless before that: without it, a page the user never asked about would
+ * translate itself as soon as it scrolled.
+ */
+let pageTranslationRequested = false;
 let translationRunInFlight = false;
 let failedCount = 0;
 let cachedCount = 0;
@@ -322,13 +332,36 @@ async function processSingleImage(
   readingAnchors?.upsert(img, entryCount);
 }
 
+/**
+ * Decide whether this page should translate itself, and start or stop the
+ * observer accordingly.
+ *
+ * Two independent reasons to auto-translate:
+ *   - the host is on the user's auto-translate allowlist, or
+ *   - the user already translated this page, in which case new images that
+ *     load later should follow (the original "auto-continue").
+ *
+ * The master switch and the auto-continue setting still gate both.
+ */
 async function syncAutoTranslateMode(): Promise<void> {
   try {
     const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
-    const enabled = getEnabledFromConfig(result[CONFIG_STORAGE_KEY]);
-    isAutoTranslateEnabled = enabled;
+    const config = result[CONFIG_STORAGE_KEY];
+    const masterEnabled = getEnabledFromConfig(config);
+    const autoContinue = getAutoContinueFromConfig(config);
+    const allowlisted =
+      typeof window !== 'undefined' &&
+      hostMatchesAllowlist(
+        window.location.href,
+        getAutoTranslateHostsFromConfig(config)
+      );
 
-    if (enabled) {
+    isAutoTranslateEnabled =
+      masterEnabled &&
+      autoContinue &&
+      (allowlisted || pageTranslationRequested);
+
+    if (isAutoTranslateEnabled) {
       startAutoTranslateObserver();
     } else {
       stopAutoTranslateObserver();
@@ -435,6 +468,13 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
   // TRANSLATE_PAGE around page load; currentState changes too late to prevent
   // those duplicate runs.
   translationRunInFlight = true;
+  // From here on the user wants this page translated, so newly loaded images
+  // should follow. This is what arms auto-continue for a page that is not on
+  // the auto-translate allowlist.
+  pageTranslationRequested = true;
+  // Re-evaluate the observer now that this page counts as requested; on a
+  // host that is not allowlisted this is the moment auto-continue arms.
+  void syncAutoTranslateMode();
   abortController = new AbortController();
 
   try {
@@ -637,6 +677,14 @@ function clearAll(): void {
   document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach(img => {
     img.classList.remove(PROCESSED_CLASS);
   });
+
+  // Clearing drops the processed-image record, so every image on the page now
+  // looks new. Leaving auto-translate armed would immediately re-translate the
+  // whole page the user just cleared — a surprising bill. Auto-translate on
+  // an allowlisted host re-arms on the next navigation; elsewhere it re-arms
+  // when the user translates again.
+  pageTranslationRequested = false;
+  void syncAutoTranslateMode();
 
   setState({ status: 'idle' });
 }

@@ -1,3 +1,4 @@
+import { normalizeHostList } from '@/shared/app-config';
 import type { OverlayStyleConfig } from '@/stores/config-v2';
 
 type PersistedConfigRecord = Record<string, unknown>;
@@ -16,16 +17,37 @@ export function extractPersistedConfigState(
   return isRecord(config['state']) ? config['state'] : config;
 }
 
+/**
+ * Is the master switch on?
+ *
+ * Named for what it returns: this is only the global toggle. Whether the
+ * extension should act on the current page without being asked is a separate
+ * question — see `shouldAutoTranslatePage` in `@/shared/app-config`.
+ */
 export function getEnabledFromConfig(config: unknown): boolean {
   const state = extractPersistedConfigState(config);
-  const enabled =
-    typeof state['enabled'] === 'boolean' ? state['enabled'] : false;
-  const autoContinueEnabled =
-    typeof state['autoContinueEnabled'] === 'boolean'
-      ? state['autoContinueEnabled']
-      : true;
+  return typeof state['enabled'] === 'boolean' ? state['enabled'] : false;
+}
 
-  return enabled && autoContinueEnabled;
+/**
+ * Continue translating images that appear later in a page the user already
+ * asked us to translate.
+ */
+export function getAutoContinueFromConfig(config: unknown): boolean {
+  const state = extractPersistedConfigState(config);
+  return typeof state['autoContinueEnabled'] === 'boolean'
+    ? state['autoContinueEnabled']
+    : true;
+}
+
+/**
+ * Should this host be translated automatically on load, without the user
+ * asking?
+ */
+export function getAutoTranslateHostsFromConfig(config: unknown): string[] {
+  return normalizeHostList(
+    extractPersistedConfigState(config)['autoTranslateHosts']
+  );
 }
 
 export function getOverlayStyleFromConfig(

@@ -8,6 +8,8 @@ import {
   DEFAULT_OLLAMA_CONFIG,
   DEFAULT_LM_STUDIO_CONFIG,
   normalizeRuntimeAppConfig,
+  normalizeHostEntry,
+  normalizeHostList,
   type RuntimeAppConfig,
   type ProviderSettings as RuntimeProviderSettings,
 } from '@/shared/app-config';
@@ -40,6 +42,7 @@ export interface AppConfigState extends RuntimeAppConfig {
   parallelLimit: number;
   cacheEnabled: boolean;
   autoContinueEnabled: boolean;
+  autoTranslateHosts: string[];
   readingMode: 'panel';
   renderMode: 'anchors-only' | 'strong-overlay-compat';
   translationPipeline: 'hybrid-regions' | 'full-image-vlm';
@@ -62,6 +65,9 @@ export interface AppConfigActions {
   setParallelLimit: (limit: number) => void;
   setCacheEnabled: (enabled: boolean) => void;
   setAutoContinueEnabled: (enabled: boolean) => void;
+  setAutoTranslateHosts: (hosts: string[]) => void;
+  addAutoTranslateHost: (host: string) => void;
+  removeAutoTranslateHost: (host: string) => void;
   setTranslationStylePreset: (preset: TranslationStylePreset) => void;
   setReadingMode: (mode: 'panel') => void;
   setRenderMode: (mode: 'anchors-only' | 'strong-overlay-compat') => void;
@@ -95,6 +101,7 @@ const LOCAL_DEFAULT_CONFIG: AppConfigState = {
   parallelLimit: SHARED_DEFAULT_CONFIG.parallelLimit,
   cacheEnabled: SHARED_DEFAULT_CONFIG.cacheEnabled,
   autoContinueEnabled: SHARED_DEFAULT_CONFIG.autoContinueEnabled,
+  autoTranslateHosts: SHARED_DEFAULT_CONFIG.autoTranslateHosts,
   translationStylePreset:
     SHARED_DEFAULT_CONFIG.translationStylePreset ??
     DEFAULT_TRANSLATION_STYLE_PRESET,
@@ -153,6 +160,7 @@ export const PERSISTED_CONFIG_FIELDS = [
   'parallelLimit',
   'cacheEnabled',
   'autoContinueEnabled',
+  'autoTranslateHosts',
   'translationStylePreset',
   'readingMode',
   'renderMode',
@@ -427,8 +435,12 @@ const chromeStorage = {
     try {
       const parsedValue = JSON.parse(value);
       if (parsedValue && parsedValue.state) {
+        // Remember the pre-obfuscation shape: the echo we get back is
+        // deobfuscated before comparison, so the two forms must match.
+        rememberSelfWrite(parsedValue.state);
         obfuscateAllApiKeys(parsedValue.state);
       } else {
+        rememberSelfWrite(parsedValue);
         obfuscateAllApiKeys(parsedValue);
       }
 
@@ -527,6 +539,28 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       setCacheEnabled: cacheEnabled => set({ cacheEnabled }),
       setAutoContinueEnabled: autoContinueEnabled =>
         set({ autoContinueEnabled }),
+      setAutoTranslateHosts: hosts =>
+        set({ autoTranslateHosts: normalizeHostList(hosts) }),
+      addAutoTranslateHost: host => {
+        const normalized = normalizeHostEntry(host);
+        if (!normalized) {
+          return;
+        }
+        set(state => ({
+          autoTranslateHosts: normalizeHostList([
+            ...state.autoTranslateHosts,
+            normalized,
+          ]),
+        }));
+      },
+      removeAutoTranslateHost: host => {
+        const normalized = normalizeHostEntry(host);
+        set(state => ({
+          autoTranslateHosts: state.autoTranslateHosts.filter(
+            entry => entry !== normalized
+          ),
+        }));
+      },
       setTranslationStylePreset: translationStylePreset =>
         set({ translationStylePreset }),
       setReadingMode: readingMode => set({ readingMode }),
@@ -568,6 +602,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
           targetLanguage: state.targetLanguage,
           translationStylePreset: state.translationStylePreset,
           autoContinueEnabled: state.autoContinueEnabled,
+          autoTranslateHosts: state.autoTranslateHosts,
           onboardingCompleted: state.onboardingCompleted,
         };
       },
@@ -673,6 +708,46 @@ export const useOverlayStyle = () =>
  */
 let storageChangeListenerInitialized = false;
 
+/**
+ * Snapshots this context recently wrote, in the order written.
+ *
+ * `persist` writes asynchronously, so a burst of edits can produce writes
+ * whose `onChanged` notifications arrive out of order. Without this, an echo
+ * of an *older* write can land after a newer edit and overwrite it: the user
+ * types an API key, the hydration write's echo arrives a moment later carrying
+ * the previous (empty) value, and the key silently reverts. Value comparison
+ * cannot catch that, because the stale snapshot genuinely differs from the
+ * current state.
+ *
+ * Matching the payload we wrote is unambiguous, so it is kept to a small
+ * bounded ring. Entries are consumed on match; anything that does not match is
+ * another context's write and is adopted.
+ */
+const SELF_WRITE_LIMIT = 8;
+const recentSelfWrites: Array<Record<string, unknown>> = [];
+
+function rememberSelfWrite(snapshot: unknown): void {
+  const fields = pickConfigFields(snapshot, PERSISTED_CONFIG_FIELDS);
+  recentSelfWrites.push(fields);
+  while (recentSelfWrites.length > SELF_WRITE_LIMIT) {
+    recentSelfWrites.shift();
+  }
+}
+
+function consumeMatchingSelfWrite(candidate: unknown): boolean {
+  const index = recentSelfWrites.findIndex(entry =>
+    isConfigValueEqual(
+      entry,
+      pickConfigFields(candidate, PERSISTED_CONFIG_FIELDS)
+    )
+  );
+  if (index === -1) {
+    return false;
+  }
+  recentSelfWrites.splice(index, 1);
+  return true;
+}
+
 export function shallowChanged(
   candidate: Record<string, unknown>,
   current: Record<string, unknown>
@@ -717,6 +792,12 @@ function setupStorageChangeListener(): void {
 
       // Storage holds obfuscated keys; memory state must stay plaintext.
       deobfuscateAllApiKeys(candidate);
+
+      // An echo of something we wrote. It may be older than current state
+      // (async delivery), so drop it rather than applying it.
+      if (consumeMatchingSelfWrite(candidate)) {
+        return;
+      }
 
       const current = useAppConfigStore.getState() as unknown as Record<
         string,

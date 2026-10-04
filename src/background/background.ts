@@ -1,6 +1,7 @@
 import {
   createAutoTranslateMessage,
   isTranslationEnabled,
+  shouldAutoTranslatePage,
 } from './auto-translate';
 /**
  * Message protocols handled by this background script.
@@ -383,7 +384,13 @@ async function handleMessage(
           return;
         case 'READY': {
           const config = await getConfig();
-          if (sender.tab?.id && isTranslationEnabled(config)) {
+          // Same opt-in rule as tabs.onUpdated: the content script announces
+          // itself on every page load, so an ungated check here would
+          // auto-translate every site the moment the extension is enabled.
+          if (
+            sender.tab?.id &&
+            shouldAutoTranslatePage(config, sender.tab.url ?? sender.url)
+          ) {
             await requestAutoTranslateForTab(sender.tab.id);
           }
           sendResponse({ received: true });
@@ -657,19 +664,22 @@ function isImageFetchAllowedForSender(
   );
 }
 
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (changeInfo.status === 'complete') {
-    void chrome.storage.local
-      .get([CONFIG_STORAGE_KEY])
-      .then(result => {
-        const config = result[CONFIG_STORAGE_KEY] || DEFAULT_CONFIG;
-        if (isTranslationEnabled(config)) {
-          return sendToTab(tabId, createAutoTranslateMessage(true)).catch(
-            () => undefined
-          );
-        }
-        return undefined;
-      })
-      .catch(() => undefined);
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
+  if (changeInfo.status !== 'complete') {
+    return;
   }
+  void chrome.storage.local
+    .get([CONFIG_STORAGE_KEY])
+    .then(result => {
+      const config = result[CONFIG_STORAGE_KEY] || DEFAULT_CONFIG;
+      // Only act unprompted on sites the user has opted in for. The manual
+      // paths (popup button, context menu) are unaffected.
+      if (!shouldAutoTranslatePage(config, tab?.url)) {
+        return undefined;
+      }
+      return sendToTab(tabId, createAutoTranslateMessage(true)).catch(
+        () => undefined
+      );
+    })
+    .catch(() => undefined);
 });
