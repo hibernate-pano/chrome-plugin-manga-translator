@@ -7,14 +7,16 @@ whole codebase in an afternoon. Here's how to get oriented.
 
 ```
 src/
-├── background/        Service worker + provider-direct translation path
+├── background/        Service worker, job queue, image proxy + SSRF guard
 ├── content/           Content script: scan → translate → render → reading panel
 ├── components/        React UI (Popup, Options, Onboarding)
 ├── providers/         Vision LLM providers (OpenAI-compatible / Ollama / LM Studio)
-├── services/          Translator, renderer, image-processor
-├── stores/            Zustand config + cache
-├── shared/            Runtime contracts, defaults
-└── utils/             Error handler, http client, prompt, validation
+├── services/          Translator, renderer, image-processor, text-detector
+├── stores/            Zustand config + cache + usage
+├── shared/            Runtime contracts, app-config defaults
+├── lib/               Tailwind cn() helper
+├── utils/             Error handler, crypto, http client, translation style
+└── test/              Vitest setup
 ```
 
 A new developer should read these in order:
@@ -47,14 +49,21 @@ the `dist/` directory.
 Run all of these locally:
 
 ```bash
-pnpm build                # type-check + production build
+pnpm format:check         # Prettier, whole repo (not just src/)
 pnpm lint:strict          # ESLint with --max-warnings 0
-pnpm test:run             # Vitest once
+pnpm type-check           # tsc --noEmit
+pnpm test:coverage        # Vitest + the 70% coverage threshold
+pnpm build                # production build + content-script size budget
 ```
 
-CI runs the same three on every push to `main` and every PR. The lint:strict
-gate was introduced in v0.3.4 because the project committed to zero
-warnings; please don't introduce new ones.
+CI runs the same set on every push to `main` and every PR, and `pnpm build`
+also fails if `dist/content.js` exceeds its size budget or if any provider
+credential leaks into the bundle. A `pre-commit` hook runs `lint-staged`
+(Prettier + ESLint on staged files); `pnpm install` installs it via the
+`prepare` script.
+
+The lint:strict gate exists because the project commits to zero warnings;
+please don't introduce new ones.
 
 ## Code conventions
 
@@ -71,8 +80,7 @@ contracts that are easy to break. Highlights:
 
 ## Adding a new provider
 
-The provider system uses a strategy pattern. To add one (e.g. Anthropic,
-Voyage, Cohere):
+To add a provider (e.g. Anthropic, Voyage, Cohere):
 
 1. Implement `VisionProvider` from `src/providers/base.ts` in a new file.
    Use `BaseVisionProvider` as the abstract base if you can.
@@ -105,8 +113,9 @@ needs runtime substitution (e.g. model name).
 
 ## Writing a UI component
 
-- UI primitives live in `src/components/ui/` (Button, Card, Switch, Slider,
-  ConfirmDialog). Use them — they are the design system.
+- UI primitives live in `src/components/ui/` — currently `switch`, `slider`,
+  and `confirm-dialog`. Keep it to what is actually imported: an unused
+  primitive drags its Radix dependency into the bundle for nothing.
 - Content script UI components (HUD, reading panel, anchors) live in
   `src/content/`. They are React-free, Shadow-DOM-based, and isolated from
   page styles. Don't add React to the content bundle.

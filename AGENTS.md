@@ -179,10 +179,14 @@ dependencies; none of them were ever installed or imported.
 
 - **Test files**: `*.test.ts` or `*.test.tsx` alongside source
 - **Setup**: `src/test/setup.ts` (jsdom + custom matchers)
-- **Coverage**: measured with `pnpm test:coverage`. Vitest 0.34 does not
-  support the nested `coverage.thresholds` shape used by later versions, so a
-  threshold configured there would be silently ignored — do not add one
-  without verifying it actually fails the run.
+- **Coverage**: enforced at 70% (lines/functions/branches/statements) by
+  `pnpm test:coverage`, which CI runs. Note the config shape: Vitest 0.34 reads
+  thresholds from top-level `coverage.lines` / `functions` / `branches` /
+  `statements`. The nested `coverage.thresholds.global` shape used by Vitest
+  1.x+ is silently ignored under 0.34, which is why a 70% limit previously
+  never applied. If you upgrade Vitest, move the thresholds into the nested
+  form and re-verify by setting an impossible limit and confirming the run
+  fails.
 - **Mocking**: Use vi.spyOn, vi.mock from vitest
 
 ```typescript

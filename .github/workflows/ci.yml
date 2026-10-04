@@ -50,8 +50,11 @@ jobs:
       - name: Type check
         run: pnpm type-check
 
-      - name: Test
-        run: pnpm test:run
+      # Runs with coverage so the 70% threshold in vitest.config.ts is
+      # actually enforced here, not just locally. A plain `test:run` would pass
+      # even with coverage far below the limit.
+      - name: Test (with coverage threshold)
+        run: pnpm test:coverage
 
       - name: Build
         run: pnpm build

@@ -109,14 +109,15 @@ or `qwen2.5vl` give better translations.
 
 ```
 src/
-├── background/   Service worker: message routing, job queue, provider-direct calls
+├── background/   Service worker: message routing, job queue, image proxy guard
 ├── content/      Content script: image scanning, translation flow, HUD + reading panel
 ├── components/   React UI: Options, Popup, Onboarding
-├── providers/    Vision LLM provider implementations (OpenAI-compatible / Ollama / LM Studio)
+├── providers/    Vision LLM providers (OpenAI-compatible / Ollama / LM Studio) + prompt parsing
 ├── services/     Translator, renderer, image-processor, text-detector
-├── stores/       Zustand config + cache stores (chrome.storage adapter)
-├── shared/       Runtime contracts + shared defaults
-├── utils/        Error handler, prompt, validation, http client, font matcher
+├── stores/       Zustand config + cache + usage stores (chrome.storage.local adapter)
+├── shared/       Runtime contracts + app-config defaults
+├── lib/          Tailwind `cn()` helper
+├── utils/        Error handler, crypto, http client, translation style, image priority
 └── test/         Vitest setup
 ```
 

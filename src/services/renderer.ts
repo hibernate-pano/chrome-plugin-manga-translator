@@ -1071,16 +1071,6 @@ export function getRenderer(style?: Partial<OverlayStyle>): OverlayRenderer {
   return rendererInstance;
 }
 
-/**
- * Reset the singleton renderer instance
- */
-export function resetRenderer(): void {
-  if (rendererInstance) {
-    rendererInstance.removeAll();
-  }
-  rendererInstance = null;
-}
-
 // ==================== DOM Query Utilities ====================
 
 /**

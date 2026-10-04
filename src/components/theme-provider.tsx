@@ -33,7 +33,12 @@ export function ThemeProvider({
     const loadTheme = async () => {
       try {
         if (typeof chrome !== 'undefined' && chrome.storage) {
-          const result = await chrome.storage.sync.get([storageKey]);
+          // storage.local, not storage.sync. The privacy policy states that
+          // every preference is stored locally and never synced through the
+          // user's Google account, and the background worker actively deletes
+          // the legacy sync copy to honour that. Writing the theme to sync put
+          // it straight back and contradicted the claim.
+          const result = await chrome.storage.local.get([storageKey]);
           const savedTheme = result[storageKey] as Theme;
           if (savedTheme) {
             setTheme(savedTheme);
@@ -79,12 +84,12 @@ export function ThemeProvider({
   const value = {
     theme,
     setTheme: (theme: Theme) => {
-      // 保存到Chrome Storage
       try {
         if (typeof chrome !== 'undefined' && chrome.storage) {
-          chrome.storage.sync.set({ [storageKey]: theme });
+          void chrome.storage.local
+            .set({ [storageKey]: theme })
+            .catch(error => console.error('Failed to save theme:', error));
         } else {
-          // 降级到localStorage
           localStorage.setItem(storageKey, theme);
         }
       } catch (error) {
