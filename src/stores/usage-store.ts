@@ -33,8 +33,6 @@ export interface TranslationUsageRecord {
   usage: TokenUsage;
   /** 是否从缓存命中（缓存不消耗 Token） */
   cached: boolean;
-  /** 估算费用（USD） */
-  estimatedCost?: number;
 }
 
 export interface DailyUsageSummary {
@@ -44,7 +42,6 @@ export interface DailyUsageSummary {
   completionTokens: number;
   translationCount: number;
   cachedCount: number;
-  estimatedCost: number;
   providers: Partial<Record<ProviderType, number>>;
 }
 
@@ -53,8 +50,6 @@ export interface UsageStoreState {
   records: TranslationUsageRecord[];
   /** 当月总 Token 数（快速访问） */
   monthlyTokens: number;
-  /** 当月估算费用 */
-  monthlyCost: number;
 }
 
 export interface UsageStoreActions {
@@ -69,7 +64,6 @@ export interface UsageStoreActions {
     totalRecords: number;
     totalTokens: number;
     monthlyTokens: number;
-    monthlyCost: number;
     avgTokensPerTranslation: number;
     cacheHitRate: number;
   };
@@ -82,24 +76,6 @@ export interface UsageOverview {
   billableCalls: number;
   tokens: number;
   cacheHitRate: number;
-}
-
-// ==================== Provider Token 估算定价 (USD/1K tokens) ====================
-
-const PROVIDER_PRICING: Partial<
-  Record<ProviderType, { input: number; output: number }>
-> = {
-  'openai-compatible': { input: 0.005, output: 0.015 },
-  ollama: { input: 0, output: 0 },
-};
-
-function estimateCost(usage: TokenUsage, provider: ProviderType): number {
-  const pricing = PROVIDER_PRICING[provider];
-  if (!pricing) return 0;
-  return (
-    (usage.promptTokens / 1000) * pricing.input +
-    (usage.completionTokens / 1000) * pricing.output
-  );
 }
 
 // ==================== 工具函数 ====================
@@ -184,16 +160,12 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
     (set, get) => ({
       records: [],
       monthlyTokens: 0,
-      monthlyCost: 0,
 
       addRecord: partial => {
         const record: TranslationUsageRecord = {
           ...partial,
           timestamp: Date.now(),
           date: todayString(),
-          estimatedCost: partial.cached
-            ? 0
-            : estimateCost(partial.usage, partial.provider),
         };
 
         set(state => {
@@ -208,12 +180,8 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
             (s, r) => s + r.usage.totalTokens,
             0
           );
-          const monthlyCost = monthlyRecords.reduce(
-            (s, r) => s + (r.estimatedCost || 0),
-            0
-          );
 
-          return { records: newRecords, monthlyTokens, monthlyCost };
+          return { records: newRecords, monthlyTokens };
         });
       },
 
@@ -237,7 +205,6 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
               completionTokens: 0,
               translationCount: 0,
               cachedCount: 0,
-              estimatedCost: 0,
               providers: {},
             };
           }
@@ -254,7 +221,6 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
             day.totalTokens += record.usage.totalTokens;
             day.promptTokens += record.usage.promptTokens;
             day.completionTokens += record.usage.completionTokens;
-            day.estimatedCost += record.estimatedCost || 0;
             day.providers[record.provider] =
               (day.providers[record.provider] || 0) + 1;
           }
@@ -266,7 +232,7 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
       },
 
       getSummary: () => {
-        const { records, monthlyTokens, monthlyCost } = get();
+        const { records, monthlyTokens } = get();
         const apiRecords = records.filter(r => !r.cached);
         const totalTokens = apiRecords.reduce(
           (s, r) => s + r.usage.totalTokens,
@@ -277,7 +243,6 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
           totalRecords: records.length,
           totalTokens,
           monthlyTokens,
-          monthlyCost,
           avgTokensPerTranslation:
             apiRecords.length > 0
               ? Math.round(totalTokens / apiRecords.length)
@@ -289,7 +254,7 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
         };
       },
 
-      clearAll: () => set({ records: [], monthlyTokens: 0, monthlyCost: 0 }),
+      clearAll: () => set({ records: [], monthlyTokens: 0 }),
     }),
     {
       name: 'manga-translator-usage-v1',
@@ -302,5 +267,3 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
 
 export const useMonthlyTokens = () =>
   useUsageStore(state => state.monthlyTokens);
-
-export const useMonthlyCost = () => useUsageStore(state => state.monthlyCost);

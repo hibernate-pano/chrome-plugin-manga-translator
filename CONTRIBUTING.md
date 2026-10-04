@@ -58,7 +58,9 @@ warnings; please don't introduce new ones.
 
 ## Code conventions
 
-See `AGENTS.md` and `CLAUDE.md` in the repo root. Highlights:
+See `AGENTS.md` in the repo root for the full working agreement, `ARCHITECTURE.md`
+for how the pieces fit together, and `docs/architecture-notes.md` for the
+contracts that are easy to break. Highlights:
 
 - Prettier: single quotes, semicolons, 80-char width, 2-space indent.
 - TypeScript strict mode. No `any`. No non-null assertions (`!`).

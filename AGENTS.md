@@ -36,8 +36,7 @@ pnpm type-check             # TypeScript type check only
 import React from 'react'
 
 // 2. Third-party libraries
-import { cva, type VariantProps } from 'class-variance-authority'
-import { useQuery } from '@tanstack/react-query'
+import { clsx } from 'clsx'
 
 // 3. @/ aliases (absolute imports)
 import { cn } from '@/lib/utils'
@@ -129,55 +128,61 @@ const enabled = useAppConfigStore((state) => state.enabled);
 const store = useAppConfigStore();
 ```
 
-- **React Query**: For server state; use hooks from `src/hooks/`
-- **Chrome storage**: Adapters wrap `chrome.storage.sync`
+- **Chrome storage**: Adapters wrap `chrome.storage.local` (never `sync` — API
+  keys must not follow the user's Google account between devices). The adapter
+  in `src/stores/config-v2.ts` obfuscates keys on write and deobfuscates on
+  read, so anything comparing or merging that data must use
+  `persisted-config` helpers rather than raw object equality.
 
 ### Component Patterns
 
-- **UI components**: Follow shadcn/ui style in `src/components/ui/`
-- **Class variance**: Use cva for variants
-- **Forward refs**: Use React.forwardRef for components accepting refs
-
-```typescript
-const Alert = React.forwardRef<
-  HTMLDivElement,
-  React.HTMLAttributes<HTMLDivElement> & VariantProps<typeof alertVariants>
->(({ className, variant, ...props }, ref) => (
-  <div ref={ref} className={cn(alertVariants({ variant }), className)} {...props} />
-));
-Alert.displayName = 'Alert';
-```
+- **UI components**: shadcn/ui style lives in `src/components/ui/`. Only keep
+  what is imported — unused primitives drag their Radix dependency along and
+  this project has no consumer for them.
+- **Styling**: Tailwind classes composed with `cn()` from `@/lib/utils`.
+- **Forward refs**: Use `React.forwardRef` for components accepting refs.
 
 ### Performance
 
-- **Code splitting**: Vite configured with vendor chunks (react-vendor, query-vendor, state-vendor)
-- **Build minification**: Terser removes console.log in production
-- **Queries**: Use `queryOptions.standard`, `queryOptions.longTerm` from query-client
+- **Bundle budget**: the content script is injected into every page, so its
+  size is paid on page load. `pnpm build` fails if `dist/content.js` exceeds
+  200 KB (see `scripts/check-release-consistency.mjs`). Two regressions have
+  already been caught by it, both from `manualChunks` lumping React and
+  ReactDOM into one chunk that the content script then inlined.
+- **Vendor chunks**: `react-vendor` and `react-dom-vendor` are deliberately
+  separate. Merging them pulls the DOM renderer into the content script, which
+  uses no React at all.
+- **Content-script rebundling**: `contentScriptRebundler()` in `vite.config.ts`
+  inlines the content script's chunks and must stay minified.
 
 ### Directory Structure
 
 ```
 src/
-├── api/          # API providers (OpenAI, Claude, DeepSeek, Ollama)
-├── components/   # React components
-│   ├── ui/       # Base UI (shadcn/ui style)
-│   └── *.tsx     # Feature components
-├── content/      # Content script (injected into pages)
-├── hooks/        # Custom React hooks
-├── lib/          # Utility functions
-├── providers/    # Vision LLM provider interfaces
-├── services/     # Core services
-├── stores/       # Zustand stores
-├── test/         # Test setup
-├── types/        # Global type definitions
-└── utils/        # Utility functions
+├── background/   # Service worker: message routing, job queue, image proxy
+├── components/   # React UI: Popup, Options, Onboarding
+│   └── ui/       # shadcn/ui-style primitives actually in use
+├── content/      # Content script: scanning, HUD, reading panel, anchors
+├── providers/    # Vision LLM providers + prompt/response parsing
+├── services/     # Translator, renderer, image processing, OCR
+├── shared/       # Runtime contracts and app-config defaults
+├── stores/       # Zustand stores (config, cache, usage)
+├── test/         # Vitest setup
+└── utils/        # Error handling, crypto, HTTP, styling helpers
 ```
+
+There is no `src/api/` or `src/hooks/`. Earlier revisions of this file listed
+both, plus TanStack Query, React Hook Form, Zod and Framer Motion as project
+dependencies; none of them were ever installed or imported.
 
 ### Testing Patterns
 
 - **Test files**: `*.test.ts` or `*.test.tsx` alongside source
 - **Setup**: `src/test/setup.ts` (jsdom + custom matchers)
-- **Coverage threshold**: 70% for all metrics
+- **Coverage**: measured with `pnpm test:coverage`. Vitest 0.34 does not
+  support the nested `coverage.thresholds` shape used by later versions, so a
+  threshold configured there would be silently ignored — do not add one
+  without verifying it actually fails the run.
 - **Mocking**: Use vi.spyOn, vi.mock from vitest
 
 ```typescript
@@ -205,10 +210,10 @@ describe('ConfigPanel', () => {
 
 | Purpose | Library |
 |---------|---------|
-| State (global) | Zustand |
-| Data fetching | TanStack Query v5 |
-| UI components | Radix UI primitives + Tailwind |
-| Styling | Tailwind CSS + cva |
+| State (global) | Zustand (`persist` -> `chrome.storage.local`) |
+| UI primitives | Radix UI (only `slider` and `switch` are used) |
+| Styling | Tailwind CSS |
 | Icons | Lucide React |
-| Forms | React Hook Form + Zod |
-| Animations | Framer Motion |
+| OCR fallback | Tesseract.js (SIMD core, lazily used) |
+| Tests | Vitest + Testing Library |
+| Build | Vite + `@crxjs/vite-plugin` |

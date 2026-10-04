@@ -72,7 +72,9 @@ module.exports = {
       },
     },
     {
-      files: ['src/stores/cache-v2.ts', 'src/utils/batch-translation-manager.ts'],
+      // `src/utils/batch-translation-manager.ts` used to be listed here; it has
+      // not existed for several releases.
+      files: ['src/stores/cache-v2.ts'],
       rules: {
         '@typescript-eslint/no-explicit-any': 'off',
       },

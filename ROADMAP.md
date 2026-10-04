@@ -45,7 +45,13 @@ release notes below; the live version is whatever's at the top of
   `docs/chrome-web-store-release.md`.
 - Publish a release artifact and seed 5-10 users with clear install feedback.
 - Add provider-aware price estimates to the usage panel; token counts and cache
-  hit rate are already visible.
+  hit rate are already visible. A hardcoded per-token rate table used to sit in
+  `usage-store.ts` and produced dollar figures for endpoints it knew nothing
+  about (`openai-compatible` prices $0.005/$0.015 per 1K tokens, which is wrong
+  for MiniMax, SiliconFlow, OpenRouter, or any self-hosted endpoint, and
+  `lm-studio` was missing entirely). It was never surfaced in the UI and has
+  been removed. Any future cost display must derive rates from the configured
+  model or from user-entered rates, not from a built-in constant.
 
 ## Recently closed
 

@@ -71,14 +71,6 @@ export interface ProviderConfig {
 }
 
 /**
- * Result of configuration validation
- */
-export interface ValidationResult {
-  valid: boolean;
-  message: string;
-}
-
-/**
  * Common API response structure
  */
 export interface ApiResponse {

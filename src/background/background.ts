@@ -18,7 +18,8 @@ import {
  *
  * Response field naming differs: action-based returns `{ success, imageBase64 }`,
  * type-based returns `{ success, job: { ... }, textAreas }` (envelope shape).
- * Do NOT unify without also migrating the consumers; see CLAUDE.md.
+ * Do NOT unify without also migrating the consumers; see
+ * docs/architecture-notes.md.
  */
 import type {
   QueryJobStatusRequest,

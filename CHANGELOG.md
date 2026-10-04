@@ -37,7 +37,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Version and release documentation now track v1.3.3.
 - CI and Corepack use pnpm 12.4.1 with explicit trusted build scripts.
 
-## [1.3.0] - 2026-XX-XX
+## [1.3.2] - 2026-08-23
+
+### Fixed
+
+- Tiled translation results are written to the translation cache again. A
+  successful tiled run previously returned its result without caching it, so
+  revisiting the same page re-billed every tile.
+
+## [1.3.1] - 2026-08-23
+
+### Changed
+
+- Tile translation runs concurrently (cap 3) instead of sequentially. A long
+  webtoon strip translated noticeably faster, bounded by the configured
+  parallel limit.
+
+## [1.3.0] - 2026-08-23
 
 ### Added
 
@@ -60,7 +76,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Raised `MAX_TOKENS` from 2048 to 4096 so large fallback pages are less
   likely to hit the ceiling.
 
-## [1.2.0] - 2026-XX-XX
+## [1.2.0] - 2026-08-23
 
 ### Added
 
@@ -88,7 +104,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   was the whole-strip downscale to 3000px + the 2048-token completion
   ceiling. Tiling addresses both: legible crops and per-tile token budgets.
 
-## [1.1.0] - 2026-XX-XX
+## [1.1.0] - 2026-08-23
 
 ### Added
 
@@ -122,7 +138,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `pnpm-workspace.yaml`: switched `ignoredBuiltDependencies` →
   `onlyBuiltDependencies` (pnpm 11 strict-by-default policy).
 
-## [1.0.0] - 2026-XX-XX
+## [1.0.0] - 2026-08-23
 
 The first stable release of Manga Translator. Four phases of focused work
 that took the project from "working but unpositioned" to "focused,
@@ -156,7 +172,7 @@ ethically guarded, OSS-ready".
   configured should switch to `OpenAI-compatible` or `Ollama` in Settings
   → Backend. The direct paths cover every case.
 
-## [0.7.0] - 2026-XX-XX
+## [0.7.0] - 2026-08-23
 
 ### Added
 
@@ -177,7 +193,7 @@ ethically guarded, OSS-ready".
   this server used to handle. The server directory will be removed in v1.0.
   See `server/README.md` for the deprecation notice and migration guidance.
 
-## [0.6.0] - 2026-XX-XX
+## [0.6.0] - 2026-08-23
 
 ### Added
 
@@ -212,7 +228,7 @@ ethically guarded, OSS-ready".
   duplicate-skipped / translatable counts so callers don't need to redo
   the pass.
 
-## [0.5.0] - 2026-XX-XX
+## [0.5.0] - 2026-08-23
 
 ### Added
 
@@ -235,7 +251,7 @@ ethically guarded, OSS-ready".
   resets both. The panel and anchors are lazily created on first
   translation and reused for the lifetime of the page.
 
-## [0.4.0] - 2026-XX-XX
+## [0.4.0] - 2026-08-23
 
 ### Added (in progress)
 

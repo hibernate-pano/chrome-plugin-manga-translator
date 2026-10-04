@@ -122,7 +122,7 @@ export const DEFAULT_CONFIG: Readonly<{
   readingMode: 'panel',
   renderMode: 'strong-overlay-compat',
   // Default to full-image-vlm — single VLM pass over the image, no Tesseract.
-  // CLAUDE.md states this is the default; tests were asserting hybrid-regions,
+  // AGENTS.md states this is the default; tests were asserting hybrid-regions,
   // which contradicted both the docs and production reality (hybrid path
   // requires Tesseract.js, which is heavy and disabled for most users).
   translationPipeline: 'full-image-vlm',
