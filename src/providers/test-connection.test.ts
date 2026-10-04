@@ -57,7 +57,7 @@ describe('OpenAI-compatible connection test', () => {
     expect(result?.message).toContain('401');
   });
 
-  it('reports a wrong base URL', async () => {
+  it('reports a wrong base URL when neither route exists', async () => {
     vi.stubGlobal(
       'fetch',
       vi.fn(async () => mockFetchResponse(404))
@@ -67,6 +67,35 @@ describe('OpenAI-compatible connection test', () => {
     ).testConnection?.();
     expect(result?.valid).toBe(false);
     expect(result?.message).toContain('404');
+  });
+
+  it('falls back to a chat probe when /models is absent', async () => {
+    // Some gateways expose chat completions but not /models. Reporting a
+    // problem there would send the user chasing a working endpoint.
+    const spy = vi.fn(async (url: string) =>
+      String(url).endsWith('/models')
+        ? mockFetchResponse(404)
+        : mockFetchResponse(200, { choices: [] })
+    );
+    vi.stubGlobal('fetch', spy);
+    const result = await (await providerWith({})).testConnection?.();
+    expect(result?.valid).toBe(true);
+    expect(spy).toHaveBeenCalledTimes(2);
+    expect(String(spy.mock.calls[1]?.[0])).toContain('/chat/completions');
+  });
+
+  it('surfaces a bad model name from the chat probe', async () => {
+    const spy = vi.fn(async (url: string) =>
+      String(url).endsWith('/models')
+        ? mockFetchResponse(404)
+        : mockFetchResponse(400, { error: { message: 'model not found' } })
+    );
+    vi.stubGlobal('fetch', spy);
+    const result = await (
+      await providerWith({ model: 'no-such-model' })
+    ).testConnection?.();
+    expect(result?.valid).toBe(false);
+    expect(result?.message).toContain('model not found');
   });
 
   it('reports an unreachable host', async () => {

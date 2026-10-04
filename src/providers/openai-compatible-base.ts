@@ -189,6 +189,64 @@ export abstract class OpenAICompatibleProvider
         message: `${this.name} 拒绝了该 API 密钥（${response.status}）`,
       };
     }
+
+    // Some gateways implement chat completions but not `/models`. A 404 there
+    // says nothing about whether translation works, so fall back to a minimal
+    // completion before reporting a problem — a false "wrong base URL" would
+    // send the user chasing a working endpoint.
+    if (response.status === 404 || response.status === 405) {
+      return this.probeChatCompletion(headers);
+    }
+
+    if (response.status === 408 || response.status === 0) {
+      return {
+        valid: false,
+        message: `无法连接 ${this.config.baseUrl}：${response.error ?? '网络错误'}`,
+      };
+    }
+    return {
+      valid: false,
+      message: `${this.name} 返回 ${response.status}: ${
+        response.error ?? response.statusText
+      }`,
+    };
+  }
+
+  /**
+   * Last-resort probe: the smallest possible chat completion.
+   *
+   * Costs one request with a one-token reply. Used only when the endpoint does
+   * not expose `/models`.
+   */
+  private async probeChatCompletion(
+    headers: Record<string, string>
+  ): Promise<ValidationResult> {
+    const response = await httpRequest<{
+      error?: { message?: string };
+    }>(`${this.config.baseUrl}/chat/completions`, {
+      method: 'POST',
+      headers,
+      timeout: 20_000,
+      body: {
+        model: this.config.model,
+        messages: [{ role: 'user', content: 'ping' }],
+        max_tokens: 1,
+        temperature: 0,
+      },
+    });
+
+    if (response.ok) {
+      return {
+        valid: true,
+        message: `已连接 ${this.name}（模型 ${this.config.model} 可用）`,
+      };
+    }
+    if (response.status === 401 || response.status === 403) {
+      return {
+        valid: false,
+        message: `${this.name} 拒绝了该 API 密钥（${response.status}）`,
+      };
+    }
     if (response.status === 404) {
       return {
         valid: false,
@@ -201,10 +259,14 @@ export abstract class OpenAICompatibleProvider
         message: `无法连接 ${this.config.baseUrl}：${response.error ?? '网络错误'}`,
       };
     }
+
+    // A 400 here usually means the model name is wrong, which is exactly the
+    // kind of mistake this button should surface.
+    const detail = response.data?.error?.message ?? response.error;
     return {
       valid: false,
-      message: `${this.name} 返回 ${response.status}: ${
-        response.error ?? response.statusText
+      message: `${this.name} 返回 ${response.status}${
+        detail ? `：${detail}` : ''
       }`,
     };
   }
