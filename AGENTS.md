@@ -202,6 +202,17 @@ dependencies; none of them were ever installed or imported.
   never applied. If you upgrade Vitest, move the thresholds into the nested
   form and re-verify by setting an impossible limit and confirming the run
   fails.
+- **Coverage denominator**: Vitest 0.34's v8 provider only counts files a test
+  actually imported. `coverage.all` is unset because setting it to `true`
+  crashes v8-to-istanbul while resolving the sourcemap of an untested `.tsx`
+  file. The consequence is that an untested module is *absent* from the report
+  rather than reported as 0%, so it cannot lower the average — the service
+  worker, both app shells and all three UI primitives were invisible behind an
+  81% pass. `scripts/check-coverage-scope.mjs` runs after `test:coverage` and
+  fails the build unless every `src/` file is either in the report or named in
+  its `UNTESTED_ALLOWLIST`. That list is a debt register: shrink it, do not add
+  to it. If you upgrade Vitest past 0.34, drop the script and use
+  `coverage.all: true` instead.
 - **Mocking**: Use vi.spyOn, vi.mock from vitest
 
 ```typescript

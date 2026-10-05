@@ -13,7 +13,7 @@
     "test": "node scripts/inject-env-config.mjs && vitest",
     "test:ui": "node scripts/inject-env-config.mjs && vitest --ui",
     "test:run": "node scripts/inject-env-config.mjs && vitest run",
-    "test:coverage": "node scripts/inject-env-config.mjs && vitest run --coverage",
+    "test:coverage": "node scripts/inject-env-config.mjs && vitest run --coverage && node scripts/check-coverage-scope.mjs",
     "lint": "eslint . --ext ts,tsx,js,jsx,mjs --report-unused-disable-directives",
     "lint:strict": "eslint . --ext ts,tsx,js,jsx,mjs --report-unused-disable-directives --max-warnings 0",
     "lint:fix": "eslint . --ext ts,tsx,js,jsx,mjs --fix",

@@ -53,6 +53,12 @@ jobs:
       # Runs with coverage so the 70% threshold in vitest.config.ts is
       # actually enforced here, not just locally. A plain `test:run` would pass
       # even with coverage far below the limit.
+      #
+      # `test:coverage` also runs check-coverage-scope.mjs afterwards: Vitest
+      # 0.34 only counts files a test imported, so an untested module is absent
+      # from the report rather than reported as 0%, and the threshold can pass
+      # over it. That check fails the build unless every source file is either
+      # in the report or explicitly exempted.
       - name: Test (with coverage threshold)
         run: pnpm test:coverage
 

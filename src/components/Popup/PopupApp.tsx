@@ -16,12 +16,16 @@ import {
   Trash2,
 } from 'lucide-react';
 
-import { hostMatchesAllowlist } from '@/shared/app-config';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Switch } from '@/components/ui/switch';
-import { getPageAvailability, type PageAvailability } from './popup-state';
+import {
+  getPageAvailability,
+  isHostAutoTranslated,
+  matchingAllowlistEntries,
+  type PageAvailability,
+} from './popup-state';
 
 type ContentState =
   | { status: 'idle' }
@@ -357,10 +361,7 @@ const PopupApp: React.FC = () => {
               </div>
             </div>
             <Switch
-              checked={Boolean(
-                currentUrl &&
-                hostMatchesAllowlist(currentUrl, autoTranslateHosts)
-              )}
+              checked={isHostAutoTranslated(currentUrl, autoTranslateHosts)}
               disabled={!currentHost || !enabled}
               onCheckedChange={checked => {
                 if (!currentHost) return;
@@ -372,8 +373,9 @@ const PopupApp: React.FC = () => {
                 // `includes(currentHost)` left a wildcard entry in place, so
                 // the switch snapped back on and the page kept translating
                 // itself with no way to stop it from here.
-                const matched = autoTranslateHosts.filter(entry =>
-                  hostMatchesAllowlist(currentUrl ?? '', [entry])
+                const matched = matchingAllowlistEntries(
+                  currentUrl,
+                  autoTranslateHosts
                 );
                 if (matched.length === 0) {
                   removeAutoTranslateHost(currentHost);
