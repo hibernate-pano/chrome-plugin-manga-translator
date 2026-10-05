@@ -466,3 +466,51 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
         : DEFAULT_RUNTIME_APP_CONFIG.onboardingCompleted,
   };
 }
+
+/**
+ * Outcome of checking a provider base URL for transport safety.
+ *
+ * `insecure` means the request itself is well-formed but would carry the
+ * `Authorization: Bearer <key>` header over plaintext HTTP to a host that is
+ * not on the user's own machine — the credential is then readable by anyone on
+ * the path. It is reported rather than blocked because a user behind a
+ * deliberately local gateway may know better than this check, and silently
+ * rewriting or discarding their endpoint would be worse than telling them.
+ */
+export type BaseUrlSafety = 'secure' | 'insecure' | 'invalid';
+
+const LOOPBACK_HOSTS = new Set([
+  'localhost',
+  '127.0.0.1',
+  '::1',
+  '[::1]',
+  '0.0.0.0',
+]);
+
+export function evaluateBaseUrlSafety(value: string): BaseUrlSafety {
+  const trimmed = (value ?? '').trim();
+  if (!trimmed) {
+    // Nothing configured yet; the field is simply empty, not unsafe.
+    return 'secure';
+  }
+  let parsed: URL;
+  try {
+    parsed = new URL(
+      /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`
+    );
+  } catch {
+    return 'invalid';
+  }
+  if (parsed.protocol === 'https:') {
+    return 'secure';
+  }
+  if (parsed.protocol !== 'http:') {
+    return 'invalid';
+  }
+  const host = parsed.hostname.toLowerCase();
+  if (LOOPBACK_HOSTS.has(host) || host.endsWith('.localhost')) {
+    // Ollama and LM Studio legitimately serve on http://localhost.
+    return 'secure';
+  }
+  return 'insecure';
+}

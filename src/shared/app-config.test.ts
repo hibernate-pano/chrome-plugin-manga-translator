@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  evaluateBaseUrlSafety,
   hostMatchesAllowlist,
   normalizeHostEntry,
   normalizeRuntimeAppConfig,
@@ -141,5 +142,36 @@ describe('normalizeRuntimeAppConfig', () => {
     expect(normalized.ollama.apiKey).toBe('');
     expect(normalized.ollama.baseUrl).toBe('http://127.0.0.1:11434');
     expect(normalized.ollama.model).toBe('minicpm-v');
+  });
+});
+
+describe('evaluateBaseUrlSafety', () => {
+  it('accepts https to any host', () => {
+    expect(evaluateBaseUrlSafety('https://api.openai.com/v1')).toBe('secure');
+    expect(evaluateBaseUrlSafety('https://example.com')).toBe('secure');
+  });
+
+  it('accepts plaintext http only on loopback', () => {
+    // Ollama and LM Studio legitimately serve on http://localhost.
+    expect(evaluateBaseUrlSafety('http://localhost:11434')).toBe('secure');
+    expect(evaluateBaseUrlSafety('http://127.0.0.1:1234/v1')).toBe('secure');
+    expect(evaluateBaseUrlSafety('http://[::1]:11434')).toBe('secure');
+  });
+
+  it('flags plaintext http to a remote host, which would leak the bearer token', () => {
+    expect(evaluateBaseUrlSafety('http://api.example.com/v1')).toBe('insecure');
+    expect(evaluateBaseUrlSafety('http://192.168.1.20:11434')).toBe('insecure');
+    expect(evaluateBaseUrlSafety('http://例え.jp')).toBe('insecure');
+  });
+
+  it('treats a bare host as https and rejects nonsense schemes', () => {
+    expect(evaluateBaseUrlSafety('api.example.com/v1')).toBe('secure');
+    expect(evaluateBaseUrlSafety('ftp://files.example.com')).toBe('invalid');
+    expect(evaluateBaseUrlSafety('javascript:alert(1)')).toBe('invalid');
+  });
+
+  it('treats an unset value as no problem to report', () => {
+    expect(evaluateBaseUrlSafety('')).toBe('secure');
+    expect(evaluateBaseUrlSafety('   ')).toBe('secure');
   });
 });

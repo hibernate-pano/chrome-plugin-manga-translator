@@ -26,6 +26,7 @@ import { createProvider } from '@/providers';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { summarizeUsageForMonth, useUsageStore } from '@/stores/usage-store';
 import type { ProviderType } from '@/providers/base';
+import { evaluateBaseUrlSafety } from '@/shared/app-config';
 import { ENV_CONFIG } from '@/shared/env-config';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { OnboardingApp } from '@/components/Onboarding/OnboardingApp';
@@ -288,6 +289,7 @@ const OptionsApp: React.FC = () => {
       return null;
     }
     const settings = providers[providerType];
+    const baseUrlSafety = evaluateBaseUrlSafety(settings.baseUrl);
     const result = testResults[providerType];
     const health = providerHealth[providerType];
 
@@ -374,6 +376,22 @@ const OptionsApp: React.FC = () => {
               }
               className='w-full rounded-lg border border-white/10 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
             />
+            {baseUrlSafety === 'insecure' ? (
+              // The API key is sent to this address as a Bearer header. Over
+              // plaintext HTTP to a machine that is not the user's own, anyone
+              // on the path can read it — so say so instead of quietly letting
+              // the field look configured.
+              <div className='mt-1 text-xs text-amber-300'>
+                该地址使用明文 HTTP，API Key
+                会随请求一起被路径上的任何一方读取。 除非是自建本地网关，请改用
+                https。
+              </div>
+            ) : null}
+            {baseUrlSafety === 'invalid' ? (
+              <div className='mt-1 text-xs text-rose-300'>
+                无法解析该地址，请使用 http(s):// 开头的 URL。
+              </div>
+            ) : null}
           </label>
 
           <label className='block'>
