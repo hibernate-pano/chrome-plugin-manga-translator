@@ -142,7 +142,7 @@ pnpm type-check           # tsc --noEmit
 Before opening a PR:
 
 ```bash
-pnpm build && pnpm lint:strict && pnpm test:run
+pnpm format:check && pnpm lint:strict && pnpm type-check && pnpm test:coverage && pnpm build && pnpm release:check
 ```
 
 See [`CONTRIBUTING.md`](./CONTRIBUTING.md).

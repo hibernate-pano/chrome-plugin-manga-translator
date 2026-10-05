@@ -25,7 +25,22 @@ pnpm format:check           # Check formatting
 pnpm type-check             # TypeScript type check only
 ```
 
-**Required before PR**: `pnpm build && pnpm lint && pnpm test:run`
+**Required before PR** — this is exactly what CI runs, in this order:
+
+```bash
+pnpm format:check && pnpm lint:strict && pnpm type-check && pnpm test:coverage && pnpm build && pnpm release:check
+```
+
+Do not substitute `pnpm lint` or `pnpm test:run` for these. `pnpm lint` exits 0
+while still reporting warnings, and CI runs `lint:strict` (`--max-warnings 0`),
+so a clean `lint` can still be rejected. `pnpm test:run` skips coverage
+entirely, which is the only path in which the 70% threshold is evaluated. A PR
+that passes the shorter list can still fail CI.
+
+Note on `pnpm build`: it calls `check-release-consistency.mjs` both before and
+after Vite. The pre-build call cannot enforce the content-script size budget
+because `dist/` does not exist yet, and it deliberately treats that as a pass —
+only the post-build call and `pnpm release:check` actually measure `dist/content.js`.
 
 ## Code Style Guidelines
 
