@@ -5,6 +5,100 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+A full audit of the 2.0.0 reliability work. Every fix below is paired with a
+test that fails without it, and the ones that changed behaviour were confirmed
+by mutation rather than by reading.
+
+### Fixed
+
+- **The retry button never retried.** `TranslateImageJobRequest` carried
+  `forceRefresh` all the way to the worker, but the job queue collapsed on
+  `pageKey` without reading it, so a retry on an image whose job was still in
+  flight resolved to the very result it was meant to discard.
+- **One corrupt setting discarded all the others.** `mergeProvider` called
+  `.trim()` straight on stored values, so a hand-edited `apiKey: 123` threw
+  inside zustand's `merge` and aborted hydration for the whole snapshot —
+  language, concurrency and the enabled flag silently reverted to defaults.
+- **Art-only webtoon strips were billed twice.** An empty tiled result was
+  reported as a pipeline failure and fell through to a second, full-image
+  request that could only return the same nothing.
+- **One click armed auto-translation for the life of the tab.** The observer
+  re-entered `translatePage` on every batch of new images with no bound, each
+  time rebuilding the translator and re-paying. Follow-up runs now draw from a
+  budget that an explicit request refills.
+- **The allowlist was broader than it looked.** Ports were stripped, so
+  `localhost:8080` also authorised `localhost:22`; `*.com` passed validation and
+  matched every .com site on the internet. The popup switch also compared hosts
+  with a plain `includes`, so a `*.example.com` entry showed as off while the
+  worker was actively translating the page, and switching it off removed nothing.
+- **Overlay re-layout ran on every resize event.** Each pass re-ran collision
+  resolution with per-character text measurement, so drag-resizing a long
+  chapter was a measurement storm per event; it now coalesces to one frame.
+- **A disposed renderer was handed back out.** `getRenderer()` cached the
+  instance but `dispose()` never cleared the cache, so any page that
+  re-initialised after teardown — a bfcache restore, or an error path followed by
+  another translate — got a renderer with no `ResizeObserver` and no resize
+  listener, and overlays quietly stopped following the art.
+- **The worker's own claims were wrong.** `chrome.alarms` does not hold a worker
+  open — it schedules wake-ups for one already restarted — and the documented
+  minimum period is 0.5 minutes, so the authored 0.34 was clamped and the "~20s"
+  it described never happened. The period is now 0.5 and the comment says what
+  actually keeps in-flight jobs reachable.
+
+### Security
+
+- **Vestigial `web_accessible_resources` pruned.** The bundler listed the content
+  script's chunks as web-accessible before they were inlined; after inlining,
+  `content.js` referenced none of them but the declarations stayed, leaving the
+  key-obfuscation chunk, the config store and the React vendor readable by any
+  page. Now pruned to `tesseract/*`, which the OCR worker genuinely needs.
+- **An explicit `content_security_policy`** is declared; previously there was
+  none at all.
+- **Plaintext base URLs are warned about.** The API key travels as a Bearer
+  header, so typing `http://api.example.com` sent the credential in the clear
+  with nothing saying so. https and loopback http (Ollama, LM Studio) stay
+  unaffected.
+- The unreachable `JOB_QUERY_STATUS` message branch is removed.
+
+### Changed
+
+- **Privacy policy corrected.** It claimed the OCR language-model download was
+  "the only network request the extension makes that is not directed at the
+  vision provider" — false, the image proxy fetches arbitrary page CDNs on your
+  behalf — described reversible XOR with a bundle-shipped salt as protection
+  against other extensions, and said the OCR engine ships fully locally while
+  the traineddata in fact comes from jsdelivr. All three now describe the code.
+- **Coverage now counts the service worker.** Vitest 0.34 only scores files a
+  test imported, so the worker, both app shells and all three UI primitives were
+  *absent* rather than 0%, and an 81% pass hid 2147 untested lines including the
+  entire sender-authorisation boundary. `background.ts` gained nine tests, the
+  primitives gained their own, and `scripts/check-coverage-scope.mjs` now fails
+  the build unless every `src/` file is in the report or explicitly exempted.
+- **The build guard scripts are linted.** `eslint --ext` omitted `.mjs`, so every
+  script that can fail a build was outside the gates; covering them immediately
+  surfaced three dead `eslint-disable` directives and a rule violation.
+- **Documented pre-PR gate matches CI.** AGENTS.md and README prescribed
+  `pnpm lint && pnpm test:run`, which pass on a tree CI would reject.
+- The worker no longer exposes `JOB_QUERY_STATUS`, which had a handler and types
+  but no caller in any context.
+
+### Tests
+
+Five tests could not fail. `Font Size Calculation` re-implemented
+`calculateFontSize` in its own body and asserted against that copy, so deleting
+the production function changed nothing; it now imports the real one and is
+verified to fail when the CJK width weighting is removed. Four more asserted
+only a count, or a state sampled after the work had settled, or merely that
+rendering did not throw.
+
+### Removed
+
+293 lines of code with no importer anywhere — including the selector hooks
+AGENTS.md advertised as idiomatic, the translator singleton every caller
+bypassed, and three friendly-error accessors.
+
 ## [2.0.0] - 2026-10-05
 
 Reliability, security and build-integrity work.

@@ -57,19 +57,39 @@ DOM, its own `window`, and a constrained message bridge to the others.
 - Service worker (`src/background/background.ts`).
 - Owns the translation job queue and the provider-direct translation path. The
   job map is capped at 500 terminal records so a long session cannot grow it
-  without bound.
+  without bound. The queue deduplicates repeat requests on `pageKey` so one
+  image is not paid for twice, but a request carrying `forceRefresh` bypasses
+  that: an explicit retry has to actually re-run, or it hands back the result it
+  was meant to discard and looks like a success while changing nothing. A forced
+  job owns its own dedup entry, so the superseded job finishing cannot unmap it.
+  The concurrency limit is clamped to at least 1 — a corrupt stored
+  `parallelLimit` of 0 made `activeCount >= limit` permanently true and sent
+  `drain()` into a `setTimeout(0)` loop that queued work it could never start.
 - Bridges Popup/Options ↔ Content Script messages.
 - Validates message senders: sensitive actions (`getConfig`, `setConfig`)
   are restricted to extension-origin senders; content scripts can use
   job / fetch / state endpoints.
-- Holds an `alarms`-based keepalive **only while translation is enabled**.
-  MV3 terminates an idle worker after ~30s, which would drop the in-memory
-  queue mid-chapter; the alarm keeps the worker reachable. See
-  `docs/architecture-notes.md`.
+- Holds an `alarms`-based wake-up **only while translation is enabled**. MV3
+  terminates an idle worker after ~30s, which would drop the in-memory queue
+  mid-chapter. Be precise about what the alarm does: `chrome.alarms` schedules
+  wake-ups for a worker that has *already* been restarted, it does not hold one
+  open. In-flight jobs stay reachable because the content script's
+  `sendMessage` response channel is still outstanding, not because of the
+  alarm. The alarm period is 0.5 minutes, Chrome's documented floor — a smaller
+  value is silently clamped. See `docs/architecture-notes.md`.
 - Decides automatic page translation via `shouldAutoTranslatePage(config, url)`
   in `auto-translate.ts`: the master switch **and** the host must be on the
   user's `autoTranslateHosts` allowlist. Both auto-translate entry points
-  (`tabs.onUpdated` and the content script's `READY`) use it.
+  (`tabs.onUpdated` and the content script's `READY`) use it. Allowlist entries
+  match on hostname, plus the port when the entry names one: `localhost:8080`
+  covers that listener only, and a bare `*.com` is refused at input because it
+  would authorise every .com site on the internet.
+  Once a page is being followed, the content script's `MutationObserver`
+  re-enters `translatePage` as new images arrive, drawing from a bounded budget
+  (`MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS`) that an explicit user request refills.
+  Without the bound, one click armed auto-translation for the lifetime of the
+  tab and an infinite-scroll reader re-triggered a full page scan — and a fresh
+  `TranslatorService` — on every batch of images.
 - Guards the image proxy in `image-fetch-guard.ts` + a sender check: extension
   pages are refused, cross-origin is limited to image-shaped URLs, private
   address ranges are blocked, and fetches omit credentials with a size cap.
@@ -107,11 +127,15 @@ Response shape: `{ success, imageBase64 }` or `{ success, config }`.
 ### Type-based (job envelope)
 
 ```ts
-{ type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }
+{ type: 'JOB_TRANSLATE_IMAGE' | 'FETCH_IMAGE_BYTES' | 'READY' | ... }
 ```
 
 Used by `services/translation-transport.ts` for translation dispatch via the
-job queue.
+job queue. A `JOB_QUERY_STATUS` endpoint existed for a while with a handler and
+request/response types but no caller in any context; it is gone, because an
+unreachable branch in the message switch is surface area that has to be re-audited
+on every messaging change. The job ledger it read from stays — the queue
+consults it to decide priority boosting.
 
 Response shape: `{ success, job: { ... }, textAreas }` (envelope).
 
@@ -130,6 +154,11 @@ image shape and result quality:
    The content script always sends long images through this route; the old
    viewport-crop path could mark a whole image processed after translating only
    its visible slice.
+   An empty merge is only treated as a failure when **no tile completed a
+   provider call**. A tile that throws is a pipeline failure and degrades to the
+   full-image route; a tile that answers with nothing is the model correctly
+   reporting an art-only stretch, and falling through there paid a second full
+   image request to learn exactly what the tiles already said.
 2. **`full-image-vlm`** — a single VLM pass over the (possibly downscaled)
    image. Default for non-tall images; also the fallback when tiling fails.
 3. **`hybrid-regions`** — Tesseract.js detects text regions, the VLM translates

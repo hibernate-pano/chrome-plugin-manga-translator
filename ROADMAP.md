@@ -81,6 +81,24 @@ release notes below; the live version is whatever's at the top of
 - Provider settings are editable at runtime again; public builds are guarded
   against embedding private credentials.
 - Package and manifest versions are checked during every build.
+- Audit pass over the above (see `[Unreleased]` in the changelog). The retry
+  button actually retries now — `forceRefresh` reached the worker but the queue
+  ignored it. One corrupt stored field no longer blanks the whole snapshot.
+  Art-only strips are billed once instead of twice, and a single click no longer
+  arms auto-translation for the life of the tab.
+- Allowlist matching is honest: ports scope, bare `*.com` wildcards are refused,
+  and the popup switch reads through the same matcher the worker uses instead of
+  disagreeing with it.
+- The coverage gate stopped hiding untested files. Vitest 0.34 only scores files
+  a test imported, so the service worker — the extension's whole sender-
+  authorisation and SSRF boundary — was absent from the denominator behind an
+  81% pass. It is tested now, and `scripts/check-coverage-scope.mjs` fails the
+  build when any `src/` file is neither covered nor explicitly exempted.
+- The privacy policy matches the code. It had claimed the OCR download was the
+  only non-provider request, which the image proxy contradicts, and described
+  reversible XOR as a protection.
+- `web_accessible_resources` no longer exposes the extension's own modules to
+  every page after the chunks were inlined into `content.js`.
 
 ## What we are NOT doing
 
