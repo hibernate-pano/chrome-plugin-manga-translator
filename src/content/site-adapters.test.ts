@@ -465,9 +465,15 @@ describe('site-adapters', () => {
 
     const pages = await pagesPromise;
 
-    // Both images are now in the container; listRenderablePages maps them
-    // to the two bootstrap pages
-    expect(pages.length).toBeGreaterThanOrEqual(1);
+    // `>= 1` passed even if the early return were deleted, because one mapped
+    // page is enough to satisfy it. The bootstrap declares two pages and both
+    // images are present at restore time, so the exact count is the assertion
+    // that actually pins the observer's behaviour.
+    expect(pages).toHaveLength(2);
     expect(pages.some(p => p.image.id === 'page-final')).toBe(true);
+    // The first image was inserted while chapterData was absent. It is in the
+    // DOM at resolve time, so it must appear in the result rather than having
+    // been skipped by the mutation that arrived before bootstrap was restored.
+    expect(pages.some(p => p.image.id === 'ignored')).toBe(true);
   });
 });

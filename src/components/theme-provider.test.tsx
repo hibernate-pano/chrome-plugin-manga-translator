@@ -92,6 +92,15 @@ describe('theme provider storage', () => {
   });
 
   it('never touches storage.sync', async () => {
+    // The mock's `storage.sync` getter throws, so "no error was thrown" was
+    // the whole assertion — and a provider that wrapped its sync write in a
+    // try/catch would have passed it while silently doing nothing. Assert the
+    // write landed in local storage instead: that proves a real write happened
+    // and that it happened in the account-sync-free area.
+    const consoleError = vi
+      .spyOn(console, 'error')
+      .mockImplementation(() => {});
+
     render(
       <ThemeProvider storageKey='manga-translator-theme'>
         <ThemeProbe />
@@ -104,7 +113,10 @@ describe('theme provider storage', () => {
       screen.getByRole('button', { name: 'dark' }).click();
       await Promise.resolve();
     });
-    // Reaching this point means no `storage.sync` access threw.
+
     expect(screen.getByTestId('theme').textContent).toBe('dark');
+    expect(localStore['manga-translator-theme']).toBe('dark');
+    expect(consoleError).not.toHaveBeenCalled();
+    consoleError.mockRestore();
   });
 });

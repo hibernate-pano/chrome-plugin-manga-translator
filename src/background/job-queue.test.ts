@@ -70,6 +70,7 @@ describe('BackgroundJobQueue', () => {
 
   it('updates job state as work progresses', async () => {
     const queue = new BackgroundJobQueue(1);
+    const statesDuringRun: Array<string | undefined> = [];
 
     const result = await queue.enqueue({
       job: createJobStatus({
@@ -79,11 +80,24 @@ describe('BackgroundJobQueue', () => {
         requestedPath: 'plugin-direct',
         scope: 'page',
       }),
-      run: async () => 'done',
+      run: async () => {
+        // Sampled from inside the work, because the old assertion read the
+        // state after the promise had already settled — which said nothing
+        // about transitions and passed even if the queue never marked a job
+        // queued or running at all.
+        statesDuringRun.push(queue.getJob('job-1')?.state);
+        await new Promise<void>(r => setTimeout(r, 0));
+        statesDuringRun.push(queue.getJob('job-1')?.state);
+        return 'done';
+      },
     });
 
     expect(result).toBe('done');
-    expect(queue.getJob('job-1')?.state).toBe('running');
+    expect(statesDuringRun).toEqual(['running', 'running']);
+    // The terminal state is written in the run's `finally`, which runs after
+    // the promise resolves, so it needs a tick before it is observable.
+    await new Promise<void>(r => setTimeout(r, 0));
+    expect(queue.getJob('job-1')?.state).toBe('succeeded');
   });
 
   it('allows dynamic updates of max concurrent Limit', async () => {

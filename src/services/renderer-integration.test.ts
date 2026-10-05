@@ -10,7 +10,11 @@
  */
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
-import { OverlayRenderer } from './renderer';
+import {
+  calculateFontSize,
+  OverlayRenderer,
+  type OverlayStyle,
+} from './renderer';
 import type { TextArea } from '@/providers/base';
 
 describe('OverlayRenderer Integration', () => {
@@ -597,50 +601,79 @@ describe('Overlay Collision Resolution', () => {
 
     renderer.render(img, textAreas, true);
 
-    const overlays = container.querySelectorAll('.manga-translator-overlay');
-    expect(overlays.length).toBe(2);
+    const overlays = Array.from(
+      container.querySelectorAll<HTMLElement>('.manga-translator-overlay')
+    );
+    expect(overlays).toHaveLength(2);
+
+    // The test name promises the areas stay put; counting them proved nothing
+    // about placement. Each overlay is centred on its region's centre, so
+    // assert that mapping holds and that neither box was nudged by collision
+    // resolution.
+    const centreOf = (overlay: HTMLElement): [number, number] => [
+      parseFloat(overlay.style.left) + parseFloat(overlay.style.width) / 2,
+      parseFloat(overlay.style.top) + parseFloat(overlay.style.height) / 2,
+    ];
+
+    const [first, second] = overlays as [HTMLElement, HTMLElement];
+    const [cx1, cy1] = centreOf(first);
+    const [cx2, cy2] = centreOf(second);
+
+    // Area A spans x 0.1-0.3 and y 0.1-0.2; area B spans 0.5-0.7 / 0.5-0.6.
+    expect(cx1).toBeCloseTo(0.2 * 720, 0);
+    expect(cy1).toBeCloseTo(0.15 * 1000, 0);
+    expect(cx2).toBeCloseTo(0.6 * 720, 0);
+    expect(cy2).toBeCloseTo(0.55 * 1000, 0);
   });
 });
 
 describe('Font Size Calculation', () => {
-  it('calculates smaller font for longer text', () => {
+  // This suite previously defined its own copy of `calculateFontSize` and
+  // asserted against that, so deleting the production function entirely would
+  // not have failed a single test. It now imports the real one.
+  it('shrinks the font as the text grows for a fixed box', () => {
     const longText = '这是一个很长的中文字符串，需要使用较小的字体';
     const shortText = '短';
-
-    // Font calculation logic
-    const calculateFontSize = (
-      areaWidth: number,
-      areaHeight: number,
-      text: string,
-      minFontSize: number = 10,
-      maxFontSize: number = 22
-    ): number => {
-      const padding = 14; // style.padding * 2
-      const availWidth = Math.max(areaWidth - padding, 1);
-      const availHeight = Math.max(areaHeight - padding, 1);
-
-      // Count CJK characters (width ~2x ASCII)
-      const cjkCount = (
-        text.match(/[\u3000-\u9fff\uf900-\ufaff\ufe30-\ufe4f]/g) || []
-      ).length;
-      const asciiCount = text.length - cjkCount;
-      const effectiveLength = cjkCount * 2 + asciiCount;
-
-      const fontByWidth =
-        effectiveLength > 0
-          ? Math.floor(availWidth / (effectiveLength / 2))
-          : availHeight;
-      const fontByHeight = Math.floor(availHeight * 0.7);
-
-      return Math.max(
-        minFontSize,
-        Math.min(maxFontSize, Math.min(fontByWidth, fontByHeight))
-      );
-    };
 
     const shortFontSize = calculateFontSize(200, 100, shortText);
     const longFontSize = calculateFontSize(200, 100, longText);
 
     expect(longFontSize).toBeLessThan(shortFontSize);
+  });
+
+  it('respects the configured min and max bounds', () => {
+    const style: OverlayStyle = {
+      backgroundColor: 'rgba(0, 0, 0, 0.9)',
+      textColor: '#ffffff',
+      fontFamily: 'sans-serif',
+      borderRadius: 6,
+      padding: 4,
+      minFontSize: 12,
+      maxFontSize: 18,
+      verticalText: false,
+    };
+    // A one-character label in a huge box wants far more than the cap.
+    expect(calculateFontSize(2000, 2000, '短', style)).toBe(18);
+    // A wall of text in a tiny box wants less than the floor.
+    expect(
+      calculateFontSize(20, 20, '这是一个非常非常非常长的字符串', style)
+    ).toBe(12);
+  });
+
+  it('weights full-width characters at twice the width of ASCII', () => {
+    // The CJK-aware weighting is the whole point of the function: eight
+    // full-width characters occupy the same run as sixteen ASCII ones. The box
+    // is deliberately narrow and short so width binds and the max cap does not
+    // flatten every result to the same number.
+    const cjk = calculateFontSize(100, 100, '文字文字文字文字');
+    const asciiEquivalent = calculateFontSize(100, 100, 'abcdefghijklmnop');
+    const asciiShort = calculateFontSize(100, 100, 'ab');
+
+    expect(cjk).toBe(asciiEquivalent);
+    expect(cjk).toBeLessThan(asciiShort);
+    // Unweighted, these would be identical; the 2x weighting is what separates
+    // eight CJK characters from eight ASCII ones.
+    const asciiSameCharCount = calculateFontSize(100, 100, 'abcdefgh');
+    expect(cjk).toBeLessThan(asciiSameCharCount);
   });
 });
