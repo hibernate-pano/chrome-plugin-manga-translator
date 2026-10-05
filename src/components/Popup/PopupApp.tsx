@@ -16,6 +16,7 @@ import {
   Trash2,
 } from 'lucide-react';
 
+import { hostMatchesAllowlist } from '@/shared/app-config';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ProviderType } from '@/providers/base';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
@@ -87,6 +88,7 @@ const PopupApp: React.FC = () => {
   });
   const [isLoading, setIsLoading] = useState(true);
   const [currentHost, setCurrentHost] = useState<string | null>(null);
+  const [currentUrl, setCurrentUrl] = useState<string | null>(null);
   const [pageAvailability, setPageAvailability] = useState<PageAvailability>({
     state: 'ready',
     message: '',
@@ -136,7 +138,9 @@ const PopupApp: React.FC = () => {
 
   const refreshPageStatus = useCallback(async () => {
     const tab = await getActiveTab();
-    setCurrentHost(hostFromUrl(tab?.url));
+    const host = hostFromUrl(tab?.url);
+    setCurrentHost(host);
+    setCurrentUrl(host ? (tab?.url ?? null) : null);
     if (!tab) {
       setPageAvailability({
         state: 'unsupported',
@@ -354,15 +358,29 @@ const PopupApp: React.FC = () => {
             </div>
             <Switch
               checked={Boolean(
-                currentHost && autoTranslateHosts.includes(currentHost)
+                currentUrl &&
+                hostMatchesAllowlist(currentUrl, autoTranslateHosts)
               )}
               disabled={!currentHost || !enabled}
               onCheckedChange={checked => {
                 if (!currentHost) return;
                 if (checked) {
                   addAutoTranslateHost(currentHost);
-                } else {
+                  return;
+                }
+                // Remove whatever actually matched. A plain
+                // `includes(currentHost)` left a wildcard entry in place, so
+                // the switch snapped back on and the page kept translating
+                // itself with no way to stop it from here.
+                const matched = autoTranslateHosts.filter(entry =>
+                  hostMatchesAllowlist(currentUrl ?? '', [entry])
+                );
+                if (matched.length === 0) {
                   removeAutoTranslateHost(currentHost);
+                  return;
+                }
+                for (const entry of matched) {
+                  removeAutoTranslateHost(entry);
                 }
               }}
               aria-label='自动翻译本站'

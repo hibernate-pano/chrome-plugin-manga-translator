@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   createDebouncedAutoTranslate,
   shouldAutoTranslateFollowUp,
+  MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS,
 } from './auto-translate-observer';
 
 describe('auto translate observer helpers', () => {
@@ -37,6 +38,30 @@ describe('auto translate observer helpers', () => {
         hasPendingImages: false,
       })
     ).toBe(false);
+  });
+
+  it('stops following up once the run budget is spent', () => {
+    const base = {
+      enabled: true,
+      status: 'idle' as const,
+      hasPendingImages: true,
+    };
+
+    expect(shouldAutoTranslateFollowUp({ ...base, runsRemaining: 1 })).toBe(
+      true
+    );
+    expect(shouldAutoTranslateFollowUp({ ...base, runsRemaining: 0 })).toBe(
+      false
+    );
+    expect(shouldAutoTranslateFollowUp({ ...base, runsRemaining: -3 })).toBe(
+      false
+    );
+
+    // Omitting the budget keeps the pre-cap behaviour for callers that do not
+    // track runs, so this stays backward compatible.
+    expect(shouldAutoTranslateFollowUp(base)).toBe(true);
+
+    expect(MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS).toBeGreaterThan(0);
   });
 
   it('debounces repeated scheduling into one callback', () => {

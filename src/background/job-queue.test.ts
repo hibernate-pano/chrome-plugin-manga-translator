@@ -372,4 +372,139 @@ describe('BackgroundJobQueue', () => {
     expect(a).toBe('first');
     expect(b).toBe('first'); // collapsed onto the running job; 'second' never ran
   });
+
+  it('does not collapse a forced job onto an in-flight same-key job', async () => {
+    // A retry the user asked for must actually re-run. Collapsing it onto the
+    // in-flight job would hand back the stale result and make retry a no-op.
+    const queue = new BackgroundJobQueue(2);
+    let release: (() => void) | undefined;
+
+    const first = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'first',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          release = r;
+        });
+        return 'first';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const forced = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'forced',
+        pageKey: 'same-img',
+        priorityClass: 'manual-retry',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      forceRefresh: true,
+      run: async () => 'forced',
+    });
+
+    release?.();
+    expect(await first).toBe('first');
+    expect(await forced).toBe('forced');
+  });
+
+  it('still runs queued jobs when the concurrency limit is not a positive number', async () => {
+    // A corrupt parallelLimit of 0 made `activeCount >= limit` permanently
+    // true, so drain() re-armed setTimeout(0) forever and nothing progressed.
+    const queue = new BackgroundJobQueue(0);
+    queue.updateMaxConcurrent(0);
+
+    const ran: string[] = [];
+    const jobs = ['a', 'b', 'c'].map(key =>
+      queue.enqueue({
+        job: createJobStatus({
+          jobId: key,
+          pageKey: key,
+          priorityClass: 'visible-now',
+          requestedPath: 'plugin-direct',
+          scope: 'page',
+        }),
+        run: async () => {
+          ran.push(key);
+          return key;
+        },
+      })
+    );
+
+    await expect(Promise.all(jobs)).resolves.toEqual(['a', 'b', 'c']);
+    expect(ran).toEqual(['a', 'b', 'c']);
+  });
+
+  it('a completed forced job does not unmap the dedup entry it superseded', async () => {
+    // The forced job and the original share a pageKey. When the original
+    // settles it must clear only its own entry: an unconditional delete would
+    // strip the still-running forced job and let a later duplicate re-pay.
+    const queue = new BackgroundJobQueue(2);
+    let releaseFirst: (() => void) | undefined;
+    let releaseForced: (() => void) | undefined;
+
+    const first = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'first',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          releaseFirst = r;
+        });
+        return 'first';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const forced = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'forced',
+        pageKey: 'same-img',
+        priorityClass: 'manual-retry',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      forceRefresh: true,
+      run: async () => {
+        await new Promise<void>(r => {
+          releaseForced = r;
+        });
+        return 'forced';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+    releaseFirst?.();
+    expect(await first).toBe('first');
+
+    // The original is done but the forced job is still in flight, so a
+    // duplicate must collapse onto it rather than start a third call.
+    const duplicate = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'duplicate',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'duplicate',
+    });
+
+    releaseForced?.();
+    expect(await Promise.all([forced, duplicate])).toEqual([
+      'forced',
+      'forced',
+    ]);
+  });
 });

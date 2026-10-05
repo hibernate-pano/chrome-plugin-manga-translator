@@ -9,6 +9,13 @@ type QueueState = JobStatusPayload['state'];
 interface EnqueueJobArgs<T> {
   job: JobStatusPayload;
   run: () => Promise<T>;
+  /**
+   * Run even when a job for the same `pageKey` is already in flight. A retry
+   * the user asked for must not collapse onto the job it is meant to replace,
+   * or the retry hands back the stale result and costs nothing but changes
+   * nothing.
+   */
+  forceRefresh?: boolean;
 }
 
 const PRIORITY_ORDER: Record<JobPriorityClass, number> = {
@@ -22,6 +29,20 @@ const PRIORITY_ORDER: Record<JobPriorityClass, number> = {
 interface PendingJob<T> extends EnqueueJobArgs<T> {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  /**
+   * The `pendingJobs` entry this job registered for deduplication, when it
+   * registered one. Completion clears the map only if the entry is still ours:
+   * a forced job shares its `pageKey` with the job it supersedes, and an
+   * unconditional delete would strip the newer job's dedup protection.
+   */
+  dedupEntry?: DedupEntry;
+}
+
+interface DedupEntry {
+  resolve: (value: unknown) => void;
+  reject: (error: Error) => void;
+  job: JobStatusPayload;
+  promise: Promise<unknown>;
 }
 
 export class BackgroundJobQueue {
@@ -30,15 +51,7 @@ export class BackgroundJobQueue {
   private readonly pending: Array<PendingJob<unknown>> = [];
   private readonly jobs = new Map<string, JobStatusPayload>();
   // Deduplication map: pageKey -> pending job promise resolvers
-  private readonly pendingJobs = new Map<
-    string,
-    {
-      resolve: (value: unknown) => void;
-      reject: (error: Error) => void;
-      job: JobStatusPayload;
-      promise: Promise<unknown>;
-    }
-  >();
+  private readonly pendingJobs = new Map<string, DedupEntry>();
 
   // Rate limiting variables
   private lastRequestTime = 0;
@@ -55,12 +68,27 @@ export class BackgroundJobQueue {
   private readonly maxRetainedJobs = 500;
 
   constructor(maxConcurrent = 2, minIntervalMs = 0) {
-    this.maxConcurrent = maxConcurrent;
+    this.maxConcurrent = BackgroundJobQueue.normalizeLimit(maxConcurrent);
     this.minIntervalMs = minIntervalMs;
   }
 
+  /**
+   * `parallelLimit` comes from `chrome.storage`, so a corrupted or hand-edited
+   * value reaches here verbatim. A limit of 0 makes `activeCount >= limit`
+   * permanently true, and `drain()` then re-arms a `setTimeout(0)` for every
+   * queued job: the worker spins in an endless no-progress loop and never
+   * translates anything. Anything that is not a positive finite number is
+   * treated as 1 so the queue always makes progress.
+   */
+  private static normalizeLimit(limit: number): number {
+    if (!Number.isFinite(limit)) {
+      return 1;
+    }
+    return Math.max(1, Math.floor(limit));
+  }
+
   updateMaxConcurrent(limit: number): void {
-    this.maxConcurrent = limit;
+    this.maxConcurrent = BackgroundJobQueue.normalizeLimit(limit);
     this.drain();
   }
 
@@ -137,12 +165,17 @@ export class BackgroundJobQueue {
     return low;
   }
 
-  enqueue<T>({ job, run }: EnqueueJobArgs<T>): Promise<T> {
+  enqueue<T>({ job, run, forceRefresh }: EnqueueJobArgs<T>): Promise<T> {
     // Deduplication: a repeat request for the SAME translation unit (same
     // key) collapses onto the in-flight job so the provider is not paid
     // twice. The key is the per-image identity (see translator), so distinct
     // images enqueue independently and run in parallel.
-    const existing = this.pendingJobs.get(job.pageKey);
+    //
+    // `forceRefresh` is an explicit user retry and must not collapse: the
+    // whole point is to discard the result the in-flight job will produce.
+    const existing = forceRefresh
+      ? undefined
+      : this.pendingJobs.get(job.pageKey);
     if (existing) {
       return existing.promise as Promise<T>;
     }
@@ -152,7 +185,7 @@ export class BackgroundJobQueue {
     // Entry is created before the promise so the map holds the SAME object
     // we later attach the resolved promise to (no TDZ reference inside the
     // executor). A later same-key enqueue collapses onto entry.promise.
-    const entry = {
+    const entry: DedupEntry = {
       resolve: (() => undefined) as (value: unknown) => void,
       reject: (() => undefined) as (error: Error) => void,
       job,
@@ -169,11 +202,15 @@ export class BackgroundJobQueue {
         run: run as () => Promise<unknown>,
         resolve: resolve as (value: unknown) => void,
         reject,
+        forceRefresh,
+        dedupEntry: entry,
       });
       this.drain();
     });
 
     entry.promise = promise;
+    // A forced job takes over the key, so duplicates arriving afterwards
+    // collapse onto the retry instead of the job it supersedes.
     this.pendingJobs.set(job.pageKey, entry);
     return promise;
   }
@@ -225,11 +262,19 @@ export class BackgroundJobQueue {
       })
       .finally(() => {
         this.activeCount -= 1;
-        // Remove from pendingJobs deduplication map
-        this.pendingJobs.delete(next.job.pageKey);
+        // Clear our own dedup entry only. A forced job shares its pageKey
+        // with the job it supersedes, and an unconditional delete would
+        // unmap the newer job and reopen the double-payment window for it.
+        const pageKey = next.job.pageKey;
+        if (
+          next.dedupEntry &&
+          this.pendingJobs.get(pageKey) === next.dedupEntry
+        ) {
+          this.pendingJobs.delete(pageKey);
+        }
         // If external hasn't set a final state (e.g., in unit tests), auto-set to succeeded
-        const job = this.jobs.get(next.job.jobId);
-        if (job && job.state === 'running') {
+        const recorded = this.jobs.get(next.job.jobId);
+        if (recorded && recorded.state === 'running') {
           this.updateJob(next.job.jobId, { state: 'succeeded' });
         }
         this.drain();

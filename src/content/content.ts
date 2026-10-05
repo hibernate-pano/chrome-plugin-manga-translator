@@ -44,6 +44,7 @@ import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
   createDebouncedAutoTranslate,
   shouldAutoTranslateFollowUp,
+  MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS,
 } from './auto-translate-observer';
 import {
   getAutoContinueFromConfig,
@@ -117,6 +118,12 @@ let isAutoTranslateEnabled = false;
  */
 let pageTranslationRequested = false;
 let translationRunInFlight = false;
+/**
+ * Follow-up scans left before the auto-continue observer stops itself. Seeded
+ * whenever the user explicitly asks for the page, so a deliberate translation
+ * always gets a full budget.
+ */
+let autoTranslateRunsRemaining = MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS;
 let failedCount = 0;
 let cachedCount = 0;
 let skippedCount = 0;
@@ -379,9 +386,12 @@ async function maybeAutoTranslateNewImages(): Promise<void> {
       enabled: isAutoTranslateEnabled,
       status: currentState.status,
       hasPendingImages: pendingImages.length > 0,
+      runsRemaining: autoTranslateRunsRemaining,
     })
   ) {
-    await translatePage();
+    // translatePage owns spending the budget and stopping the observer once it
+    // runs out, so a run blocked by its mutex cannot leak a charge.
+    await translatePage(false, 'follow-up');
   }
 }
 
@@ -451,8 +461,18 @@ function stopAutoTranslateObserver(): void {
 /**
  * 整页翻译
  */
-async function translatePage(forceRefresh: boolean = false): Promise<void> {
+async function translatePage(
+  forceRefresh: boolean = false,
+  origin: 'user' | 'follow-up' = 'user'
+): Promise<void> {
   console.warn('[ContentScript] translatePage 开始执行');
+
+  // An explicit request refills the follow-up budget: asking again is the
+  // signal that continued auto-translation is wanted, and only the observer's
+  // own re-entries should spend it.
+  if (origin === 'user') {
+    autoTranslateRunsRemaining = MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS;
+  }
 
   // 翻译进行中的互斥：直接用 currentState 判断，不再维护冗余的 isTranslating 布尔
   if (
@@ -468,6 +488,14 @@ async function translatePage(forceRefresh: boolean = false): Promise<void> {
   // TRANSLATE_PAGE around page load; currentState changes too late to prevent
   // those duplicate runs.
   translationRunInFlight = true;
+  // Charged only now that the run is committed, so a follow-up blocked by the
+  // mutex above does not burn budget for a run that never happened.
+  if (origin === 'follow-up') {
+    autoTranslateRunsRemaining -= 1;
+    if (autoTranslateRunsRemaining <= 0) {
+      stopAutoTranslateObserver();
+    }
+  }
   // From here on the user wants this page translated, so newly loaded images
   // should follow. This is what arms auto-continue for a page that is not on
   // the auto-translate allowlist.

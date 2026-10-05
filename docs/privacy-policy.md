@@ -1,6 +1,6 @@
 # Privacy Policy for Manga Translator (漫画翻译助手)
 
-**Last updated: 2026-09-13**
+**Last updated: 2026-10-05**
 
 ## Summary
 
@@ -24,7 +24,11 @@ You may provide API keys for third-party services (e.g., OpenAI-compatible
 providers). User-entered keys are:
 
 - Stored locally in your browser using Chrome's `storage.local` API (not synced across devices via your Google account)
-- Obfuscated before storage (XOR-based obfuscation) to prevent casual inspection by other extensions
+- Written to storage in an obfuscated form (XOR with a fixed salt). **This is
+  obfuscation, not encryption.** The salt ships inside the extension bundle, so
+  any extension granted `storage` permission, or anyone with the unpacked bundle,
+  can reverse it. Its only purpose is to keep a key from being readable at a
+  glance in the storage inspector — do not treat it as a security boundary.
 - Never transmitted to any server other than the API provider you configure
 - Never sent to the extension developer
 
@@ -67,18 +71,46 @@ have not chosen to translate.
 
 ## OCR Language Data
 
-The extension ships its OCR engine locally. When the OCR fallback path is used
-— only for pages where the configured vision model returns no text, or when the
-user selects the OCR-assisted pipeline — Tesseract downloads the language model
-(`.traineddata`) for the languages being detected from the official
-`@tesseract.js-data` package on jsdelivr.
+The extension ships the Tesseract worker script and the SIMD WASM core locally
+in the bundle, so the OCR engine itself needs no download. When the OCR fallback
+path is used — only for pages where the configured vision model returns no text,
+or when the user selects the OCR-assisted pipeline — Tesseract downloads the
+language model (`.traineddata`) for the languages being detected from the
+official `@tesseract.js-data` package on jsdelivr.
 
 - No image content, page content, or user data is included in that request.
 - The request is a plain download of a public language model file.
 - The download is cached by the browser after the first use.
 
-This is the only network request the extension makes that is not directed at
-the vision provider you configure.
+## Every Network Request the Extension Makes
+
+The extension makes outbound requests to exactly three kinds of destination. No
+others exist; there is no analytics endpoint, no update ping, and no
+developer-operated server.
+
+1. **The vision provider you configure.** Image bytes are uploaded here when a
+   translation runs.
+2. **The image host of the page you are reading.** A page's `<img>` element is
+   often CORS-restricted, downscaled, or lazy-loaded, so drawing it onto a
+   canvas in the page cannot reliably produce the full-resolution bytes a vision
+   model needs. The background worker therefore fetches the image URL directly
+   from that site's own content-delivery host. This is a plain `GET` of an asset
+   the page was already loading, sent with `credentials: 'omit'` so your cookies
+   for that host are never forwarded. It happens only for images you have asked
+   to translate (or that an allowlisted site auto-translates), never during
+   browsing. The extension operates no proxy of its own — the request goes from
+   your browser to that host.
+3. **jsdelivr**, for the OCR language model described above.
+
+The first is directed at a service you chose. The second and third are requests
+to third-party hosts you did not explicitly configure, which is why they are
+called out here. On the second path the scheme is restricted to `http`/`https`,
+and `localhost`, `*.localhost`, `metadata.google.internal` and private/loopback
+IPv4 and IPv6 literals are refused, so a page cannot aim the extension at an
+internal service by address. A domain that resolves to a private address is not
+caught by these checks — resolving it happens in the browser, after this
+validation — so the sender check in the worker remains the primary control on
+who may request a fetch.
 
 ## No Analytics or Tracking
 
@@ -102,4 +134,7 @@ If you have questions about this privacy policy, you can open an issue on the ex
 
 ---
 
-**Key takeaway: All image data goes only to the API provider you configure. The extension developer never sees your images, your API keys, or your browsing activity.**
+**Key takeaway: Images go only to the API provider you configure and to the
+image host of the page you asked to translate. The extension developer never
+sees your images, your API keys, or your browsing activity, and operates no
+server that receives any of them.**

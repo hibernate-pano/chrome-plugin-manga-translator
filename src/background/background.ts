@@ -492,6 +492,10 @@ async function enqueueTranslationJob(
 
   return translationJobQueue.enqueue({
     job,
+    // A user-initiated retry has to actually re-run. Without this the queue
+    // collapses it onto the in-flight job for the same image and the retry
+    // silently returns the result it was meant to replace.
+    forceRefresh: request.forceRefresh,
     run: async () => {
       const actualCapabilityUsed = deriveActualPath(request);
       translationJobQueue.updateJob(request.jobId, {

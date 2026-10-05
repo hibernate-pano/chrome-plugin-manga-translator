@@ -1,6 +1,82 @@
 import { describe, expect, it } from 'vitest';
 
-import { normalizeRuntimeAppConfig } from './app-config';
+import {
+  hostMatchesAllowlist,
+  normalizeHostEntry,
+  normalizeRuntimeAppConfig,
+} from './app-config';
+
+describe('auto-translate allowlist host matching', () => {
+  it('normalizes user input down to a host, keeping an explicit port', () => {
+    expect(normalizeHostEntry('https://Manga.Example.com/reader/1')).toBe(
+      'manga.example.com'
+    );
+    expect(normalizeHostEntry('  example.com  ')).toBe('example.com');
+    expect(normalizeHostEntry('localhost:8080')).toBe('localhost:8080');
+    expect(normalizeHostEntry('*.example.com')).toBe('*.example.com');
+    expect(normalizeHostEntry('*.localhost')).toBe('*.localhost');
+    expect(normalizeHostEntry('')).toBeNull();
+    // A colon that is not a port means the entry is not a host:port pair.
+    expect(normalizeHostEntry('example.com:not-a-port')).toBeNull();
+  });
+
+  it('refuses a wildcard that would match the whole internet', () => {
+    // `*.com` is a typo away from authorising every .com site.
+    expect(normalizeHostEntry('*.com')).toBeNull();
+    expect(normalizeHostEntry('*.org')).toBeNull();
+    expect(normalizeHostEntry('*.net')).toBeNull();
+    // A real registrable domain still works.
+    expect(normalizeHostEntry('*.co.uk')).toBe('*.co.uk');
+  });
+
+  it('matches exact hosts and subdomains but never look-alike suffixes', () => {
+    expect(hostMatchesAllowlist('https://example.com/a', ['example.com'])).toBe(
+      true
+    );
+    expect(
+      hostMatchesAllowlist('https://notexample.com/a', ['example.com'])
+    ).toBe(false);
+    expect(
+      hostMatchesAllowlist('https://cdn.example.com/a', ['*.example.com'])
+    ).toBe(true);
+    expect(
+      hostMatchesAllowlist('https://example.com/a', ['*.example.com'])
+    ).toBe(true);
+    expect(hostMatchesAllowlist('https://evil.com/a', ['*.example.com'])).toBe(
+      false
+    );
+    expect(hostMatchesAllowlist('ftp://example.com/a', ['example.com'])).toBe(
+      false
+    );
+  });
+
+  it('honours default ports and scopes port-bearing entries to that port', () => {
+    // No port in the entry means any port, which is the usual intent.
+    expect(
+      hostMatchesAllowlist('https://example.com:8443/a', ['example.com'])
+    ).toBe(true);
+
+    // An entry that names a port must not cover the other services on the
+    // host: auto-translating a router admin page would upload its images.
+    expect(
+      hostMatchesAllowlist('http://localhost:8080/a', ['localhost:8080'])
+    ).toBe(true);
+    expect(
+      hostMatchesAllowlist('http://localhost:9999/a', ['localhost:8080'])
+    ).toBe(false);
+    expect(
+      hostMatchesAllowlist('http://192.168.1.10:22/a', ['192.168.1.10:8080'])
+    ).toBe(false);
+
+    // An implicit port still matches an explicit entry for it.
+    expect(
+      hostMatchesAllowlist('http://localhost:80/a', ['localhost:80'])
+    ).toBe(true);
+    expect(
+      hostMatchesAllowlist('https://example.com:443/a', ['example.com:443'])
+    ).toBe(true);
+  });
+});
 
 describe('normalizeRuntimeAppConfig', () => {
   it('maps legacy selected cloud providers into openai-compatible settings', () => {

@@ -56,8 +56,14 @@ Use the hosted `docs/privacy-policy.md` page as the privacy-policy URL.
 
 - Image data goes to the provider selected by the user.
 - User-entered API keys are stored in `chrome.storage.local`, not sync storage.
-- The developer operates no analytics, telemetry, image proxy, or credential
-  server.
+  The XOR obfuscation applied on write is not encryption — the salt ships in the
+  bundle — so the listing should not claim keys are "encrypted".
+- The developer operates no server of any kind: no analytics, no telemetry, no
+  credential endpoint, and no relay that image bytes pass through. The comic
+  image fetch is the extension's own background worker issuing a `GET` directly
+  from the user's browser to the page's own CDN with `credentials: 'omit'`; it
+  is not a developer-hosted proxy, and reviewer notes should describe it that
+  way rather than as "no image fetching".
 - Public release artifacts contain no provider API keys.
 
 ## Manual Smoke Test

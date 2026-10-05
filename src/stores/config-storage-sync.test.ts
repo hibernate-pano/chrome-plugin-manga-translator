@@ -300,4 +300,37 @@ describe('config store <-> chrome.storage sync', () => {
 
     expect(useAppConfigStore.getState().targetLanguage).toBe('zh-CN');
   });
+
+  it('survives a persisted provider field that is not a string', async () => {
+    // `mergeProvider` called `.trim()` straight on the stored value, so a
+    // corrupted or hand-edited `apiKey: 12345` threw inside zustand's merge
+    // and aborted hydration — every later field in the snapshot was dropped
+    // and the store silently ran on defaults.
+    await harness.setConfigSnapshot({
+      state: {
+        openaiCompatible: {
+          apiKey: 12345,
+          baseUrl: { not: 'a string' },
+          model: 'vision-model',
+        },
+        ollama: { apiKey: null, baseUrl: 'http://localhost:11434', model: 7 },
+        targetLanguage: 'fr-FR',
+        parallelLimit: 5,
+        enabled: true,
+      },
+      version: 3,
+    });
+
+    const { useAppConfigStore } = await loadStore();
+    const state = useAppConfigStore.getState();
+
+    // Hydration must have continued past the malformed fields.
+    expect(state.targetLanguage).toBe('fr-FR');
+    expect(state.parallelLimit).toBe(5);
+    expect(state.enabled).toBe(true);
+    // The unusable values fall back rather than poisoning state.
+    expect(typeof state.openaiCompatible.apiKey).toBe('string');
+    expect(typeof state.openaiCompatible.baseUrl).toBe('string');
+    expect(typeof state.ollama.model).toBe('string');
+  });
 });

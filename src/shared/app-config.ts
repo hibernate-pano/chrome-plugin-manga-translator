@@ -264,6 +264,11 @@ export function normalizeHostList(value: unknown): string[] {
 /**
  * Reduce arbitrary user input to a bare hostname, preserving an optional
  * leading `*.` wildcard.
+ *
+ * A port the user typed is kept, so `localhost:8080` scopes to that listener
+ * instead of silently widening to every service on the machine. An entry with
+ * no port matches any port, which is the usual intent for a domain and keeps
+ * existing entries working.
  */
 export function normalizeHostEntry(value: string): string | null {
   const trimmed = value.trim().toLowerCase();
@@ -273,14 +278,23 @@ export function normalizeHostEntry(value: string): string | null {
   const wildcard = trimmed.startsWith('*.');
   const body = wildcard ? trimmed.slice(2) : trimmed;
   let host = body;
+  let port = '';
   try {
-    if (body.includes('://')) {
-      host = new URL(body).hostname;
-    } else if (body.includes('/')) {
-      host = new URL(`https://${body}`).hostname;
+    if (body.includes('://') || body.includes('/')) {
+      const parsed = new URL(body.includes('://') ? body : `https://${body}`);
+      host = parsed.hostname;
+      port = parsed.port;
     } else if (body.includes(':') && !body.includes(']')) {
-      // host:port -> host
-      host = body.split(':')[0] ?? body;
+      const separator = body.indexOf(':');
+      host = body.slice(0, separator);
+      const candidate = body.slice(separator + 1);
+      // Only a run of digits is a port. Anything else means the entry is not a
+      // host:port pair, so reject it rather than guess which half the user
+      // meant to keep.
+      if (!/^\d+$/.test(candidate)) {
+        return null;
+      }
+      port = candidate;
     }
   } catch {
     return null;
@@ -289,15 +303,23 @@ export function normalizeHostEntry(value: string): string | null {
   if (!host || !/^[a-z0-9.*-]+$/.test(host)) {
     return null;
   }
-  return wildcard ? `*.${host}` : host;
+  // `*.com` passes the shape check above but is not a scope anyone means: it
+  // matches every .com site on the internet, turning an opt-in allowlist into
+  // a near-universal one through a single typo. A wildcard needs at least one
+  // label below the TLD; `*.localhost` is the dotless base that stays useful.
+  if (wildcard && !host.includes('.') && host !== 'localhost') {
+    return null;
+  }
+  const scoped = port ? `${host}:${port}` : host;
+  return wildcard ? `*.${scoped}` : scoped;
 }
 
 /**
  * Should a page at `url` be translated automatically on load?
  *
- * Matching is hostname-only and exact unless the entry starts with `*.`, so
- * `example.com` does not silently cover `notexample.com` (a suffix check
- * without a boundary would).
+ * Matching is by hostname, plus the port when the entry names one. An exact
+ * entry never covers look-alike suffixes, because `example.com` must not
+ * authorise `notexample.com`.
  */
 export function hostMatchesAllowlist(
   url: string,
@@ -306,22 +328,39 @@ export function hostMatchesAllowlist(
   if (hosts.length === 0) {
     return false;
   }
-  let hostname: string;
+  let hostname = '';
+  let port = '';
   try {
     const parsed = new URL(url);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return false;
     }
     hostname = parsed.hostname.toLowerCase();
+    // `new URL('https://example.com').port` is empty even though the effective
+    // port is 443, so an entry written as `example.com:443` would never match.
+    // Fill in the scheme default before comparing.
+    port = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
   } catch {
     return false;
   }
   return hosts.some(entry => {
-    if (entry.startsWith('*.')) {
-      const base = entry.slice(2);
-      return hostname === base || hostname.endsWith(`.${base}`);
+    const wildcard = entry.startsWith('*.');
+    const body = wildcard ? entry.slice(2) : entry;
+    const separator = body.indexOf(':');
+    const entryHost = separator === -1 ? body : body.slice(0, separator);
+    const entryPort = separator === -1 ? '' : body.slice(separator + 1);
+
+    // A port-scoped entry matches only that port. Ignoring it would let an
+    // entry written for one local service auto-translate everything else on
+    // the host, including admin interfaces whose images would then be sent to
+    // the configured vision provider.
+    if (entryPort && entryPort !== port) {
+      return false;
     }
-    return hostname === entry;
+    if (wildcard) {
+      return hostname === entryHost || hostname.endsWith(`.${entryHost}`);
+    }
+    return hostname === entryHost;
   });
 }
 

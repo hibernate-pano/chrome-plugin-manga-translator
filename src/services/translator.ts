@@ -502,8 +502,10 @@ export class TranslatorService {
    * image space, then merges and dedupes.
    *
    * Failure policy: a tile that produces no text (or a whole-page empty
-   * result) is retried once; if the merged result is still empty the caller
-   * falls back to the classic full-image path.
+   * result) is retried once. An empty merge is only a failure when no tile
+   * completed a provider call at all — otherwise the model answered honestly
+   * that there is nothing to translate, and the caller must not pay a second
+   * time for the same answer via the full-image path.
    */
   private async translateImageTiled(
     image: HTMLImageElement,
@@ -542,7 +544,25 @@ export class TranslatorService {
     const allAreas: TextArea[] = perTileResults.flatMap(r => r?.areas ?? []);
 
     if (allAreas.length === 0) {
-      return { success: false, textAreas: [], error: '所有切片均未检测到文字' };
+      // `null` means the tile threw; an empty `areas` means the provider
+      // answered and found nothing to translate. A pure-art stretch of a
+      // webtoon is a normal outcome, so only treat it as a pipeline failure
+      // when not a single tile completed — otherwise the caller would spend a
+      // second full-image request to learn the same thing.
+      const completedTiles = perTileResults.filter(
+        result => result !== null
+      ).length;
+      if (completedTiles === 0) {
+        return {
+          success: false,
+          textAreas: [],
+          error: '所有切片翻译请求均失败',
+        };
+      }
+      if (isDevelopment) {
+        _log(`切片完成 ${completedTiles} 个，模型确认无文字，不再回退整图`);
+      }
+      return { success: true, textAreas: [] };
     }
 
     const clean = filterOverlapDuplicates(allAreas);

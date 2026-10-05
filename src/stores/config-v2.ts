@@ -66,7 +66,7 @@ export interface AppConfigActions {
   setCacheEnabled: (enabled: boolean) => void;
   setAutoContinueEnabled: (enabled: boolean) => void;
   setAutoTranslateHosts: (hosts: string[]) => void;
-  addAutoTranslateHost: (host: string) => void;
+  addAutoTranslateHost: (host: string) => boolean;
   removeAutoTranslateHost: (host: string) => void;
   setTranslationStylePreset: (preset: TranslationStylePreset) => void;
   setReadingMode: (mode: 'panel') => void;
@@ -326,6 +326,18 @@ function mergePersistedConfig<S extends AppConfigState>(
   const asProviderSettings = (value: unknown): ProviderSettings | undefined =>
     isRecord(value) ? (value as unknown as ProviderSettings) : undefined;
 
+  /**
+   * Coerce a persisted provider field to a usable string.
+   *
+   * Storage is user-writable and hand-editable, so `apiKey: 123` can arrive
+   * from a corrupted or tampered snapshot. Calling `.trim()` on it directly
+   * threw inside zustand's `merge`, which aborted hydration for the whole
+   * snapshot and silently left the store on defaults — a single bad field
+   * discarded every good one next to it.
+   */
+  const trimmedString = (value: unknown): string =>
+    typeof value === 'string' ? value.trim() : '';
+
   const persistedProviders = isRecord(base.providers)
     ? (base.providers as Record<string, unknown>)
     : {};
@@ -340,13 +352,17 @@ function mergePersistedConfig<S extends AppConfigState>(
     persistedValue: ProviderSettings | undefined
   ): ProviderSettings => ({
     apiKey:
-      persistedValue?.apiKey?.trim() || currentValue?.apiKey || fallback.apiKey,
+      trimmedString(persistedValue?.apiKey) ||
+      trimmedString(currentValue?.apiKey) ||
+      fallback.apiKey,
     baseUrl:
-      persistedValue?.baseUrl?.trim() ||
-      currentValue?.baseUrl ||
+      trimmedString(persistedValue?.baseUrl) ||
+      trimmedString(currentValue?.baseUrl) ||
       fallback.baseUrl,
     model:
-      persistedValue?.model?.trim() || currentValue?.model || fallback.model,
+      trimmedString(persistedValue?.model) ||
+      trimmedString(currentValue?.model) ||
+      fallback.model,
   });
 
   const nextOpenaiCompatible = mergeProvider(
@@ -544,7 +560,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       addAutoTranslateHost: host => {
         const normalized = normalizeHostEntry(host);
         if (!normalized) {
-          return;
+          return false;
         }
         set(state => ({
           autoTranslateHosts: normalizeHostList([
@@ -552,6 +568,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
             normalized,
           ]),
         }));
+        return true;
       },
       removeAutoTranslateHost: host => {
         const normalized = normalizeHostEntry(host);

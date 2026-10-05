@@ -130,6 +130,7 @@ const OptionsApp: React.FC = () => {
     null
   );
   const [newAutoHost, setNewAutoHost] = useState('');
+  const [autoHostError, setAutoHostError] = useState('');
   const [showApiKey, setShowApiKey] = useState<Record<ProviderType, boolean>>({
     'openai-compatible': false,
     ollama: false,
@@ -625,8 +626,14 @@ const OptionsApp: React.FC = () => {
                   onSubmit={event => {
                     event.preventDefault();
                     if (!newAutoHost.trim()) return;
-                    addAutoTranslateHost(newAutoHost);
-                    setNewAutoHost('');
+                    if (addAutoTranslateHost(newAutoHost)) {
+                      setNewAutoHost('');
+                      setAutoHostError('');
+                    } else {
+                      setAutoHostError(
+                        '无法识别的主机名。请用 example.com 或 *.example.com；通配符需要完整域名（*.com 会被拒绝）。'
+                      );
+                    }
                   }}
                 >
                   <input
@@ -643,9 +650,14 @@ const OptionsApp: React.FC = () => {
                     添加
                   </button>
                 </form>
+                {autoHostError ? (
+                  <div className='mt-2 text-xs text-rose-300'>
+                    {autoHostError}
+                  </div>
+                ) : null}
                 <div className='mt-2 text-xs text-slate-500'>
-                  只匹配主机名。manga.example.com 不会匹配
-                  notmanga.example.com。
+                  按主机名匹配；带端口的条目（如 localhost:8080）只匹配该端口。
+                  manga.example.com 不会匹配 notmanga.example.com。
                 </div>
               </div>
 
