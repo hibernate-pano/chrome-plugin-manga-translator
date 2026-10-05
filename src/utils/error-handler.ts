@@ -608,13 +608,6 @@ export function parseTranslationError(error: unknown): FriendlyError {
 }
 
 /**
- * 判断错误是否可重试
- */
-export function isTranslationErrorRetryable(error: unknown): boolean {
-  return TranslationErrorHandler.isRetryable(error);
-}
-
-/**
  * 带指数退避的重试函数
  */
 export async function retryWithBackoff<T>(
@@ -637,22 +630,4 @@ export function createFriendlyError(code: TranslationErrorCode): FriendlyError {
     suggestion: errorInfo.suggestion,
     action: errorInfo.action,
   };
-}
-
-/**
- * 获取用户友好的错误消息
- */
-export function getFriendlyErrorMessage(error: unknown): string {
-  const friendlyError = TranslationErrorHandler.parseError(error);
-  return friendlyError.message;
-}
-
-/**
- * 获取完整的错误提示（包含建议）
- */
-export function getFullFriendlyErrorMessage(error: unknown): string {
-  const friendlyError = TranslationErrorHandler.parseError(error);
-  return friendlyError.suggestion
-    ? `${friendlyError.message}。${friendlyError.suggestion}`
-    : friendlyError.message;
 }

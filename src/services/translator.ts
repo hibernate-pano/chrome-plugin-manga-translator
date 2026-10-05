@@ -1212,32 +1212,6 @@ export function createTranslatorFromConfig(): TranslatorService {
 
 // ==================== Singleton Instance ====================
 
-let translatorInstance: TranslatorService | null = null;
-
-/**
- * Get or create the singleton translator instance
- *
- * @param forceNew Force creation of a new instance
- * @returns TranslatorService instance
- */
-export function getTranslator(forceNew = false): TranslatorService {
-  if (!translatorInstance || forceNew) {
-    translatorInstance = createTranslatorFromConfig();
-  }
-  return translatorInstance;
-}
-
-/**
- * Reset the singleton translator instance
- * Used when configuration changes
- */
-export function resetTranslator(): void {
-  if (translatorInstance) {
-    translatorInstance.cancel();
-  }
-  translatorInstance = null;
-}
-
 // ==================== Re-exports ====================
 
 export type { TranslationResult, TextArea };

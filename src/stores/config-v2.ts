@@ -681,24 +681,6 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
   )
 );
 
-export const useTranslationEnabled = () =>
-  useAppConfigStore(state => state.enabled);
-
-export const useCurrentProvider = () =>
-  useAppConfigStore(state => state.provider);
-
-export const useTargetLanguage = () =>
-  useAppConfigStore(state => state.targetLanguage);
-
-export const useActiveProviderSettings = () => {
-  const provider = useAppConfigStore(state => state.provider);
-  const providers = useAppConfigStore(state => state.providers);
-  return providers[provider];
-};
-
-export const useOverlayStyle = () =>
-  useAppConfigStore(state => state.overlayStyle);
-
 // ==================== External Storage Change Listener ====================
 
 /**

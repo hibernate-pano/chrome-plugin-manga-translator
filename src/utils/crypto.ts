@@ -69,10 +69,6 @@ export function registerSensitiveKey(key: string): void {
   SENSITIVE_KEYS.add(key);
 }
 
-export function isSensitiveKey(key: string): boolean {
-  return SENSITIVE_KEYS.has(key);
-}
-
 export function processAllApiKeys(
   obj: Record<string, unknown>,
   processFn: (key: string) => string

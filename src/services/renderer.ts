@@ -85,14 +85,6 @@ const DEFAULT_STYLE: OverlayStyle = {
   verticalText: false,
 };
 
-export const DEFAULT_OVERLAY_STYLE_CONFIG: OverlayStyleConfig = {
-  backgroundColor: 'rgba(240, 240, 235, 0.94)',
-  textColor: '#111111',
-  minFontSize: 10,
-  maxFontSize: 22,
-  verticalText: false,
-};
-
 // ==================== Utility Functions ====================
 
 // 全角字符正则表达式：涵盖汉字、日文平假名/片假名、韩文音节、全角标点符号等，实现更精准的多语言宽度估算
@@ -1133,14 +1125,9 @@ export function findAllWrappers(): HTMLElement[] {
 }
 
 /**
- * Find all overlay elements in the document
- */
-export function findAllOverlays(): HTMLElement[] {
-  return Array.from(document.querySelectorAll(`.${OVERLAY_CLASS}`));
-}
-
-/**
- * Remove all manga translator elements from the document
+ * Reunite each translated image with its original parent and drop the wrapper
+ * the renderer introduced. Used by the cancel path so a page is left exactly
+ * as it was found.
  */
 export function removeAllOverlaysFromDOM(): void {
   const wrappers = findAllWrappers();

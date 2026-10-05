@@ -33,23 +33,3 @@ export interface EnvConfig {
 import { ENV_CONFIG as GENERATED } from './env-config.generated';
 
 export const ENV_CONFIG: EnvConfig = GENERATED;
-
-export function hasMinimaxCredentials(): boolean {
-  return Boolean(
-    ENV_CONFIG.minimax.apiKey &&
-    ENV_CONFIG.minimax.baseUrl &&
-    ENV_CONFIG.minimax.model
-  );
-}
-
-export function hasOpencodeCredentials(): boolean {
-  return Boolean(
-    ENV_CONFIG.opencode.apiKey &&
-    ENV_CONFIG.opencode.baseUrl &&
-    ENV_CONFIG.opencode.model
-  );
-}
-
-export function hasOllamaCredentials(): boolean {
-  return Boolean(ENV_CONFIG.ollama.baseUrl && ENV_CONFIG.ollama.model);
-}

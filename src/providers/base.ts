@@ -71,18 +71,6 @@ export interface ProviderConfig {
 }
 
 /**
- * Common API response structure
- */
-export interface ApiResponse {
-  content?: string;
-  error?: {
-    type: string;
-    message: string;
-    code?: string;
-  };
-}
-
-/**
  * Standardized image data for providers
  */
 export interface ImageData {

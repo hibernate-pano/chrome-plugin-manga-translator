@@ -5,9 +5,12 @@
  * - promptTokens：提示词 Token 数
  * - completionTokens：生成 Token 数
  * - totalTokens：总计
- * - cost：估算费用（基于 provider 定价）
  *
  * 数据存储在 chrome.storage.local，按天聚合。
+ *
+ * There is deliberately no cost estimate: converting tokens to money needs a
+ * per-model price list, and any table shipped in the bundle would be invented
+ * numbers presented to the user as a bill.
  */
 
 import { create } from 'zustand';
@@ -264,6 +267,3 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
 );
 
 // ==================== 便捷 Selector Hooks ====================
-
-export const useMonthlyTokens = () =>
-  useUsageStore(state => state.monthlyTokens);

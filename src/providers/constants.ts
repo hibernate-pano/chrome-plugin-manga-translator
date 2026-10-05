@@ -25,10 +25,3 @@ export const REQUEST_LIMITS = {
   TEMPERATURE: 0.1,
   IMAGE_DETAIL: 'high' as const,
 } as const;
-
-// ==================== Timeouts ====================
-
-export const TIMEOUTS = {
-  REQUEST: 30000, // 30 seconds
-  RETRY_DELAY: 1000, // 1 second
-} as const;

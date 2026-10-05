@@ -130,17 +130,6 @@ async function getWorker(languages: string[]): Promise<Worker> {
   return worker;
 }
 
-/**
- * Terminate the cached worker (call when done)
- */
-export async function terminateWorker(): Promise<void> {
-  if (worker) {
-    await worker.terminate();
-    worker = null;
-    workerLanguages = [];
-  }
-}
-
 // ==================== Core Functions ====================
 
 /**

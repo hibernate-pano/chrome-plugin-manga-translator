@@ -351,15 +351,3 @@ export const useTranslationCacheStore = create<
 );
 
 // ==================== Selector Hooks ====================
-
-/**
- * Get cache entry count
- */
-export const useCacheEntryCount = () =>
-  useTranslationCacheStore(state => state.cache.size);
-
-/**
- * Check if caching is effectively enabled (has entries)
- */
-export const useHasCachedEntries = () =>
-  useTranslationCacheStore(state => state.cache.size > 0);

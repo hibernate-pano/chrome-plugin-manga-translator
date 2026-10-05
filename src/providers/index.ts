@@ -70,6 +70,3 @@ export type ProviderDisplayInfo = {
   requiresApiKey: boolean;
   defaultModel: string;
 };
-
-// Unused at the moment but kept as type-only documentation.
-export type _ProviderInfoMap = Record<ProviderType, ProviderDisplayInfo>;

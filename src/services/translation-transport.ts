@@ -131,19 +131,9 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
   }
 }
 
-let defaultTransport: TranslationTransport =
+const defaultTransport: TranslationTransport =
   new ChromeRuntimeTranslationTransport();
 
 export function getDefaultTranslationTransport(): TranslationTransport {
   return defaultTransport;
-}
-
-export function setDefaultTranslationTransport(
-  transport: TranslationTransport
-): void {
-  defaultTransport = transport;
-}
-
-export function resetDefaultTranslationTransport(): void {
-  defaultTransport = new ChromeRuntimeTranslationTransport();
 }

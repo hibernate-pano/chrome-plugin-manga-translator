@@ -12,7 +12,3 @@ export function clampPageTranslationConcurrency(value: number): number {
     Math.min(MAX_PAGE_TRANSLATION_CONCURRENCY, Math.round(value))
   );
 }
-
-export function getDefaultPageTranslationConcurrency(): number {
-  return DEFAULT_PAGE_TRANSLATION_CONCURRENCY;
-}

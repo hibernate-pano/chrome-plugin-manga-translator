@@ -3,12 +3,6 @@ import type { TranslationStylePreset } from '@/utils/translation-style';
 
 export type SupportedSite = 'manhwaread';
 
-export interface PageSupportState {
-  supported: boolean;
-  site: SupportedSite | null;
-  reason: string | null;
-}
-
 export interface TranslationDiagnostics {
   detectedRegions: number;
   fallbackRegions: number;
@@ -108,11 +102,3 @@ export interface TranslateImageJobResponse {
   } | null;
   error?: string;
 }
-
-export type BackgroundRequest =
-  | FetchImageBytesRequest
-  | TranslateImageJobRequest;
-
-export type BackgroundResponse =
-  | FetchImageBytesResponse
-  | TranslateImageJobResponse;

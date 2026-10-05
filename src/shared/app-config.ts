@@ -466,25 +466,3 @@ export function normalizeRuntimeAppConfig(value: unknown): RuntimeAppConfig {
         : DEFAULT_RUNTIME_APP_CONFIG.onboardingCompleted,
   };
 }
-
-export async function loadRuntimeAppConfig(): Promise<RuntimeAppConfig> {
-  try {
-    if (typeof chrome !== 'undefined' && chrome.storage?.local) {
-      const result = await chrome.storage.local.get([APP_CONFIG_STORAGE_KEY]);
-      return normalizeRuntimeAppConfig(result[APP_CONFIG_STORAGE_KEY]);
-    }
-  } catch (error) {
-    console.error('[AppConfig] Failed to load runtime config:', error);
-  }
-
-  return DEFAULT_RUNTIME_APP_CONFIG;
-}
-
-export function createPersistedRuntimeConfig(
-  state: RuntimeAppConfig = DEFAULT_RUNTIME_APP_CONFIG
-): StorageEnvelope {
-  return {
-    state,
-    version: 0,
-  };
-}
