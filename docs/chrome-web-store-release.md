@@ -42,6 +42,21 @@ returned translation on the source page.
 The content script is injected on normal web pages but performs no image
 processing until the user enables the extension and starts translation.
 
+`web_accessible_resources` declares only `tesseract/*`. The OCR fallback builds
+a Web Worker from `chrome.runtime.getURL('tesseract/worker.min.js')` inside the
+content script, and a worker created from an extension URL in a page context is
+only loadable if that resource is web-accessible for the page — hence
+`<all_urls>` rather than a host list, because the pages needing it are not known
+in advance. Nothing else is exposed: the bundler initially grows this list from
+the content script's chunk graph, and the build prunes it back to the declared
+set after the chunks are inlined, so the extension's own modules (including the
+key-obfuscation chunk) are not readable by arbitrary pages.
+
+`content_security_policy.extension_pages` is declared explicitly as
+`script-src 'self' 'wasm-unsafe-eval'; object-src 'self'`. `'wasm-unsafe-eval'`
+is required to instantiate the bundled OCR WASM core; no script source other
+than the extension's own package is permitted, and `object-src` is locked.
+
 Automatic translation is opt-in per site. Enabling the extension does not make
 it translate pages by itself: a page is only translated without an explicit
 action when its host has been added to the user's auto-translate list from the

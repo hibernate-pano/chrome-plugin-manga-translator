@@ -13,6 +13,11 @@ import manifest from './public/manifest.json';
  *
  * 解决：构建完成后用 esbuild 将 content.js 及其所有 chunk 依赖
  * 内联为一个自包含文件，消除对外部 chunk 的引用。
+ *
+ * 副作用：@crxjs/vite-plugin 早期内联之前就已经根据模块图把这些
+ * chunk 写进了 web_accessible_resources。内联之后 content.js 不再引用
+ * 它们，但声明留在原地，等于把 API key 混淆模块、React 等文件持续暴露给
+ * 任意网页按 URL 读取。所以内联完成后要按源 manifest 重新收窄这份声明。
  */
 function contentScriptRebundler(): Plugin {
   return {
@@ -42,8 +47,58 @@ function contentScriptRebundler(): Plugin {
         target: 'es2020',
         logLevel: 'info',
       });
+
+      await pruneWebAccessibleResources(distDir);
     },
   };
+}
+
+/**
+ * Replace the built manifest's `web_accessible_resources` with the entries the
+ * source manifest declares.
+ *
+ * CRXJS grows that list from the module graph while the content script still
+ * imported chunks; after rebundling those references are gone but the
+ * declarations are not. A page cannot read a resource the manifest does not
+ * expose, so leaving stale chunk entries in place ships the extension's own
+ * modules to every site it runs on.
+ */
+async function pruneWebAccessibleResources(distDir: string): Promise<void> {
+  const { readFileSync, writeFileSync } = await import('fs');
+  const manifestPath = path.join(distDir, 'manifest.json');
+  const built = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    web_accessible_resources?: Array<{
+      resources: string[];
+      matches: string[];
+    }>;
+  };
+  const declared = manifest.web_accessible_resources ?? [];
+  const declaredResources = new Set(declared.flatMap(group => group.resources));
+  if (declaredResources.size === 0) {
+    if (built.web_accessible_resources) {
+      delete built.web_accessible_resources;
+      writeFileSync(manifestPath, JSON.stringify(built, null, 2));
+    }
+    return;
+  }
+
+  const kept = built.web_accessible_resources
+    ? built.web_accessible_resources
+        .map(group => ({
+          ...group,
+          resources: group.resources.filter(resource =>
+            declaredResources.has(resource)
+          ),
+        }))
+        .filter(group => group.resources.length > 0)
+    : [];
+
+  if (kept.length > 0) {
+    built.web_accessible_resources = kept;
+  } else {
+    delete built.web_accessible_resources;
+  }
+  writeFileSync(manifestPath, JSON.stringify(built, null, 2));
 }
 
 // https://vitejs.dev/config/
