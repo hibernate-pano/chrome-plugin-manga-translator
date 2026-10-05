@@ -144,9 +144,9 @@ function main() {
     }
   } else {
     console.warn(
-      '[inject-env] no .env found at ' +
-        candidateEnvPaths().join(' or ') +
-        '; generated file has empty placeholders.'
+      `[inject-env] no .env found at ${candidateEnvPaths().join(
+        ' or '
+      )}; generated file has empty placeholders.`
     );
   }
   console.log(`[inject-env] wrote ${outPath}`);

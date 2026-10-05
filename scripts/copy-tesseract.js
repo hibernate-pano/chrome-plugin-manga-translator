@@ -33,7 +33,6 @@ const filesToCopy = [
   ],
 ];
 
-// eslint-disable-next-line no-console
 console.log('[CopyTesseract] 开始拷贝 Tesseract 本地脚本和 WASM 核心...');
 
 let successCount = 0;
@@ -45,7 +44,6 @@ for (const [srcRelPath, destName] of filesToCopy) {
   if (fs.existsSync(srcPath)) {
     try {
       fs.copyFileSync(srcPath, destPath);
-      // eslint-disable-next-line no-console
       console.log(`[CopyTesseract] 成功拷贝: ${destName}`);
       successCount++;
     } catch (error) {
@@ -56,7 +54,6 @@ for (const [srcRelPath, destName] of filesToCopy) {
   }
 }
 
-// eslint-disable-next-line no-console
 console.log(
   `[CopyTesseract] 拷贝完成。成功: ${successCount}/${filesToCopy.length}`
 );

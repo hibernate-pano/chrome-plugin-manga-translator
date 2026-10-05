@@ -70,11 +70,19 @@ module.exports = {
       },
     },
     {
-      // `src/utils/batch-translation-manager.ts` used to be listed here; it has
-      // not existed for several releases.
       files: ['src/stores/cache-v2.ts'],
       rules: {
         '@typescript-eslint/no-explicit-any': 'off',
+      },
+    },
+    {
+      // The build guard scripts can now fail a build, so they are linted. They
+      // run under Node, report findings on stdout by design, and are plain ESM
+      // rather than TypeScript.
+      files: ['scripts/**/*.mjs', 'scripts/**/*.js'],
+      env: { node: true, browser: false, webextensions: false },
+      rules: {
+        'no-console': 'off',
       },
     },
   ],
