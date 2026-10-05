@@ -561,6 +561,10 @@ export class OverlayRenderer {
   > = new Map();
   private resizeObserver: ResizeObserver | null = null;
   private onWindowResize: (() => void) | null = null;
+  /** Handle of the queued re-layout, or null when none is pending. */
+  private repositionFrame: number | null = null;
+  /** Set by `dispose()` so a frame already queued becomes a no-op. */
+  private disposed = false;
 
   constructor(style: Partial<OverlayStyle> = {}) {
     this.style = { ...DEFAULT_STYLE, ...style };
@@ -764,7 +768,11 @@ export class OverlayRenderer {
       }
     });
     if (typeof window !== 'undefined') {
-      this.onWindowResize = () => this.repositionAll();
+      // Coalesced to one reflow per frame. `repositionAll` re-runs collision
+      // resolution, and the adaptive font sizing measures text per character,
+      // so a drag-resize across 60 rendered images was a measurement storm on
+      // every event rather than once per frame.
+      this.onWindowResize = () => this.scheduleRepositionAll();
       window.addEventListener('resize', this.onWindowResize, {
         passive: true,
       });
@@ -772,18 +780,62 @@ export class OverlayRenderer {
   }
 
   /**
+   * Queue a full re-layout for the next frame, collapsing any number of resize
+   * events arriving before it into a single pass.
+   */
+  private scheduleRepositionAll(): void {
+    if (this.repositionFrame !== null) {
+      return;
+    }
+    const schedule =
+      typeof window !== 'undefined' &&
+      typeof window.requestAnimationFrame === 'function'
+        ? window.requestAnimationFrame.bind(window)
+        : (callback: FrameRequestCallback) =>
+            setTimeout(() => callback(Date.now()), 16) as unknown as number;
+    this.repositionFrame = schedule(() => {
+      this.repositionFrame = null;
+      // A frame can land after teardown; the overlays are gone and the page
+      // may be heading for the bfcache, so there is nothing left to re-flow.
+      if (this.disposed) {
+        return;
+      }
+      this.repositionAll();
+    });
+  }
+
+  /**
    * Release observers and window listeners. Call when the page-level renderer
    * is torn down so a re-initialised renderer does not stack listeners.
    */
   dispose(): void {
+    this.disposed = true;
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     if (this.onWindowResize) {
       window.removeEventListener('resize', this.onWindowResize);
       this.onWindowResize = null;
     }
+    if (this.repositionFrame !== null) {
+      if (typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(this.repositionFrame);
+      } else {
+        clearTimeout(
+          this.repositionFrame as unknown as ReturnType<typeof setTimeout>
+        );
+      }
+      this.repositionFrame = null;
+    }
     this.removeAll();
     this.hoverTimers.clear();
+    // `getRenderer()` caches the instance, so without this a page that
+    // re-initialises after teardown — a bfcache restore, or an error path that
+    // runs cleanup and then translates again — would be handed a disposed
+    // renderer with no observer and no resize listener, and overlays would
+    // silently stop following the art.
+    if (rendererInstance === this) {
+      rendererInstance = null;
+    }
   }
 
   /**

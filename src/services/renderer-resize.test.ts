@@ -10,7 +10,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { OverlayRenderer } from './renderer';
+import { getRenderer, OverlayRenderer } from './renderer';
 import type { TextArea } from '@/providers/base';
 
 class FakeResizeObserver {
@@ -43,6 +43,28 @@ class FakeResizeObserver {
     );
     this.callback(entries, this as unknown as ResizeObserver);
   }
+}
+
+/**
+ * Captures the callback handed to `requestAnimationFrame` through an object
+ * slot, and counts the calls. A plain `let` gets narrowed to `null` by flow
+ * analysis, because the assignment happens inside a callback TypeScript cannot
+ * see running.
+ */
+function installFrameCapture(): {
+  calls: () => number;
+  take: () => FrameRequestCallback | null;
+} {
+  const holder = { callback: null as FrameRequestCallback | null, count: 0 };
+  vi.spyOn(window, 'requestAnimationFrame').mockImplementation(callback => {
+    holder.count += 1;
+    holder.callback = callback;
+    return holder.count;
+  });
+  return {
+    calls: () => holder.count,
+    take: () => holder.callback,
+  };
 }
 
 const OVERLAY_SELECTOR = '.manga-translator-overlay';
@@ -134,13 +156,19 @@ describe('overlay repositioning on resize', () => {
     );
   });
 
-  it('repositions on a window resize without waiting for the observer', () => {
+  it('repositions on a window resize without waiting for the observer', async () => {
     const img = createImage('resize-2', 400, 600);
     renderer.render(img, [AREA]);
     const overlay = document.querySelector<HTMLElement>(OVERLAY_SELECTOR);
     const beforeLeft = overlay?.style.left;
     setImageSize(img, 900, 600);
     window.dispatchEvent(new Event('resize'));
+    // The handler coalesces into the next frame, so the pass is queued rather
+    // than run inline. Awaiting the frame still proves the window listener is
+    // a working fallback when the observer never fires.
+    await new Promise<void>(resolve => {
+      window.requestAnimationFrame(() => resolve());
+    });
     expect(overlay?.style.left).not.toBe(beforeLeft);
   });
 
@@ -177,5 +205,93 @@ describe('overlay repositioning on resize', () => {
     renderer.dispose();
     expect(observer?.observed.size).toBe(0);
     expect(document.querySelectorAll(OVERLAY_SELECTOR)).toHaveLength(0);
+  });
+
+  it('collapses a burst of window resize events into one re-layout', () => {
+    // Each resize re-ran collision resolution and per-character text
+    // measurement, so drag-resizing a 60-image chapter was a measurement storm
+    // per event. The handler must queue at most one pass per frame.
+    const img = createImage('resize-6', 400, 600);
+    renderer.render(img, [AREA]);
+
+    const frames = installFrameCapture();
+    const repositionAll = vi.spyOn(renderer, 'repositionAll');
+
+    setImageSize(img, 900, 600);
+    for (let i = 0; i < 20; i += 1) {
+      window.dispatchEvent(new Event('resize'));
+    }
+    expect(frames.calls()).toBe(1);
+    expect(repositionAll).not.toHaveBeenCalled();
+
+    frames.take()?.(0);
+    expect(repositionAll).toHaveBeenCalledTimes(1);
+
+    // A later resize queues a fresh pass.
+    setImageSize(img, 1200, 600);
+    window.dispatchEvent(new Event('resize'));
+    frames.take()?.(0);
+    expect(repositionAll).toHaveBeenCalledTimes(2);
+  });
+
+  it('re-lays out an overlay when the image grows after placement', () => {
+    // The case the "keep overlays aligned" commit claims to fix: a lazy-loaded
+    // image is placed at its placeholder size, then the real dimensions arrive
+    // afterwards. Without the observer the text stays where the placeholder was.
+    const img = createImage('resize-7', 200, 300);
+    renderer.render(img, [AREA]);
+    const overlay = document.querySelector<HTMLElement>(OVERLAY_SELECTOR);
+    const placedLeft = overlay?.style.left;
+    const placedWidth = overlay?.style.width;
+    expect(placedLeft).toBeTruthy();
+
+    // The image finishes loading at double the size and the observer fires.
+    setImageSize(img, 400, 600);
+    Object.defineProperty(img, 'naturalWidth', {
+      value: 400,
+      configurable: true,
+      writable: true,
+    });
+    Object.defineProperty(img, 'naturalHeight', {
+      value: 600,
+      configurable: true,
+      writable: true,
+    });
+    FakeResizeObserver.instances[0]?.emit();
+
+    // Box sizing is adaptive (text fitting can shrink it), so the invariant is
+    // that the geometry followed the image, not a specific formula.
+    expect(overlay?.style.left).not.toBe(placedLeft);
+    expect(overlay?.style.width).not.toBe(placedWidth);
+  });
+
+  it('dispose cancels a re-layout queued for the next frame', () => {
+    const img = createImage('resize-8', 400, 600);
+    renderer.render(img, [AREA]);
+
+    const frames = installFrameCapture();
+    const cancel = vi
+      .spyOn(window, 'cancelAnimationFrame')
+      .mockImplementation(() => undefined);
+    const repositionAll = vi.spyOn(renderer, 'repositionAll');
+
+    window.dispatchEvent(new Event('resize'));
+    expect(frames.calls()).toBe(1);
+
+    const queued = frames.take();
+    renderer.dispose();
+    expect(cancel).toHaveBeenCalledTimes(1);
+
+    // A stale callback firing after teardown must not touch a dead renderer.
+    queued?.(0);
+    expect(repositionAll).not.toHaveBeenCalled();
+
+    // The cached singleton must not be handed back disposed: content.ts calls
+    // getRenderer() again on the next init, and a disposed instance has no
+    // observer and no resize listener, so overlays would silently stop
+    // following the art after a bfcache restore.
+    const shared = getRenderer();
+    shared.dispose();
+    expect(getRenderer()).not.toBe(shared);
   });
 });
