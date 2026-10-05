@@ -544,23 +544,33 @@ export class TranslatorService {
     const allAreas: TextArea[] = perTileResults.flatMap(r => r?.areas ?? []);
 
     if (allAreas.length === 0) {
-      // `null` means the tile threw; an empty `areas` means the provider
-      // answered and found nothing to translate. A pure-art stretch of a
-      // webtoon is a normal outcome, so only treat it as a pipeline failure
-      // when not a single tile completed — otherwise the caller would spend a
-      // second full-image request to learn the same thing.
-      const completedTiles = perTileResults.filter(
-        result => result !== null
+      // A `null` slot means the tile threw; an empty `areas` means the provider
+      // answered and found nothing. `processInParallel` writes `undefined` for a
+      // slot it never ran (abort, or a rejection it caught itself), so both are
+      // "no answer" and neither may be counted as a reply.
+      const answered = perTileResults.filter(
+        result => result !== null && result !== undefined
       ).length;
-      if (completedTiles === 0) {
+      const unanswered = perTileResults.length - answered;
+
+      // Only a *complete* run that came back empty is evidence the strip has no
+      // text. If any tile failed, the emptiness is unexplained and the caller
+      // must still degrade: 3 throw + 1 empty used to return "success" with zero
+      // areas, which skipped the full-image fallback, left three quarters of the
+      // chapter untranslated, and marked the image processed so it was never
+      // retried — silently worse than the double billing this replaced.
+      if (answered === 0 || unanswered > 0) {
         return {
           success: false,
           textAreas: [],
-          error: '所有切片翻译请求均失败',
+          error:
+            answered === 0
+              ? '所有切片翻译请求均失败'
+              : `${unanswered}/${perTileResults.length} 个切片翻译失败`,
         };
       }
       if (isDevelopment) {
-        _log(`切片完成 ${completedTiles} 个，模型确认无文字，不再回退整图`);
+        _log(`切片全部完成 (${answered} 个)，模型确认无文字，不再回退整图`);
       }
       return { success: true, textAreas: [] };
     }

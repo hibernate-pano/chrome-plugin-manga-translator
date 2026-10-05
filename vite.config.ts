@@ -54,17 +54,26 @@ function contentScriptRebundler(): Plugin {
 }
 
 /**
- * Replace the built manifest's `web_accessible_resources` with the entries the
- * source manifest declares.
+ * Reduce the built manifest's `web_accessible_resources` to what is actually
+ * loaded at runtime.
  *
- * CRXJS grows that list from the module graph while the content script still
- * imported chunks; after rebundling those references are gone but the
- * declarations are not. A page cannot read a resource the manifest does not
- * expose, so leaving stale chunk entries in place ships the extension's own
- * modules to every site it runs on.
+ * CRXJS grows that list from the content script's chunk graph while the chunks
+ * are still separate modules. `contentScriptRebundler` then inlines every one of
+ * them into `content.js`, so the references disappear but the declarations do
+ * not — leaving the key-obfuscation chunk, the config store and the React vendor
+ * readable by every site the extension runs on.
+ *
+ * The rule is deliberately NOT "keep what the source manifest declares". That
+ * version of this function bricked the extension: the content script Chrome
+ * registers is a CRXJS loader whose body is
+ * `import(chrome.runtime.getURL("content.js"))`, so `content.js` must stay
+ * web-accessible even though nothing declares it. Anything resolved that way is
+ * discovered from the emitted files, so a resource loaded at runtime cannot be
+ * pruned by accident.
  */
 async function pruneWebAccessibleResources(distDir: string): Promise<void> {
-  const { readFileSync, writeFileSync } = await import('fs');
+  const { readFileSync, writeFileSync, readdirSync, statSync } =
+    await import('fs');
   const manifestPath = path.join(distDir, 'manifest.json');
   const built = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
     web_accessible_resources?: Array<{
@@ -72,26 +81,40 @@ async function pruneWebAccessibleResources(distDir: string): Promise<void> {
       matches: string[];
     }>;
   };
-  const declared = manifest.web_accessible_resources ?? [];
-  const declaredResources = new Set(declared.flatMap(group => group.resources));
-  if (declaredResources.size === 0) {
-    if (built.web_accessible_resources) {
-      delete built.web_accessible_resources;
-      writeFileSync(manifestPath, JSON.stringify(built, null, 2));
+
+  const groups = built.web_accessible_resources ?? [];
+  const candidates = groups.flatMap(group => group.resources);
+
+  // 1. Everything the source manifest declares by hand.
+  const keep = new Set<string>(
+    (manifest.web_accessible_resources ?? []).flatMap(group => group.resources)
+  );
+
+  // 2. Every resource some built file resolves through chrome.runtime.getURL().
+  const loaded = collectRuntimeGetUrlTargets(distDir, {
+    readFileSync,
+    readdirSync,
+    statSync,
+  });
+  for (const target of loaded) {
+    for (const resource of candidates) {
+      if (resource === target) {
+        keep.add(resource);
+        continue;
+      }
+      // A declared `dir/*` glob covers a concrete file inside it.
+      if (resource.endsWith('/*') && target.startsWith(resource.slice(0, -1))) {
+        keep.add(resource);
+      }
     }
-    return;
   }
 
-  const kept = built.web_accessible_resources
-    ? built.web_accessible_resources
-        .map(group => ({
-          ...group,
-          resources: group.resources.filter(resource =>
-            declaredResources.has(resource)
-          ),
-        }))
-        .filter(group => group.resources.length > 0)
-    : [];
+  const kept = groups
+    .map(group => ({
+      ...group,
+      resources: group.resources.filter(resource => keep.has(resource)),
+    }))
+    .filter(group => group.resources.length > 0);
 
   if (kept.length > 0) {
     built.web_accessible_resources = kept;
@@ -99,6 +122,55 @@ async function pruneWebAccessibleResources(distDir: string): Promise<void> {
     delete built.web_accessible_resources;
   }
   writeFileSync(manifestPath, JSON.stringify(built, null, 2));
+}
+
+/**
+ * Every path that a built JS file resolves via `chrome.runtime.getURL("...")`.
+ *
+ * These are exactly the resources that have to stay web-accessible: a content
+ * script runs in the page's origin for fetching purposes, so a dynamic import or
+ * worker construction aimed at an extension URL is refused unless the manifest
+ * exposes that resource to the page.
+ */
+function collectRuntimeGetUrlTargets(
+  distDir: string,
+  fs: {
+    readFileSync: (p: string, e: string) => string;
+    readdirSync: (p: string) => string[];
+    statSync: (p: string) => { isDirectory(): boolean };
+  }
+): Set<string> {
+  const targets = new Set<string>();
+  const getUrlCall = /getURL\(\s*['"]([^'"]+)['"]\s*\)/g;
+
+  const scan = (dir: string) => {
+    for (const entry of fs.readdirSync(dir)) {
+      const full = path.join(dir, entry);
+      if (fs.statSync(full).isDirectory()) {
+        scan(full);
+        continue;
+      }
+      if (!entry.endsWith('.js')) continue;
+      let source = '';
+      try {
+        source = fs.readFileSync(full, 'utf8');
+      } catch {
+        continue;
+      }
+      let match: RegExpExecArray | null;
+      while ((match = getUrlCall.exec(source))) {
+        const raw = match[1];
+        // Skip template-ish or absolute values; only plain relative paths can be
+        // manifest resource names.
+        if (!raw || raw.includes('://') || !/^[A-Za-z0-9._/-]+$/.test(raw)) {
+          continue;
+        }
+        targets.add(raw.replace(/^\.?\//, ''));
+      }
+    }
+  };
+  scan(distDir);
+  return targets;
 }
 
 // https://vitejs.dev/config/

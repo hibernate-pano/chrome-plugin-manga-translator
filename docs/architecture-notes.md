@@ -112,10 +112,19 @@ move in the same change.
 ## Service worker lifetime
 
 MV3 terminates an idle service worker after roughly 30 seconds. A chapter of
-tiles can keep the queue busy for minutes, so `background.ts` holds an
-`alarms`-based keepalive while translation is enabled, and the job map is capped
-at 500 terminal records. Without the keepalive, pending content-script requests
-never resolve and `JOB_QUERY_STATUS` reports "Job not found".
+tiles can keep the queue busy for minutes, so `background.ts` registers an
+`alarms` listener while translation is enabled, and the job map is capped at 500
+terminal records.
+
+Be precise about what the alarm is and is not. `chrome.alarms` does not hold a
+worker open — it schedules wake-ups for a worker that has already been
+restarted, and its job here is to re-read the concurrency limit from storage so a
+worker that came back mid-chapter does not run with a stale one. What keeps
+in-flight content-script requests reachable is the outstanding `sendMessage`
+response channel, together with Chrome replaying events to the restarted worker.
+The alarm period is 0.5 minutes, Chrome's documented floor: a smaller value is
+silently clamped, so an authored 0.34 would never have delivered the ~20s cadence
+it was written to describe.
 
 ## Tesseract core selection
 

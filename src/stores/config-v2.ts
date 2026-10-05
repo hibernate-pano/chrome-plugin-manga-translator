@@ -571,10 +571,24 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         return true;
       },
       removeAutoTranslateHost: host => {
+        // Fall back to the raw value when the current validator rejects it.
+        // Entries stored before a rule tightened — a `*.com` the old
+        // normaliser accepted — would otherwise be permanently stuck: the user
+        // can see them, the UI offers to remove them, and removing nothing
+        // happens because `normalized` is null and no entry equals null.
         const normalized = normalizeHostEntry(host);
+        const target =
+          normalized ??
+          host
+            .trim()
+            .toLowerCase()
+            .replace(/^\.+|\.+$/g, '');
+        if (!target) {
+          return;
+        }
         set(state => ({
           autoTranslateHosts: state.autoTranslateHosts.filter(
-            entry => entry !== normalized
+            entry => entry !== target
           ),
         }));
       },

@@ -139,6 +139,73 @@ describe('TranslatorService pipeline selection', () => {
     expect(fullImageCalls).toHaveLength(1);
   });
 
+  it('degrades when only some tiles answered and none produced text', async () => {
+    // The dangerous middle case: 3 tiles throw and 1 answers "nothing here".
+    // Counting that single reply as a complete run returned success with zero
+    // areas, which skipped the full-image fallback, left three quarters of the
+    // chapter untranslated, and marked the image processed so it was never
+    // retried — a silent data loss disguised as a fix for double billing.
+    processImageMock.mockImplementation(async (_image, options) => {
+      const crop = options?.cropRegion;
+      return {
+        base64: crop ? `tile-${crop.top}` : 'full-image',
+        mimeType: 'image/jpeg',
+        originalWidth: 800,
+        originalHeight: 4000,
+        width: 800,
+        height: crop ? crop.height : 4000,
+        wasCompressed: false,
+        hash: crop ? `hash-${crop.top}` : 'hash-full',
+        cropY: crop?.top ?? 0,
+        cropHeight: crop?.height ?? 4000,
+      };
+    });
+
+    let tileCalls = 0;
+    const translateImage = vi.fn(
+      async (
+        _request: Parameters<TranslationTransport['translateImage']>[0]
+      ) => {
+        tileCalls += 1;
+        // Tile 0 answers empty; every other tile fails.
+        if (tileCalls <= 2) {
+          return { success: true, textAreas: [], cached: false };
+        }
+        throw new Error('provider 500');
+      }
+    );
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    await translator.translateImage(
+      {
+        naturalWidth: 800,
+        naturalHeight: 4000,
+        src: 'https://example.com/partial-strip.jpg',
+      } as HTMLImageElement,
+      false
+    );
+
+    // The full-image bytes must be attempted rather than reporting a clean
+    // empty page.
+    const fullImagePayloads = translateImage.mock.calls
+      .map(
+        call =>
+          (call[0] as unknown as { imageBase64?: string } | undefined)
+            ?.imageBase64
+      )
+      .filter(b64 => b64 === 'full-image');
+    expect(fullImagePayloads.length).toBeGreaterThan(0);
+  });
+
   it('still falls back to the full-image path when every tile request fails', async () => {
     // Real transport failures must keep the degradation path, otherwise a CORS
     // block on the original image leaves the strip untranslated forever.

@@ -56,6 +56,15 @@ const PROVIDER_OPTIONS: Array<{ value: ProviderType; label: string }> = [
 ];
 
 /** Bare hostname of a tab URL, or null when it is not a normal web page. */
+/**
+ * The allowlist key for a page: hostname, plus the port when the URL names a
+ * non-default one.
+ *
+ * Dropping the port here made port-scoped entries unreachable from this switch:
+ * a dev reader on `localhost:8080` stored `localhost`, which under the matching
+ * rules covers every port on the machine — the exact widening the allowlist is
+ * supposed to avoid.
+ */
 function hostFromUrl(url: string | undefined): string | null {
   if (!url) {
     return null;
@@ -65,7 +74,11 @@ function hostFromUrl(url: string | undefined): string | null {
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       return null;
     }
-    return parsed.hostname.toLowerCase();
+    const hostname = parsed.hostname.toLowerCase();
+    const defaultPort = parsed.protocol === 'https:' ? '443' : '80';
+    return parsed.port && parsed.port !== defaultPort
+      ? `${hostname}:${parsed.port}`
+      : hostname;
   } catch {
     return null;
   }

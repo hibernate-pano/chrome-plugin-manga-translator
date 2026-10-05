@@ -923,6 +923,11 @@ function cleanup(): void {
     // dispose() also releases the ResizeObserver and the window resize
     // listener; removeAll() alone would leave both attached to the page.
     renderer.dispose();
+    // Drop the reference. `ensureServicesInitialized` only calls getRenderer()
+    // when this is null, so keeping a disposed instance would hand the next run
+    // a renderer with no observer and no resize listener — overlays would stop
+    // following the art with nothing logged.
+    renderer = null;
   }
   if (hud) {
     hud.destroy();

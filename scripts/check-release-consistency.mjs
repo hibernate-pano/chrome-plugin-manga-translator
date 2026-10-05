@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -48,6 +48,78 @@ const sizeNote =
         CONTENT_BUDGET_BYTES / 1024
       ).toFixed(0)} KB budget`;
 
+/**
+ * Assert the built manifest still exposes every resource the built output loads
+ * at runtime.
+ *
+ * `vite.config.ts` prunes `web_accessible_resources` down to what is actually
+ * used, and that pruning once went too far: the content script Chrome registers
+ * is a CRXJS loader that does `import(chrome.runtime.getURL('content.js'))`, so
+ * dropping `content.js` from the list made the dynamic import fail on every
+ * page — and because the loader swallows the rejection into `console.error`,
+ * the extension looked installed and healthy while doing nothing at all. Size
+ * and version checks cannot see that class of mistake, so this one can.
+ */
+function checkWebAccessibleIntegrity() {
+  const distDir = join(projectRoot, 'dist');
+  const builtManifestPath = join(distDir, 'manifest.json');
+  if (!existsSync(builtManifestPath)) {
+    return 'manifest not built yet, resource check skipped';
+  }
+
+  const built = JSON.parse(readFileSync(builtManifestPath, 'utf8'));
+  const exposed = new Set(
+    (built.web_accessible_resources ?? []).flatMap(group => group.resources)
+  );
+
+  const required = new Set();
+  const getUrlCall = /getURL\(\s*['"]([^'"]+)['"]\s*\)/g;
+  const walk = dir => {
+    for (const entry of readdirSync(dir)) {
+      const full = join(dir, entry);
+      if (statSync(full).isDirectory()) {
+        walk(full);
+        continue;
+      }
+      if (!entry.endsWith('.js')) continue;
+      const source = readFileSync(full, 'utf8');
+      let match;
+      while ((match = getUrlCall.exec(source))) {
+        const raw = match[1];
+        if (!raw || raw.includes('://') || !/^[A-Za-z0-9._/-]+$/.test(raw)) {
+          continue;
+        }
+        required.add(raw.replace(/^\.?\//, ''));
+      }
+    }
+  };
+  walk(distDir);
+
+  const missing = [...required].filter(
+    resource =>
+      !exposed.has(resource) &&
+      // A `dir/*` declaration covers any concrete file beneath it.
+      ![...exposed].some(
+        entry => entry.endsWith('/*') && resource.startsWith(entry.slice(0, -1))
+      )
+  );
+
+  if (missing.length > 0) {
+    console.error(
+      `[release-check] runtime-loaded resources missing from web_accessible_resources: ${missing.join(', ')}`
+    );
+    console.error(
+      '[release-check] a content script or worker that resolves chrome.runtime.getURL(...) for a ' +
+        'non-exposed path fails silently in the page context. Keep these declared, or remove the load.'
+    );
+    process.exit(1);
+  }
+
+  return `web_accessible_resources covers ${required.size} runtime-loaded path(s)`;
+}
+
+const resourceNote = checkWebAccessibleIntegrity();
+
 console.log(
-  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}`
+  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}`
 );

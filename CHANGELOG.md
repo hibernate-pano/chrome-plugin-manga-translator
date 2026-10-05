@@ -49,11 +49,18 @@ by mutation rather than by reading.
 
 ### Security
 
-- **Vestigial `web_accessible_resources` pruned.** The bundler listed the content
-  script's chunks as web-accessible before they were inlined; after inlining,
-  `content.js` referenced none of them but the declarations stayed, leaving the
-  key-obfuscation chunk, the config store and the React vendor readable by any
-  page. Now pruned to `tesseract/*`, which the OCR worker genuinely needs.
+- **Vestigial `web_accessible_resources` pruned — and the prune itself fixed.**
+  The bundler listed the content script's chunks as web-accessible before they
+  were inlined; after inlining, `content.js` referenced none of them but the
+  declarations stayed, leaving the key-obfuscation chunk, the config store and
+  the React vendor readable by any page. Pruning them the first way was
+  wrong and shipping-blocking: the content script Chrome registers is a CRXJS
+  loader that does `import(chrome.runtime.getURL('content.js'))`, so dropping
+  `content.js` made the extension fail to start on every page — silently, because
+  the loader swallows the rejection into `console.error`. The rule is now
+  "keep what the source declares plus whatever a built file resolves through
+  `getURL()`", and `pnpm release:check` fails if a runtime-loaded path is ever
+  missing again. `content.js` is retained; the seven vestigial chunks are not.
 - **An explicit `content_security_policy`** is declared; previously there was
   none at all.
 - **Plaintext base URLs are warned about.** The API key travels as a Bearer
@@ -61,6 +68,45 @@ by mutation rather than by reading.
   with nothing saying so. https and loopback http (Ollama, LM Studio) stay
   unaffected.
 - The unreachable `JOB_QUERY_STATUS` message branch is removed.
+
+### Fixed
+
+- **A partially-failed tiled run reported success and stopped retrying.** The
+  first cut of the double-billing fix counted "not null" as answered, but
+  `processInParallel` writes `undefined` for slots it never ran, and a
+  `translateTile` that throws returns `null`. So three failed tiles plus one
+  honest empty answer returned `success: true` with zero areas: the full-image
+  fallback was skipped, three quarters of the chapter was never translated, the
+  image was marked processed so it was not retried, and the user saw a blank page
+  with no error. Only a run where every tile answered may now be treated as
+  "genuinely no text".
+- **The content script kept a disposed renderer.** `cleanup()` called
+  `renderer.dispose()` but left the module reference set, and
+  `ensureServicesInitialized` only re-creates when it is null — so the next run
+  on the same page got a renderer with no observer and no resize listener,
+  exactly the symptom the dispose-clearing in `getRenderer()` was meant to
+  remove. The reference is nulled on cleanup now.
+- **A forced retry finishing first unmapped the job it replaced.** Dedup is now
+  a per-key stack rather than a single slot, so a duplicate arriving while the
+  original still runs collapses onto it instead of paying for a third request.
+- **The popup could not create a port-scoped allowlist entry.** `hostFromUrl`
+  returned the bare hostname, so a dev reader on `localhost:8080` stored
+  `localhost` — which covers every port on the machine, the widening the port
+  rules exist to prevent. Non-default ports are preserved.
+- **Legacy allowlist entries were stuck.** `removeAutoTranslateHost` compared
+  against `normalizeHostEntry(host)`, so once a rule tightened (a `*.com` the old
+  normaliser accepted is now refused) the entry could be seen and offered for
+  removal but never actually removed. Falls back to the raw value.
+
+### Tests
+
+- `background-auth.test.ts` added, covering the sender-authorisation boundary
+  and the image proxy's sender scoping — including that an extension page is
+  refused the fetch primitive and that a cross-origin non-image URL is not
+  treated as a general fetch proxy. Verified by mutation: relaxing the sender
+  check fails four of them.
+- The new pipeline test pins the partial-failure case above; the dedup stack test
+  fails without the stack fix.
 
 ### Changed
 

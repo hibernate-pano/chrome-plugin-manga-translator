@@ -117,6 +117,8 @@ function installChromeMock(): ChromeHarness {
       new Promise<ResponseFields>(resolve => {
         expect(onMessage.length).toBeGreaterThan(0);
         for (const listener of onMessage) {
+          // Default to an extension-origin sender; a test that spreads its own
+          // `id` overrides it, which is how the anonymous-sender case is reached.
           listener(request, { id: EXTENSION_ID, ...sender }, resolve);
         }
       }),
@@ -288,6 +290,122 @@ describe('service worker image proxy', () => {
 
     expect(response['success']).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+});
+
+describe('image proxy sender scoping', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(() => {
+    harness = installChromeMock();
+  });
+
+  it('refuses a sender with no id and no tab on the type-based branch', async () => {
+    // A tab-bearing sender is accepted because Chrome only ever attaches a tab
+    // to this extension's own injected content scripts — a foreign extension
+    // cannot produce one, and with no `externally_connectable` in the manifest a
+    // web page cannot reach onMessage at all. So the reachable failure is an
+    // anonymous sender, which must not be served.
+    await loadWorker();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok'));
+
+    const response = await new Promise<ResponseFields>(resolve => {
+      harness.onMessage[0]?.(
+        { type: 'FETCH_IMAGE_BYTES', imageUrl: 'https://cdn.example/a.jpg' },
+        {},
+        resolve
+      );
+    });
+
+    expect(response['success']).toBe(false);
+    expect(response['error']).toBe('Unauthorized sender');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('refuses an extension page asking to proxy an image', async () => {
+    // Extension pages never legitimately proxy, so the popup and options page
+    // are not handed the fetch primitive.
+    await loadWorker();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok'));
+
+    const response = await harness.sendToMessage(
+      { type: 'FETCH_IMAGE_BYTES', imageUrl: 'https://cdn.example/a.jpg' },
+      // A sender with no tab is an extension page.
+      {}
+    );
+
+    expect(response['success']).toBe(false);
+    expect(String(response['error'])).toContain('not allowed for this page');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('allows a content script to fetch its own origin', async () => {
+    await loadWorker();
+    const bytes = new Uint8Array([1, 2, 3]);
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(bytes, {
+        headers: { 'content-type': 'image/png' },
+      })
+    );
+
+    await harness.sendToMessage(
+      {
+        type: 'FETCH_IMAGE_BYTES',
+        imageUrl: 'https://manga.example/ch1/p1.png',
+      },
+      { tab: { id: 5 }, url: 'https://manga.example/ch1/' }
+    );
+
+    expect(fetchSpy).toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('refuses a cross-origin URL that is not shaped like an image', async () => {
+    // Without the image-shape rule the worker is a general fetch proxy for any
+    // page the user visits.
+    await loadWorker();
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValue(new Response('ok'));
+
+    const response = await harness.sendToMessage(
+      {
+        type: 'FETCH_IMAGE_BYTES',
+        imageUrl: 'https://internal-admin.corp/api/export',
+      },
+      { tab: { id: 5 }, url: 'https://manga.example/ch1/' }
+    );
+
+    expect(response['success']).toBe(false);
+    expect(String(response['error'])).toContain('not allowed for this page');
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+  });
+
+  it('allows a cross-origin image-shaped URL', async () => {
+    await loadWorker();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([1]), {
+        headers: { 'content-type': 'image/jpeg' },
+      })
+    );
+
+    await harness.sendToMessage(
+      {
+        type: 'FETCH_IMAGE_BYTES',
+        imageUrl: 'https://cdn.mangafire.io/1/2.jpg',
+      },
+      { tab: { id: 5 }, url: 'https://mangafire.io/read/1' }
+    );
+
+    expect(fetchSpy).toHaveBeenCalled();
     fetchSpy.mockRestore();
   });
 });

@@ -50,8 +50,12 @@ export class BackgroundJobQueue {
   private maxConcurrent: number;
   private readonly pending: Array<PendingJob<unknown>> = [];
   private readonly jobs = new Map<string, JobStatusPayload>();
-  // Deduplication map: pageKey -> pending job promise resolvers
-  private readonly pendingJobs = new Map<string, DedupEntry>();
+  // Deduplication map: pageKey -> live jobs for that key, oldest first.
+  // A stack rather than a single entry because a forced retry shares its key
+  // with the job it supersedes and the two can finish in either order: with one
+  // slot, a retry that resolved first left the still-running original unmapped,
+  // and a duplicate arriving afterwards started a third paid request.
+  private readonly pendingJobs = new Map<string, DedupEntry[]>();
 
   // Rate limiting variables
   private lastRequestTime = 0;
@@ -173,11 +177,14 @@ export class BackgroundJobQueue {
     //
     // `forceRefresh` is an explicit user retry and must not collapse: the
     // whole point is to discard the result the in-flight job will produce.
-    const existing = forceRefresh
-      ? undefined
-      : this.pendingJobs.get(job.pageKey);
-    if (existing) {
-      return existing.promise as Promise<T>;
+    if (!forceRefresh) {
+      // Collapse onto the most recent live job for this key, which is the one
+      // whose result the caller would actually want.
+      const live = this.pendingJobs.get(job.pageKey);
+      const existing = live?.[live.length - 1];
+      if (existing) {
+        return existing.promise as Promise<T>;
+      }
     }
 
     this.upsertJob(job);
@@ -209,9 +216,14 @@ export class BackgroundJobQueue {
     });
 
     entry.promise = promise;
-    // A forced job takes over the key, so duplicates arriving afterwards
-    // collapse onto the retry instead of the job it supersedes.
-    this.pendingJobs.set(job.pageKey, entry);
+    // Appended last so a later duplicate collapses onto the newest job, which
+    // for a forced retry is the retry rather than what it replaced.
+    const live = this.pendingJobs.get(job.pageKey);
+    if (live) {
+      live.push(entry);
+    } else {
+      this.pendingJobs.set(job.pageKey, [entry]);
+    }
     return promise;
   }
 
@@ -247,6 +259,24 @@ export class BackgroundJobQueue {
     return currentLimit;
   }
 
+  /**
+   * Drop this job's dedup entry, keeping the key mapped while another job for
+   * the same image is still live.
+   */
+  private releaseDedupEntry(pageKey: string, entry: DedupEntry): void {
+    const live = this.pendingJobs.get(pageKey);
+    if (!live) {
+      return;
+    }
+    const index = live.indexOf(entry);
+    if (index !== -1) {
+      live.splice(index, 1);
+    }
+    if (live.length === 0) {
+      this.pendingJobs.delete(pageKey);
+    }
+  }
+
   private startJob(next: PendingJob<unknown>): void {
     this.lastRequestTime = Date.now();
     this.activeCount += 1;
@@ -265,12 +295,8 @@ export class BackgroundJobQueue {
         // Clear our own dedup entry only. A forced job shares its pageKey
         // with the job it supersedes, and an unconditional delete would
         // unmap the newer job and reopen the double-payment window for it.
-        const pageKey = next.job.pageKey;
-        if (
-          next.dedupEntry &&
-          this.pendingJobs.get(pageKey) === next.dedupEntry
-        ) {
-          this.pendingJobs.delete(pageKey);
+        if (next.dedupEntry) {
+          this.releaseDedupEntry(next.job.pageKey, next.dedupEntry);
         }
         // If external hasn't set a final state (e.g., in unit tests), auto-set to succeeded
         const recorded = this.jobs.get(next.job.jobId);

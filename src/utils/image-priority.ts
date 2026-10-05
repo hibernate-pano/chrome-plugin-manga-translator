@@ -277,8 +277,6 @@ export function splitIntoBatches<T>(items: T[], batchSize: number): T[][] {
   return batches;
 }
 
-// ==================== Viewport Observer ====================
-
 // ==================== Exports ====================
 
 export {

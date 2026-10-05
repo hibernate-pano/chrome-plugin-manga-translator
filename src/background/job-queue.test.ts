@@ -521,4 +521,72 @@ describe('BackgroundJobQueue', () => {
       'forced',
     ]);
   });
+
+  it('keeps dedup coverage when a forced retry finishes before the original', async () => {
+    // Both jobs share a pageKey. If the retry resolving first left the
+    // still-running original unmapped, a duplicate arriving in that window
+    // started a third paid request for the same image.
+    const queue = new BackgroundJobQueue(2);
+    let releaseOriginal: (() => void) | undefined;
+    let releaseRetry: (() => void) | undefined;
+
+    const original = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'original',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          releaseOriginal = r;
+        });
+        return 'original';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const retry = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'retry',
+        pageKey: 'same-img',
+        priorityClass: 'manual-retry',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      forceRefresh: true,
+      run: async () => {
+        await new Promise<void>(r => {
+          releaseRetry = r;
+        });
+        return 'retry';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+    // The retry completes while the original is still in flight.
+    releaseRetry?.();
+    expect(await retry).toBe('retry');
+    // The retry releases its dedup entry in a `finally` that runs a microtask
+    // after its promise settles, so let that land before enqueuing again.
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const duplicate = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'duplicate',
+        pageKey: 'same-img',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'duplicate',
+    });
+
+    releaseOriginal?.();
+    // Must collapse onto the live original rather than pay for a third call.
+    expect(await original).toBe('original');
+    expect(await duplicate).toBe('original');
+  });
 });
