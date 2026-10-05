@@ -109,23 +109,10 @@ export interface TranslateImageJobResponse {
   error?: string;
 }
 
-export interface QueryJobStatusRequest {
-  type: 'JOB_QUERY_STATUS';
-  jobId: string;
-}
-
-export interface QueryJobStatusResponse {
-  success: boolean;
-  job?: JobStatusPayload;
-  error?: string;
-}
-
 export type BackgroundRequest =
   | FetchImageBytesRequest
-  | TranslateImageJobRequest
-  | QueryJobStatusRequest;
+  | TranslateImageJobRequest;
 
 export type BackgroundResponse =
   | FetchImageBytesResponse
-  | TranslateImageJobResponse
-  | QueryJobStatusResponse;
+  | TranslateImageJobResponse;

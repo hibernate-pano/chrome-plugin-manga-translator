@@ -1,5 +1,5 @@
 /**
- * `BackgroundJobQueue.jobs` backs the `JOB_QUERY_STATUS` endpoint. Before
+ * `BackgroundJobQueue.jobs` is the status ledger read via `getJob()`. Before
  * v1.4.0 nothing ever removed entries from it, so a session that translated a
  * few thousand images retained one record per image for the lifetime of the
  * service worker.

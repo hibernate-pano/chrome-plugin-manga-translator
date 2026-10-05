@@ -60,7 +60,7 @@ export class BackgroundJobQueue {
   /**
    * Cap on retained job records.
    *
-   * `jobs` is the map `JOB_QUERY_STATUS` reads from. Nothing ever removed
+   * `jobs` is the status ledger `getJob()` exposes. Nothing ever removed
    * entries, so a long browsing session accumulated one record per translated
    * image for the lifetime of the service worker. Terminal jobs are of no use
    * once the caller has its response, so they are dropped oldest-first.

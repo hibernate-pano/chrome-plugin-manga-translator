@@ -13,7 +13,7 @@ import {
  *    - image-processor.ts (CORS-tainted image proxy)
  *    - popup.tsx and options.tsx (config read/write)
  *
- * 2. Type-based (new): { type: 'JOB_TRANSLATE_IMAGE' | 'JOB_QUERY_STATUS' | ... }
+ * 2. Type-based (new): { type: 'JOB_TRANSLATE_IMAGE' | 'FETCH_IMAGE_BYTES' | ... }
  *    Used by:
  *    - translation-transport.ts (translation job dispatch)
  *
@@ -23,7 +23,6 @@ import {
  * docs/architecture-notes.md.
  */
 import type {
-  QueryJobStatusRequest,
   TranslateImageJobRequest,
   TranslateImageJobResponse,
   RequestedExecutionPath,
@@ -72,22 +71,29 @@ const translationJobQueue = new BackgroundJobQueue(
 // ==================== Service worker keepalive ====================
 
 /**
- * A translating webtoon chapter fans out into one job per tile plus retries.
- * A vision model can take 10-30s per tile, so a long chapter can keep the
- * queue busy for minutes. MV3 terminates an idle service worker after ~30s,
- * and termination takes the in-memory queue with it: the content script's
- * pending requests never resolve and `JOB_QUERY_STATUS` starts reporting
- * "Job not found".
+ * A translating webtoon chapter fans out into one job per tile plus retries,
+ * and a vision model can take 10-30s per tile, so a long chapter keeps the
+ * queue busy for minutes. MV3 terminates an idle service worker after ~30s and
+ * termination takes the in-memory queue with it.
  *
- * `chrome.alarms` is the only supported way to hold a worker awake across
- * those terminations. A ~20s period stays under the idle cutoff; released
- * extensions clamp alarms to once per minute, which still beats dying.
- * The alarm does no work of its own — it wakes the worker so in-flight state
- * stays reachable, and re-syncs the concurrency limit in case storage moved
- * while we slept.
+ * What this alarm does and does not do:
+ *
+ * - It does NOT prevent termination. `chrome.alarms` schedules wake-ups; the
+ *   documented ways to hold a worker open are an active port connection, an
+ *   offscreen document, or periodic storage writes. The in-flight jobs here are
+ *   kept reachable in practice by the content script's outstanding
+ *   `sendMessage` response channel, not by this alarm.
+ * - It DOES keep a restarted worker re-synchronised. Chrome replays events to a
+ *   freshly started worker, and this listener re-reads the concurrency limit
+ *   from storage so a worker that came back mid-chapter does not run with a
+ *   stale one.
+ *
+ * `periodInMinutes` is 0.5 because that is the documented floor: anything
+ * smaller is silently clamped, and an authored value below it (this used to be
+ * 0.34, commented as "~20s") describes a cadence Chrome will never deliver.
  */
 const KEEPALIVE_ALARM = 'manga-translator-keepalive';
-const KEEPALIVE_PERIOD_MINUTES = 0.34;
+const KEEPALIVE_PERIOD_MINUTES = 0.5;
 
 function startKeepalive(): void {
   chrome.alarms?.create(KEEPALIVE_ALARM, {
@@ -368,16 +374,6 @@ async function handleMessage(
             )) as unknown as MessageResponse
           );
           return;
-        case 'JOB_QUERY_STATUS': {
-          const statusRequest = request as unknown as QueryJobStatusRequest;
-          const job = translationJobQueue.getJob(statusRequest.jobId);
-          sendResponse(
-            job
-              ? { success: true, job }
-              : { success: false, error: 'Job not found' }
-          );
-          return;
-        }
         case 'STATE_UPDATE':
           void chrome.runtime.sendMessage(request).catch(() => undefined);
           sendResponse({ received: true });
