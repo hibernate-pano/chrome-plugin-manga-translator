@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-10-06
+
+### Fixed
+
+- **Publishing workflow.** CI now runs for `v*` tag pushes so a release tag is
+  built and artifact-scanned before upload, instead of only being created
+  locally.
+
 A full audit of the 2.0.0 reliability work. Every fix below is paired with a
 test that fails without it, and the ones that changed behaviour were confirmed
 by mutation rather than by reading.

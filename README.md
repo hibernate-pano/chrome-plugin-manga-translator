@@ -1,5 +1,7 @@
 # Manga Translator
 
+[![CI](https://github.com/hibernate-pano/chrome-plugin-manga-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/hibernate-pano/chrome-plugin-manga-translator/actions/workflows/ci.yml)
+
 A Chrome Manifest V3 extension that translates foreign-language manga in your browser.
 
 It calls **any OpenAI-compatible Vision LLM** (OpenAI, Qwen-VL, Gemini via OpenRouter,
@@ -169,6 +171,7 @@ For store submission and final smoke testing, see
 
 | Version | Status | Highlights |
 |---|---|---|
+| v2.0.1 | current | Release-tag CI verification |
 | v2.0.0 | current | Opt-in per-site auto-translation, config storage loop fixed, guarded image proxy, 65% smaller content script, enforced quality gates |
 | v1.3.3 | shipped | Reliable long-strip tiling, safe public builds, editable providers |
 | v1.3.2 | shipped | Tiled result caching |
