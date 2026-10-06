@@ -209,7 +209,6 @@ describe('OverlayRenderer Integration', () => {
 
       renderer.render(img, textAreas, true);
 
-      const _overlay = container.querySelector('.manga-translator-overlay');
       const overlayContainer = container.querySelector(
         '.manga-translator-overlay-container'
       ) as HTMLElement;

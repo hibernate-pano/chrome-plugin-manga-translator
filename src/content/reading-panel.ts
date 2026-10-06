@@ -39,7 +39,6 @@ export class ReadingPanel {
   private host: HTMLElement;
   private shadow: ShadowRoot;
   private root: HTMLElement;
-  private header: HTMLElement;
   private list: HTMLElement;
   private collapseBtn: HTMLButtonElement;
 
@@ -82,7 +81,6 @@ export class ReadingPanel {
 `;
 
     this.root = this.shadow.getElementById('root') as HTMLElement;
-    this.header = this.shadow.getElementById('header') as HTMLElement;
     this.list = this.shadow.getElementById('list') as HTMLElement;
     this.collapseBtn = this.shadow.getElementById(
       'collapse-btn'
