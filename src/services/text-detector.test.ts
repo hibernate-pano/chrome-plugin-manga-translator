@@ -1,5 +1,9 @@
 import { vi, describe, expect, it, beforeEach } from 'vitest';
-import { detectTextRegions, mergeOverlappingRegions } from './text-detector';
+import {
+  detectTextRegions,
+  mergeOverlappingRegions,
+  type TextRegion,
+} from './text-detector';
 import { createWorker } from 'tesseract.js';
 
 vi.mock('tesseract.js', () => {
@@ -111,5 +115,66 @@ describe('text-detector', () => {
       expect(mergedRegion?.height).toBe(25);
       expect(mergedRegion?.text).toBe('Hello World');
     });
+  });
+});
+
+describe('mergeOverlappingRegions', () => {
+  const region = (
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    text: string,
+    confidence = 0.9
+  ): TextRegion => ({ x, y, width, height, text, confidence });
+
+  it('returns the input untouched for empty or single-region lists', () => {
+    expect(mergeOverlappingRegions([])).toEqual([]);
+    const single = [region(0, 0, 10, 10, 'a')];
+    expect(mergeOverlappingRegions(single)).toEqual(single);
+  });
+
+  it('merges regions whose overlap exceeds the threshold', () => {
+    const merged = mergeOverlappingRegions(
+      [
+        region(0, 0, 100, 40, 'hello', 0.8),
+        region(10, 0, 100, 40, 'world', 1.0),
+      ],
+      0.3
+    );
+
+    expect(merged).toHaveLength(1);
+    const first = merged[0];
+    expect(first?.text).toBe('hello world');
+    expect(first?.x).toBe(0);
+    expect(first?.width).toBe(110);
+    expect(first?.confidence).toBe(0.9);
+  });
+
+  it('keeps regions that do not overlap', () => {
+    const merged = mergeOverlappingRegions(
+      [region(0, 0, 50, 50, 'a'), region(100, 100, 50, 50, 'b')],
+      0.3
+    );
+
+    expect(merged).toHaveLength(2);
+  });
+
+  it('handles null-ish coordinate fields defensively', () => {
+    const sparse = [
+      {
+        x: undefined,
+        y: undefined,
+        width: undefined,
+        height: undefined,
+        text: undefined,
+        confidence: undefined,
+      } as unknown as TextRegion,
+      region(0, 0, 40, 40, 'b', 0.5),
+    ];
+    const merged = mergeOverlappingRegions(sparse, 0.3);
+    expect(merged).toHaveLength(2);
+    expect(merged[0]?.x).toBe(0);
+    expect(merged[0]?.confidence).toBe(0);
   });
 });

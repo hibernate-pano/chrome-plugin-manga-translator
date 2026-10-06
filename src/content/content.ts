@@ -948,6 +948,15 @@ function cleanup(): void {
 
 initialize();
 
+const autoTranslateState = {
+  get remaining(): number {
+    return autoTranslateRunsRemaining;
+  },
+  reset(): void {
+    autoTranslateRunsRemaining = MAX_AUTO_TRANSLATE_FOLLOW_UP_RUNS;
+  },
+};
+
 // ==================== 测试导出 ====================
 
 export {
@@ -957,6 +966,7 @@ export {
   handleMessage,
   handleStorageChange,
   translatePage,
+  autoTranslateState,
   cancelTranslation,
   clearAll,
   setState,

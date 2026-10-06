@@ -55,13 +55,14 @@
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.6.1",
     "@types/chrome": "^0.0.251",
+    "@types/node": "25.9.1",
     "@types/react": "^18.3.29",
     "@types/react-dom": "^18.3.7",
     "@typescript-eslint/eslint-plugin": "^6.21.0",
     "@typescript-eslint/parser": "^6.21.0",
     "@vitejs/plugin-react": "^4.7.0",
-    "@vitest/coverage-v8": "^0.34.6",
-    "@vitest/ui": "^0.34.7",
+    "@vitest/coverage-v8": "5.0.3",
+    "@vitest/ui": "5.0.3",
     "autoprefixer": "^10.5.0",
     "esbuild": "^0.27.7",
     "eslint": "^8.57.1",
@@ -69,7 +70,7 @@
     "eslint-plugin-react-hooks": "^4.6.2",
     "eslint-plugin-react-refresh": "^0.4.26",
     "husky": "^8.0.3",
-    "jsdom": "^23.2.0",
+    "jsdom": "^26.1.0",
     "lint-staged": "^15.5.2",
     "postcss": "^8.5.15",
     "prettier": "^3.8.3",
@@ -77,8 +78,8 @@
     "tailwindcss": "^3.4.19",
     "terser": "^5.48.0",
     "typescript": "^5.9.3",
-    "vite": "^4.5.14",
-    "vitest": "^0.34.6"
+    "vite": "^6.4.3",
+    "vitest": "5.0.3"
   },
   "lint-staged": {
     "*.{ts,tsx,js,jsx}": [

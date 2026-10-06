@@ -282,3 +282,196 @@ describe('TranslatorService pipeline selection', () => {
     expect(fullImagePayloads.length).toBeGreaterThan(0);
   });
 });
+
+describe('TranslatorService coordinate mapping', () => {
+  beforeEach(() => {
+    processImageMock.mockReset();
+  });
+
+  it('maps tile-relative areas back into original-image coordinates', async () => {
+    // 4000-tall strip splits into ~4 tiles; tile 1 starts at some top T.
+    // A provider response is always tile-relative, so the merged output must
+    // place the area at y = T + relY * scale.
+    processImageMock.mockImplementation(async (_image, options) => {
+      const crop = options?.cropRegion;
+      return {
+        base64: crop ? `tile-${crop.top}` : 'full-image',
+        mimeType: 'image/jpeg',
+        originalWidth: 800,
+        originalHeight: 4000,
+        width: 800,
+        height: crop ? crop.height : 4000,
+        wasCompressed: false,
+        hash: crop ? `hash-${crop.top}` : 'hash-full',
+        cropY: crop?.top ?? 0,
+        cropHeight: crop?.height ?? 4000,
+      };
+    });
+
+    const translateImage = vi.fn(
+      async (
+        request: Parameters<TranslationTransport['translateImage']>[0]
+      ) => {
+        // Each tile: one area in the middle of the tile, tile-relative.
+        const tileTop = Number(
+          /tile-(\d+)/.exec(request.imageBase64 ?? '')?.[1] ?? 0
+        );
+        const yRel = tileTop / 4000;
+        return {
+          success: true,
+          cached: false,
+          textAreas: [
+            {
+              x: 0.5,
+              y: yRel + 0.2,
+              width: 0.2,
+              height: 0.05,
+              originalText: '原文',
+              translatedText: `译${Math.round(yRel * 100)}`,
+            },
+          ],
+        };
+      }
+    );
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    const result = await translator.translateImage(
+      {
+        naturalWidth: 800,
+        naturalHeight: 4000,
+        src: 'https://example.com/strip.jpg',
+      } as HTMLImageElement,
+      false
+    );
+
+    expect(result.success).toBe(true);
+    const ys = result.textAreas.map(a => a.y);
+    // Areas must be spread across the strip, not stacked at the top.
+    expect(Math.max(...ys)).toBeGreaterThan(0.5);
+    // Coordinates stay normalized.
+    for (const area of result.textAreas) {
+      expect(area.y).toBeGreaterThanOrEqual(0);
+      expect(area.y).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+describe('TranslatorService batch runner', () => {
+  beforeEach(() => {
+    processImageMock.mockReset();
+  });
+
+  function makeTranslator(): TranslatorService {
+    return new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: {
+        translateImage: async () => ({
+          success: true,
+          textAreas: [],
+          cached: false,
+        }),
+      } as TranslationTransport,
+    });
+  }
+
+  it('translateImages reports progress and collects results in order', async () => {
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'hash',
+    });
+
+    const translator = makeTranslator();
+    const images = [1, 2, 3].map(
+      i =>
+        ({
+          naturalWidth: 800,
+          naturalHeight: 600,
+          src: `https://example.com/${i}.jpg`,
+        }) as HTMLImageElement
+    );
+
+    const progress: number[] = [];
+    const results = await translator.translateImages(images, p =>
+      progress.push(p.current)
+    );
+
+    expect(results).toHaveLength(3);
+    expect(progress).toEqual([1, 2, 3]);
+  });
+
+  it('cancel stops the batch loop early', async () => {
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'hash',
+    });
+
+    const translator = makeTranslator();
+    const images = [1, 2, 3, 4].map(
+      i =>
+        ({
+          naturalWidth: 800,
+          naturalHeight: 600,
+          src: `https://example.com/${i}.jpg`,
+        }) as HTMLImageElement
+    );
+
+    const originalTranslate = translator.translateImage.bind(translator);
+    let calls = 0;
+    vi.spyOn(translator, 'translateImage').mockImplementation(
+      async (img, force) => {
+        calls += 1;
+        const result = await originalTranslate(
+          img as HTMLImageElement,
+          force ?? false
+        );
+        if (calls >= 1) {
+          translator.cancel();
+        }
+        return result;
+      }
+    );
+
+    const results = await translator.translateImages(images);
+    expect(results.length).toBeLessThan(images.length);
+  });
+
+  it('validateConfig and updateConfig guard configuration', async () => {
+    const translator = makeTranslator();
+    await expect(translator.validateConfig()).resolves.toMatchObject({
+      valid: true,
+    });
+
+    translator.updateConfig({ apiKey: '' });
+    await expect(translator.validateConfig()).resolves.toMatchObject({
+      valid: false,
+    });
+    expect(translator.getConfig().apiKey).toBe('');
+  });
+});

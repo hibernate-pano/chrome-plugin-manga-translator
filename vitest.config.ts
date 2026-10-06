@@ -24,15 +24,12 @@ export default defineConfig({
         '**/*.test.{ts,tsx,js,jsx}',
         '**/*.spec.{ts,tsx,js,jsx}',
       ],
-      // Vitest 0.34 reads thresholds from these TOP-LEVEL keys. The nested
-      // `coverage.thresholds.global` shape belongs to Vitest 1.x+; under 0.34
-      // it is silently ignored, which is why `pnpm test:coverage` exited 0 even
-      // with the limit set to 99. Verified by setting an impossible value and
-      // confirming the run now fails.
-      lines: 70,
-      functions: 70,
-      branches: 70,
-      statements: 70,
+      thresholds: {
+        lines: 70,
+        functions: 70,
+        branches: 70,
+        statements: 70,
+      },
     },
   },
   resolve: {

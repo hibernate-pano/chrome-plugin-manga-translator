@@ -1,4 +1,4 @@
-import { describe, expect, it, beforeEach } from 'vitest';
+import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { ReadingPanel } from './reading-panel';
 import type { TextArea } from '@/providers/base';
 
@@ -130,6 +130,61 @@ describe('ReadingPanel', () => {
   it('focusEntryByIndex is a no-op for unknown index', () => {
     const panel = new ReadingPanel();
     expect(() => panel.focusEntryByIndex(99)).not.toThrow();
+    panel.destroy();
+  });
+});
+
+describe('ReadingPanel interactions', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    if (!HTMLElement.prototype.scrollIntoView) {
+      HTMLElement.prototype.scrollIntoView = function () {};
+    }
+  });
+
+  it('keyboard Enter focuses the image and flashes both sides', () => {
+    vi.useFakeTimers();
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好']));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const entry = shadow.querySelector('.entry') as HTMLElement;
+    entry.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
+
+    expect(img.style.outline).toContain('22d3ee');
+    expect(entry.classList.contains('flash')).toBe(true);
+
+    vi.advanceTimersByTime(1300);
+    expect(entry.classList.contains('flash')).toBe(false);
+    vi.useRealTimers();
+    panel.destroy();
+  });
+
+  it('focusEntryByIndex is a no-op for unknown indices', () => {
+    const panel = new ReadingPanel();
+    expect(() => panel.focusEntryByIndex(99)).not.toThrow();
+    panel.destroy();
+  });
+
+  it('expand returns from collapsed state with labels updated', () => {
+    const panel = new ReadingPanel();
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const btn = shadow.getElementById('collapse-btn') as HTMLButtonElement;
+    btn.click();
+    expect(btn.textContent).toBe('+');
+    btn.click();
+    expect(btn.textContent).toBe('−');
+    panel.destroy();
+  });
+
+  it('renders a placeholder preview when no area has text', () => {
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['   ']));
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const preview = shadow.querySelector('.entry-preview');
+    expect(preview?.textContent).toContain('无文字气泡');
     panel.destroy();
   });
 });

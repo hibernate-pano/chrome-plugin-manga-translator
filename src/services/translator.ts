@@ -1116,8 +1116,8 @@ export class TranslatorService {
     const total = images.length;
 
     for (let i = 0; i < images.length; i++) {
-      // 检查是否已取消
-      if (this.abortController.signal.aborted) {
+      // 检查是否已取消（cancel() 会把 controller 置空，两种取消形态都要兜住）
+      if (!this.abortController || this.abortController.signal.aborted) {
         if (isDevelopment) {
           _log('批量翻译已取消');
         }

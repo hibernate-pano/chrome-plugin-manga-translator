@@ -81,3 +81,52 @@ describe('filterOverlapDuplicates', () => {
     expect(filterOverlapDuplicates(areas)).toHaveLength(2);
   });
 });
+
+describe('computeTiles edge shapes', () => {
+  it('merges a trailing sliver into the previous tile', () => {
+    // Height chosen so the final slice is under 40% of a tile: the algorithm
+    // extends the previous tile instead of emitting a sliver.
+    const tiles = computeTiles(800, 2600);
+    const last = tiles[tiles.length - 1];
+    expect(last).toBeDefined();
+    expect(last?.height).toBeGreaterThanOrEqual(1152 * 0.4);
+    const prev = tiles[tiles.length - 2];
+    expect(prev).toBeDefined();
+    // Extended last tile must still overlap the previous tile's band.
+    expect(last?.top ?? 0).toBeLessThan((prev?.top ?? 0) + (prev?.height ?? 0));
+  });
+
+  it('returns one tile when width makes the aspect ratio non-strip', () => {
+    expect(computeTiles(3000, 3000)).toEqual([{ top: 0, height: 3000 }]);
+  });
+});
+
+describe('filterOverlapDuplicates edge cases', () => {
+  const area = (x: number, y: number, w: number, h: number): TextArea => ({
+    x,
+    y,
+    width: w,
+    height: h,
+    originalText: 'o',
+    translatedText: 't',
+  });
+
+  it('keeps areas whose horizontal centers differ beyond tolerance', () => {
+    const areas = [area(0.1, 0.1, 0.1, 0.05), area(0.5, 0.12, 0.1, 0.05)];
+    expect(filterOverlapDuplicates(areas)).toHaveLength(2);
+  });
+
+  it('drops later areas that vertically overlap a kept area', () => {
+    const areas = [
+      area(0.2, 0.1, 0.1, 0.08),
+      area(0.24, 0.14, 0.1, 0.08),
+      area(0.25, 0.13, 0.1, 0.08),
+    ];
+    expect(filterOverlapDuplicates(areas)).toHaveLength(1);
+  });
+
+  it('keeps areas that only touch within the vertical tolerance', () => {
+    const areas = [area(0.2, 0.1, 0.1, 0.02), area(0.2, 0.135, 0.1, 0.02)];
+    expect(filterOverlapDuplicates(areas)).toHaveLength(2);
+  });
+});

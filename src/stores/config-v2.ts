@@ -822,8 +822,11 @@ function setupStorageChangeListener(): void {
 
       // Apply only whitelisted fields so an unexpected key in storage can
       // never inject actions or overwrite internals.
-      const trustedPatch = pickConfigFields(candidate, PERSISTED_CONFIG_FIELDS);
-      useAppConfigStore.setState(state => ({ ...state, ...trustedPatch }));
+      const trustedPatch = mergePersistedConfig(
+        pickConfigFields(candidate, PERSISTED_CONFIG_FIELDS),
+        useAppConfigStore.getState()
+      );
+      useAppConfigStore.setState(() => trustedPatch);
     });
   }
 }

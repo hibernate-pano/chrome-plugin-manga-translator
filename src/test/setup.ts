@@ -5,7 +5,10 @@
  * It sets up the testing environment with necessary mocks and configurations.
  */
 
-import '@testing-library/jest-dom';
+// Vitest owns the `expect` global here, so the Vitest-specific matcher types
+// must be loaded instead of the Jest defaults that `@testing-library/jest-dom`
+// points at.
+import '@testing-library/jest-dom/vitest';
 
 // Mock Chrome Storage API for testing
 const mockStorage: Record<string, unknown> = {};

@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseTranslationError, TranslationErrorCode } from './error-handler';
+import {
+  parseTranslationError,
+  retryWithBackoff,
+  TranslationErrorHandler,
+  TranslationErrorCode,
+} from './error-handler';
 
 describe('parseTranslationError', () => {
   it('keeps original message for unknown errors', () => {
@@ -49,5 +54,133 @@ describe('parseTranslationError', () => {
     expect(result.code).toBe(TranslationErrorCode.CONTENT_BLOCKED);
     expect(result.retryable).toBe(false);
     expect(result.suggestion).toContain('Ollama');
+  });
+});
+
+describe('TranslationErrorHandler retry semantics', () => {
+  it('isRetryable reads the retryable flag of a FriendlyError', () => {
+    const rateLimit = parseTranslationError(new Error('429 too many'));
+    expect(rateLimit.code).toBe(TranslationErrorCode.RATE_LIMIT);
+    expect(TranslationErrorHandler.isRetryable(rateLimit)).toBe(
+      rateLimit.retryable
+    );
+    expect(TranslationErrorHandler.isRetryable(new Error('boom'))).toBe(
+      parseTranslationError(new Error('boom')).retryable
+    );
+  });
+
+  it('retryWithBackoff returns the first successful result', async () => {
+    let calls = 0;
+    const value = await retryWithBackoff(
+      async () => {
+        calls += 1;
+        if (calls < 2) {
+          throw Object.assign(new Error('temporary'), { status: 429 });
+        }
+        return 'ok';
+      },
+      3,
+      1
+    );
+    expect(value).toBe('ok');
+    expect(calls).toBe(2);
+  });
+
+  it('retryWithBackoff throws the FriendlyError once retries are exhausted', async () => {
+    let calls = 0;
+    await expect(
+      retryWithBackoff(
+        async () => {
+          calls += 1;
+          throw Object.assign(new Error('down'), { status: 503 });
+        },
+        2,
+        1
+      )
+    ).rejects.toMatchObject({ code: TranslationErrorCode.NETWORK_ERROR });
+    expect(calls).toBe(2);
+  });
+
+  it('retryWithBackoff does not retry non-retryable errors', async () => {
+    let calls = 0;
+    await expect(
+      retryWithBackoff(
+        async () => {
+          calls += 1;
+          throw Object.assign(new Error('unauthorized'), { status: 401 });
+        },
+        3,
+        1
+      )
+    ).rejects.toMatchObject({ code: TranslationErrorCode.AUTH_ERROR });
+    expect(calls).toBe(1);
+  });
+});
+
+describe('parseTranslationError keyword coverage', () => {
+  const cases: Array<[string, TranslationErrorCode]> = [
+    ['api key missing', TranslationErrorCode.CONFIG_MISSING],
+    ['密钥未配置', TranslationErrorCode.CONFIG_MISSING],
+    ['invalid sk- key format', TranslationErrorCode.INVALID_API_KEY_FORMAT],
+    ['sk- key format invalid', TranslationErrorCode.INVALID_API_KEY_FORMAT],
+    ['ECONNREFUSED 127.0.0.1', TranslationErrorCode.CONNECTION_REFUSED],
+    ['unauthorized access', TranslationErrorCode.AUTH_ERROR],
+    ['invalid key provided', TranslationErrorCode.AUTH_ERROR],
+    ['network hiccup', TranslationErrorCode.NETWORK_ERROR],
+    ['Failed to fetch', TranslationErrorCode.NETWORK_ERROR],
+    [
+      'connection refused by ollama host',
+      TranslationErrorCode.CONNECTION_REFUSED,
+    ],
+    ['连接 localhost 失败', TranslationErrorCode.OLLAMA_NOT_RUNNING],
+    ['model not found on server', TranslationErrorCode.MODEL_NOT_FOUND],
+    ['model does not exist here', TranslationErrorCode.MODEL_NOT_FOUND],
+    ['rate limited', TranslationErrorCode.RATE_LIMIT],
+    ['too many requests', TranslationErrorCode.RATE_LIMIT],
+    ['max_tokens limit', TranslationErrorCode.PARAM_ERROR],
+    ['发生未知错误', TranslationErrorCode.UNKNOWN_ERROR],
+  ];
+
+  it.each(cases)('maps %s', (message, code) => {
+    expect(parseTranslationError(new Error(message)).code).toBe(code);
+  });
+
+  it('returns the original FriendlyError untouched', () => {
+    const friendly = parseTranslationError(new Error('rate limited'));
+    expect(parseTranslationError(friendly)).toBe(friendly);
+  });
+
+  it('extracts status codes from nested response objects', () => {
+    const error = Object.assign(new Error('server exploded'), {
+      response: { status: 502 },
+    });
+    expect(parseTranslationError(error).code).toBe(
+      TranslationErrorCode.NETWORK_ERROR
+    );
+    const authError = Object.assign(new Error('nope'), { statusCode: 401 });
+    expect(parseTranslationError(authError).code).toBe(
+      TranslationErrorCode.AUTH_ERROR
+    );
+    const forbidden = Object.assign(new Error('forbidden'), { status: 403 });
+    expect(parseTranslationError(forbidden).code).toBe(
+      TranslationErrorCode.AUTH_ERROR
+    );
+    const missing = Object.assign(new Error('missing model'), { status: 404 });
+    expect(parseTranslationError(missing).code).toBe(
+      TranslationErrorCode.MODEL_NOT_FOUND
+    );
+    const blocked = Object.assign(new Error('blocked'), { status: 422 });
+    expect(parseTranslationError(blocked).code).toBe(
+      TranslationErrorCode.CONTENT_BLOCKED
+    );
+  });
+
+  it('stringifies non-error values instead of crashing', () => {
+    expect(parseTranslationError(42).code).toBe(
+      TranslationErrorCode.UNKNOWN_ERROR
+    );
+    expect(parseTranslationError(null).code).toBe(
+      TranslationErrorCode.UNKNOWN_ERROR
+    );
   });
 });
