@@ -80,9 +80,13 @@
 
 | 字段 | 值 |
 | --- | --- |
-| 隐私政策 URL | 见 `docs/store-launch-tasks.md`「隐私政策托管」一节，**必须是可以公网访问的 https 页面** |
+| 隐私政策 URL | `https://hibernate-pano.github.io/chrome-plugin-manga-translator/privacy-policy.html` |
 | 支持网址 | 仓库 Issues：`https://github.com/hibernate-pano/chrome-plugin-manga-translator/issues` |
 | 支持邮箱 | 你的开发者联系邮箱 |
 
-Chrome 商店要求隐私政策是**可公开访问的 URL**，不能是本地文件或 GitHub raw 文本。把 `docs/privacy-policy.md` 渲染成一个公开页面（GitHub Pages、Cloudflare Pages、Vercel 均可），再把该网址填进表单。
+Chrome 商店要求隐私政策是**可公开访问的 URL**，不能是本地文件或 GitHub raw 文本。
+
+本项目已通过 GitHub Pages 托管：`https://hibernate-pano.github.io/chrome-plugin-manga-translator/privacy-policy.html`
+
+源头是 `docs/privacy-policy.md`，由 Pages 直接渲染，**改文档即改线上内容**，无需维护第二份 HTML 副本。Pages 的发布配置在仓库 Settings → Pages（源 `main` / `docs`）。
 

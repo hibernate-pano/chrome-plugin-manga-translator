@@ -85,7 +85,11 @@ scrutinise most.
 
 ## Privacy Disclosure
 
-Use the hosted `docs/privacy-policy.md` page as the privacy-policy URL.
+Privacy-policy URL: `https://hibernate-pano.github.io/chrome-plugin-manga-translator/privacy-policy.html`
+
+It is rendered by GitHub Pages straight from `docs/privacy-policy.md`, so editing the
+Markdown changes the live page. Source of truth stays singular — there is no second
+HTML copy to drift. Published from Settings → Pages (source `main`, folder `docs`).
 
 - Image data goes to the provider selected by the user.
 - User-entered API keys are stored in `chrome.storage.local`, not sync storage.
@@ -131,4 +135,3 @@ the background proxy path, and content that must be skipped (a logo inside
 - At least one 1280x800 or 640x400 screenshot showing translation in context.
 - A 30-second demo recording.
 - A support URL and Chrome Web Store developer account.
-- A final hosted privacy-policy URL.
