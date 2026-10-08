@@ -120,6 +120,52 @@ function checkWebAccessibleIntegrity() {
 
 const resourceNote = checkWebAccessibleIntegrity();
 
+/**
+ * Chrome Web Store field limits, from
+ * https://developer.chrome.com/docs/extensions/reference/manifest
+ * ("Keys required by Chrome Web Store") and the Web Store title rules.
+ *
+ * The description shipped at 172 characters for months without anything
+ * objecting, because no check ever counted them. Chrome documents 132 as the
+ * maximum, and the field is listed under the keys the Web Store requires — so
+ * this is a submission blocker, not a style preference. Fail loudly here
+ * rather than discover it at upload time.
+ */
+const STORE_FIELD_LIMITS = [
+  { key: 'name', limit: 45 },
+  { key: 'description', limit: 132 },
+];
+
+function checkStoreFieldLimits() {
+  const violations = [];
+  for (const { key, limit } of STORE_FIELD_LIMITS) {
+    const value = manifest[key];
+    if (typeof value !== 'string') {
+      violations.push(`${key} is missing or not a string`);
+      continue;
+    }
+    if (value.length > limit) {
+      violations.push(
+        `${key} is ${value.length} characters, over the ${limit}-character limit by ${value.length - limit}`
+      );
+    }
+  }
+
+  if (violations.length > 0) {
+    console.error('[release-check] invalid Chrome Web Store manifest fields:');
+    for (const violation of violations) {
+      console.error(`  - ${violation}`);
+    }
+    process.exit(1);
+  }
+
+  return STORE_FIELD_LIMITS.map(
+    ({ key, limit }) => `${key} ${manifest[key].length}/${limit}`
+  ).join(', ');
+}
+
+const fieldNote = checkStoreFieldLimits();
+
 console.log(
-  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}`
+  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}; ${fieldNote}`
 );

@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.3] - 2026-10-08
+
+Submission-blocking metadata fix found during the Chrome Web Store package audit.
+
+### Fixed
+
+- **The manifest description was 40 characters over Chrome's limit.** Chrome
+  documents `description` as maximum 132 characters and lists it under "Keys
+  required by Chrome Web Store"; it had shipped at 172 since v0.3.3 without
+  anything objecting because no check ever counted them. Rewritten to 118
+  characters, keeping the two things that distinguish this extension: in-place
+  rendering, and preserving the original artwork.
+
+### Added
+
+- `check-release-consistency.mjs` now validates Chrome Web Store field limits
+  (`name` <= 45, `description` <= 132) and fails the build. This class of defect
+  now surfaces locally and in CI instead of at upload time.
+
+
 ## [2.0.2] - 2026-10-08
 
 Store-readiness release. No user-facing behaviour changes.
