@@ -146,3 +146,34 @@
 ### 教训
 
 **发布物的字段约束必须有校验，不能靠人记得。** 这个违规存在了 4 个月、经过多轮"体检"都没被抓到，因为检查项里没有"数字符数"这一条。凡是外部平台的硬性限制（长度、格式、尺寸），应当落成断言挂在构建链上，而不是写在文档里等人执行。
+
+---
+
+## 六、最终结果（本轮闭环）
+
+前面第四节标注的"待提交"已完成，且第五节的拦截项催生了 `v2.0.3`。
+
+| 项 | 状态 |
+| --- | --- |
+| GitHub Release `v2.0.2` | 已建，但含超限描述 → **已在其说明顶部加 `[!WARNING]` 指向 v2.0.3** |
+| GitHub Release `v2.0.3` | 已建，标记 **Latest**，含 zip + sha256 两附件，非草稿非预发布 |
+| 上传包 | `release/manga-translator-v2.0.3-public.zip`，2,841,120 字节，30 文件 |
+| SHA-256 | `104256cb2ff2698ac20b2074ae0cbc0f45f57a92db6947beb25789e6101c6925`（远端下载件与本地一致） |
+| Git | HEAD `a6c18ab` == `origin/main` == tag `v2.0.3`，工作区干净 |
+| CI | `main` / `v2.0.3` / Pages 三条全部 success |
+| 隐私政策 URL | https://hibernate-pano.github.io/chrome-plugin-manga-translator/privacy-policy.html （200，正文已验） |
+| 文档首页 | https://hibernate-pano.github.io/chrome-plugin-manga-translator/ （200） |
+| 商店文案 | 已填入真实隐私 URL，断链已修 |
+
+### 上传时应使用
+
+`release/manga-translator-v2.0.3-public.zip`
+（**不要**用 `v2.0.2` 的包，其 manifest 描述超限）
+
+### 仍未解决，属用户侧
+
+1. **商店截图**（1280×800 或 640×400，3~5 张）+ 30 秒演示视频。
+   阻塞原因：本地 Ollama 虽已安装（v0.40.0）但未运行，`~/.ollama/models/blobs` 为 **0B**，配置指向的 27B 模型需另行下载；`.env` 中两个远程 Key 均已失效。没有可用模型就无法产出真实翻译画面——我判断下载多 GB 模型属于"引入新麻烦"，故不做。Chrome 官方策略明确：缺截图会被拒。
+2. **产品决策：是否收紧 `<all_urls>`**（最高拒审风险组合）。
+3. **隐私政策语言**：现为英文；商店文案与界面为中文。自行翻译有引入隐私声明表述偏差的风险，未擅改。
+4. **（发现但未修，属另一个仓库）** `chrome-plugin-one-tab` 的隐私政策 URL 实际失效——源文件在 `src/legal/` 而非 `public/`，Vite 不会复制，线上返回的是 SPA 外壳。
