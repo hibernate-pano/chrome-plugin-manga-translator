@@ -7,6 +7,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.2] - 2026-10-08
+
+Store-readiness release. No user-facing behaviour changes.
+
+### Removed
+
+- **The unused `activeTab` permission.** Nothing in the extension referenced
+  it: the content script is injected through `host_permissions`, and the popup
+  reads tab metadata with `chrome.tabs.query`, which does not require it. An
+  undeclared purpose permission is an invitation for a reviewer to ask what it
+  is for, so it is gone rather than defended.
+
+### Fixed
+
+- **Packaging could ship a stale ZIP.** A release artifact built before two
+  later bug-fix commits sat in `release/` looking upload-ready, with a
+  matching `.sha256` that made it look verified. `package-extension.mjs` now
+  refuses to package a `dist/` whose contents do not match the source tree,
+  compared by content fingerprint rather than mtime (mtimes lie: a `touch`,
+  a `git checkout`, or a clock skew will both hide a stale build and block a
+  good one — an earlier mtime-based attempt at this check managed both).
+- **`.DS_Store` was packaged into the artifact.** macOS regenerates it in
+  `dist/` on most builds and `zip -qr` swept it in. It is now excluded.
+
+
 ## [2.0.1] - 2026-10-06
 
 ### Fixed

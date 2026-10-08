@@ -32,9 +32,17 @@ returned translation on the source page.
 
 - `storage`: Save provider settings, UI preferences, the local translation
   cache, and usage statistics.
-- `activeTab`: Read the active tab and communicate with its content script after
-  the user invokes the extension.
 - `contextMenus`: Add a "Translate current page" action to the page context menu.
+- `alarms`: Periodically wake the background service worker while translation is
+  switched on, so a worker Chrome has reclaimed re-reads its concurrency limit
+  from storage instead of resuming a long chapter with a stale one. It reads no
+  page data.
+
+`activeTab` was removed in v2.0.2: nothing referenced it. The content script is
+injected via `host_permissions` on every page, and the popup reads tab metadata
+through `chrome.tabs.query`, which does not need `activeTab`. An unused
+permission is a question a reviewer will ask, and the honest answer ("none")
+is worse than dropping it.
 - `<all_urls>` host permission: The extension runs on user-selected manga and
   webtoon sites that are not known in advance, and fetches comic images from
   arbitrary image CDNs to bypass page-level CORS restrictions.

@@ -1,12 +1,12 @@
 {
   "name": "chrome-plugin-manga-translator",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "Chrome插件，用于翻译漫画中的文字，并保持原有样式",
   "type": "module",
   "scripts": {
     "dev": "node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && vite",
-    "build": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-release-consistency.mjs",
-    "build:public": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs --public-build && node scripts/check-public-build.mjs --source-only && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-public-build.mjs && node scripts/check-release-consistency.mjs",
+    "build": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-release-consistency.mjs && node scripts/record-source-fingerprint.mjs",
+    "build:public": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs --public-build && node scripts/check-public-build.mjs --source-only && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-public-build.mjs && node scripts/check-release-consistency.mjs && node scripts/record-source-fingerprint.mjs",
     "package:public": "pnpm build:public && node scripts/package-extension.mjs",
     "release:check": "node scripts/check-release-consistency.mjs",
     "preview": "vite preview",
