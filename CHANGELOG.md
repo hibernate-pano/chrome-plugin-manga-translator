@@ -55,6 +55,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The build was red on `main`.** Two tests in `src/shared/preloaded-config.test.ts`
+  asserted that the preloaded provider settings mirror the build-time
+  environment exactly. They do not: when the build has no `.env` — which is
+  the case in CI, and for anyone who clones the repository — the endpoint
+  and the model fall back to the defaults in `@/shared/app-config`, so the
+  settings carry `https://api.minimaxi.com/v1` rather than an empty
+  string. The assertion passed on a developer's machine, where a `.env`
+  exists and the two agree, and failed everywhere else. The tests now
+  assert the contract that actually holds: the preloaded settings follow
+  the build-time environment when there is one, and the defaults when
+  there is not.
 - **Almost every translation was drawn at the minimum font size.** The
   layout asked how big the font could be for the whole text to fit on a
   *single* line, and used that as the starting point for a downward

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import { ENV_CONFIG } from './env-config';
 import { ENV_CREDENTIALS } from './env-credentials';
+import { DEFAULT_OPENAI_COMPATIBLE_CONFIG } from './app-config';
 import {
   PRELOADED_LM_STUDIO_CONFIG,
   PRELOADED_OLLAMA_CONFIG,
@@ -87,12 +88,31 @@ describe('预置的 provider 设置', () => {
   });
 
   it('用的是构建时注入的端点，而不是硬编码的占位符', () => {
+    // The endpoint and the model come from `.env` when the build has one.
+    // When it does not — a CI run, a clone without secrets — the defaults
+    // in `@/shared/app-config` supply a valid but unauthenticated endpoint,
+    // and the preloaded settings must carry *that* rather than an empty
+    // string. The old assertion compared against `ENV_CONFIG` directly,
+    // which is `''` without a `.env`: it passed on a developer's machine
+    // (where `.env` exists and the two agree) and failed in CI, which is
+    // the one place that runs without a developer's secrets.
     expect(PRELOADED_OPENAI_COMPATIBLE_CONFIG.baseUrl).toBe(
-      ENV_CONFIG.minimax.baseUrl
+      DEFAULT_OPENAI_COMPATIBLE_CONFIG.baseUrl
     );
     expect(PRELOADED_OPENAI_COMPATIBLE_CONFIG.model).toBe(
-      ENV_CONFIG.minimax.model
+      DEFAULT_OPENAI_COMPATIBLE_CONFIG.model
     );
+
+    // And where a `.env` did supply one, the preloaded settings follow it
+    // rather than the placeholder.
+    if (ENV_CONFIG.minimax.baseUrl) {
+      expect(PRELOADED_OPENAI_COMPATIBLE_CONFIG.baseUrl).toBe(
+        ENV_CONFIG.minimax.baseUrl
+      );
+      expect(PRELOADED_OPENAI_COMPATIBLE_CONFIG.model).toBe(
+        ENV_CONFIG.minimax.model
+      );
+    }
   });
 
   it('全新安装（存储为空）时，worker 仍然拿得到构建时的 key', () => {
@@ -104,7 +124,7 @@ describe('预置的 provider 设置', () => {
       ENV_CREDENTIALS.minimax.apiKey
     );
     expect(normalized.openaiCompatible.baseUrl).toBe(
-      ENV_CONFIG.minimax.baseUrl
+      DEFAULT_OPENAI_COMPATIBLE_CONFIG.baseUrl
     );
   });
 
