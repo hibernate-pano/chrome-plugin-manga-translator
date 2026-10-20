@@ -10,7 +10,7 @@
 
 // ==================== Type Definitions ====================
 
-export interface ImageWithPriority {
+interface ImageWithPriority {
   /** The image element */
   image: HTMLImageElement;
   /** Priority score (higher = process first) */
@@ -237,30 +237,6 @@ export async function processInParallel<T, R>(
   return results;
 }
 
-/**
- * Process images with viewport priority and parallel limits
- *
- * This is the main function for optimized image processing:
- * 1. Sorts images by viewport priority
- * 2. Processes in parallel with concurrency limit
- *
- * @param images Array of image elements
- * @param processor Function to process each image
- * @param options Processing options
- * @returns Array of results
- */
-export async function processImagesOptimized<R>(
-  images: HTMLImageElement[],
-  processor: (img: HTMLImageElement, index: number) => Promise<R>,
-  options: ParallelProcessingOptions
-): Promise<R[]> {
-  // Sort images by viewport priority
-  const sortedImages = getViewportFirstImages(images);
-
-  // Process with parallel limits
-  return processInParallel(sortedImages, processor, options);
-}
-
 // ==================== Batch Processing Utilities ====================
 
 /**
@@ -277,10 +253,3 @@ export function splitIntoBatches<T>(items: T[], batchSize: number): T[][] {
   }
   return batches;
 }
-
-// ==================== Exports ====================
-
-export {
-  isInViewport as isElementInViewport,
-  getDistanceFromViewportCenter as getElementDistanceFromCenter,
-};

@@ -361,6 +361,50 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flashing white), the native scrollbars and form controls follow
   `color-scheme: dark`, and the focus ring is one colour everywhere.
 
+### Removed
+
+- **The `server/` Python backend is gone.** It was frozen at v0.7.0 and
+  scheduled for removal in v1.0; nothing in the extension has referenced it
+  since. It was a second, parallel implementation of the same product (its
+  own cache store, its own provider clients, its own OCR pipeline), which
+  meant every change to the extension's translation pipeline had to be
+  reasoned about twice — and twice it was not, which is how the two drifted
+  apart. A local copy of the credentials it used is at
+  `~/Code/Demos/chrome-plugin-manga-translator-server.env.bak`; the Python
+  source is in the git history if it is ever needed again.
+- **The ManhwaRead site adapter.** `src/content/site-adapters.ts` carried a
+  per-site adapter for one comic site, but the adapter was never passed to
+  any of the three `isTranslatableImage` call sites, so the code it guarded
+  never ran. The generic path already handles lazy-loaded images through
+  `currentSrc`, `data-src` and `srcset`, which is what every site actually
+  needs.
+- **~100 exports that nothing imported.** Every symbol that had no importer
+  outside its own module was either deleted or un-exported, depending on
+  whether it was still used inside its own file. The visible symptom was
+  the theme provider: it exported a `useTheme` hook and a React context
+  that no component ever read, so the theme was written to the document and
+  then thrown away.
+- **Two configuration fields that only ever held one value.** `readingMode`
+  and `renderMode` were configurable, but `readingMode` had exactly one
+  value (`panel`) and the `anchors-only` half of `renderMode` was never
+  implemented. The translation cache key keeps both slots as constants so
+  that removing them does not invalidate every user's cached translations.
+
+### Fixed
+
+- **The popup and the content script no longer keep separate copies of the
+  same message protocol.** The popup had its own copy of the
+  popup-to-content message union, and it had already drifted: it was
+  missing `TRANSLATE_SINGLE_IMAGE`, which the content script handled. The
+  protocol, the page-state shape and the list of supported page URLs now
+  live in `@/shared/runtime-contracts` and `@/shared/app-config`, so the
+  compiler — not a comment — keeps the three sides in agreement.
+- **A third local provider would have been treated as needing an API key.**
+  The config store hard-coded the list of keyless local providers
+  (`ollama`, `lm-studio`) in a second place, away from the provider
+  definitions it was meant to mirror. The store now asks the provider
+  module, so adding a local provider cannot silently break it.
+
 ## [2.0.3] - 2026-10-08
 
 Submission-blocking metadata fix found during the Chrome Web Store package audit.

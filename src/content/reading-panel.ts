@@ -18,7 +18,7 @@
 import type { TextArea } from '@/providers/base';
 import { compareImagesByDocumentOrder } from '@/services/reading-order';
 
-export interface ReadingPanelOptions {
+interface ReadingPanelOptions {
   /** 关闭/展开按钮的初始状态；默认 false（首次出现时展开） */
   initiallyCollapsed?: boolean;
   /** 跳转到目标元素时的高亮时长（毫秒），默认 1200 */

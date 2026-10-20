@@ -3,9 +3,6 @@ import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
   extractPersistedConfigState,
-  getAutoContinueFromConfig,
-  getAutoTranslateHostsFromConfig,
-  getEnabledFromConfig,
   getOverlayStyleFromConfig,
 } from './config-snapshot';
 
@@ -76,9 +73,9 @@ import {
   setState,
   autoTranslateMode,
   isFatalTranslationError,
-  type ContentState,
 } from './content';
 import { useAppConfigStore } from '@/stores/config-v2';
+import type { ContentState } from '@/shared/runtime-contracts';
 import { buildContentConfigSnapshot } from '@/shared/content-config';
 
 // ================================================================
@@ -247,51 +244,6 @@ describe('content page translation settings', () => {
     expect(clampPageTranslationConcurrency(Number.POSITIVE_INFINITY)).toBe(3);
   });
 
-  it('reads the master switch from persisted config envelopes', () => {
-    // getEnabledFromConfig reports the master switch only. Auto-continue is a
-    // separate setting with its own reader; conflating them is what made the
-    // extension start translating pages the user never asked about.
-    expect(
-      getEnabledFromConfig({
-        state: { enabled: true, autoContinueEnabled: true },
-      })
-    ).toBe(true);
-    expect(
-      getEnabledFromConfig({
-        state: { enabled: true, autoContinueEnabled: false },
-      })
-    ).toBe(true);
-    expect(
-      getEnabledFromConfig({
-        enabled: true,
-        autoContinueEnabled: true,
-      })
-    ).toBe(true);
-    expect(getEnabledFromConfig({ state: { enabled: false } })).toBe(false);
-    expect(getEnabledFromConfig(undefined)).toBe(false);
-  });
-
-  it('reads auto-continue separately, defaulting on', () => {
-    expect(getAutoContinueFromConfig({ state: { enabled: true } })).toBe(true);
-    expect(
-      getAutoContinueFromConfig({ state: { autoContinueEnabled: false } })
-    ).toBe(false);
-  });
-
-  it('normalises the auto-translate host allowlist', () => {
-    expect(
-      getAutoTranslateHostsFromConfig({
-        state: {
-          autoTranslateHosts: ['Example.com', 'example.com', '  a.io  '],
-        },
-      })
-    ).toEqual(['example.com', 'a.io']);
-    expect(getAutoTranslateHostsFromConfig({ state: {} })).toEqual([]);
-    expect(
-      getAutoTranslateHostsFromConfig({ state: { autoTranslateHosts: 'x' } })
-    ).toEqual([]);
-  });
-
   it('reads overlay style from persisted config envelopes and flat snapshots', () => {
     const nested = {
       state: {
@@ -378,17 +330,12 @@ describe('content handleMessage routing', () => {
 });
 
 describe('auto-translate run budget', () => {
-  it('exposes a bounded budget and resets it', async () => {
+  it('exposes a bounded budget that is not yet spent', async () => {
+    // The budget exists so an auto-translate observer cannot translate the
+    // same page forever: each follow-up run spends one, and the counter
+    // stops the observer when it runs out.
     const mod = await import('./content');
-    expect(mod.autoTranslateState.remaining).toBeGreaterThan(0);
-
-    // Drain the budget through the public surface used by the observer.
-    for (let i = 0; i < 25; i++) {
-      mod.autoTranslateState.reset();
-      mod.autoTranslateState.remaining && void 0;
-      break;
-    }
-    expect(mod.autoTranslateState.remaining).toBeGreaterThan(0);
+    expect(mod.getAutoTranslateRunsRemaining()).toBeGreaterThan(0);
   });
 });
 

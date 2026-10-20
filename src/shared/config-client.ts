@@ -1,4 +1,5 @@
 import type { ContentConfigSnapshot } from './content-config';
+import type { GetConfigRequest, GetConfigResponse } from './runtime-contracts';
 
 /**
  * The shape of a `GET_CONFIG` answer.
@@ -7,7 +8,7 @@ import type { ContentConfigSnapshot } from './content-config';
  * master switch and is always present when the request succeeded, so a
  * caller that only needs the switch does not have to dig into the snapshot.
  */
-export interface GetConfigResult {
+interface GetConfigResult {
   ok: boolean;
   enabled: boolean;
   config: ContentConfigSnapshot | null;
@@ -28,9 +29,10 @@ export interface GetConfigResult {
  */
 export async function fetchContentConfig(): Promise<GetConfigResult> {
   try {
-    const response = (await chrome.runtime.sendMessage({
-      type: 'GET_CONFIG',
-    })) as { success?: boolean; config?: ContentConfigSnapshot } | undefined;
+    const request: GetConfigRequest = { type: 'GET_CONFIG' };
+    const response = (await chrome.runtime.sendMessage(request)) as
+      | GetConfigResponse
+      | undefined;
 
     if (!response || response.success !== true || !response.config) {
       return { ok: false, enabled: false, config: null };

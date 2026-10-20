@@ -130,15 +130,14 @@ export function deobfuscateApiKey(obfuscatedKey: string): string {
  * 递归遍历对象，对所有敏感字段应用 processFn
  * 替代各处重复的 provider 逐一处理逻辑
  *
- * 字段名集合为闭包外的可变 Set，通过 {@link registerSensitiveKey} 注入，
- * 这样未来加新 provider（lm-studio 等）或新字段（accessToken / token 等）
- * 也能自动纳入混淆范围，不必修改本文件。
+ * 字段名只有 `apiKey`：三个 provider（openai-compatible / ollama /
+ * lm-studio）都用这一个字段名存密钥，本地 provider 只是把它留空而已。
+ * 以前这里有一个可变的全局 Set 和一个 `registerSensitiveKey` 注册口，
+ * 说是"以后加新 provider 时自动纳入"——但除了测试没有任何地方注册过
+ * 东西，所以那个扩展点只会在没人注意的时候悄悄少混淆一个字段。
+ * 多一个字段就往这个数组里加一行，看得见、改得动。
  */
-const SENSITIVE_KEYS = new Set<string>(['apiKey']);
-
-export function registerSensitiveKey(key: string): void {
-  SENSITIVE_KEYS.add(key);
-}
+const SENSITIVE_KEYS: ReadonlySet<string> = new Set<string>(['apiKey']);
 
 export function processAllApiKeys(
   obj: Record<string, unknown>,

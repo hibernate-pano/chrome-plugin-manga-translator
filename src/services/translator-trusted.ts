@@ -31,7 +31,6 @@ export function createTrustedTranslatorFromConfig(): TranslatorService {
     targetLanguage: config.targetLanguage,
     cacheEnabled: config.cacheEnabled,
     translationStylePreset: config.translationStylePreset,
-    renderMode: config.renderMode,
     imageOptions: {
       maxSize: config.maxImageSize,
     },

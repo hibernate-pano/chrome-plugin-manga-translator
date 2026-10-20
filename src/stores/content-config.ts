@@ -23,7 +23,7 @@ import {
 } from '@/shared/content-config';
 import type { ProviderType } from '@/providers/base';
 
-export interface ContentConfigStore extends ContentConfigSnapshot {
+interface ContentConfigStore extends ContentConfigSnapshot {
   /**
    * Replace the snapshot with a fresh one from the worker.
    */
@@ -67,7 +67,6 @@ function defaultSnapshot(): ContentConfigSnapshot {
     regionBatchSize: DEFAULT_CONFIG.regionBatchSize,
     translationPipeline: DEFAULT_CONFIG.translationPipeline,
     fallbackToFullImage: DEFAULT_CONFIG.fallbackToFullImage,
-    renderMode: DEFAULT_CONFIG.renderMode,
     maxImageSize: DEFAULT_CONFIG.maxImageSize,
     overlayStyle: { ...DEFAULT_CONFIG.overlayStyle },
   };

@@ -14,14 +14,13 @@ import type { TranslationStylePreset } from '@/utils/translation-style';
  * from the authoritative configuration: a request that named them could send
  * the user's key to an endpoint of the requester's choosing.
  */
-export interface TranslationTransportRequest {
+interface TranslationTransportRequest {
   imageBase64: string;
   mimeType: string;
   imageKey?: string;
   pageUrl?: string;
   imageUrl?: string;
   targetLanguage: string;
-  renderMode?: 'anchors-only' | 'strong-overlay-compat';
   translationStylePreset: TranslationStylePreset;
   forceRefresh?: boolean;
   jobId?: string;
@@ -31,7 +30,7 @@ export interface TranslationTransportRequest {
   isHybridRegions?: boolean;
 }
 
-export interface TranslationTransportResponse {
+interface TranslationTransportResponse {
   success: boolean;
   error?: string;
   textAreas?: TextArea[];

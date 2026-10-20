@@ -145,8 +145,6 @@ export const DEFAULT_CONFIG: Readonly<{
   maxImageSize: number;
   parallelLimit: number;
   cacheEnabled: boolean;
-  readingMode: 'panel';
-  renderMode: 'strong-overlay-compat' | 'anchors-only';
   translationPipeline: 'hybrid-regions' | 'full-image-vlm';
   regionBatchSize: number;
   fallbackToFullImage: boolean;
@@ -169,8 +167,6 @@ export const DEFAULT_CONFIG: Readonly<{
   maxImageSize: 1024,
   parallelLimit: 3,
   cacheEnabled: true,
-  readingMode: 'panel',
-  renderMode: 'strong-overlay-compat',
   // Default to full-image-vlm — single VLM pass over the image, no Tesseract.
   // AGENTS.md states this is the default; tests were asserting hybrid-regions,
   // which contradicted both the docs and production reality (hybrid path
@@ -316,6 +312,35 @@ export function hostMatchesAllowlist(
 }
 
 /**
+ * Pages the extension cannot work on.
+ *
+ * The content script is never injected into these, so a command or a context
+ * menu item aimed at one would only produce "Receiving end does not exist".
+ *
+ * This list used to be written down twice — once in the worker, once in the
+ * popup — and the two copies were kept in agreement by a comment rather than
+ * by the compiler. One definition, two importers.
+ */
+const UNSUPPORTED_PROTOCOLS = [
+  'chrome:',
+  'chrome-extension:',
+  'edge:',
+  'about:',
+  'moz-extension:',
+  'file:',
+];
+
+/**
+ * Is this a page the extension can act on?
+ */
+export function isSupportedPageUrl(url?: string): boolean {
+  if (!url) {
+    return false;
+  }
+  return !UNSUPPORTED_PROTOCOLS.some(protocol => url.startsWith(protocol));
+}
+
+/**
  * Outcome of checking a provider base URL for transport safety.
  *
  * `insecure` means the request itself is well-formed but would carry the
@@ -325,7 +350,7 @@ export function hostMatchesAllowlist(
  * deliberately local gateway may know better than this check, and silently
  * rewriting or discarding their endpoint would be worse than telling them.
  */
-export type BaseUrlSafety = 'secure' | 'insecure' | 'invalid';
+type BaseUrlSafety = 'secure' | 'insecure' | 'invalid';
 
 const LOOPBACK_HOSTS = new Set([
   'localhost',

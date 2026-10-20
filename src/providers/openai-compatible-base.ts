@@ -49,7 +49,7 @@ const MINIMAX_M3_MODEL_PATTERN = /^minimax-m3(?:$|[-.:/])/i;
 /** Default timeout for a cloud translation request. */
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
-export function isMiniMaxM3Model(model: string | undefined): boolean {
+function isMiniMaxM3Model(model: string | undefined): boolean {
   return Boolean(model && MINIMAX_M3_MODEL_PATTERN.test(model.trim()));
 }
 

@@ -87,17 +87,6 @@ function isReaderFacingMessage(message: string): boolean {
   return /[一-鿿]/.test(message);
 }
 
-/**
- * Create an error that carries an HTTP status code.
- */
-export function createHttpStatusError(message: string, status?: number): Error {
-  const error: HttpStatusError = new Error(message);
-  if (typeof status === 'number' && status > 0) {
-    error.status = status;
-  }
-  return error;
-}
-
 // ============================================================================
 // 错误码定义（符合设计文档）
 // ============================================================================
@@ -145,10 +134,8 @@ export enum TranslationErrorCode {
  * - open-settings：跳到扩展设置页（chrome.runtime.openOptionsPage）
  * - copy-command：复制 suggestion 里的命令到剪贴板
  */
-export type ErrorActionType = 'open-settings' | 'copy-command';
-
 export interface ErrorAction {
-  type: ErrorActionType;
+  type: 'open-settings' | 'copy-command';
   label: string;
   /**
    * For `copy-command` actions, this is the exact string that will be written
@@ -720,18 +707,4 @@ export async function retryWithBackoff<T>(
   baseDelay: number = 1000
 ): Promise<T> {
   return TranslationErrorHandler.retry(fn, maxRetries, baseDelay);
-}
-
-/**
- * 创建特定类型的 FriendlyError
- */
-export function createFriendlyError(code: TranslationErrorCode): FriendlyError {
-  const errorInfo = ERROR_MESSAGES[code];
-  return {
-    code,
-    message: errorInfo.message,
-    retryable: errorInfo.retryable,
-    suggestion: errorInfo.suggestion,
-    action: errorInfo.action,
-  };
 }

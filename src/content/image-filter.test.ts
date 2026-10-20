@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
 import { isTranslatableImage } from './image-filter';
-import type { SiteAdapter } from './site-adapters';
 
 function createImage(
   overrides: Partial<HTMLImageElement> = {}
@@ -42,19 +41,9 @@ describe('isTranslatableImage', () => {
   });
 
   it('rejects images without a resolvable source', () => {
-    const adapter = {
-      id: 'manhwaread',
-      matchesChapter: () => true,
-      getChapterBootstrap: () => ({}) as unknown,
-      resolveCanonicalImage: () => null,
-      listRenderablePages: () => [],
-      prepareImage: async () => undefined,
-    } as unknown as SiteAdapter;
-    expect(
-      isTranslatableImage(createImage({ currentSrc: '', src: '' }), {
-        siteAdapter: adapter,
-      })
-    ).toBe(false);
+    expect(isTranslatableImage(createImage({ currentSrc: '', src: '' }))).toBe(
+      false
+    );
   });
 
   it('rejects incomplete images unless allowed', () => {

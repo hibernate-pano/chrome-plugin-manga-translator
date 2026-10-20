@@ -16,7 +16,6 @@ import {
   obfuscateApiKey,
   obfuscateAllApiKeys,
   processAllApiKeys,
-  registerSensitiveKey,
 } from './crypto';
 
 const SAMPLE_KEY = 'sk-abc123XYZ_-0123456789';
@@ -172,18 +171,6 @@ describe('processAllApiKeys', () => {
     // Arrays are not traversed, so the key inside the array is untouched.
     const list = config['list'] as Array<Record<string, unknown>>;
     expect(list[0]?.['apiKey']).toBe(SAMPLE_KEY);
-  });
-
-  it('covers newly registered sensitive fields', () => {
-    registerSensitiveKey('accessToken');
-    const config: Record<string, unknown> = {
-      apiKey: SAMPLE_KEY,
-      accessToken: 'token-value',
-    };
-
-    processAllApiKeys(config, obfuscateApiKey);
-
-    expect(config['accessToken']).toBe(obfuscateApiKey('token-value'));
   });
 });
 

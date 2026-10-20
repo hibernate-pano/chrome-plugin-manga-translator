@@ -105,8 +105,8 @@ release notes below; the live version is whatever's at the top of
 To keep the scope honest, these are explicitly out:
 
 - **User accounts, cloud sync, hosted SaaS.** The extension is local-first by
-  design. If you want a hosted offering, fork `server/` and build one —
-  don't expect it to land here.
+  design. A hosted offering would be a separate project built on this one's
+  provider protocol — don't expect it to land here.
 - **A paid tier.** TBD; depends on whether a hosted backend emerges as a
   separate project.
 - **Crowd-sourced translation quality scoring.** Useful, but pulls the project

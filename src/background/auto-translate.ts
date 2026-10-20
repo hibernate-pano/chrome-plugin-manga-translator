@@ -66,16 +66,6 @@ export function shouldAutoTranslatePage(
   return hostMatchesAllowlist(pageUrl, hosts);
 }
 
-/**
- * Should new images inside an already-translated page keep being translated?
- * This is the original "auto-continue" behaviour and is independent of the
- * per-site allowlist, because the user already asked for that page.
- */
-export function isAutoContinueEnabled(config: unknown): boolean {
-  const state = readConfigState(config);
-  return state.enabled && state.autoContinueEnabled;
-}
-
 export function createAutoTranslateMessage(enabled: boolean) {
   return enabled
     ? ({ type: 'TRANSLATE_PAGE' } as const)

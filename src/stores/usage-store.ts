@@ -37,7 +37,7 @@ import type { ProviderType } from '@/providers/base';
 
 // ==================== Types ====================
 
-export interface TokenUsage {
+interface TokenUsage {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -64,7 +64,7 @@ export interface TranslationUsageRecord {
   cached: boolean;
 }
 
-export interface DailyUsageSummary {
+interface DailyUsageSummary {
   date: string;
   totalTokens: number;
   promptTokens: number;
@@ -74,7 +74,7 @@ export interface DailyUsageSummary {
   providers: Partial<Record<ProviderType, number>>;
 }
 
-export interface UsageStoreState {
+interface UsageStoreState {
   /** 最近记录列表（最多保留 500 条） */
   records: TranslationUsageRecord[];
   /** 当月总 Token 数（快速访问） */
@@ -89,7 +89,7 @@ export interface UsageStoreState {
   clearedAt: number;
 }
 
-export interface UsageStoreActions {
+interface UsageStoreActions {
   /** 记录一次翻译的用量 */
   addRecord: (
     record: Omit<TranslationUsageRecord, 'id' | 'timestamp' | 'date'>
@@ -108,7 +108,7 @@ export interface UsageStoreActions {
   clearAll: () => void;
 }
 
-export interface UsageOverview {
+interface UsageOverview {
   translations: number;
   billableCalls: number;
   tokens: number;

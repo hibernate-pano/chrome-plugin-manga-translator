@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 
 import {
   createAutoTranslateMessage,
-  isAutoContinueEnabled,
   isTranslationEnabled,
   shouldAutoTranslatePage,
 } from './auto-translate';
@@ -41,16 +40,6 @@ describe('master switch', () => {
     expect(isTranslationEnabled(undefined)).toBe(false);
     expect(isTranslationEnabled('bad')).toBe(false);
     expect(isTranslationEnabled({})).toBe(false);
-  });
-});
-
-describe('autoContinue switch', () => {
-  it('requires the master switch and defaults on', () => {
-    expect(isAutoContinueEnabled({ enabled: true })).toBe(true);
-    expect(isAutoContinueEnabled({ enabled: false })).toBe(false);
-    expect(
-      isAutoContinueEnabled({ enabled: true, autoContinueEnabled: false })
-    ).toBe(false);
   });
 });
 

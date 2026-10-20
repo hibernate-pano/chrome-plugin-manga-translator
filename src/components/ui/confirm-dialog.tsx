@@ -14,7 +14,7 @@ import { cn } from '@/lib/utils';
  * - Escape 关闭、点击遮罩关闭
  * - Tab 焦点锁在对话框内，关闭后焦点回到触发按钮
  */
-export interface ConfirmDialogProps {
+interface ConfirmDialogProps {
   open: boolean;
   title: string;
   description: string;

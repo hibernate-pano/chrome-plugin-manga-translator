@@ -4,14 +4,14 @@
  * Provides a simple HTTP client with error handling and retry logic.
  */
 
-export interface HttpRequestOptions {
+interface HttpRequestOptions {
   method?: 'GET' | 'POST' | 'PUT' | 'DELETE';
   headers?: Record<string, string>;
   body?: unknown;
   timeout?: number;
 }
 
-export interface HttpResponse<T = unknown> {
+interface HttpResponse<T = unknown> {
   ok: boolean;
   status: number;
   statusText: string;

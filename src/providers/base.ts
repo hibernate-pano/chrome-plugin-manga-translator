@@ -8,12 +8,6 @@ import {
   type HttpStatusError,
 } from '@/utils/error-handler';
 
-export {
-  DEFAULT_TRANSLATION_STYLE_PRESET,
-  getTranslationStyleInstruction,
-  type TranslationStylePreset,
-};
-
 /**
  * Vision Provider Base Interface
  *
@@ -44,7 +38,7 @@ export interface TextArea {
 /**
  * Token 使用量统计（AI API 返回）
  */
-export interface TokenUsageInfo {
+interface TokenUsageInfo {
   promptTokens: number;
   completionTokens: number;
   totalTokens: number;
@@ -77,7 +71,7 @@ export interface ProviderConfig {
 /**
  * Standardized image data for providers
  */
-export interface ImageData {
+interface ImageData {
   base64: string;
   mediaType: string;
 }

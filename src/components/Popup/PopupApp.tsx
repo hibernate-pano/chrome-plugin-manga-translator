@@ -31,84 +31,10 @@ import {
   matchingAllowlistEntries,
   type PageAvailability,
 } from './popup-state';
-
-/**
- * The state the content script reports.
- *
- * This mirrors `ContentState` in `src/content/content.ts`. It used to be a
- * narrower local copy that dropped `failedCount`, `cachedCount`,
- * `skippedCount` and the error repair action — so a run that translated 8
- * images and failed 4 was reported as "已完成 12 张图片". A number that
- * hides failures is worse than no number at all.
- */
-type ContentState = ContentStateBase &
-  (
-    | { status: 'idle' }
-    | { status: 'scanning'; candidateCount?: number }
-    | {
-        status: 'translating';
-        current: number;
-        total: number;
-        currentImageIndex?: number;
-        phase?: 'translating' | 'rendering';
-      }
-    | {
-        status: 'complete';
-        count: number;
-        failedCount?: number;
-        cachedCount?: number;
-        /** Images filtered out because of their size or their position. */
-        skippedCount?: number;
-        /** Images skipped because this page was already translated. */
-        skippedDuplicateCount?: number;
-        /** How many images on this page can be translated at all. */
-        candidateCount?: number;
-        /** Why the failed images failed — the first error, in plain language. */
-        lastError?: string;
-      }
-    | {
-        status: 'error';
-        message: string;
-        suggestion?: string;
-        action?: ErrorAction;
-      }
-  );
-
-/**
- * The parts of the content state that do not depend on what the run is
- * doing.
- */
-interface ContentStateBase {
-  /**
-   * Whether the reading panel is on the page right now.
-   *
-   * The panel used to have exactly one way out — a keyboard shortcut nobody
-   * was told about — so a reader whose panel covered the manga had no way
-   * to get rid of it. The popup needs the real state to label the button
-   * honestly.
-   */
-  readingPanelVisible?: boolean;
-  /**
-   * Whether this page is armed to translate new images on its own.
-   *
-   * The popup's own switches cannot answer this: the page also arms itself
-   * when the user translated it by hand, and the "auto-continue" setting is
-   * only one of the three conditions. The page reports what it is actually
-   * doing, so the popup can say so.
-   */
-  autoContinueArmed?: boolean;
-}
-
-type PopupToContentMsg =
-  | { type: 'GET_STATE' }
-  | { type: 'COUNT_IMAGES' }
-  | { type: 'TRANSLATE_PAGE' }
-  | { type: 'FORCE_RETRANSLATE_PAGE' }
-  | { type: 'FORCE_RETRANSLATE_FAILED' }
-  | { type: 'CANCEL_TRANSLATION' }
-  | { type: 'TOGGLE_READING_PANEL' }
-  | { type: 'DISARM_PAGE_AUTO_TRANSLATE' }
-  | { type: 'CLEAR_ALL' };
+import type {
+  ContentState,
+  PopupToContentMsg,
+} from '@/shared/runtime-contracts';
 
 const TARGET_LANGUAGES = [
   // Wording matches the Settings page. The popup used "简中 / 繁中" while
