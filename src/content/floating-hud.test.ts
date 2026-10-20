@@ -7,6 +7,16 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { FloatingHud } from './floating-hud';
 import type { HudState } from './floating-hud';
+import {
+  WHITE_PAGE,
+  contrastRatio,
+  cssBlock,
+  cssDeclaration,
+  parseColor,
+  surfaceColor,
+  textContrast,
+} from '@/test/contrast';
+import type { Rgb } from '@/test/contrast';
 
 // ==================== 辅助函数 ====================
 
@@ -35,11 +45,15 @@ describe('FloatingHud', () => {
       expect(document.body.contains(host)).toBe(true);
     });
 
-    it('应使用固定定位，位于右下角', () => {
+    it('应使用固定定位，位于左下角', () => {
+      // The bottom-left, not the bottom-right: the reading panel is docked
+      // on the right and is tall enough to reach the bottom of the screen,
+      // so a HUD in the same corner was covered by it.
       const host = getHudHost() as HTMLElement;
       expect(host.style.position).toBe('fixed');
       expect(host.style.bottom).toBe('20px');
-      expect(host.style.right).toBe('20px');
+      expect(host.style.left).toBe('20px');
+      expect(host.style.right).toBe('');
     });
   });
 
@@ -325,6 +339,75 @@ describe('FloatingHud', () => {
       expect(hudDiv?.textContent).toContain('已跳过 7 张');
       expect(hudDiv?.textContent).toContain('尺寸/位置不匹配');
     });
+
+    it('complete 状态显示失败原因', () => {
+      // Without the reason, a run that failed 20 images looks identical to
+      // a run that failed because the API key is wrong.
+      hud.update({
+        status: 'complete',
+        translatedCount: 0,
+        failedCount: 20,
+        cachedCount: 0,
+        lastError: 'API 密钥无效，请检查配置',
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('失败原因');
+      expect(hudDiv?.textContent).toContain('API 密钥无效');
+    });
+
+    it('complete 状态对失败原因做 HTML 转义', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 0,
+        failedCount: 1,
+        cachedCount: 0,
+        lastError: '<img src=x onerror=alert(1)>',
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+      const html = hudDiv?.innerHTML ?? '';
+
+      expect(html).not.toContain('<img src=x');
+      expect(html).toContain('&lt;img');
+    });
+
+    it('complete 状态没有失败原因时不显示原因行', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 0,
+        cachedCount: 0,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).not.toContain('失败原因');
+    });
+
+    it('complete 状态说明译文已直接覆盖在原图上', () => {
+      // The overlay is drawn straight over the artwork. Telling the user
+      // that is what happened stops "where did my translation go".
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 0,
+        cachedCount: 0,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('译文已直接覆盖在原图上');
+    });
   });
 
   describe('update - scanning 状态', () => {
@@ -348,5 +431,212 @@ describe('FloatingHud', () => {
 
       expect(hudDiv?.textContent).toContain('候选 12 张');
     });
+  });
+});
+
+// The HUD is pinned to the bottom-right corner of somebody else's page.
+//
+// A card that reports an error, or a completion with failed images, used to
+// stay there for the rest of the page's life with no way to dismiss it. The
+// reader had to reload the page to get that corner of the screen back —
+// and on a page they were trying to read, reloading is not free.
+describe('the HUD can be dismissed', () => {
+  let hud: FloatingHud;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    hud = new FloatingHud();
+  });
+
+  afterEach(() => {
+    hud.destroy();
+  });
+
+  function shadow(): ShadowRoot {
+    const host = getHudHost() as HTMLElement;
+    return host.shadowRoot as ShadowRoot;
+  }
+
+  it('shows a close button on an error card', () => {
+    hud.update({ status: 'error', message: '出错了' });
+    expect(shadow().getElementById('close-btn')).toBeTruthy();
+  });
+
+  it('hides the HUD when the close button is clicked', () => {
+    hud.update({ status: 'error', message: '出错了' });
+    const close = shadow().getElementById('close-btn') as HTMLButtonElement;
+    close.click();
+
+    const hudEl = shadow().getElementById('hud') as HTMLElement;
+    expect(hudEl.style.display).toBe('none');
+  });
+
+  it('shows a close button when some images failed', () => {
+    // This card deliberately does not auto-hide, so without a close button
+    // it is permanent.
+    hud.update({
+      status: 'complete',
+      translatedCount: 3,
+      failedCount: 2,
+      cachedCount: 0,
+    });
+    expect(shadow().getElementById('close-btn')).toBeTruthy();
+  });
+
+  it('closes a "some images failed" card on click', () => {
+    hud.update({
+      status: 'complete',
+      translatedCount: 3,
+      failedCount: 2,
+      cachedCount: 0,
+    });
+    (shadow().getElementById('close-btn') as HTMLButtonElement).click();
+
+    const hudEl = shadow().getElementById('hud') as HTMLElement;
+    expect(hudEl.style.display).toBe('none');
+  });
+
+  it('does not offer a close button on a card that auto-hides', () => {
+    // A successful run hides itself after two seconds; a close button on it
+    // would be noise.
+    hud.update({
+      status: 'complete',
+      translatedCount: 3,
+      failedCount: 0,
+      cachedCount: 0,
+    });
+    expect(shadow().getElementById('close-btn')).toBeNull();
+  });
+
+  it('keeps the retry button working after a close', () => {
+    hud.update({
+      status: 'complete',
+      translatedCount: 3,
+      failedCount: 2,
+      cachedCount: 0,
+    });
+    const retried = vi.fn();
+    hud['container'].addEventListener('hud-retry-failed', retried);
+
+    (shadow().getElementById('retry-failed-btn') as HTMLButtonElement).click();
+    expect(retried).toHaveBeenCalled();
+  });
+});
+
+// The HUD is drawn on top of somebody else's comic page, so every word in it
+// has to survive the worst backdrop there is: a white page.
+//
+// The numbers below are the ones the accessibility review measured — the
+// suggestion hint sat at 2.83:1 and the close button at 3.08:1, both under
+// what they owe. These tests assert the ratio itself, not a literal colour,
+// so a declaration that gets weaker fails the build.
+describe('HUD 的对比度预算', () => {
+  let hud: FloatingHud;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    hud = new FloatingHud();
+  });
+
+  afterEach(() => {
+    hud.destroy();
+  });
+
+  function stylesheet(): string {
+    const host = getHudHost() as HTMLElement;
+    return host.shadowRoot?.querySelector('style')?.textContent ?? '';
+  }
+
+  /** The colour a card paints, once it is composited over the page. */
+  function cardSurface(selector: string): Rgb {
+    const background = cssDeclaration(
+      cssBlock(stylesheet(), selector),
+      'background'
+    );
+    return surfaceColor(background, WHITE_PAGE);
+  }
+
+  /** The contrast of a rule's text colour against a surface. */
+  function contrastOf(selector: string, surface: Rgb): number {
+    const color = cssDeclaration(cssBlock(stylesheet(), selector), 'color');
+    return textContrast(color, surface);
+  }
+
+  it('错误提示文字在红色错误卡上至少 4.5:1', () => {
+    // 0.6 alpha over rgb(191,64,64) was rgb(230,179,179): 2.83:1.
+    const errorCard = cardSurface('.hud-card--error');
+    expect(contrastOf('.hud-suggestion', errorCard)).toBeGreaterThanOrEqual(
+      4.5
+    );
+  });
+
+  it('错误提示文字字号不小于 12px', () => {
+    const size = cssDeclaration(
+      cssBlock(stylesheet(), '.hud-suggestion'),
+      'font-size'
+    );
+    expect(Number.parseFloat(size)).toBeGreaterThanOrEqual(12);
+  });
+
+  it('错误正文在红色错误卡上至少 4.5:1', () => {
+    const errorCard = cardSurface('.hud-card--error');
+    expect(contrastOf('.hud-message', errorCard)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('关闭按钮在红色错误卡上至少 4.5:1', () => {
+    // 0.65 alpha managed 3.08:1 there.
+    const errorCard = cardSurface('.hud-card--error');
+    expect(contrastOf('.hud-close', errorCard)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('关闭按钮的点击区不小于 24x24（WCAG 2.5.8）', () => {
+    // It used to be 22x22, under the minimum target size.
+    const block = cssBlock(stylesheet(), '.hud-close');
+    expect(
+      Number.parseFloat(cssDeclaration(block, 'width'))
+    ).toBeGreaterThanOrEqual(24);
+    expect(
+      Number.parseFloat(cssDeclaration(block, 'height'))
+    ).toBeGreaterThanOrEqual(24);
+  });
+
+  it('统计行与次要说明在深色卡片上至少 4.5:1', () => {
+    // The muted line used to sit at 0.5 alpha / 11px: 3.95:1.
+    const card = cardSurface('.hud-card');
+    expect(contrastOf('.hud-sub', card)).toBeGreaterThanOrEqual(4.5);
+    expect(contrastOf('.hud-sub-muted', card)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('操作按钮的标签在自己的底色上至少 4.5:1', () => {
+    // A translucent white plate under a white label measured 4.05:1.
+    const errorCard = cardSurface('.hud-card--error');
+    const button = surfaceColor(
+      cssDeclaration(cssBlock(stylesheet(), '.hud-action'), 'background'),
+      errorCard
+    );
+    const label = cssDeclaration(
+      cssBlock(stylesheet(), '.hud-action'),
+      'color'
+    );
+    expect(textContrast(label, button)).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('进度条填充与轨道至少 3:1', () => {
+    // #3b82f6 on the track measured 1.56:1 — the progress was unreadable.
+    const card = cardSurface('.hud-card');
+    const track = surfaceColor(
+      cssDeclaration(
+        cssBlock(stylesheet(), '.hud-progress-track'),
+        'background'
+      ),
+      card
+    );
+    const fill = cssDeclaration(
+      cssBlock(stylesheet(), '.hud-progress-bar'),
+      'background'
+    );
+    expect(contrastRatio(parseColor(fill).rgb, track)).toBeGreaterThanOrEqual(
+      3
+    );
   });
 });

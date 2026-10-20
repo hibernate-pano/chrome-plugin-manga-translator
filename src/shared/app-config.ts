@@ -44,9 +44,14 @@ export interface RuntimeAppConfig {
    * First-run onboarding completed flag.
    *
    * The extension ships with `enabled=false` and `onboardingCompleted=false`.
-   * New users see a 3-step onboarding modal in the Options page on first
-   * install. Until they complete it (or skip it explicitly), the extension
-   * will not auto-translate and the user will not be billed for VLM calls.
+   * New users see a two-step onboarding modal in the Options page on first
+   * install.
+   *
+   * This flag only records that the onboarding was seen. It is *not* what
+   * keeps a new user from being billed: the switch that does that is
+   * `enabled`, which the translation path checks before it calls a model.
+   * The flag used to be described here as if it were the billing guard,
+   * which it never was.
    */
   onboardingCompleted: boolean;
 }

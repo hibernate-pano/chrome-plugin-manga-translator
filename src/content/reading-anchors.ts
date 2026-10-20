@@ -63,7 +63,10 @@ export class ReadingAnchors {
     background: #67e8f9;
   }
   .badge:focus-visible {
-    outline: 2px solid #facc15;
+    /* The same cyan the extension pages use for focus rings. The content
+       script lives in the host page's DOM, so it cannot read the extension's
+       CSS variables — the colour has to be spelled out here. */
+    outline: 2px solid #22d3ee;
     outline-offset: 2px;
   }
 </style>
@@ -123,7 +126,41 @@ export class ReadingAnchors {
     }
   }
 
+  /**
+   * Is the anchor host still in the document?
+   *
+   * A page that replaces its own `document.body` detaches the host without
+   * telling us; the badges would then be invisible for the rest of the
+   * page's life.
+   */
+  isAttached(): boolean {
+    return this.host.isConnected;
+  }
+
+  /**
+   * 把徽章编号同步成阅读面板重排后的编号。
+   *
+   * 编号来自图片在 DOM 中的位置，而阅读面板会在一批翻译结束后统一重排。
+   * 锚点必须跟着改，否则图上的"3"会指向面板里的另一张图。
+   */
+  syncIndices(indices: ReadonlyMap<HTMLImageElement, number>): void {
+    this.anchors.forEach(anchor => {
+      const index = indices.get(anchor.image);
+      if (index === undefined || index === anchor.index) {
+        return;
+      }
+      anchor.index = index;
+      anchor.badge.dataset['index'] = String(index);
+      anchor.badge.textContent = String(index);
+      anchor.badge.setAttribute('aria-label', `跳到第 ${index} 张图的译文`);
+    });
+  }
+
   destroy(): void {
+    // Drop the image references too: the anchors hold strong references to
+    // <img> elements, and a torn-down panel must not keep the page's DOM
+    // alive.
+    this.anchors = [];
     this.host.remove();
   }
 
@@ -142,10 +179,43 @@ export class ReadingAnchors {
       anchor.badge.style.display = 'none';
       return;
     }
+
+    // A manga page is usually taller than the screen, so a badge pinned to
+    // the image's top corner scrolled out of view as soon as the reader
+    // moved down the page. The badge is held at the top of the viewport
+    // while the image is being read, and it follows the image again once
+    // the image itself is back in view.
+    const margin = 12;
+    if (rect.bottom < margin) {
+      // The image has been scrolled past. The badge goes with it, instead of
+      // sticking to the top of the screen pointing at nothing.
+      anchor.badge.style.display = 'none';
+      return;
+    }
+
     anchor.badge.style.display = 'flex';
-    const cx = rect.left + rect.width - 12;
-    const cy = rect.top + 12;
+    // The left edge, not the right: the reading panel is docked on the
+    // right and covers that corner of the image, so a badge there was
+    // hidden behind the panel and could not be clicked at all.
+    const cx = rect.left + margin;
+    const cy = Math.max(rect.top + margin, margin);
     anchor.badge.style.left = `${cx}px`;
     anchor.badge.style.top = `${cy}px`;
+  }
+
+  /**
+   * Drop the badge for one image.
+   *
+   * The user can remove a translation from the image itself. The badge is
+   * another view of the same translations, so it has to go with it —
+   * otherwise the badge still claims the image was translated.
+   */
+  remove(image: HTMLImageElement): void {
+    const index = this.anchors.findIndex(anchor => anchor.image === image);
+    if (index === -1) {
+      return;
+    }
+    const [anchor] = this.anchors.splice(index, 1);
+    anchor?.badge.remove();
   }
 }

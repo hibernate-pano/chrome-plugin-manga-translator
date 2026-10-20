@@ -12,6 +12,9 @@
  */
 
 import type { TextArea } from '@/providers/base';
+import { getOverlayStyleFromConfig } from '@/content/config-snapshot';
+import { APP_CONFIG_STORAGE_KEY } from '@/shared/app-config';
+import { sortTextAreasByReadingOrder } from '@/services/reading-order';
 
 // ==================== Type Definitions ====================
 
@@ -66,9 +69,34 @@ export interface RenderedOverlay {
 
 const WRAPPER_CLASS = 'manga-translator-wrapper';
 const OVERLAY_CLASS = 'manga-translator-overlay';
+/**
+ * Marks an overlay whose text runs top to bottom.
+ *
+ * Japanese manga is read vertically, and a horizontal translation of a
+ * vertical page reads wrong: the eye has to travel back to the left for
+ * every line.
+ */
+const OVERLAY_VERTICAL_CLASS = 'manga-translator-overlay-vertical';
 const OVERLAY_CONTAINER_CLASS = 'manga-translator-overlay-container';
+/**
+ * Marks an overlay whose text did not fit the bubble.
+ *
+ * The class puts an ellipsis in the corner, so a reader can tell that the
+ * translation continues somewhere else — the reading panel — instead of
+ * taking a cut-off sentence for the whole thing.
+ */
+const OVERLAY_CLIPPED_CLASS = 'manga-translator-overlay-clipped';
 const CONTROLS_CLASS = 'manga-translator-controls';
 const DATA_ATTR = 'data-manga-translator';
+/** The translated text layer inside an overlay. */
+const TRANSLATED_TEXT_CLASS = 'manga-translator-text-translated';
+/**
+ * The original text layer inside an overlay.
+ *
+ * Kept in the DOM but hidden until the reader asks for it, so the source can
+ * be shown on demand without another API call or another layout pass.
+ */
+const ORIGINAL_TEXT_CLASS = 'manga-translator-text-original';
 
 // Hover debounce delay (ms) - prevents flicker when mouse quickly enters/leaves
 const HOVER_HIDE_DELAY = 120; // delay hide on mouseleave to prevent rapid toggle flicker
@@ -87,45 +115,71 @@ const DEFAULT_STYLE: OverlayStyle = {
 
 // ==================== Utility Functions ====================
 
+/**
+ * Read the overlay style the user configured.
+ *
+ * The renderer used to pick the style up from a `chrome.storage.onChanged`
+ * event, which only reaches a tab that was already open when the setting
+ * changed. A freshly opened page therefore never saw it: the user watched
+ * their font size and colours apply in one tab and silently revert in the
+ * next one, which reads as "this setting is broken".
+ *
+ * The *raw* stored record is read here, not the config store, so nothing
+ * on this path ever touches the API key — the overlay style does not need
+ * it, and the content script should not be holding it.
+ */
+async function loadPersistedOverlayStyle(): Promise<OverlayStyleConfig | null> {
+  try {
+    if (typeof chrome === 'undefined' || !chrome.storage?.local) {
+      return null;
+    }
+    const result = await chrome.storage.local.get([APP_CONFIG_STORAGE_KEY]);
+    return getOverlayStyleFromConfig(result[APP_CONFIG_STORAGE_KEY]);
+  } catch (error) {
+    console.error('[Renderer] 读取覆盖层样式失败:', error);
+    return null;
+  }
+}
+
 // 全角字符正则表达式：涵盖汉字、日文平假名/片假名、韩文音节、全角标点符号等，实现更精准的多语言宽度估算
 const FULL_WIDTH_REGEX =
   /[\u3000-\u303f\u3040-\u309f\u30a0-\u30ff\uff00-\uffef\u4e00-\u9fff\uac00-\ud7af\uf900-\ufaff\ufe30-\ufe4f]/g;
 
 /**
- * 计算最优字体大小（感知中文字符宽度）
+ * How the text is laid out inside a speech bubble.
  *
- * 中文字符（CJK）及日韩全角字符宽度约为英文字符的 2 倍，需要据此调整排版计算。
+ * `horizontal` stacks one line under another; `vertical` — the way Japanese
+ * manga is actually read — runs a column down the height of the bubble and
+ * stacks the columns across its width.
  */
-export function calculateFontSize(
-  areaWidth: number,
-  areaHeight: number,
-  text: string,
-  style: OverlayStyle = DEFAULT_STYLE
-): number {
-  const padding = style.padding * 2;
-  const availWidth = Math.max(areaWidth - padding, 1);
-  const availHeight = Math.max(areaHeight - padding, 1);
+export type TextDirection = 'horizontal' | 'vertical';
 
-  // 按中文字符计算"等效字符数"（全角算 2，ASCII 算 1）
-  const fullWidthCount = (text.match(FULL_WIDTH_REGEX) || []).length;
-  const asciiCount = text.length - fullWidthCount;
-  const effectiveLength = fullWidthCount * 2 + asciiCount;
-
-  // 估算单行最大字体：宽度优先
-  const fontByWidth =
-    effectiveLength > 0
-      ? Math.floor(availWidth / (effectiveLength / 2))
-      : availHeight;
-
-  // 高度限制：单行场景
-  const fontByHeight = Math.floor(availHeight * 0.7);
-
-  // 取较小值，确保文字不溢出
-  const fontSize = Math.min(fontByWidth, fontByHeight);
-
-  return Math.max(style.minFontSize, Math.min(style.maxFontSize, fontSize));
+/**
+ * The result of fitting a piece of text into a box.
+ */
+export interface TextFit {
+  /** The font size the text was laid out at. */
+  fontSize: number;
+  /** The lines (horizontal) or columns (vertical) the text was split into. */
+  lines: string[];
+  /** How wide the laid-out text is, in screen pixels. */
+  width: number;
+  /** How tall the laid-out text is, in screen pixels. */
+  height: number;
+  /**
+   * The text did not fit even at the smallest allowed size.
+   *
+   * The overlay still shows what it can, but the user has to be able to
+   * tell that something was cut off: a silently truncated translation reads
+   * like a complete one, and a reader has no way to guess that the last
+   * line is missing.
+   */
+  clipped: boolean;
 }
 
+/**
+ * Where an overlay sits on the image, and how it is laid out.
+ */
 interface OverlayLayout {
   fontSize: number;
   lines: string[];
@@ -133,54 +187,91 @@ interface OverlayLayout {
   height: number;
   left: number;
   top: number;
+  /** The text was cut off — the overlay has to say so. */
+  clipped: boolean;
 }
 
-interface TextMeasureContext {
-  measureText: (text: string) => { width: number };
-}
+/** The line height of a line of text, as a multiple of the font size. */
+const LINE_HEIGHT_RATIO = 1.3;
 
-function getTextMeasureContext(
-  fontSize: number,
-  style: OverlayStyle
-): TextMeasureContext | null {
-  try {
-    const canvas = document.createElement('canvas');
-    const ctx = canvas.getContext('2d');
-    if (!ctx || typeof ctx.measureText !== 'function') {
-      return null;
+/**
+ * The thickness of a column of vertical text, as a multiple of the font size.
+ *
+ * A column is as wide as the line height is tall, so this is the same
+ * number the horizontal layout uses for its line height.
+ */
+const COLUMN_THICKNESS_RATIO = 1.3;
+
+/**
+ * A canvas used to measure text, created once and kept.
+ *
+ * The first version of this created a canvas for every single measurement.
+ * The layout measures every line at every candidate font size, so a page
+ * with a few hundred speech bubbles created thousands of canvases — the
+ * kind of cost that shows up as a stutter while a chapter scrolls into
+ * view. One canvas, with the font set before each measurement, does the
+ * same work.
+ */
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+function getMeasureContext(): CanvasRenderingContext2D | null {
+  if (measureContext === undefined) {
+    try {
+      const canvas = document.createElement('canvas');
+      const ctx = canvas.getContext('2d');
+      measureContext =
+        ctx && typeof ctx.measureText === 'function' ? ctx : null;
+    } catch {
+      measureContext = null;
     }
-
-    ctx.font = `${fontSize}px ${style.fontFamily}`;
-    return ctx;
-  } catch {
-    return null;
   }
+  return measureContext;
 }
 
-function estimateTextWidth(text: string, fontSize: number): number {
+/**
+ * Estimate the width of a piece of text at a given size.
+ *
+ * This is the fallback for environments without a 2D canvas. Full-width
+ * characters count as one em and ASCII characters as about half an em,
+ * which is the rule the real font metrics follow.
+ */
+export function estimateTextWidth(text: string, fontSize: number): number {
   const fullWidthCount = (text.match(FULL_WIDTH_REGEX) || []).length;
   const latinCount = Math.max(0, text.length - fullWidthCount);
   return fullWidthCount * fontSize + latinCount * fontSize * 0.55;
 }
 
-function measureTextWidth(
+/**
+ * How a piece of text is measured.
+ *
+ * The default measures with a canvas, which knows the real font metrics of
+ * the font the overlay is actually drawn in. It is a parameter because the
+ * canvas in the test environment is a stub that reports the same width for
+ * every string: testing the layout against it would only prove that the
+ * layout follows the stub.
+ */
+export type TextMeasurer = (
   text: string,
   fontSize: number,
   style: OverlayStyle
-): number {
-  const ctx = getTextMeasureContext(fontSize, style);
+) => number;
+
+const measureTextWidth: TextMeasurer = (text, fontSize, style) => {
+  const ctx = getMeasureContext();
   if (ctx) {
+    ctx.font = `${fontSize}px ${style.fontFamily}`;
     return ctx.measureText(text).width;
   }
 
   return estimateTextWidth(text, fontSize);
-}
+};
 
 function wrapTextToWidth(
   text: string,
   maxWidth: number,
   fontSize: number,
-  style: OverlayStyle
+  style: OverlayStyle,
+  measure: TextMeasurer
 ): string[] {
   const paragraphs = text.split('\n');
   const lines: string[] = [];
@@ -195,10 +286,7 @@ function wrapTextToWidth(
 
     for (const char of paragraph) {
       const candidate = currentLine + char;
-      if (
-        currentLine &&
-        measureTextWidth(candidate, fontSize, style) > maxWidth
-      ) {
+      if (currentLine && measure(candidate, fontSize, style) > maxWidth) {
         lines.push(currentLine.trimEnd());
         currentLine = char.trimStart();
       } else {
@@ -212,12 +300,136 @@ function wrapTextToWidth(
   return lines;
 }
 
+/**
+ * Lay the text out at one font size and report how much room it needs.
+ */
+function measureFit(
+  text: string,
+  safeLineLength: number,
+  fontSize: number,
+  style: OverlayStyle,
+  direction: TextDirection,
+  lineBudget: number,
+  stackBudget: number,
+  measure: TextMeasurer
+): TextFit {
+  const padding = style.padding * 2;
+  const lines = wrapTextToWidth(text, safeLineLength, fontSize, style, measure);
+  const longest = Math.max(
+    fontSize,
+    ...lines.map(line => measure(line, fontSize, style))
+  );
+
+  if (direction === 'vertical') {
+    // 竖排：一列沿高度方向延伸，列与列沿宽度方向并排。
+    // The column length is padded by a tenth before it becomes the box
+    // height, because the browser's own font metrics are close to but not
+    // exactly the estimate used here, and a box that is a few pixels too
+    // short would cut the last character off.
+    const columnLength = longest * 1.1 + padding;
+    const columnStack =
+      lines.length * fontSize * COLUMN_THICKNESS_RATIO + padding;
+    return {
+      fontSize,
+      lines,
+      width: columnStack,
+      height: columnLength,
+      clipped: columnLength > lineBudget + 1 || columnStack > stackBudget + 1,
+    };
+  }
+
+  const textHeight = lines.length * fontSize * LINE_HEIGHT_RATIO + padding;
+  const textWidth = longest + padding;
+  return {
+    fontSize,
+    lines,
+    width: textWidth,
+    height: textHeight,
+    clipped: textHeight > stackBudget + 1 || textWidth > lineBudget + 1,
+  };
+}
+
+/**
+ * Fit a piece of text into a box, at the largest font size that still fits.
+ *
+ * The question this answers used to be "how big can the font be so the
+ * whole text fits on a single line?", and that answer was then used as the
+ * starting point for a downward search. For any text longer than a line
+ * that answer collapses onto the minimum font size, so most translations
+ * were drawn at 10px no matter how much room the speech bubble actually
+ * had — the reader had to squint at every bubble.
+ *
+ * This asks the question the reader cares about — "how big can it be while
+ * it still fits?" — and answers it by trying the sizes from the top down.
+ *
+ * `lineBudget` is the room one line (one column, when the text runs
+ * vertically) may take; `stackBudget` is the room all of them together may
+ * take. For vertical text the two swap roles on screen: the line budget
+ * is the height of the bubble, the stack budget is its width.
+ */
+export function fitTextToBox(
+  text: string,
+  lineBudget: number,
+  stackBudget: number,
+  style: OverlayStyle = DEFAULT_STYLE,
+  direction: TextDirection = 'horizontal',
+  measure: TextMeasurer = measureTextWidth
+): TextFit {
+  const padding = style.padding * 2;
+  // 5% 的排版折行安全余量：浏览器实际排版与这里的估算之间总有像素级误差。
+  const safeLineLength = Math.max((lineBudget - padding) * 0.95, 1);
+
+  for (
+    let fontSize = style.maxFontSize;
+    fontSize >= style.minFontSize;
+    fontSize--
+  ) {
+    const fit = measureFit(
+      text,
+      safeLineLength,
+      fontSize,
+      style,
+      direction,
+      lineBudget,
+      stackBudget,
+      measure
+    );
+    if (!fit.clipped) {
+      return fit;
+    }
+  }
+
+  // Even the smallest allowed size does not fit. Keep the text at that size
+  // and let the overlay admit that it was cut, rather than dropping the
+  // translation altogether.
+  return measureFit(
+    text,
+    safeLineLength,
+    style.minFontSize,
+    style,
+    direction,
+    lineBudget,
+    stackBudget,
+    measure
+  );
+}
+
 function computeAdaptiveOverlayLayout(
   area: TextArea,
   imageWidth: number,
   imageHeight: number,
-  style: OverlayStyle
+  style: OverlayStyle,
+  measure: TextMeasurer
 ): OverlayLayout {
+  if (style.verticalText) {
+    return computeVerticalOverlayLayout(
+      area,
+      imageWidth,
+      imageHeight,
+      style,
+      measure
+    );
+  }
   const areaLeft = area.x * imageWidth;
   const areaTop = area.y * imageHeight;
   const areaWidth = area.width * imageWidth;
@@ -234,115 +446,111 @@ function computeAdaptiveOverlayLayout(
     textGrowthRatio > 1
       ? 1 + Math.min(0.8, Math.sqrt(textGrowthRatio) * 0.3)
       : 1;
+  // The overlay may grow past the original bubble when the translation is
+  // longer than the source, but never past this much of the image.
   const maxWidth = Math.min(
     imageWidth * 0.78,
-    Math.max(areaWidth * widthExpansionFactor, Math.min(areaWidth, 120))
+    areaWidth * widthExpansionFactor
   );
   const maxHeight = Math.min(
     imageHeight * 0.58,
-    Math.max(areaHeight * heightExpansionFactor, Math.min(areaHeight, 54))
+    areaHeight * heightExpansionFactor
   );
   const visualPaddingX = Math.max(style.padding * 2, 12);
   const visualPaddingY = Math.max(style.padding * 1.5, 10);
 
-  // 引入 5% 的排版折行安全宽度缓冲区，以克服浏览器不同渲染引擎在文字排版上的像素级计算误差
-  const safeContentWidth = Math.max((maxWidth - style.padding * 2) * 0.95, 1);
-
-  let fontSize = calculateFontSize(
+  const fit = fitTextToBox(
+    area.translatedText,
     maxWidth,
     maxHeight,
-    area.translatedText,
-    style
-  );
-  let lines = wrapTextToWidth(
-    area.translatedText,
-    safeContentWidth,
-    fontSize,
-    style
+    style,
+    'horizontal',
+    measure
   );
 
-  while (fontSize > style.minFontSize) {
-    lines = wrapTextToWidth(
-      area.translatedText,
-      safeContentWidth,
-      fontSize,
-      style
-    );
-    const lineHeight = fontSize * 1.3;
-    const textHeight = lines.length * lineHeight + style.padding * 2;
-    const textWidth =
-      Math.max(
-        ...lines.map(line => measureTextWidth(line, fontSize, style)),
-        fontSize
-      ) +
-      style.padding * 2;
-
-    if (textHeight <= maxHeight && textWidth <= maxWidth) {
-      const minimumWidth = Math.min(maxWidth, Math.max(fontSize * 2.4, 48));
-      const minimumHeight = Math.min(
-        maxHeight,
-        Math.max(lineHeight + style.padding * 2, 28)
-      );
-      const width = Math.min(
-        maxWidth,
-        Math.max(textWidth + visualPaddingX, minimumWidth)
-      );
-      const height = Math.min(
-        maxHeight,
-        Math.max(textHeight + visualPaddingY, minimumHeight)
-      );
-      const left = Math.min(
-        Math.max(0, areaLeft + (areaWidth - width) / 2),
-        Math.max(0, imageWidth - width)
-      );
-      const top = Math.min(
-        Math.max(0, areaTop + (areaHeight - height) / 2),
-        Math.max(0, imageHeight - height)
-      );
-      return {
-        fontSize,
-        lines,
-        width,
-        height,
-        left,
-        top,
-      };
-    }
-
-    fontSize -= 1;
-  }
-
-  lines = wrapTextToWidth(
-    area.translatedText,
-    safeContentWidth,
-    style.minFontSize,
-    style
-  );
-  const lineHeight = style.minFontSize * 1.3;
-  const textHeight = Math.min(
+  const minimumWidth = Math.min(maxWidth, Math.max(fit.fontSize * 2.4, 48));
+  const minimumHeight = Math.min(
     maxHeight,
-    lines.length * lineHeight + style.padding * 2
-  );
-  const textWidth = Math.min(
-    maxWidth,
-    Math.max(
-      ...lines.map(line => measureTextWidth(line, style.minFontSize, style)),
-      style.minFontSize
-    ) +
-      style.padding * 2
+    Math.max(fit.fontSize * LINE_HEIGHT_RATIO + style.padding * 2, 28)
   );
   const width = Math.min(
     maxWidth,
-    Math.max(
-      textWidth + visualPaddingX,
-      Math.min(maxWidth, Math.max(style.minFontSize * 2.4, 48))
-    )
+    Math.max(fit.width + visualPaddingX, minimumWidth)
   );
   const height = Math.min(
     maxHeight,
+    Math.max(fit.height + visualPaddingY, minimumHeight)
+  );
+  const left = Math.min(
+    Math.max(0, areaLeft + (areaWidth - width) / 2),
+    Math.max(0, imageWidth - width)
+  );
+  const top = Math.min(
+    Math.max(0, areaTop + (areaHeight - height) / 2),
+    Math.max(0, imageHeight - height)
+  );
+
+  return {
+    fontSize: fit.fontSize,
+    lines: fit.lines,
+    width,
+    height,
+    left,
+    top,
+    clipped: fit.clipped,
+  };
+}
+
+/**
+ * The layout for vertical text.
+ *
+ * A vertical line of text runs down the height of the box and the columns
+ * stack across the width, so the two axes swap roles: what the horizontal
+ * layout calls the width is the length of a column here, and what it calls
+ * the height is the stack of columns.
+ *
+ * The measuring helpers do not care about direction — they only measure
+ * text — so the same code produces the columns; only the interpretation
+ * of the result changes.
+ */
+function computeVerticalOverlayLayout(
+  area: TextArea,
+  imageWidth: number,
+  imageHeight: number,
+  style: OverlayStyle,
+  measure: TextMeasurer
+): OverlayLayout {
+  const areaLeft = area.x * imageWidth;
+  const areaTop = area.y * imageHeight;
+  const areaWidth = area.width * imageWidth;
+  const areaHeight = area.height * imageHeight;
+
+  // The text runs down the height, so the height is the length of a column
+  // and the width is the room the columns have to stack in.
+  const maxLength = Math.min(imageHeight * 0.72, areaHeight * 1.4);
+  const maxThickness = Math.min(imageWidth * 0.78, areaWidth * 1.4);
+
+  const fit = fitTextToBox(
+    area.translatedText,
+    maxLength,
+    maxThickness,
+    style,
+    'vertical',
+    measure
+  );
+
+  const width = Math.min(
+    maxThickness,
     Math.max(
-      textHeight + visualPaddingY,
-      Math.min(maxHeight, Math.max(style.minFontSize * 1.8, 28))
+      fit.width,
+      Math.min(maxThickness, fit.fontSize * 1.8 + style.padding * 2)
+    )
+  );
+  const height = Math.min(
+    maxLength,
+    Math.max(
+      fit.height,
+      Math.min(maxLength, fit.fontSize * 2.4 + style.padding * 2)
     )
   );
   const left = Math.min(
@@ -355,12 +563,13 @@ function computeAdaptiveOverlayLayout(
   );
 
   return {
-    fontSize: style.minFontSize,
-    lines,
+    fontSize: fit.fontSize,
+    lines: fit.lines,
     width,
     height,
     left,
     top,
+    clipped: fit.clipped,
   };
 }
 
@@ -427,8 +636,45 @@ function createOverlayStyles(): string {
       transition: opacity 0.18s ease-in-out;
     }
 
-    .${OVERLAY_CLASS}:hover {
-      opacity: 0.15 !important;
+    /* Original text sits behind the translation and is swapped in while the
+       reader holds Alt. Both layers are always in the DOM, so revealing the
+       source costs no layout work and no network call. */
+    .${TRANSLATED_TEXT_CLASS},
+    .${ORIGINAL_TEXT_CLASS} {
+      display: block;
+      width: 100%;
+    }
+    /* Vertical text runs down the height of the overlay and stacks its
+       columns across the width, so the text layer fills the height and
+       leaves the width to the columns. */
+    .${OVERLAY_VERTICAL_CLASS} .${TRANSLATED_TEXT_CLASS},
+    .${OVERLAY_VERTICAL_CLASS} .${ORIGINAL_TEXT_CLASS} {
+      width: auto;
+      height: 100%;
+    }
+    .${ORIGINAL_TEXT_CLASS} {
+      display: none;
+      opacity: 0.85;
+      font-weight: 400;
+    }
+    body.manga-translator-show-original .${TRANSLATED_TEXT_CLASS} {
+      display: none;
+    }
+    body.manga-translator-show-original .${ORIGINAL_TEXT_CLASS} {
+      display: block;
+    }
+
+    /* The text was cut off to fit the bubble. Say so — a truncated
+       translation that looks complete is worse than no translation. */
+    .${OVERLAY_CLASS}.manga-translator-overlay-clipped::after {
+      content: '…';
+      position: absolute;
+      right: 3px;
+      bottom: 1px;
+      font-size: 0.85em;
+      line-height: 1;
+      opacity: 0.8;
+      pointer-events: none;
     }
 
     .${WRAPPER_CLASS}:hover .${OVERLAY_CLASS} {
@@ -543,6 +789,77 @@ function ensureStylesInjected(): void {
  *
  * Manages the rendering of translation overlays on manga images.
  */
+/**
+ * Body class that swaps every overlay between its translation and its
+ * original text.
+ *
+ * The listener is module-level rather than per-renderer so that a page with
+ * many translated images still has exactly one keydown/keyup pair bound, and
+ * so the class is removed from `<body>` even if the renderer is torn down
+ * while the key is held.
+ */
+const SHOW_ORIGINAL_CLASS = 'manga-translator-show-original';
+
+let showOriginalListenerCount = 0;
+let originalTextKeyDownHandler: ((event: KeyboardEvent) => void) | null = null;
+let originalTextKeyUpHandler: ((event: KeyboardEvent) => void) | null = null;
+
+function setShowOriginal(show: boolean): void {
+  if (typeof document === 'undefined' || !document.body) {
+    return;
+  }
+  document.body.classList.toggle(SHOW_ORIGINAL_CLASS, show);
+}
+
+function handleOriginalTextKeyDown(event: KeyboardEvent): void {
+  if (event.key === 'Alt' || event.altKey) {
+    setShowOriginal(true);
+  }
+}
+
+function handleOriginalTextKeyUp(event: KeyboardEvent): void {
+  if (event.key === 'Alt' || !event.altKey) {
+    setShowOriginal(false);
+  }
+}
+
+/**
+ * Blur also ends the gesture: a reader who alt-tabs away while holding Alt
+ * would otherwise come back to a page stuck on the original text.
+ */
+function handleOriginalTextBlur(): void {
+  setShowOriginal(false);
+}
+
+function acquireShowOriginalListener(): void {
+  showOriginalListenerCount += 1;
+  if (showOriginalListenerCount > 1) {
+    return;
+  }
+  originalTextKeyDownHandler = handleOriginalTextKeyDown;
+  originalTextKeyUpHandler = handleOriginalTextKeyUp;
+  window.addEventListener('keydown', originalTextKeyDownHandler, true);
+  window.addEventListener('keyup', originalTextKeyUpHandler, true);
+  window.addEventListener('blur', handleOriginalTextBlur);
+}
+
+function releaseShowOriginalListener(): void {
+  showOriginalListenerCount = Math.max(0, showOriginalListenerCount - 1);
+  if (showOriginalListenerCount > 0) {
+    return;
+  }
+  if (originalTextKeyDownHandler) {
+    window.removeEventListener('keydown', originalTextKeyDownHandler, true);
+    originalTextKeyDownHandler = null;
+  }
+  if (originalTextKeyUpHandler) {
+    window.removeEventListener('keyup', originalTextKeyUpHandler, true);
+    originalTextKeyUpHandler = null;
+  }
+  window.removeEventListener('blur', handleOriginalTextBlur);
+  setShowOriginal(false);
+}
+
 export class OverlayRenderer {
   private style: OverlayStyle;
   private renderedOverlays: Map<HTMLImageElement, RenderedOverlay> = new Map();
@@ -557,10 +874,45 @@ export class OverlayRenderer {
   private repositionFrame: number | null = null;
   /** Set by `dispose()` so a frame already queued becomes a no-op. */
   private disposed = false;
+  /**
+   * Whether the style was set explicitly after construction.
+   *
+   * The persisted style arrives asynchronously. If the user changes the
+   * style in the meantime, the newer value has to win — a late arrival
+   * must not overwrite it with the value that was stored a moment earlier.
+   */
+  private styleOverridden = false;
+  /**
+   * Called when the user removes a translation from an image.
+   *
+   * The reading panel and the number badges are separate views of the same
+   * translations, so they have to hear about a removal — otherwise the panel
+   * still lists a translation that is no longer on the page.
+   */
+  private removalListener: ((image: HTMLImageElement) => void) | null = null;
+  /** How a piece of text is measured when the layout is computed. */
+  private measure: TextMeasurer;
 
-  constructor(style: Partial<OverlayStyle> = {}) {
+  constructor(
+    style: Partial<OverlayStyle> = {},
+    options: { measure?: TextMeasurer } = {}
+  ) {
     this.style = { ...DEFAULT_STYLE, ...style };
+    this.measure = options.measure ?? measureTextWidth;
     ensureStylesInjected();
+    acquireShowOriginalListener();
+    void this.applyPersistedStyle();
+  }
+
+  /**
+   * Adopt the style the user configured, unless a newer one already won.
+   */
+  private async applyPersistedStyle(): Promise<void> {
+    const persisted = await loadPersistedOverlayStyle();
+    if (!persisted || this.styleOverridden || this.disposed) {
+      return;
+    }
+    this.updateStyleFromConfig(persisted);
   }
 
   /**
@@ -574,7 +926,15 @@ export class OverlayRenderer {
     // Remove existing overlays for this image
     this.remove(image);
 
-    if (textAreas.length === 0) {
+    // An empty translation is not a translation. Covering the speech bubble
+    // with an empty box hides the artwork and the original text for nothing,
+    // so the area is simply left alone.
+    const areas = sortTextAreasByReadingOrder(
+      textAreas.filter(area => area.translatedText.trim() !== ''),
+      this.style.verticalText
+    );
+
+    if (areas.length === 0) {
       return image.parentElement || image;
     }
 
@@ -601,7 +961,7 @@ export class OverlayRenderer {
 
     // Create overlay elements inside container
     const overlays: HTMLElement[] = [];
-    for (const area of textAreas) {
+    for (const area of areas) {
       const overlay = this.createOverlayElement(area, imageWidth, imageHeight);
       overlayContainer.appendChild(overlay);
       overlays.push(overlay);
@@ -615,7 +975,7 @@ export class OverlayRenderer {
 
     // Toggle button (pin/unpin translation)
     const toggleBtn = document.createElement('button');
-    toggleBtn.title = '切换翻译显示';
+    toggleBtn.title = '切换翻译显示（按住 Alt 键可临时看原文）';
     toggleBtn.textContent = '📌';
     toggleBtn.addEventListener('click', e => {
       e.stopPropagation();
@@ -634,7 +994,7 @@ export class OverlayRenderer {
     closeBtn.textContent = '✕';
     closeBtn.addEventListener('click', e => {
       e.stopPropagation();
-      this.remove(image);
+      this.removeTranslation(image);
     });
     controls.appendChild(closeBtn);
 
@@ -647,7 +1007,7 @@ export class OverlayRenderer {
       overlays,
       overlayContainer,
       pinned: autoPinned,
-      textAreas,
+      textAreas: areas,
     });
 
     // Setup hover debounce handlers (CSS :hover alone causes flicker on fast mouse movement)
@@ -705,17 +1065,7 @@ export class OverlayRenderer {
       if (!area) {
         return;
       }
-      const layout = computeAdaptiveOverlayLayout(
-        area,
-        imageWidth,
-        imageHeight,
-        this.style
-      );
-      overlay.style.left = `${layout.left}px`;
-      overlay.style.top = `${layout.top}px`;
-      overlay.style.width = `${layout.width}px`;
-      overlay.style.height = `${layout.height}px`;
-      overlay.style.fontSize = `${layout.fontSize}px`;
+      this.applyOverlayLayout(overlay, area, imageWidth, imageHeight);
     });
 
     // Re-run collision resolution: at a different scale the previous pass may
@@ -802,6 +1152,7 @@ export class OverlayRenderer {
    */
   dispose(): void {
     this.disposed = true;
+    releaseShowOriginalListener();
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     if (this.onWindowResize) {
@@ -897,12 +1248,51 @@ export class OverlayRenderer {
     overlay.className = OVERLAY_CLASS;
     overlay.setAttribute(DATA_ATTR, 'overlay');
 
+    // The original text was already being kept — as a `data-original`
+    // attribute nobody could read. Rendering it as a second, hidden layer
+    // makes the source visible on demand (hold Alt) without adding a control
+    // to every image or disturbing the layout of the translation itself.
+    const translated = document.createElement('span');
+    translated.className = TRANSLATED_TEXT_CLASS;
+    translated.textContent = area.translatedText;
+
+    const original = document.createElement('span');
+    original.className = ORIGINAL_TEXT_CLASS;
+    original.textContent = area.originalText;
+
+    overlay.appendChild(translated);
+    overlay.appendChild(original);
+    overlay.setAttribute('data-original', area.originalText);
+
+    this.applyOverlayLayout(overlay, area, imageWidth, imageHeight);
+
+    return overlay;
+  }
+
+  /**
+   * Position and style one overlay against its text area.
+   *
+   * The geometry is kept apart from the element creation so that the same
+   * overlay can be re-laid out when the style changes — the user picked a
+   * bigger font in the settings page and the translations already on the
+   * page have to follow, not just the ones translated afterwards.
+   */
+  private applyOverlayLayout(
+    overlay: HTMLElement,
+    area: TextArea,
+    imageWidth: number,
+    imageHeight: number
+  ): void {
     const layout = computeAdaptiveOverlayLayout(
       area,
       imageWidth,
       imageHeight,
-      this.style
+      this.style,
+      this.measure
     );
+
+    overlay.classList.toggle(OVERLAY_VERTICAL_CLASS, this.style.verticalText);
+    overlay.classList.toggle(OVERLAY_CLIPPED_CLASS, layout.clipped);
 
     Object.assign(overlay.style, {
       left: `${layout.left}px`,
@@ -916,12 +1306,8 @@ export class OverlayRenderer {
       borderRadius: `${this.style.borderRadius}px`,
       padding: `${this.style.padding}px`,
       whiteSpace: 'pre-wrap',
+      writingMode: this.style.verticalText ? 'vertical-rl' : 'horizontal-tb',
     });
-
-    overlay.textContent = area.translatedText;
-    overlay.setAttribute('data-original', area.originalText);
-
-    return overlay;
   }
 
   private resolveOverlayCollisions(
@@ -1016,14 +1402,8 @@ export class OverlayRenderer {
    * Remove overlays from a specific image
    */
   remove(image: HTMLImageElement | HTMLElement): void {
-    if (image.classList?.contains(WRAPPER_CLASS)) {
-      const img = image.querySelector('img') as HTMLImageElement | null;
-      if (img) {
-        image = img;
-      }
-    }
-
-    const rendered = this.renderedOverlays.get(image as HTMLImageElement);
+    const target = this.resolveImage(image);
+    const rendered = this.renderedOverlays.get(target);
     if (!rendered) {
       return;
     }
@@ -1031,8 +1411,8 @@ export class OverlayRenderer {
     this.resizeObserver?.unobserve(rendered.image);
 
     // Clean up hover timer
-    this.clearHoverTimer(image as HTMLImageElement);
-    this.hoverTimers.delete(image as HTMLImageElement);
+    this.clearHoverTimer(target);
+    this.hoverTimers.delete(target);
 
     const { wrapper, image: originalImage } = rendered;
 
@@ -1043,6 +1423,49 @@ export class OverlayRenderer {
     }
 
     this.renderedOverlays.delete(originalImage);
+  }
+
+  /**
+   * Remove the translation from one image and tell the host about it.
+   *
+   * The reading panel and the number badges are other views of the same
+   * translations, so a removal has to reach them: otherwise the panel keeps
+   * listing a translation that is no longer on the page, and the badge still
+   * claims the image was translated.
+   */
+  removeTranslation(image: HTMLImageElement | HTMLElement): void {
+    const target = this.resolveImage(image);
+    const hadOverlays = this.renderedOverlays.has(target);
+    this.remove(target);
+    if (hadOverlays) {
+      this.removalListener?.(target);
+    }
+  }
+
+  /**
+   * Register the callback that hears about a translation the user removed.
+   */
+  setRemovalListener(
+    listener: ((image: HTMLImageElement) => void) | null
+  ): void {
+    this.removalListener = listener;
+  }
+
+  /**
+   * The image an element belongs to.
+   *
+   * The overlay wraps the image, so a caller may hold either.
+   */
+  private resolveImage(
+    image: HTMLImageElement | HTMLElement
+  ): HTMLImageElement {
+    if (image.classList?.contains(WRAPPER_CLASS)) {
+      const img = image.querySelector('img') as HTMLImageElement | null;
+      if (img) {
+        return img;
+      }
+    }
+    return image as HTMLImageElement;
   }
 
   /**
@@ -1074,6 +1497,7 @@ export class OverlayRenderer {
    * Update overlay style from config
    */
   updateStyleFromConfig(config: OverlayStyleConfig): void {
+    this.styleOverridden = true;
     this.style = {
       ...this.style,
       backgroundColor: config.backgroundColor,
@@ -1082,13 +1506,43 @@ export class OverlayRenderer {
       maxFontSize: config.maxFontSize,
       verticalText: config.verticalText,
     };
+    this.relayoutOverlays();
   }
 
   /**
    * Update overlay style
    */
   updateStyle(style: Partial<OverlayStyle>): void {
+    this.styleOverridden = true;
     this.style = { ...this.style, ...style };
+    this.relayoutOverlays();
+  }
+
+  /**
+   * Re-lay out every overlay that is already on the page.
+   *
+   * The font size and the writing direction are part of the layout, so a
+   * change to either of them has to reach the translations the user is
+   * already looking at. Without this the setting only ever applied to the
+   * images translated *after* the change: the user made the text bigger,
+   * looked at the page, saw no difference, and concluded the setting was
+   * broken.
+   */
+  private relayoutOverlays(): void {
+    for (const rendered of this.renderedOverlays.values()) {
+      const imageWidth =
+        rendered.image.offsetWidth || rendered.image.naturalWidth;
+      const imageHeight =
+        rendered.image.offsetHeight || rendered.image.naturalHeight;
+      rendered.overlays.forEach((overlay, index) => {
+        const area = rendered.textAreas[index];
+        if (!area) {
+          return;
+        }
+        this.applyOverlayLayout(overlay, area, imageWidth, imageHeight);
+      });
+      this.resolveOverlayCollisions(rendered.overlays, imageWidth, imageHeight);
+    }
   }
 
   /**

@@ -3,6 +3,9 @@ import { describe, expect, it } from 'vitest';
 import {
   parseTranslationError,
   retryWithBackoff,
+  formatHttpStatusMessage,
+  parseHttpStatusFromMessage,
+  stripHttpStatusMarker,
   TranslationErrorHandler,
   TranslationErrorCode,
 } from './error-handler';
@@ -16,6 +19,18 @@ describe('parseTranslationError', () => {
     expect(result.code).toBe(TranslationErrorCode.UNKNOWN_ERROR);
     expect(result.message).toContain('发生未知错误：');
     expect(result.message).toContain('章节数据结构已变更');
+  });
+
+  it('keeps a protocol payload out of the reader-facing message', () => {
+    // The raw provider text is a log line, not an explanation. It belongs in
+    // the console, not in the popup the user is looking at.
+    const result = parseTranslationError(
+      new Error('HTTP 500 {"error":{"message":"internal server error"}}')
+    );
+
+    expect(result.code).toBe(TranslationErrorCode.UNKNOWN_ERROR);
+    expect(result.message).toBe('发生未知错误');
+    expect(result.message).not.toContain('internal server error');
   });
 
   it('maps chapter waiting timeout to timeout error', () => {
@@ -181,6 +196,71 @@ describe('parseTranslationError keyword coverage', () => {
     );
     expect(parseTranslationError(null).code).toBe(
       TranslationErrorCode.UNKNOWN_ERROR
+    );
+  });
+});
+
+describe('HTTP status carried inside the message', () => {
+  // The background worker flattens every error to `error.message` before
+  // it reaches the content script, so the status has to survive inside the
+  // text. Without this, 401/422/429 were indistinguishable from a generic
+  // provider failure.
+  it('reads the status back out of a marked message', () => {
+    const message = formatHttpStatusMessage(401, 'Invalid API key');
+
+    expect(message).toBe('[HTTP 401] Invalid API key');
+    expect(parseHttpStatusFromMessage(message)).toBe(401);
+  });
+
+  it('strips the marker back off', () => {
+    const message = formatHttpStatusMessage(422, 'sensitive image');
+
+    expect(stripHttpStatusMarker(message)).toBe('sensitive image');
+  });
+
+  it('returns undefined for a message without a marker', () => {
+    expect(parseHttpStatusFromMessage('plain failure')).toBeUndefined();
+  });
+
+  it('classifies a 401 that only exists in the message', () => {
+    const error = new Error(formatHttpStatusMessage(401, 'nope'));
+
+    expect(parseTranslationError(error).code).toBe(
+      TranslationErrorCode.AUTH_ERROR
+    );
+  });
+
+  it('classifies a 422 that only exists in the message as content blocked', () => {
+    const error = new Error(
+      formatHttpStatusMessage(422, 'input new_sensitive, image is sensitive')
+    );
+
+    const friendly = parseTranslationError(error);
+    expect(friendly.code).toBe(TranslationErrorCode.CONTENT_BLOCKED);
+    expect(friendly.retryable).toBe(false);
+  });
+
+  it('classifies a 429 that only exists in the message as a rate limit', () => {
+    const error = new Error(formatHttpStatusMessage(429, 'slow down'));
+
+    expect(parseTranslationError(error).code).toBe(
+      TranslationErrorCode.RATE_LIMIT
+    );
+  });
+
+  it('never shows the internal marker to the user', () => {
+    const error = new Error(formatHttpStatusMessage(500, 'server exploded'));
+
+    const friendly = parseTranslationError(error);
+    expect(friendly.message).not.toContain('[HTTP');
+    expect(friendly.code).toBe(TranslationErrorCode.NETWORK_ERROR);
+  });
+
+  it('maps 408 to a timeout', () => {
+    const error = new Error(formatHttpStatusMessage(408, 'Request Timeout'));
+
+    expect(parseTranslationError(error).code).toBe(
+      TranslationErrorCode.TIMEOUT_ERROR
     );
   });
 });

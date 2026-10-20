@@ -1,8 +1,92 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { chromeMock } from '@/test/setup';
 
-import { ChromeRuntimeTranslationTransport } from './translation-transport';
+import {
+  ChromeRuntimeTranslationTransport,
+  generateJobId,
+} from './translation-transport';
+
+describe('generateJobId', () => {
+  const originalCrypto = globalThis.crypto;
+
+  afterEach(() => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: originalCrypto,
+      configurable: true,
+      writable: true,
+    });
+  });
+
+  it('uses crypto.randomUUID when it is available', () => {
+    const id = generateJobId();
+    expect(id).toBeTruthy();
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it('falls back to getRandomValues when randomUUID is missing (insecure context)', () => {
+    // `crypto.randomUUID` is a [SecureContext] API. A content script on a
+    // plain http:// page inherits the page's insecure context, where the
+    // method does not exist — calling it threw a TypeError that was
+    // swallowed into a bare {success:false}, so the whole extension looked
+    // broken on every non-HTTPS manga site.
+    const getRandomValues = vi.fn((array: Uint8Array) => {
+      for (let i = 0; i < array.length; i += 1) {
+        array[i] = i;
+      }
+      return array;
+    });
+
+    Object.defineProperty(globalThis, 'crypto', {
+      value: { getRandomValues },
+      configurable: true,
+      writable: true,
+    });
+
+    const id = generateJobId();
+
+    expect(getRandomValues).toHaveBeenCalledTimes(1);
+    expect(id).toBeTruthy();
+    expect(id.length).toBeGreaterThan(0);
+    // Still a well-formed v4 UUID.
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+    );
+  });
+
+  it('falls back to a timestamp+random id when no crypto API is available', () => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: undefined,
+      configurable: true,
+      writable: true,
+    });
+
+    const id = generateJobId();
+
+    expect(id).toBeTruthy();
+    expect(id).toContain('-');
+  });
+
+  it('never throws, whatever crypto looks like', () => {
+    Object.defineProperty(globalThis, 'crypto', {
+      value: {
+        randomUUID: () => {
+          throw new Error('nope');
+        },
+        getRandomValues: () => {
+          throw new Error('nope');
+        },
+      },
+      configurable: true,
+      writable: true,
+    });
+
+    expect(() => generateJobId()).not.toThrow();
+    expect(generateJobId()).toBeTruthy();
+  });
+});
 
 describe('ChromeRuntimeTranslationTransport', () => {
   let transport: ChromeRuntimeTranslationTransport;
@@ -12,7 +96,12 @@ describe('ChromeRuntimeTranslationTransport', () => {
     vi.mocked(chromeMock.runtime.sendMessage).mockReset();
   });
 
-  it('sends a direct job request for openai-compatible', async () => {
+  it('sends a job request that carries no provider configuration', async () => {
+    // The request used to carry `provider`, `apiKey`, `baseUrl` and
+    // `model`, and the worker used them as-is. A content script could then
+    // name an endpoint of its own choosing and have the user's real key
+    // sent there. The worker resolves the provider from its own
+    // configuration now, so the request must not even name one.
     vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
       success: true,
       job: {
@@ -34,23 +123,28 @@ describe('ChromeRuntimeTranslationTransport', () => {
       imageUrl: 'https://example.com/page-1.png',
       pageUrl: 'https://example.com/chapter/1',
       targetLanguage: 'zh-CN',
-      provider: 'openai-compatible',
-      apiKey: 'sk-test',
-      baseUrl: 'https://api.openai.com/v1',
-      model: 'gpt-4o',
       translationStylePreset: 'natural-zh',
     });
 
     expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({
         type: 'JOB_TRANSLATE_IMAGE',
-        requestedPath: 'plugin-direct',
-        provider: 'openai-compatible',
+        targetLanguage: 'zh-CN',
       })
     );
+
+    const sent = vi.mocked(chromeMock.runtime.sendMessage).mock
+      .calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(sent).toBeDefined();
+    for (const field of ['apiKey', 'baseUrl', 'model', 'provider']) {
+      expect(sent).not.toHaveProperty(field);
+    }
   });
 
-  it('defaults to ollama-direct for ollama requests', async () => {
+  it('sends the same message for a local provider as for a cloud one', async () => {
+    // The execution path is the worker's business now: it derives it from
+    // the provider the user configured, so the transport has nothing to say
+    // about it.
     vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
       success: true,
       job: {
@@ -70,87 +164,13 @@ describe('ChromeRuntimeTranslationTransport', () => {
       mimeType: 'image/jpeg',
       imageKey: 'page-2',
       targetLanguage: 'zh-CN',
-      provider: 'ollama',
-      baseUrl: 'http://localhost:11434',
-      model: 'llava',
       translationStylePreset: 'natural-zh',
     });
 
-    expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestedPath: 'ollama-direct',
-        provider: 'ollama',
-      })
-    );
-  });
-
-  it('routes lm-studio to ollama-direct to align with runtime-contracts (t14 regression guard)', async () => {
-    vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
-      success: true,
-      job: {
-        jobId: 'job-lm',
-        pageKey: 'page-lm',
-        priorityClass: 'visible-now',
-        requestedPath: 'ollama-direct',
-        actualCapabilityUsed: 'ollama-direct',
-        scope: 'page',
-        state: 'succeeded',
-      },
-      textAreas: [],
-    });
-
-    await transport.translateImage({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      imageUrl: 'https://example.com/page-lm.png',
-      targetLanguage: 'zh-CN',
-      provider: 'lm-studio',
-      baseUrl: 'http://localhost:1234/v1',
-      model: 'qwen-vl',
-      translationStylePreset: 'natural-zh',
-    });
-
-    expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestedPath: 'ollama-direct',
-        provider: 'lm-studio',
-      })
-    );
-  });
-
-  it('respects an explicitly-supplied requestedPath instead of inferring from provider', async () => {
-    vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
-      success: true,
-      job: {
-        jobId: 'job-3',
-        pageKey: 'page-3',
-        priorityClass: 'visible-now',
-        requestedPath: 'plugin-direct',
-        actualCapabilityUsed: 'plugin-direct',
-        scope: 'page',
-        state: 'succeeded',
-      },
-      textAreas: [],
-    });
-
-    await transport.translateImage({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      imageUrl: 'https://example.com/page-3.png',
-      targetLanguage: 'zh-CN',
-      provider: 'ollama', // would normally resolve to ollama-direct
-      requestedPath: 'plugin-direct', // explicit override
-      baseUrl: 'http://localhost:11434',
-      model: 'llava',
-      translationStylePreset: 'natural-zh',
-    });
-
-    expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
-      expect.objectContaining({
-        requestedPath: 'plugin-direct',
-        provider: 'ollama',
-      })
-    );
+    const sent = vi.mocked(chromeMock.runtime.sendMessage).mock
+      .calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(sent).not.toHaveProperty('requestedPath');
+    expect(sent).not.toHaveProperty('provider');
   });
 
   it('throws a clear error when background does not respond', async () => {
@@ -161,8 +181,6 @@ describe('ChromeRuntimeTranslationTransport', () => {
         imageBase64: 'base64-data',
         mimeType: 'image/png',
         targetLanguage: 'zh-CN',
-        provider: 'openai-compatible',
-        apiKey: 'sk-test',
         translationStylePreset: 'natural-zh',
       })
     ).rejects.toThrow(/Background script 无响应/);
@@ -200,8 +218,6 @@ describe('ChromeRuntimeTranslationTransport', () => {
       mimeType: 'image/png',
       imageUrl: 'https://example.com/page-4.png',
       targetLanguage: 'zh-CN',
-      provider: 'openai-compatible',
-      apiKey: 'sk-test',
       translationStylePreset: 'natural-zh',
     });
 
@@ -242,8 +258,6 @@ describe('ChromeRuntimeTranslationTransport', () => {
       mimeType: 'image/png',
       imageUrl: 'https://example.com/foo.png',
       targetLanguage: 'zh-CN',
-      provider: 'openai-compatible',
-      apiKey: 'sk-test',
       translationStylePreset: 'natural-zh',
     });
 
@@ -273,13 +287,61 @@ describe('ChromeRuntimeTranslationTransport', () => {
       imageBase64: 'base64-data',
       mimeType: 'image/png',
       targetLanguage: 'zh-CN',
-      provider: 'openai-compatible',
-      apiKey: 'sk-test',
       translationStylePreset: 'natural-zh',
     });
 
     expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
       expect.objectContaining({ pageKey: 'inline-image' })
     );
+  });
+
+  it('still sends a job on an insecure context (no crypto.randomUUID)', async () => {
+    // The content script on an http:// page has no crypto.randomUUID. The
+    // transport used to throw a TypeError there, which the translator
+    // swallowed into {success:false} — every image on the site "failed"
+    // with no visible reason.
+    const originalCrypto = globalThis.crypto;
+    Object.defineProperty(globalThis, 'crypto', {
+      value: { getRandomValues: originalCrypto.getRandomValues },
+      configurable: true,
+      writable: true,
+    });
+
+    try {
+      vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
+        success: true,
+        job: {
+          jobId: 'job-7',
+          pageKey: 'page-7',
+          priorityClass: 'visible-now',
+          requestedPath: 'plugin-direct',
+          actualCapabilityUsed: 'plugin-direct',
+          scope: 'page',
+          state: 'succeeded',
+        },
+        textAreas: [],
+      });
+
+      const result = await transport.translateImage({
+        imageBase64: 'base64-data',
+        mimeType: 'image/png',
+        imageUrl: 'https://example.com/page-7.png',
+        targetLanguage: 'zh-CN',
+        translationStylePreset: 'natural-zh',
+      });
+
+      expect(result.success).toBe(true);
+      const sent = vi.mocked(chromeMock.runtime.sendMessage).mock.calls[0]?.[0];
+      expect(sent).toBeDefined();
+      const jobId = (sent as { jobId?: string }).jobId;
+      expect(typeof jobId).toBe('string');
+      expect((jobId ?? '').length).toBeGreaterThan(0);
+    } finally {
+      Object.defineProperty(globalThis, 'crypto', {
+        value: originalCrypto,
+        configurable: true,
+        writable: true,
+      });
+    }
   });
 });

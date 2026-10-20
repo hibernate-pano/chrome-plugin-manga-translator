@@ -993,9 +993,19 @@ describe('image-processor', () => {
       expect(result.width).toBe(160);
 
       expect(result.segments).toHaveLength(2);
-      expect(result.segments[0]).toEqual({ index: 0, top: 0, height: 200 });
+      expect(result.segments[0]).toEqual({
+        index: 0,
+        sourceIndex: 0,
+        top: 0,
+        height: 200,
+      });
       // Next image top starts at height + spacing = 200 + 20 = 220
-      expect(result.segments[1]).toEqual({ index: 1, top: 220, height: 200 });
+      expect(result.segments[1]).toEqual({
+        index: 1,
+        sourceIndex: 1,
+        top: 220,
+        height: 200,
+      });
 
       // Verify canvas draw operations
       const ctx = HTMLCanvasElement.prototype.getContext(
@@ -1125,6 +1135,11 @@ describe('image-processor', () => {
       // The failed image (original index 1) is skipped; the third image
       // becomes the second element in the filtered images array → segment.index = 1
       expect(result.segments[1]?.index).toBe(1);
+      // The stacked index is NOT the source index once a crop was dropped:
+      // segment 1 was built from source crop 2. Without sourceIndex the
+      // caller maps the translation of region 2 onto region 1.
+      expect(result.segments[0]?.sourceIndex).toBe(0);
+      expect(result.segments[1]?.sourceIndex).toBe(2);
     });
 
     it('combines multiple images without index labels when isHybridRegions is false', async () => {

@@ -34,7 +34,7 @@ describe('OnboardingApp', () => {
   it('renders when onboardingCompleted is false', () => {
     render(<OnboardingApp />);
     expect(screen.getByRole('dialog')).toBeInTheDocument();
-    expect(screen.getByText(/欢迎使用 Manga Translator/)).toBeInTheDocument();
+    expect(screen.getByText(/欢迎使用漫画翻译助手/)).toBeInTheDocument();
   });
 
   it('does not render when onboardingCompleted is true', () => {
@@ -54,7 +54,7 @@ describe('OnboardingApp', () => {
     render(<OnboardingApp />);
 
     // Step 1: welcome → next
-    expect(screen.getByText(/欢迎使用 Manga Translator/)).toBeInTheDocument();
+    expect(screen.getByText(/欢迎使用漫画翻译助手/)).toBeInTheDocument();
     expect(screen.getByText(/可用的翻译后端/)).toBeInTheDocument();
     await user.click(screen.getByRole('button', { name: /下一步/ }));
 

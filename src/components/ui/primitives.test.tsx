@@ -3,6 +3,7 @@
  * the coverage denominator while PopupApp and OptionsApp gated destructive
  * actions and provider limits through them.
  */
+import { useState } from 'react';
 import { describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
 
@@ -191,5 +192,125 @@ describe('Slider', () => {
     thumb.focus();
     fireEvent.keyDown(thumb, { key: 'ArrowRight' });
     expect(onValueChange).toHaveBeenCalledWith([4]);
+  });
+});
+
+describe('Slider range', () => {
+  it('renders one thumb per value in a range', () => {
+    // Radix renders a thumb per value in the array. A hard-coded single
+    // thumb made the font-size range show one handle, and dragging it moved
+    // both ends at once — the user set a minimum and silently got a new
+    // maximum they never chose.
+    render(
+      <Slider
+        value={[10, 22]}
+        min={8}
+        max={48}
+        step={1}
+        onValueChange={() => undefined}
+        aria-label='字号范围'
+      />
+    );
+
+    expect(screen.getAllByRole('slider')).toHaveLength(2);
+  });
+
+  it('still renders a single thumb for a single-value slider', () => {
+    render(
+      <Slider
+        value={[3]}
+        min={1}
+        max={5}
+        step={1}
+        onValueChange={() => undefined}
+        aria-label='并发数'
+      />
+    );
+
+    expect(screen.getAllByRole('slider')).toHaveLength(1);
+  });
+});
+
+// A modal dialog that lets Tab walk out of it is not modal.
+//
+// The dialog claims `aria-modal="true"`, but the focus was free to leave:
+// a keyboard user tabbing past the last button landed on Popup controls
+// hidden behind the overlay, with no visible way to tell where they were.
+describe('ConfirmDialog focus management', () => {
+  it('keeps Tab inside the dialog', () => {
+    render(
+      <ConfirmDialog
+        open
+        title='清空缓存'
+        description='确认？'
+        onConfirm={() => undefined}
+        onCancel={() => undefined}
+      />
+    );
+
+    const confirmButton = screen.getByRole('button', { name: '确认' });
+    const cancelButton = screen.getByRole('button', { name: '取消' });
+
+    // Focus starts on cancel (the safe default). Tabbing from the last
+    // focusable element must wrap back to the first one, not escape.
+    confirmButton.focus();
+    fireEvent.keyDown(document, { key: 'Tab' });
+
+    expect(document.activeElement).toBe(cancelButton);
+  });
+
+  it('wraps backwards from the first element to the last', () => {
+    render(
+      <ConfirmDialog
+        open
+        title='清空缓存'
+        description='确认？'
+        onConfirm={() => undefined}
+        onCancel={() => undefined}
+      />
+    );
+
+    const confirmButton = screen.getByRole('button', { name: '确认' });
+    const cancelButton = screen.getByRole('button', { name: '取消' });
+
+    cancelButton.focus();
+    fireEvent.keyDown(document, { key: 'Tab', shiftKey: true });
+
+    expect(document.activeElement).toBe(confirmButton);
+  });
+
+  it('returns the focus to the trigger when it closes', () => {
+    function Harness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type='button' onClick={() => setOpen(true)}>
+            打开
+          </button>
+          <ConfirmDialog
+            open={open}
+            title='清空缓存'
+            description='确认？'
+            onConfirm={() => undefined}
+            onCancel={() => setOpen(false)}
+          />
+        </>
+      );
+    }
+
+    render(<Harness />);
+    const trigger = screen.getByRole('button', { name: '打开' });
+    trigger.focus();
+    fireEvent.click(trigger);
+
+    expect(document.activeElement).toBe(
+      screen.getByRole('button', { name: '取消' })
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '取消' }));
+
+    // Without this the focus falls back to <body> and a keyboard user has
+    // no idea where they are after dismissing the dialog.
+    expect(document.activeElement).toBe(trigger);
   });
 });

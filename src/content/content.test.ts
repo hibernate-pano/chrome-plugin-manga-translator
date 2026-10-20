@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 
 import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
@@ -8,11 +8,231 @@ import {
   getEnabledFromConfig,
   getOverlayStyleFromConfig,
 } from './config-snapshot';
-import { handleMessage } from './content';
+
+// ================================================================
+// Mocks
+//
+// `translatePage` is the one function that actually spends money, and it
+// had no behavioural test at all: the old suite only checked that
+// `handleMessage` returned `true`. These mocks let a real run happen in
+// jsdom, so the counting, cancellation and gating logic is exercised
+// for real.
+// ================================================================
+
+const translateImageMock = vi.fn();
+const renderMock = vi.fn();
+const removeAllMock = vi.fn();
+const providerValidateMock = vi.fn();
+/**
+ * The renderer double.
+ *
+ * It is a stable object, not a fresh one per call: the content script keeps
+ * the renderer for the whole page, and a test has to be able to look at the
+ * callbacks the script registered on it.
+ */
+const rendererMock = {
+  render: renderMock,
+  removeAll: removeAllMock,
+  remove: vi.fn(),
+  dispose: vi.fn(),
+  updateStyleFromConfig: vi.fn(),
+  repositionAll: vi.fn(),
+  // The content script registers the callback that keeps the reading panel
+  // and the anchor badges in step with a translation the user deleted from
+  // the image itself.
+  setRemovalListener: vi.fn(),
+  // The bubbles are sorted into reading order, and vertical manga reads
+  // right to left.
+  getStyle: () => ({ verticalText: false }),
+};
+
+vi.mock('@/services/translator', () => ({
+  TranslatorService: class {},
+  createTranslatorFromConfig: () => ({
+    initialize: async () => undefined,
+    translateImage: translateImageMock,
+  }),
+}));
+
+vi.mock('@/services/renderer', () => ({
+  OverlayRenderer: class {},
+  getRenderer: () => rendererMock,
+  removeAllOverlaysFromDOM: vi.fn(),
+}));
+
+vi.mock('@/providers', () => ({
+  createProvider: async () => ({
+    validateConfig: providerValidateMock,
+  }),
+  providerRequiresApiKey: () => false,
+}));
+
+import {
+  handleMessage,
+  handleStorageChange,
+  translatePage,
+  clearAll,
+  cancelTranslation,
+  setState,
+  autoTranslateMode,
+  isFatalTranslationError,
+  type ContentState,
+} from './content';
+import { useAppConfigStore } from '@/stores/config-v2';
+import { buildContentConfigSnapshot } from '@/shared/content-config';
+
+// ================================================================
+// Helpers
+// ================================================================
 
 function makeSender(): chrome.runtime.MessageSender {
   return { id: 'test-extension' } as chrome.runtime.MessageSender;
 }
+
+const CONFIG_KEY = 'manga-translator-config-v2';
+
+/**
+ * Write the persisted config the content script reads.
+ *
+ * The content script no longer reads `chrome.storage.local` itself: it asks
+ * the service worker for a redacted snapshot. The storage mock is still the
+ * source of truth for "what did the user configure", and the worker mock
+ * below turns it into the snapshot the content script would receive.
+ *
+ * `parallelLimit: 2` is the default the suites below rely on: three images
+ * with a concurrency of two means the first run starts two translations and
+ * leaves the third waiting, which is what the mutex tests observe.
+ */
+async function writeConfig(state: Record<string, unknown>): Promise<void> {
+  await chrome.storage.local.set({
+    [CONFIG_KEY]: {
+      state: { enabled: true, parallelLimit: 2, ...state },
+      version: 3,
+    },
+  });
+}
+
+/**
+ * A comic page image the filter accepts: big enough, complete, and with a
+ * resolvable source.
+ *
+ * `top` places the image at a distinct vertical position, which is what
+ * lets a test map an anchor badge back to the image it belongs to.
+ */
+function makeComicImage(src: string, top = 0): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = src;
+  Object.defineProperty(img, 'naturalWidth', { value: 800 });
+  Object.defineProperty(img, 'naturalHeight', { value: 1200 });
+  Object.defineProperty(img, 'width', { value: 800 });
+  Object.defineProperty(img, 'height', { value: 1200 });
+  // jsdom never loads the bytes, so `complete` stays false for an <img>
+  // with a src. The filter rejects incomplete images.
+  Object.defineProperty(img, 'complete', { value: true });
+  Object.defineProperty(img, 'getBoundingClientRect', {
+    value: () => ({
+      left: 0,
+      top,
+      right: 800,
+      bottom: top + 1200,
+      width: 800,
+      height: 1200,
+      x: 0,
+      y: top,
+      toJSON: () => ({}),
+    }),
+  });
+  document.body.appendChild(img);
+  return img;
+}
+
+function makeTextAreas(text: string): Array<{
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  originalText: string;
+  translatedText: string;
+}> {
+  return [
+    {
+      x: 0.1,
+      y: 0.1,
+      width: 0.4,
+      height: 0.1,
+      originalText: 'original',
+      translatedText: text,
+    },
+  ];
+}
+
+async function flush(times = 4): Promise<void> {
+  for (let i = 0; i < times; i++) {
+    await Promise.resolve();
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+}
+
+/**
+ * Stand in for the service worker.
+ *
+ * The content script asks the worker for two things: the redacted config
+ * snapshot, and the provider preflight verdict. Both need a key, so both
+ * happen in the worker. The mock answers them from the same storage the
+ * tests write into, which is what the real worker does.
+ *
+ * `sendMessage` is also the channel the content script publishes its state
+ * on, so the mock has to keep returning a promise for those calls.
+ */
+function mockWorker(): void {
+  vi.mocked(chrome.runtime.sendMessage).mockImplementation(
+    async (message: unknown) => {
+      const type = (message as { type?: string } | undefined)?.type;
+      if (type === 'GET_CONFIG') {
+        const stored = await chrome.storage.local.get([CONFIG_KEY]);
+        return {
+          success: true,
+          config: buildContentConfigSnapshot(stored[CONFIG_KEY]),
+        };
+      }
+      if (type === 'PROVIDER_PREFLIGHT') {
+        return { success: true, valid: true, message: 'ok' };
+      }
+      return undefined;
+    }
+  );
+}
+
+/**
+ * Read the state the content script last published.
+ */
+function lastState(): ContentState {
+  const calls = vi.mocked(chrome.runtime.sendMessage).mock.calls;
+  for (let i = calls.length - 1; i >= 0; i--) {
+    const message = calls[i]?.[0] as { type?: string; state?: ContentState };
+    if (message?.type === 'STATE_UPDATE' && message.state) {
+      return message.state;
+    }
+  }
+  throw new Error('no STATE_UPDATE was published');
+}
+
+// ================================================================
+// The worker mock is installed for every test in this file.
+//
+// The content script asks the service worker for the redacted config
+// snapshot and for the provider preflight verdict; both need the API key,
+// so both live in the worker. Without this mock the content script would
+// see "the extension is off" and every translation test would fail.
+// ================================================================
+
+beforeEach(() => {
+  mockWorker();
+});
+
+// ================================================================
+// Existing suites (kept verbatim)
+// ================================================================
 
 describe('content page translation settings', () => {
   it('clamps concurrency into stable range 2-3', () => {
@@ -103,7 +323,7 @@ describe('content page translation settings', () => {
 });
 
 // ================================================================
-// handleMessage routing (regression guard for t6 — was 0 tested)
+// handleMessage routing
 // ================================================================
 describe('content handleMessage routing', () => {
   it('GET_STATE returns the current ContentState', () => {
@@ -215,5 +435,1814 @@ describe('content state routing', () => {
     }
     expect(responses[0]).toMatchObject({ success: true });
     expect(responses[3]).toMatchObject({ success: false });
+  });
+});
+
+// ================================================================
+// F1 — the success counter
+//
+// The old code decided "did this image succeed?" by comparing
+// `processedImages.size` before and after `processSingleImage`, which
+// never touches that Set. The count therefore stayed at 0 and the HUD
+// reported "success 0, failed 0, cached 0" for a page where every
+// image had translated.
+// ================================================================
+describe('F1: translation success counter', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The processed-image registry is module-level, so it survives between
+    // tests. Without this, the second test in a suite sees every image as
+    // "already translated" and finds nothing to do.
+    clearAll();
+  });
+
+  it('counts every image that actually translated', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+
+    await translatePage();
+
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+    const state = lastState();
+    expect(state.status).toBe('complete');
+    expect(state).toMatchObject({ count: 2, failedCount: 0 });
+  });
+
+  it('does not count a failed image as a success', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock
+      .mockResolvedValueOnce({
+        success: true,
+        textAreas: makeTextAreas('好'),
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        textAreas: [],
+        error: 'boom',
+      });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.status).toBe('complete');
+    expect(state).toMatchObject({ count: 1, failedCount: 1 });
+  });
+
+  it('counts a cached translation as a success', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      cached: true,
+      textAreas: makeTextAreas('缓存'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state).toMatchObject({ count: 1, cachedCount: 1 });
+  });
+
+  it('renders the translation pinned so it is visible without hovering', async () => {
+    // F7: the overlay CSS is opacity 0 until the image is hovered. A
+    // finished translation that is invisible is indistinguishable from a
+    // broken extension.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    expect(renderMock).toHaveBeenCalledTimes(1);
+    expect(renderMock.mock.calls[0]?.[2]).toBe(true);
+  });
+});
+
+// ================================================================
+// F2 — "retry failed" was a no-op
+//
+// The retry only removed the key from `processedImages`. The image kept
+// its `manga-translator-processed` class, and the filter rejects any
+// image carrying it — so the retry found nothing to translate.
+// ================================================================
+describe('F2: retrying failed images', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The processed-image registry is module-level, so it survives between
+    // tests. Without this, the second test in a suite sees every image as
+    // "already translated" and finds nothing to do.
+    clearAll();
+  });
+
+  it('un-marks the failed image so the retry picks it up again', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock
+      .mockResolvedValueOnce({
+        success: false,
+        textAreas: [],
+        error: 'temporary failure',
+      })
+      .mockResolvedValue({
+        success: true,
+        textAreas: makeTextAreas('好了'),
+      });
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    // A failed translation must not leave the image looking translated:
+    // `isTranslatableImage` rejects any image carrying the marker, so a
+    // leftover marker made the image permanently un-translatable and the
+    // retry had nothing to pick up.
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    const { handleRetryFailed } = await import('./content');
+    handleRetryFailed();
+
+    // The class is removed synchronously, before the retry starts. Without
+    // this the filter would reject the image and the retry would find
+    // nothing to do.
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+
+    await flush();
+
+    // The retry actually re-translated the image.
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+// ================================================================
+// F3 — a settings change used to arm paid auto-translation
+//
+// `handleStorageChange` set `isAutoTranslateEnabled = enabled`, i.e. it
+// read the master switch only. Any settings write — the target
+// language, the overlay style, the API key — therefore turned
+// auto-translation on in every open tab, on pages the user never asked
+// to translate.
+// ================================================================
+describe('F3: config changes do not arm auto-translation', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    useAppConfigStore.setState({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+    // `pageTranslationRequested` is module-level: an earlier suite asked for
+    // this page to be translated, and that fact would arm auto-continue no
+    // matter what the allowlist says. clearAll() drops it.
+    clearAll();
+  });
+
+  it('keeps auto-translate off when the host is not allowlisted', async () => {
+    await writeConfig({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+
+    handleStorageChange(
+      {
+        [CONFIG_KEY]: {
+          oldValue: undefined,
+          newValue: { state: { enabled: true, targetLanguage: 'ja-JP' } },
+        },
+      },
+      'local'
+    );
+    await flush();
+
+    expect(autoTranslateMode.enabled).toBe(false);
+  });
+
+  it('does not trigger a translation because of a config change', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    handleStorageChange(
+      {
+        [CONFIG_KEY]: {
+          oldValue: undefined,
+          newValue: { state: { enabled: true, targetLanguage: 'ja-JP' } },
+        },
+      },
+      'local'
+    );
+    await flush(8);
+
+    expect(translateImageMock).not.toHaveBeenCalled();
+  });
+
+  it('arms auto-translate for an allowlisted host', async () => {
+    await writeConfig({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [window.location.host],
+    });
+
+    handleStorageChange(
+      {
+        [CONFIG_KEY]: {
+          oldValue: undefined,
+          newValue: {
+            state: {
+              enabled: true,
+              autoContinueEnabled: true,
+              autoTranslateHosts: [window.location.host],
+            },
+          },
+        },
+      },
+      'local'
+    );
+    await flush();
+
+    expect(autoTranslateMode.enabled).toBe(true);
+  });
+});
+
+// ================================================================
+// F4 — "force retranslate" during a run did nothing
+//
+// `clearAll()` aborts the running translation, but the abort is only
+// observed asynchronously. The old code called `translatePage(true)`
+// immediately, which hit the still-held mutex and returned without
+// doing anything — the user was left with an empty page.
+// ================================================================
+describe('F4: force retranslate during a running translation', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The processed-image registry is module-level, so it survives between
+    // tests. Without this, the second test in a suite sees every image as
+    // "already translated" and finds nothing to do.
+    clearAll();
+  });
+
+  it('waits for the running translation and then starts a new one', async () => {
+    await writeConfig({ enabled: true });
+
+    const gate: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      if (!gate.release) {
+        await new Promise<void>(resolve => {
+          gate.release = resolve;
+        });
+      }
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const firstRun = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // The user hits "force retranslate" while the first run is still going.
+    const responses: unknown[] = [];
+    handleMessage({ type: 'FORCE_RETRANSLATE_PAGE' }, makeSender(), response =>
+      responses.push(response)
+    );
+    await flush(2);
+
+    // The new run must not have started yet: the old one still holds the
+    // mutex.
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    gate.release?.();
+    await firstRun;
+    await flush(6);
+
+    // Now the second run happened.
+    expect(translateImageMock.mock.calls.length).toBeGreaterThan(1);
+    expect(responses[0]).toMatchObject({ success: true });
+  });
+});
+
+// ================================================================
+// F5 — cancelling reported "complete"
+//
+// `cancelTranslation()` nulls the abort controller, so the run's own
+// `abortController?.signal.aborted` check short-circuited to
+// `undefined` and the run fell through to `setState({status:'complete'})`.
+// ================================================================
+describe('F5: cancelling a translation', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The processed-image registry is module-level, so it survives between
+    // tests. Without this, the second test in a suite sees every image as
+    // "already translated" and finds nothing to do.
+    clearAll();
+  });
+
+  it('reports idle instead of complete when the user cancels', async () => {
+    await writeConfig({ enabled: true });
+
+    const gate: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gate.release = resolve;
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const run = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    cancelTranslation();
+    gate.release?.();
+    await run;
+    await flush(2);
+
+    const state = lastState();
+    expect(state.status).not.toBe('complete');
+  });
+});
+
+// ================================================================
+// F6 — the reason for a failure was thrown away
+//
+// `onError: (_error, index) => { failedCount++; ... }` dropped the
+// error. A 401 (bad API key) and a 429 (rate limited) look identical
+// to the user: "failed 20".
+// ================================================================
+describe('F6: failure reasons are surfaced', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The processed-image registry is module-level, so it survives between
+    // tests. Without this, the second test in a suite sees every image as
+    // "already translated" and finds nothing to do.
+    clearAll();
+  });
+
+  it('records the first failure reason on the complete state', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '模型输出了无法解析的内容',
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.status).toBe('complete');
+    expect(state).toMatchObject({ failedCount: 1 });
+    expect(
+      state.status === 'complete' ? state.lastError : undefined
+    ).toBeTruthy();
+  });
+
+  it('aborts the run on an authentication failure', async () => {
+    // A wrong API key fails identically for every image. Running the rest
+    // of the queue costs the user money to collect the same error again.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '401 Unauthorized',
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeComicImage('https://cdn.example.com/c.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.status).toBe('error');
+    expect(translateImageMock.mock.calls.length).toBeLessThan(3);
+  });
+
+  it('recognises the fatal error signatures', () => {
+    expect(isFatalTranslationError('401 Unauthorized')).toBe(true);
+    expect(isFatalTranslationError('HTTP 429 Too Many Requests')).toBe(true);
+    expect(isFatalTranslationError('Invalid API key provided')).toBe(true);
+    expect(isFatalTranslationError('rate limit exceeded')).toBe(true);
+    expect(isFatalTranslationError('网络连接失败，请检查网络')).toBe(false);
+    expect(isFatalTranslationError('解析失败')).toBe(false);
+  });
+});
+
+// ================================================================
+// F8 — the reading order was fake
+//
+// The panel numbered its entries in translation-completion order. The
+// translation runs concurrently and viewport-first, so that order is the
+// viewport's priority order, not the chapter's reading order.
+// ================================================================
+describe('F8: the reading order follows the document', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('numbers the panel entries by their position in the page', async () => {
+    await writeConfig({ enabled: true });
+
+    // The images are in this order in the document.
+    const first = makeComicImage('https://cdn.example.com/1.webp');
+    const second = makeComicImage('https://cdn.example.com/2.webp');
+    const third = makeComicImage('https://cdn.example.com/3.webp');
+
+    // Answer each image with a distinct translation so the entries can be
+    // told apart, and make the *last* image in the document finish first.
+    // That is what a concurrent, viewport-first run does: the completion
+    // order is not the reading order, and the panel used to inherit it.
+    const textBySrc = new Map<string, string>([
+      ['https://cdn.example.com/1.webp', 'first'],
+      ['https://cdn.example.com/2.webp', 'second'],
+      ['https://cdn.example.com/3.webp', 'third'],
+    ]);
+    const delayBySrc = new Map<string, number>([
+      ['https://cdn.example.com/1.webp', 30],
+      ['https://cdn.example.com/2.webp', 20],
+      ['https://cdn.example.com/3.webp', 0],
+    ]);
+    translateImageMock.mockImplementation(async (img: HTMLImageElement) => {
+      await new Promise(resolve =>
+        setTimeout(resolve, delayBySrc.get(img.src) ?? 0)
+      );
+      return {
+        success: true,
+        textAreas: makeTextAreas(textBySrc.get(img.src) ?? 'unknown'),
+      };
+    });
+
+    await translatePage();
+
+    const panelHost = document.querySelector(
+      '[data-manga-translator-reading-panel]'
+    ) as HTMLElement;
+    const shadow = panelHost.shadowRoot;
+    const entries = Array.from(shadow?.querySelectorAll('.entry') ?? []);
+    expect(entries.length).toBe(3);
+
+    // The first image in the document is entry 1, whatever order the
+    // translation finished in.
+    const indexByImage = new Map<HTMLImageElement, number>();
+    const imageByText = new Map<string, HTMLImageElement>([
+      ['first', first],
+      ['second', second],
+      ['third', third],
+    ]);
+    entries.forEach(entry => {
+      const index = Number(entry.getAttribute('data-index'));
+      const preview = entry.querySelector('.entry-preview')?.textContent ?? '';
+      const image = imageByText.get(preview);
+      expect(image).toBeTruthy();
+      if (image) {
+        indexByImage.set(image, index);
+      }
+    });
+
+    expect(indexByImage.get(first)).toBe(1);
+    expect(indexByImage.get(second)).toBe(2);
+    expect(indexByImage.get(third)).toBe(3);
+  });
+
+  it('keeps the anchor badges in sync with the renumbered entries', async () => {
+    await writeConfig({ enabled: true });
+
+    // The images are at distinct vertical positions, so a badge can be
+    // traced back to the image it is anchored to.
+    const first = makeComicImage('https://cdn.example.com/1.webp', 0);
+    const second = makeComicImage('https://cdn.example.com/2.webp', 1500);
+
+    // The last image in the document finishes first, so the completion
+    // order and the reading order disagree.
+    const delayBySrc = new Map<string, number>([
+      ['https://cdn.example.com/1.webp', 30],
+      ['https://cdn.example.com/2.webp', 0],
+    ]);
+    translateImageMock.mockImplementation(async (img: HTMLImageElement) => {
+      await new Promise(resolve =>
+        setTimeout(resolve, delayBySrc.get(img.src) ?? 0)
+      );
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    await translatePage();
+
+    const anchorsHost = document.querySelector(
+      '[data-manga-translator-reading-anchors]'
+    ) as HTMLElement;
+    const badges = Array.from(
+      anchorsHost.shadowRoot?.querySelectorAll<HTMLElement>('.badge') ?? []
+    );
+    expect(badges.length).toBe(2);
+
+    // The badge anchored to the first image in the document must carry
+    // "1", and the one on the second image "2". A badge that kept its
+    // completion-order number would send the user to the wrong entry.
+    const badgeFor = (image: HTMLImageElement): string | undefined => {
+      const rect = image.getBoundingClientRect();
+      const badge = badges.find(
+        candidate =>
+          Math.abs(parseFloat(candidate.style.top) - (rect.top + 12)) < 1
+      );
+      return badge?.dataset['index'];
+    };
+
+    expect(badgeFor(first)).toBe('1');
+    expect(badgeFor(second)).toBe('2');
+  });
+});
+
+// ================================================================
+// F9 — SPA route changes leaked the previous chapter
+// ================================================================
+describe('F9: SPA route changes', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    removeAllMock.mockReset();
+    useAppConfigStore.setState({ enabled: true });
+    clearAll();
+  });
+
+  it('clears the overlays and the processed markers on a route change', async () => {
+    const { handleRouteChange } = await import('./content');
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+    img.classList.add('manga-translator-processed');
+
+    handleRouteChange();
+
+    expect(removeAllMock).toHaveBeenCalled();
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+  });
+
+  it('drops the previous chapter’s panel entries and anchor badges', async () => {
+    // The leak was not the host element: it was the strong references to
+    // the old chapter's <img> elements held by the panel entries and the
+    // anchor badges. A route change has to release them.
+    const { handleRouteChange } = await import('./content');
+    await writeConfig({ enabled: true });
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const panelHost = document.querySelector(
+      '[data-manga-translator-reading-panel]'
+    );
+    expect(panelHost).not.toBeNull();
+    const panelShadow = (panelHost as HTMLElement).shadowRoot;
+    expect(panelShadow?.querySelectorAll('.entry').length).toBe(1);
+
+    const anchorsHost = document.querySelector(
+      '[data-manga-translator-reading-anchors]'
+    );
+    const anchorsShadow = (anchorsHost as HTMLElement).shadowRoot;
+    expect(anchorsShadow?.querySelectorAll('.badge').length).toBe(1);
+
+    handleRouteChange();
+
+    // The entries and the badges are gone, so nothing holds on to the old
+    // chapter's images.
+    expect(panelShadow?.querySelectorAll('.entry').length).toBe(0);
+    expect(anchorsShadow?.querySelectorAll('.badge').length).toBe(0);
+  });
+
+  it('clears the processed markers so the new chapter is translated', async () => {
+    const { handleRouteChange } = await import('./content');
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+    img.classList.add('manga-translator-processed');
+
+    handleRouteChange();
+
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+  });
+
+  it('detects a URL change that did not reload the document', async () => {
+    // A SPA that calls history.pushState changes the URL without
+    // reloading the document. The content script has to notice, or the
+    // panel keeps pointing at the previous chapter.
+    //
+    // The check polls location.href rather than wrapping
+    // history.pushState: a content script runs in an isolated world with
+    // its own History.prototype, so the page's own pushState calls never
+    // reach a wrapper installed here.
+    const { checkRouteChangeOnce } = await import('./content');
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+    img.classList.add('manga-translator-processed');
+
+    const before = window.location.href;
+
+    // Simulate the SPA navigating.
+    window.history.pushState({}, '', '/chapter/2');
+    expect(window.location.href).not.toBe(before);
+
+    checkRouteChangeOnce();
+
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+  });
+
+  it('does not clear anything when the URL did not change', async () => {
+    const { checkRouteChangeOnce } = await import('./content');
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+    img.classList.add('manga-translator-processed');
+
+    checkRouteChangeOnce();
+
+    // A poll that finds no change must not wipe the page.
+    expect(img.classList.contains('manga-translator-processed')).toBe(true);
+  });
+});
+
+// ================================================================
+// Regression guard: a superseded run must not release the new run's mutex
+//
+// A run that is being torn down (cancelled, cleared, or replaced by a
+// route change) still reaches its `finally` block. If that block released
+// the mutex unconditionally, it would clear the mutex of the run that had
+// already taken over — and a third request could then start a duplicate
+// run on top of it.
+// ================================================================
+describe("a superseded run does not release the new run's mutex", () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('keeps the second run exclusive while the first unwinds', async () => {
+    await writeConfig({ enabled: true });
+
+    const gates: Array<{ release: (() => void) | null }> = [];
+    translateImageMock.mockImplementation(async () => {
+      const gate: { release: (() => void) | null } = { release: null };
+      gates.push(gate);
+      await new Promise<void>(resolve => {
+        gate.release = resolve;
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    // Only the content script's own read of the config key is held back,
+    // and only for the second run. The config store reads storage too, so
+    // hanging every read would break the run in a different way.
+    //
+    // The second run therefore stays in its start-up window — before it
+    // announces itself as "translating" — and the only thing that can
+    // refuse a third request is the mutex itself.
+    const getMock = vi.mocked(chrome.storage.local.get) as unknown as {
+      getMockImplementation: () =>
+        | ((
+            keys: string | string[] | null | undefined
+          ) => Promise<Record<string, unknown>>)
+        | undefined;
+      mockImplementation: (
+        impl: (
+          keys: string | string[] | null | undefined
+        ) => Promise<Record<string, unknown>>
+      ) => void;
+    };
+    const realGet = getMock.getMockImplementation();
+    let hangConfigRead = false;
+    getMock.mockImplementation((keys: string | string[] | null | undefined) => {
+      const keyList = Array.isArray(keys) ? keys : [keys];
+      if (hangConfigRead && keyList.includes(CONFIG_KEY)) {
+        return new Promise(() => undefined);
+      }
+      return realGet?.call(chrome.storage.local, keys) ?? Promise.resolve({});
+    });
+
+    // Three images with a concurrency of 2: the first run starts two
+    // translations and leaves the third waiting. A third run that is
+    // wrongly allowed through would pick that third image up, which makes
+    // the difference visible in the call count.
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeComicImage('https://cdn.example.com/c.webp');
+
+    // First run: hangs on the first two images.
+    const firstRun = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+
+    // The user clears the page mid-run. That releases the mutex, and the
+    // first run is still unwinding.
+    clearAll();
+
+    // A new run starts. It is blocked on the storage read, so it has not
+    // claimed the "translating" status yet.
+    hangConfigRead = true;
+    const secondRun = translatePage();
+    await flush(2);
+    hangConfigRead = false;
+
+    // Now the first run finishes. Its `finally` must not release the
+    // second run's mutex.
+    gates[0]?.release?.();
+    gates[1]?.release?.();
+    await firstRun;
+    await flush(2);
+
+    // A third request must be refused: the second run still holds the
+    // mutex, and it has not announced itself as "translating" yet.
+    const thirdRun = translatePage();
+    await flush(2);
+    // A third run that got through would have translated the third image,
+    // which the first run never reached.
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+
+    getMock.mockImplementation(realGet ?? (() => Promise.resolve({})));
+    void secondRun;
+    void thirdRun;
+  });
+});
+
+// ================================================================
+// F10 — cleanup() left the reading panel and the anchors behind
+//
+// `cleanup()` destroyed the renderer and the HUD but not the panel or the
+// anchors, even though both classes have a `destroy()`. It also left the
+// window scroll/resize listeners attached, so every extension reload
+// stacked another pair on the page.
+// ================================================================
+describe('F10: cleanup releases everything the content script injected', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('removes the reading panel and the anchor hosts from the page', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+    expect(
+      document.querySelector('[data-manga-translator-reading-panel]')
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-manga-translator-reading-anchors]')
+    ).not.toBeNull();
+
+    const { cleanup } = await import('./content');
+    cleanup();
+
+    expect(
+      document.querySelector('[data-manga-translator-reading-panel]')
+    ).toBeNull();
+    expect(
+      document.querySelector('[data-manga-translator-reading-anchors]')
+    ).toBeNull();
+  });
+
+  it('removes the window scroll and resize listeners', async () => {
+    const addSpy = vi.spyOn(window, 'addEventListener');
+    const removeSpy = vi.spyOn(window, 'removeEventListener');
+
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const added = addSpy.mock.calls
+      .filter(call => call[0] === 'scroll' || call[0] === 'resize')
+      .map(call => call[1]);
+
+    const { cleanup } = await import('./content');
+    cleanup();
+
+    const removed = removeSpy.mock.calls
+      .filter(call => call[0] === 'scroll' || call[0] === 'resize')
+      .map(call => call[1]);
+
+    // Every listener that was added for the anchors has to be removed
+    // again, or each extension reload leaves another pair behind.
+    added.forEach(handler => {
+      expect(removed).toContain(handler);
+    });
+
+    addSpy.mockRestore();
+    removeSpy.mockRestore();
+  });
+});
+
+// ================================================================
+// F11 — the master switch had no defence in depth
+//
+// The popup promises "关闭后不会请求任何模型", but `translatePage` never
+// checked the switch, so the context menu or a hand-crafted message
+// could still spend money while the extension was off.
+// ================================================================
+describe('F11: the master switch gates every translation', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: false, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('does not call the model when the extension is off', async () => {
+    await writeConfig({ enabled: false });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    expect(translateImageMock).not.toHaveBeenCalled();
+    const state = lastState();
+    expect(state.status).toBe('error');
+    expect(state.status === 'error' ? state.message : '').toContain(
+      '扩展已关闭'
+    );
+  });
+
+  it('releases the mutex so the next translation can run', async () => {
+    // A rejected call that kept `translationRunInFlight` set would block
+    // the user's first translation after they switch the extension on.
+    await writeConfig({ enabled: false });
+    makeComicImage('https://cdn.example.com/a.webp');
+    await translatePage();
+
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the "the user asked for this page" fact across a toggle', async () => {
+    // Turning the extension off and on again must not force the user to
+    // click "translate" a second time.
+    await writeConfig({ enabled: false });
+    makeComicImage('https://cdn.example.com/a.webp');
+    await translatePage();
+
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    await translatePage();
+
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ================================================================
+// Regression guard: the state machine still routes every status
+// ================================================================
+describe('content state machine', () => {
+  afterEach(() => {
+    setState({ status: 'idle' });
+  });
+
+  it('publishes every state it reaches to the background', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const published = vi
+      .mocked(chrome.runtime.sendMessage)
+      .mock.calls.map(call => {
+        const message = call[0] as unknown as { type?: string };
+        return message?.type ?? '';
+      });
+    expect(published).toContain('STATE_UPDATE');
+  });
+});
+
+// `clearAll` must stay callable from the message handler.
+describe('clearAll', () => {
+  it('removes the processed markers from the page', async () => {
+    document.body.innerHTML = '';
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+    img.classList.add('manga-translator-processed');
+
+    clearAll();
+
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+  });
+});
+
+// The context menu offers "translate this image", and a keyboard shortcut
+// toggles the reading panel. Both messages arrive from the background, and
+// both used to be dropped: the content script had no case for them, so the
+// menu item and the shortcut did nothing at all.
+describe('single-image translation', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('译好的文字'),
+      cached: false,
+    });
+    await writeConfig({});
+  });
+
+  it('translates only the image the user pointed at', async () => {
+    const target = makeComicImage('https://cdn.example.com/target.webp', 0);
+    makeComicImage('https://cdn.example.com/other.webp', 2000);
+
+    await new Promise<void>(resolve => {
+      handleMessage(
+        { type: 'TRANSLATE_SINGLE_IMAGE', imageUrl: target.src },
+        makeSender(),
+        () => resolve()
+      );
+    });
+    await flush();
+
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+    expect(translateImageMock.mock.calls[0]?.[0]).toBe(target);
+  });
+
+  it('matches an image whose URL carries a different query string', async () => {
+    // A CDN that serves the same file under a versioned URL is common, and
+    // the context menu reports the URL the browser resolved, not the one in
+    // the markup.
+    const target = makeComicImage('https://cdn.example.com/page.webp?v=2', 0);
+
+    await new Promise<void>(resolve => {
+      handleMessage(
+        {
+          type: 'TRANSLATE_SINGLE_IMAGE',
+          imageUrl: 'https://cdn.example.com/page.webp?v=1',
+        },
+        makeSender(),
+        () => resolve()
+      );
+    });
+    await flush();
+
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+    expect(translateImageMock.mock.calls[0]?.[0]).toBe(target);
+  });
+
+  it('reports a clear error when the image is not on the page', async () => {
+    makeComicImage('https://cdn.example.com/present.webp', 0);
+
+    await new Promise<void>(resolve => {
+      handleMessage(
+        {
+          type: 'TRANSLATE_SINGLE_IMAGE',
+          imageUrl: 'https://cdn.example.com/absent.webp',
+        },
+        makeSender(),
+        () => resolve()
+      );
+    });
+    await flush();
+
+    expect(translateImageMock).not.toHaveBeenCalled();
+    expect(lastState()).toMatchObject({ status: 'error' });
+    expect((lastState() as { message?: string }).message).toContain('找不到');
+  });
+
+  it('does not call the model when the extension is switched off', async () => {
+    await writeConfig({ enabled: false });
+    const target = makeComicImage('https://cdn.example.com/target.webp', 0);
+
+    await new Promise<void>(resolve => {
+      handleMessage(
+        { type: 'TRANSLATE_SINGLE_IMAGE', imageUrl: target.src },
+        makeSender(),
+        () => resolve()
+      );
+    });
+    await flush();
+
+    expect(translateImageMock).not.toHaveBeenCalled();
+    expect(lastState()).toMatchObject({ status: 'error' });
+  });
+});
+
+describe('the reading panel toggle', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    await writeConfig({});
+  });
+
+  it('acknowledges the toggle without failing', async () => {
+    const response = await new Promise<{ success: boolean }>(resolve => {
+      handleMessage({ type: 'TOGGLE_READING_PANEL' }, makeSender(), r =>
+        resolve(r)
+      );
+    });
+    expect(response.success).toBe(true);
+  });
+
+  it('creates the panel on demand, even before any translation', async () => {
+    // The panel is created lazily on the first translation. A user pressing
+    // the shortcut before translating anything is exactly the case that
+    // would have done nothing.
+    await new Promise<void>(resolve => {
+      handleMessage({ type: 'TOGGLE_READING_PANEL' }, makeSender(), () =>
+        resolve()
+      );
+    });
+    await flush();
+
+    expect(
+      document.querySelector('[data-manga-translator-reading-panel]')
+    ).toBeTruthy();
+  });
+});
+
+// A run the user stopped is not a run that failed.
+//
+// When the user cancels, the abort signal fires and the in-flight workers
+// throw. Those throws used to be counted as failures, so the user was told
+// "失败 12 张" about images that had never failed — and the "retry the
+// failed images" button offered to re-translate them.
+describe('a cancelled run is not counted as a failure', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+    await writeConfig({ enabled: true });
+  });
+
+  it('reports no failed images when the user cancels mid-run', async () => {
+    // Both concurrent workers park on this gate. The second one to arrive
+    // would overwrite the first one's release function, so every waiter
+    // has to be released at once.
+    const gates: Array<() => void> = [];
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gates.push(resolve);
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+
+    const run = translatePage();
+    await flush(2);
+    cancelTranslation();
+    gates.forEach(release => release());
+    await run;
+    await flush(3);
+
+    // The state must not claim any image failed.
+    const state = lastState();
+    if (state.status === 'complete') {
+      expect(state.failedCount ?? 0).toBe(0);
+    } else {
+      expect(state.status).toBe('idle');
+    }
+  });
+});
+
+// A translation that did not happen must not leave the image looking
+// translated.
+//
+// The processed marker goes on before the request, so a concurrent scan does
+// not pick the same image up twice. If it stayed on after a failed or
+// cancelled translation, `isTranslatableImage` would reject that image
+// forever — the user could only get it back through "force retranslate",
+// which re-bills the whole page.
+describe('an image that was not translated stays translatable', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+    await writeConfig({ enabled: true });
+  });
+
+  it('removes the processed marker when the translation fails', async () => {
+    translateImageMock.mockResolvedValue({
+      success: false,
+      error: 'provider exploded',
+    });
+
+    const img = makeComicImage('https://cdn.example.com/fail.webp', 0);
+    await translatePage();
+    await flush(3);
+
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+  });
+
+  it('removes the processed marker when the run is cancelled', async () => {
+    const gates: Array<() => void> = [];
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gates.push(resolve);
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    const img = makeComicImage('https://cdn.example.com/cancel.webp', 0);
+    const run = translatePage();
+    await flush(2);
+    cancelTranslation();
+    gates.forEach(release => release());
+    await run;
+    await flush(3);
+
+    expect(img.classList.contains('manga-translator-processed')).toBe(false);
+  });
+
+  it('keeps the marker on an image that did translate', async () => {
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+
+    const img = makeComicImage('https://cdn.example.com/ok.webp', 0);
+    await translatePage();
+    await flush(3);
+
+    // A successful translation must not be re-done: that would bill the
+    // user twice for the same image.
+    expect(img.classList.contains('manga-translator-processed')).toBe(true);
+  });
+});
+
+// ================================================================
+// FORCE_RETRANSLATE_FAILED — the popup's "重新翻译失败的 N 张" action
+//
+// The popup shows a cost confirmation before this runs, so the promise it
+// makes has to be exact: only the images that failed are translated again.
+// The images that translated fine must not be paid for twice, and the page
+// must not be cleared — that would throw away the translations the user
+// already has.
+// ================================================================
+describe('FORCE_RETRANSLATE_FAILED only retries the failed images', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+    // `clearAll()` above removed the overlays, so the recorder starts from
+    // zero: the assertion below is about the retry, not about the reset.
+    removeAllMock.mockReset();
+    await writeConfig({ enabled: true });
+  });
+
+  it('re-runs only the failed image and leaves the translated one alone', async () => {
+    translateImageMock
+      .mockResolvedValueOnce({
+        success: true,
+        textAreas: makeTextAreas('好'),
+      })
+      .mockResolvedValueOnce({
+        success: false,
+        textAreas: [],
+        error: 'temporary failure',
+      })
+      .mockResolvedValue({
+        success: true,
+        textAreas: makeTextAreas('好了'),
+      });
+
+    const ok = makeComicImage('https://cdn.example.com/ok.webp', 0);
+    const bad = makeComicImage('https://cdn.example.com/bad.webp', 1200);
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+
+    const sendResponse = vi.fn();
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_FAILED' },
+      makeSender(),
+      sendResponse
+    );
+
+    // The count is what the popup confirms the cost with, so it has to be
+    // the number of images the retry is actually about to bill.
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, count: 1 })
+    );
+
+    await flush(6);
+
+    // Three calls in total: the first run translated two images, the retry
+    // added exactly one. The image that succeeded was not paid for again.
+    expect(translateImageMock).toHaveBeenCalledTimes(3);
+
+    // The failed image was re-translated.
+    const retried = translateImageMock.mock.calls[2]?.[0] as HTMLImageElement;
+    expect(retried).toBe(bad);
+
+    // The page was not cleared: the successful translation is still there.
+    expect(removeAllMock).not.toHaveBeenCalled();
+    expect(ok.classList.contains('manga-translator-processed')).toBe(true);
+  });
+
+  it('keeps an image on the failure list when it fails again', async () => {
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: 'still broken',
+    });
+
+    makeComicImage('https://cdn.example.com/bad.webp', 0);
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    const sendResponse = vi.fn();
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_FAILED' },
+      makeSender(),
+      sendResponse
+    );
+    await flush(6);
+
+    // The image was retried…
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+
+    // …and it is still on the failure list, so the popup can offer the
+    // action again.
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_FAILED' },
+      makeSender(),
+      sendResponse
+    );
+    expect(sendResponse).toHaveBeenLastCalledWith(
+      expect.objectContaining({ success: true, count: 1 })
+    );
+  });
+
+  it('answers with a count of zero when nothing failed', async () => {
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好'),
+    });
+
+    makeComicImage('https://cdn.example.com/ok.webp', 0);
+    await translatePage();
+
+    const sendResponse = vi.fn();
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_FAILED' },
+      makeSender(),
+      sendResponse
+    );
+
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, count: 0 })
+    );
+    await flush(4);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ================================================================
+// V3 产品评审：界面看不到真实状态
+//
+// 这一组用例锁住内容脚本和弹窗之间的契约：
+//   - 页面有几张图、为什么少了几张，必须如实上报；
+//   - COUNT_IMAGES 只能看，不能花用户的钱；
+//   - 用户在弹窗里关掉开关时，正在跑的翻译必须立刻停下；
+//   - 上报的 autoContinueArmed 必须和页面真正的行为一致。
+// ================================================================
+
+/**
+ * 一张尺寸不合格的图：图标、分割线之类，永远不会被翻译。
+ */
+function makeSmallImage(src: string): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = src;
+  Object.defineProperty(img, 'naturalWidth', { value: 50 });
+  Object.defineProperty(img, 'naturalHeight', { value: 50 });
+  Object.defineProperty(img, 'width', { value: 50 });
+  Object.defineProperty(img, 'height', { value: 50 });
+  Object.defineProperty(img, 'complete', { value: true });
+  Object.defineProperty(img, 'getBoundingClientRect', {
+    value: () => ({
+      left: 0,
+      top: 0,
+      right: 50,
+      bottom: 50,
+      width: 50,
+      height: 50,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }),
+  });
+  document.body.appendChild(img);
+  return img;
+}
+
+/**
+ * 统计到目前为止发布过多少条状态。
+ */
+function publishedStateCount(): number {
+  return vi
+    .mocked(chrome.runtime.sendMessage)
+    .mock.calls.filter(
+      call =>
+        (call[0] as { type?: string } | undefined)?.type === 'STATE_UPDATE'
+    ).length;
+}
+
+describe('COUNT_IMAGES: 纯只读的图片计数', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+    await writeConfig({ enabled: true });
+  });
+
+  it('answers with the number of images that would be translated', async () => {
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeSmallImage('https://cdn.example.com/icon.png');
+
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+
+    // 只有两张漫画图会被翻译，那张 50x50 的图标不算。
+    expect(sendResponse).toHaveBeenCalledWith({ success: true, count: 2 });
+  });
+
+  it('does not change any state and does not spend anything', async () => {
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const statesBefore = publishedStateCount();
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+
+    // 看一眼数量不能改变页面上的任何状态。
+    expect(publishedStateCount()).toBe(statesBefore);
+    // 也不能触发任何一次模型请求。
+    expect(translateImageMock).not.toHaveBeenCalled();
+    // 状态本身也没有被换掉。
+    expect(lastState().status).not.toBe('translating');
+  });
+});
+
+describe('完成之后的状态带着这一页的真实数字', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('reports the candidate count and both kinds of skipped images', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+
+    // 两张漫画图 + 一张尺寸不合格的图
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeSmallImage('https://cdn.example.com/icon.png');
+
+    await translatePage();
+
+    // 第一轮：两张都翻了，一张图不合格。
+    let state = lastState();
+    expect(state.status).toBe('complete');
+    expect(state.candidateCount).toBe(2);
+    expect(state.skippedCount).toBe(1);
+    expect(state.skippedDuplicateCount).toBe(0);
+
+    // 再来一张新图，第二轮时前两张已经翻过了。
+    makeComicImage('https://cdn.example.com/c.webp');
+    await translatePage();
+
+    state = lastState();
+    expect(state.status).toBe('complete');
+    // 候选只剩新来的那一张。
+    expect(state.candidateCount).toBe(1);
+    // 尺寸不合格的还是那一张。
+    expect(state.skippedCount).toBe(1);
+    // 已经翻过的两张单独算，不再混进"不合格"里。
+    expect(state.skippedDuplicateCount).toBe(2);
+  });
+});
+
+describe('关掉"启用扩展"会中止正在跑的翻译', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('stops the run and tells the user what happened to the money', async () => {
+    await writeConfig({ enabled: true });
+
+    const gates: Array<() => void> = [];
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gates.push(resolve);
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const run = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // 用户在弹窗里把"启用扩展"关掉了。
+    await writeConfig({ enabled: false });
+    handleStorageChange(
+      {
+        [CONFIG_KEY]: {
+          oldValue: undefined,
+          newValue: { state: { enabled: false } },
+        },
+      },
+      'local'
+    );
+    await flush(4);
+
+    // 页面必须立刻停下来，并把情况说清楚。
+    const state = lastState();
+    expect(state.status).toBe('error');
+    expect(state.status === 'error' ? state.message : '').toContain(
+      '扩展已关闭'
+    );
+    // 已经花掉的钱退不了，但剩下的不会再发——这句话要说出来。
+    expect(state.status === 'error' ? state.suggestion : '').toBeTruthy();
+
+    gates.forEach(release => release());
+    await run;
+    await flush(3);
+
+    // 这一轮跑完之后也不能变成"翻译完成"。
+    expect(lastState().status).toBe('error');
+  });
+
+  it('sends no further request once the switch is off', async () => {
+    await writeConfig({ enabled: true });
+
+    const gates: Array<() => void> = [];
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gates.push(resolve);
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    // 并发是 2：三张图里前两张已经发出去了，第三张还没轮到。
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeComicImage('https://cdn.example.com/c.webp');
+
+    const run = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+
+    await writeConfig({ enabled: false });
+    gates.forEach(release => release());
+    await run;
+    await flush(3);
+
+    // 每张图发请求之前都要再问一次开关，所以第三张不会再发出去。
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+    const state = lastState();
+    expect(state.status).toBe('error');
+    expect(state.status === 'error' ? state.message : '').toContain(
+      '扩展已关闭'
+    );
+  });
+});
+
+describe('上报的自动续翻状态和页面真正的行为一致', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+    clearAll();
+  });
+
+  it('is off before the user asked for this page', async () => {
+    await writeConfig({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+    handleStorageChange(
+      {
+        [CONFIG_KEY]: {
+          oldValue: undefined,
+          newValue: { state: { enabled: true, autoContinueEnabled: true } },
+        },
+      },
+      'local'
+    );
+    await flush();
+
+    // 站点不在白名单里，用户也还没让这一页翻译 → 不会自动续翻。
+    expect(autoTranslateMode.enabled).toBe(false);
+
+    setState({ status: 'idle' });
+    expect(lastState().autoContinueArmed).toBe(false);
+  });
+
+  it('is on once the user translated this page, even off the allowlist', async () => {
+    await writeConfig({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    // 用户手动翻译了这一页 → 之后新加载的图片会自动跟上并产生费用。
+    // 弹窗必须知道这件事，不能只显示白名单开关。
+    expect(autoTranslateMode.enabled).toBe(true);
+    expect(lastState().autoContinueArmed).toBe(true);
+  });
+
+  it('is off again when the extension is switched off', async () => {
+    await writeConfig({
+      enabled: true,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    await translatePage();
+    expect(autoTranslateMode.enabled).toBe(true);
+
+    await writeConfig({
+      enabled: false,
+      autoContinueEnabled: true,
+      autoTranslateHosts: [],
+    });
+    handleStorageChange(
+      {
+        [CONFIG_KEY]: {
+          oldValue: undefined,
+          newValue: { state: { enabled: false, autoContinueEnabled: true } },
+        },
+      },
+      'local'
+    );
+    await flush(4);
+
+    expect(autoTranslateMode.enabled).toBe(false);
+    setState({ status: 'idle' });
+    expect(lastState().autoContinueArmed).toBe(false);
+  });
+});
+
+describe('阅读面板的显示状态会被上报', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('tracks whether the panel is showing', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const before = lastState().readingPanelVisible;
+    expect(typeof before).toBe('boolean');
+
+    await new Promise<void>(resolve => {
+      handleMessage({ type: 'TOGGLE_READING_PANEL' }, makeSender(), () =>
+        resolve()
+      );
+    });
+    await flush();
+
+    // 切换之后上报的值必须跟着变，弹窗显示的按钮状态才和页面一致。
+    expect(lastState().readingPanelVisible).toBe(!before);
+  });
+
+  it('hides the panel when its own ✕ button is pressed', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const host = document.querySelector(
+      '[data-manga-translator-reading-panel]'
+    ) as HTMLElement;
+    const shadow = host.shadowRoot;
+    expect(shadow).toBeTruthy();
+    const hideBtn = shadow?.getElementById('hide-btn');
+    expect(hideBtn).toBeTruthy();
+
+    hideBtn?.click();
+    await flush();
+
+    // 面板自己收起去了，上报给弹窗的状态也得跟着变：
+    // 弹窗上那个按钮写的是"显示译文阅读面板"，而面板还挂在页面上，
+    // 按钮和现实对不上。
+    expect(host.style.display).toBe('none');
+    expect(lastState().readingPanelVisible).toBe(false);
+  });
+
+  it('stops auto-translating this page on request', async () => {
+    // 用户手动翻译过这一页，于是"自动续翻"在这一页上生效了：
+    // 之后新加载的图片会自己送去翻译并扣费。
+    await writeConfig({ enabled: true, autoContinueEnabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+    expect(lastState().autoContinueArmed).toBe(true);
+
+    await new Promise<void>(resolve => {
+      handleMessage({ type: 'DISARM_PAGE_AUTO_TRANSLATE' }, makeSender(), () =>
+        resolve()
+      );
+    });
+    await flush();
+
+    // 关掉之后，上报给弹窗的状态必须立刻跟着变：弹窗上写着
+    // "这一页会自动翻译"，而页面已经不翻译了。
+    expect(lastState().autoContinueArmed).toBe(false);
+  });
+});
+
+describe('删除一条译文，三个视图要一起变', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('drops the panel entry and the anchor badge with the overlay', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const anchorsHost = document.querySelector(
+      '[data-manga-translator-reading-anchors]'
+    ) as HTMLElement;
+    expect(anchorsHost.shadowRoot?.querySelectorAll('.badge').length ?? 0).toBe(
+      1
+    );
+
+    // The renderer tells the content script when the user deletes a
+    // translation from the image itself.
+    const setRemovalListener = rendererMock.setRemovalListener;
+    expect(setRemovalListener).toHaveBeenCalled();
+    const listener = setRemovalListener.mock.calls[0]?.[0] as (
+      image: HTMLImageElement
+    ) => void;
+    expect(typeof listener).toBe('function');
+
+    const image = document.querySelector(
+      'img[src="https://cdn.example.com/a.webp"]'
+    ) as HTMLImageElement;
+    listener(image);
+
+    // 三个视图说的是同一件事：图上没了，面板里也不能还挂着。
+    const panelHost = document.querySelector(
+      '[data-manga-translator-reading-panel]'
+    ) as HTMLElement;
+    expect(panelHost.shadowRoot?.querySelectorAll('.entry').length ?? 0).toBe(
+      0
+    );
+    expect(anchorsHost.shadowRoot?.querySelectorAll('.badge').length ?? 0).toBe(
+      0
+    );
   });
 });

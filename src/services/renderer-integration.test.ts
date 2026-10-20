@@ -11,11 +11,20 @@
 
 import { describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
-  calculateFontSize,
+  estimateTextWidth,
+  fitTextToBox,
   OverlayRenderer,
   type OverlayStyle,
+  type TextMeasurer,
 } from './renderer';
 import type { TextArea } from '@/providers/base';
+
+/**
+ * Measure the way the production code does when there is no canvas: a
+ * full-width character is one em, an ASCII character about half an em.
+ */
+const measureByEstimate: TextMeasurer = (text, fontSize) =>
+  estimateTextWidth(text, fontSize);
 
 describe('OverlayRenderer Integration', () => {
   let renderer: OverlayRenderer;
@@ -627,17 +636,27 @@ describe('Overlay Collision Resolution', () => {
 });
 
 describe('Font Size Calculation', () => {
-  // This suite previously defined its own copy of `calculateFontSize` and
-  // asserted against that, so deleting the production function entirely would
-  // not have failed a single test. It now imports the real one.
-  it('shrinks the font as the text grows for a fixed box', () => {
+  // This suite previously defined its own copy of the font-size calculation
+  // and asserted against that, so deleting the production function entirely
+  // would not have failed a single test. It now imports the real one.
+  it('wraps a long text instead of shrinking it to the floor', () => {
     const longText = '这是一个很长的中文字符串，需要使用较小的字体';
-    const shortText = '短';
 
-    const shortFontSize = calculateFontSize(200, 100, shortText);
-    const longFontSize = calculateFontSize(200, 100, longText);
+    const fit = fitTextToBox(
+      longText,
+      200,
+      100,
+      undefined,
+      'horizontal',
+      measureByEstimate
+    );
 
-    expect(longFontSize).toBeLessThan(shortFontSize);
+    // The text needs more than one line, and the font stays as large as the
+    // box allows: the old behaviour shrank it to the minimum size first and
+    // then wrapped, so every long bubble was drawn at 10px.
+    expect(fit.lines.length).toBeGreaterThan(1);
+    expect(fit.fontSize).toBe(22);
+    expect(fit.clipped).toBe(false);
   });
 
   it('respects the configured min and max bounds', () => {
@@ -652,27 +671,47 @@ describe('Font Size Calculation', () => {
       verticalText: false,
     };
     // A one-character label in a huge box wants far more than the cap.
-    expect(calculateFontSize(2000, 2000, '短', style)).toBe(18);
-    // A wall of text in a tiny box wants less than the floor.
     expect(
-      calculateFontSize(20, 20, '这是一个非常非常非常长的字符串', style)
-    ).toBe(12);
+      fitTextToBox('短', 2000, 2000, style, 'horizontal', measureByEstimate)
+        .fontSize
+    ).toBe(18);
+    // A wall of text in a tiny box wants less than the floor.
+    const clipped = fitTextToBox(
+      '这是一个非常非常非常长的字符串',
+      20,
+      20,
+      style,
+      'horizontal',
+      measureByEstimate
+    );
+    expect(clipped.fontSize).toBe(12);
+    expect(clipped.clipped).toBe(true);
   });
 
   it('weights full-width characters at twice the width of ASCII', () => {
-    // The CJK-aware weighting is the whole point of the function: eight
-    // full-width characters occupy the same run as sixteen ASCII ones. The box
-    // is deliberately narrow and short so width binds and the max cap does not
-    // flatten every result to the same number.
-    const cjk = calculateFontSize(100, 100, '文字文字文字文字');
-    const asciiEquivalent = calculateFontSize(100, 100, 'abcdefghijklmnop');
-    const asciiShort = calculateFontSize(100, 100, 'ab');
+    // The CJK-aware weighting is the whole point: eight full-width
+    // characters occupy the same run as sixteen ASCII ones. The box is wide
+    // enough for the maximum font size, so the comparison is about the
+    // wrapping and not about the size.
+    const cjk = fitTextToBox(
+      '文字文字文字文字文字文字',
+      100,
+      200,
+      undefined,
+      'horizontal',
+      measureByEstimate
+    );
+    const ascii = fitTextToBox(
+      'abcdefghijklmnopqrst',
+      100,
+      200,
+      undefined,
+      'horizontal',
+      measureByEstimate
+    );
 
-    expect(cjk).toBe(asciiEquivalent);
-    expect(cjk).toBeLessThan(asciiShort);
-    // Unweighted, these would be identical; the 2x weighting is what separates
-    // eight CJK characters from eight ASCII ones.
-    const asciiSameCharCount = calculateFontSize(100, 100, 'abcdefgh');
-    expect(cjk).toBeLessThan(asciiSameCharCount);
+    expect(cjk.fontSize).toBe(22);
+    expect(cjk.lines[0]?.length).toBe(3);
+    expect(ascii.lines[0]?.length).toBe(6);
   });
 });

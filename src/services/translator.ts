@@ -23,7 +23,7 @@ import {
   useTranslationCacheStore,
   type TranslationResult,
 } from '@/stores/cache-v2';
-import { useAppConfigStore } from '@/stores/config-v2';
+import { useContentConfigStore } from '@/stores/content-config';
 import { useUsageStore } from '@/stores/usage-store';
 import {
   processImage,
@@ -31,6 +31,7 @@ import {
   combineCroppedRegions,
   base64ToDataUrl,
   type ImageProcessingOptions,
+  type CombinedRegionSegment,
   DEFAULT_OPTIONS,
 } from '@/services/image-processor';
 import {
@@ -73,8 +74,21 @@ function _logError(message: string, ...args: unknown[]): void {
 export interface TranslatorConfig {
   /** Provider type to use */
   provider: ProviderType;
-  /** API key for cloud providers */
+  /**
+   * API key for cloud providers.
+   *
+   * Trusted contexts only. The content script never has a key: it works from
+   * the redacted snapshot, where `hasApiKey` says whether a key exists
+   * without revealing it.
+   */
   apiKey?: string;
+  /**
+   * Whether the provider has an API key configured.
+   *
+   * This is what the content script knows: enough to tell the user "fill in
+   * your API key", not enough to call the provider.
+   */
+  hasApiKey?: boolean;
   /** Base URL for API */
   baseUrl?: string;
   /** Model name */
@@ -113,6 +127,22 @@ export interface TranslationProgress {
 }
 
 export type ProgressCallback = (progress: TranslationProgress) => void;
+
+/**
+ * Outcome of the tiled pipeline.
+ *
+ * `allowFullImageFallback` distinguishes the two ways a tiled run can fail:
+ * - every tile failed → the full-image path is the last resort and is
+ *   allowed to run.
+ * - only some tiles failed → the full-image path must NOT run. A long strip
+ *   is downscaled to 1024px in that path (an 800x8000 strip becomes 102px
+ *   wide), so the extra request buys an unreadable thumbnail on top of the
+ *   money it costs. Reporting the failure instead keeps the image
+ *   unprocessed, so the user can retry exactly the images that failed.
+ */
+interface TiledTranslationOutcome extends TranslationResult {
+  allowFullImageFallback: boolean;
+}
 
 interface TransportTextAreasResponse {
   textAreas: TextArea[];
@@ -196,21 +226,51 @@ export function computeTiles(
  * Deduplicate areas that straddle a tile seam (VLM re-detects text in the
  * overlap). Keep the area whose center is higher (upper tile wins) but only
  * when two boxes genuinely overlap across a horizontally compatible band.
+ *
+ * Why the overlap test is RELATIVE to the box height:
+ *
+ * The old test compared the vertical overlap against a fixed 0.03 of the
+ * image height. That number is only meaningful for a page-sized image. On a
+ * 8000px-tall webtoon strip, 0.03 of the image is 240px, while a speech
+ * bubble is ~40px tall (0.005 of the image). Two copies of the same bubble
+ * detected in two adjacent tiles overlap by far less than 240px, so they
+ * were judged "not duplicates" and the same sentence got rendered twice.
+ *
+ * A duplicate of the same bubble must overlap by roughly a full bubble
+ * height, so the test is: the vertical overlap covers at least half of the
+ * SHORTER of the two boxes, AND the two boxes share a horizontal band.
+ * A pair of genuinely distinct bubbles stacked in the same column overlaps
+ * by much less than half of either box, so it is kept.
  */
 /** @internal exported for tests */
 export function filterOverlapDuplicates(areas: TextArea[]): TextArea[] {
   const kept: TextArea[] = [];
   const toleranceX = 0.06; // center-x must be near
-  const toleranceY = 0.03; // overlap height must be significant
+  const overlapRatio = 0.5; // overlap must cover half of the shorter box
+  // Guard against binary floating point deciding a boundary case: an overlap
+  // of exactly half the shorter box IS a duplicate, but 0.04 comes out as
+  // 0.03999999999999998 when computed from fractional coordinates.
+  const ratioEpsilon = 1e-9;
 
   for (const area of areas) {
     const duplicated = kept.some(other => {
+      const areaHeight = area.height ?? 0;
+      const otherHeight = other.height ?? 0;
       const ay0 = area.y,
-        ay1 = area.y + (area.height ?? 0);
+        ay1 = area.y + areaHeight;
       const by0 = other.y,
-        by1 = other.y + (other.height ?? 0);
+        by1 = other.y + otherHeight;
       const overlapHeight = Math.min(ay1, by1) - Math.max(ay0, by0);
-      if (overlapHeight <= toleranceY) return false;
+      if (overlapHeight <= 0) return false;
+
+      // Scale the comparison to the box, not to the image: a duplicate of
+      // the same bubble overlaps by (almost) a whole bubble height.
+      const minHeight = Math.min(areaHeight, otherHeight);
+      if (minHeight <= 0) return false;
+      if (overlapHeight / minHeight < overlapRatio - ratioEpsilon) {
+        return false;
+      }
+
       const cxA = area.x + (area.width ?? 0) / 2;
       const cxB = other.x + (other.width ?? 0) / 2;
       return Math.abs(cxA - cxB) < toleranceX;
@@ -220,6 +280,35 @@ export function filterOverlapDuplicates(areas: TextArea[]): TextArea[] {
     }
   }
   return kept;
+}
+
+// ==================== Cache Key Normalization ====================
+
+/**
+ * Normalize a base URL so that cosmetic differences do not fragment the
+ * cache, while genuinely different endpoints do.
+ *
+ * `https://API.Example.com/v1/` and `https://api.example.com/v1` are the
+ * same endpoint and must share a cache entry; `https://api.example.com/v1`
+ * and `https://api.example.com/v2` (or a different host entirely) must not.
+ */
+export function normalizeBaseUrl(baseUrl: string | undefined): string {
+  const trimmed = (baseUrl ?? '').trim();
+  if (!trimmed) {
+    return 'default';
+  }
+
+  try {
+    const url = new URL(trimmed);
+    const host = url.host.toLowerCase();
+    const path = url.pathname.replace(/\/+$/, '');
+    const port = url.port ? `:${url.port}` : '';
+    return `${url.protocol.toLowerCase()}//${host}${port}${path}`;
+  } catch {
+    // Not a parseable URL — fall back to a case-insensitive, slash-trimmed
+    // comparison so a typo'd base URL still gets a stable key.
+    return trimmed.replace(/\/+$/, '').toLowerCase();
+  }
 }
 
 // ==================== Translator Service Class ====================
@@ -259,16 +348,10 @@ export class TranslatorService {
     );
 
     // 验证配置：确保 API Key 已设置
-    const providerConfig = {
-      apiKey: this.config.apiKey,
-      baseUrl: this.config.baseUrl,
-      model: this.config.model,
-    };
-
-    if (
-      providerRequiresApiKey(this.config.provider) &&
-      !providerConfig.apiKey
-    ) {
+    //
+    // The content script never holds the key itself — it only knows whether
+    // one is configured — so the check accepts either form.
+    if (providerRequiresApiKey(this.config.provider) && !this.hasCredential()) {
       throw new Error(
         `${this.config.provider} 需要配置 API Key。请前往设置页面填写。`
       );
@@ -278,6 +361,16 @@ export class TranslatorService {
     if (isDevelopment) {
       _log(`Provider 配置验证完成: ${this.config.provider}`);
     }
+  }
+
+  /**
+   * Is a credential available for this provider?
+   *
+   * A trusted caller can hand over the key itself; the content script only
+   * knows whether one is configured. Both answer the same question.
+   */
+  private hasCredential(): boolean {
+    return Boolean(this.config.apiKey) || this.config.hasApiKey === true;
   }
 
   /**
@@ -346,12 +439,22 @@ export class TranslatorService {
       if (image.naturalHeight >= TILING_MIN_HEIGHT) {
         const result = await this.translateImageTiled(image, forceRefresh);
         if (!result.success) {
-          // 切片失败（例如 CORS 无法取原图）→ 回退整图压缩旧路径
-          if (isDevelopment) {
-            _logError(
-              'Tiled pipeline failed, falling back to full-image',
-              result.error
-            );
+          if (result.allowFullImageFallback) {
+            // 所有切片都失败（例如 CORS 无法取原图）→ 回退整图压缩旧路径
+            if (isDevelopment) {
+              _logError(
+                'Tiled pipeline failed, falling back to full-image',
+                result.error
+              );
+            }
+          } else {
+            // 部分切片失败：整图路径会把 800x8000 的长条压到 102px 宽，
+            // 再多付一次钱换回一张几乎空白的窄图。直接报告失败，让这张图
+            // 保持“未处理”，用户可以只重试失败的图片。
+            if (isDevelopment) {
+              _logError('Tiled pipeline partially failed:', result.error);
+            }
+            return result;
           }
         } else {
           // 切片成功也写缓存（整图 hash 为 key），与整图路径共用同一套
@@ -447,11 +550,6 @@ export class TranslatorService {
       pageUrl: metadata?.pageUrl,
       imageUrl: metadata?.imageUrl,
       targetLanguage,
-      provider: this.config.provider,
-      apiKey: this.config.apiKey,
-      baseUrl: this.config.baseUrl,
-      model: this.config.model,
-      requestedPath: deriveRequestedPath(this.config.provider),
       renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
       forceRefresh,
@@ -480,7 +578,19 @@ export class TranslatorService {
 
   private buildCacheKey(imageHash: string): string {
     const requestedPath = deriveRequestedPath(this.config.provider);
-    const executionScope = `provider::${requestedPath}::${this.config.provider}::${this.config.model || 'default'}`;
+    // The endpoint is part of the identity of the execution: the same
+    // provider + model behind a different base URL is a different service
+    // (a gateway vs. the vendor directly, or a different vendor entirely
+    // that happens to use the same model name — `gpt-4o` is not unique).
+    // Without it in the key, switching endpoints silently served the old
+    // endpoint's translation from cache.
+    const executionScope = [
+      'provider',
+      requestedPath,
+      this.config.provider,
+      this.config.model || 'default',
+      normalizeBaseUrl(this.config.baseUrl),
+    ].join('::');
     return [
       imageHash,
       executionScope,
@@ -501,20 +611,34 @@ export class TranslatorService {
    * no token truncation), maps each tile's relative coords back to original
    * image space, then merges and dedupes.
    *
-   * Failure policy: a tile that produces no text (or a whole-page empty
-   * result) is retried once. An empty merge is only a failure when no tile
-   * completed a provider call at all — otherwise the model answered honestly
-   * that there is nothing to translate, and the caller must not pay a second
-   * time for the same answer via the full-image path.
+   * Failure policy:
+   * - a tile that produces no text is retried once (covers transient
+   *   JSON/parse flakiness).
+   * - a tile that THROWS is retried once as well. A single network blip used
+   *   to make the whole strip fall back to the full-image path, which bills
+   *   a 13th request for a strip that already cost 12 and returns a
+   *   1024px-wide thumbnail of an 8000px strip — unreadable.
+   * - the full-image fallback is reserved for the case where EVERY tile
+   *   failed. There is nothing to lose then, and it is the only path that
+   *   can still translate a strip whose tiles could not be fetched at all
+   *   (e.g. a CORS-blocked original).
+   * - a complete run that came back empty is a success: the model answered
+   *   honestly that there is nothing to translate, and the caller must not
+   *   pay a second time for the same answer.
    */
   private async translateImageTiled(
     image: HTMLImageElement,
     forceRefresh: boolean
-  ): Promise<TranslationResult> {
+  ): Promise<TiledTranslationOutcome> {
     const tiles = computeTiles(image.naturalWidth, image.naturalHeight);
     if (tiles.length <= 1) {
       // Not actually a long strip — let the caller use the classic path.
-      return { success: false, textAreas: [], error: 'not-tall-enough' };
+      return {
+        success: false,
+        textAreas: [],
+        error: 'not-tall-enough',
+        allowFullImageFallback: true,
+      };
     }
 
     if (isDevelopment) {
@@ -526,7 +650,7 @@ export class TranslatorService {
     const imageKey = image.src || `img-${Date.now()}`;
     const parallelLimit = Math.min(
       3,
-      Math.max(1, useAppConfigStore.getState().parallelLimit || 3)
+      Math.max(1, useContentConfigStore.getState().parallelLimit || 3)
     );
 
     // 并发翻译所有切片（限制并发，避免打爆 provider）。processInParallel
@@ -541,39 +665,100 @@ export class TranslatorService {
       }
     );
 
+    // Retry ONLY the tiles that produced no answer at all. A `null` slot
+    // means the tile threw; an empty `areas` means the provider answered and
+    // found nothing. `processInParallel` writes `undefined` for a slot it
+    // never ran (abort, or a rejection it caught itself), so all three are
+    // "no answer" and none of them may be counted as a reply.
+    const failedIndexes: number[] = [];
+    perTileResults.forEach((result, index) => {
+      if (result === null || result === undefined) {
+        failedIndexes.push(index);
+      }
+    });
+
+    if (failedIndexes.length > 0 && failedIndexes.length < tiles.length) {
+      if (isDevelopment) {
+        _log(
+          `${failedIndexes.length}/${tiles.length} 个切片失败，重试失败的切片（不回退整图）`
+        );
+      }
+      const failedTiles = failedIndexes.map(index => tiles[index] as TileSpec);
+      const retried = await processInParallel(
+        failedTiles,
+        (tile, retryIndex) => {
+          const originalIndex = failedIndexes[retryIndex] as number;
+          return this.translateTile(
+            image,
+            tile,
+            originalIndex,
+            `${imageKey}::retry`,
+            forceRefresh
+          );
+        },
+        {
+          maxConcurrent: parallelLimit,
+          signal: this.abortController?.signal,
+        }
+      );
+
+      retried.forEach((result, retryIndex) => {
+        const originalIndex = failedIndexes[retryIndex];
+        if (originalIndex === undefined) {
+          return;
+        }
+        perTileResults[originalIndex] = result;
+      });
+    }
+
     const allAreas: TextArea[] = perTileResults.flatMap(r => r?.areas ?? []);
 
     if (allAreas.length === 0) {
-      // A `null` slot means the tile threw; an empty `areas` means the provider
-      // answered and found nothing. `processInParallel` writes `undefined` for a
-      // slot it never ran (abort, or a rejection it caught itself), so both are
-      // "no answer" and neither may be counted as a reply.
       const answered = perTileResults.filter(
         result => result !== null && result !== undefined
       ).length;
       const unanswered = perTileResults.length - answered;
 
-      // Only a *complete* run that came back empty is evidence the strip has no
-      // text. If any tile failed, the emptiness is unexplained and the caller
-      // must still degrade: 3 throw + 1 empty used to return "success" with zero
-      // areas, which skipped the full-image fallback, left three quarters of the
-      // chapter untranslated, and marked the image processed so it was never
-      // retried — silently worse than the double billing this replaced.
-      if (answered === 0 || unanswered > 0) {
+      // Every tile failed → the full-image path is the last resort.
+      if (answered === 0) {
         return {
           success: false,
           textAreas: [],
-          error:
-            answered === 0
-              ? '所有切片翻译请求均失败'
-              : `${unanswered}/${perTileResults.length} 个切片翻译失败`,
+          error: '所有切片翻译请求均失败',
+          allowFullImageFallback: true,
         };
       }
+
+      // Some tiles failed and the rest found no text: the emptiness is
+      // partially unexplained. Reporting the failure keeps the image
+      // unprocessed so it can be retried; falling back to the full image
+      // would bill a 13th request for an unreadable 1024px thumbnail.
+      if (unanswered > 0) {
+        return {
+          success: false,
+          textAreas: [],
+          error: `${unanswered}/${perTileResults.length} 个切片翻译失败`,
+          allowFullImageFallback: false,
+        };
+      }
+
       if (isDevelopment) {
         _log(`切片全部完成 (${answered} 个)，模型确认无文字，不再回退整图`);
       }
-      return { success: true, textAreas: [] };
+      return {
+        success: true,
+        textAreas: [],
+        allowFullImageFallback: false,
+      };
     }
+
+    // Some areas exist but some tiles are still unanswered: the areas we do
+    // have are worth keeping, but the strip is incomplete, so the caller
+    // must not also pay for the full-image path.
+    const stillUnanswered = perTileResults.filter(
+      result => result === null || result === undefined
+    ).length;
+    const allowFullImageFallback = stillUnanswered === perTileResults.length;
 
     const clean = filterOverlapDuplicates(allAreas);
     const clipped = clean.map(area => ({
@@ -591,6 +776,7 @@ export class TranslatorService {
     return {
       success: true,
       textAreas: clipped,
+      allowFullImageFallback,
     };
   }
 
@@ -672,7 +858,7 @@ export class TranslatorService {
     imageKey: string,
     forceRefresh: boolean
   ): Promise<TranslationResult> {
-    const appConfig = useAppConfigStore.getState();
+    const appConfig = useContentConfigStore.getState();
     const hybridEnabled =
       appConfig.translationPipeline === 'hybrid-regions' &&
       this.config.provider !== 'ollama';
@@ -800,7 +986,7 @@ export class TranslatorService {
 
     const batches = splitIntoBatches(
       mergedRegions,
-      Math.max(1, useAppConfigStore.getState().regionBatchSize)
+      Math.max(1, useContentConfigStore.getState().regionBatchSize)
     );
 
     const entries: ReadingEntry[] = [];
@@ -896,19 +1082,20 @@ export class TranslatorService {
     const grouped = new Map<number, TextArea[]>();
 
     for (const area of response.textAreas) {
-      const centerY = (area.y + area.height / 2) * combined.height;
-      const segment =
-        combined.segments.find(
-          item => centerY >= item.top && centerY <= item.top + item.height
-        ) || this.findNearestSegment(centerY, combined.segments);
+      const segment = this.resolveSegmentForArea(area, combined);
 
       if (!segment) {
         continue;
       }
 
-      const current = grouped.get(segment.index) || [];
+      // Key by the segment's SOURCE index, not its position in the combined
+      // image. `combineCroppedRegions` drops crops whose image fails to
+      // load, so the stacked position shifts for every region after the
+      // first failure — grouping by the stacked index handed region 1 the
+      // translation of region 2.
+      const current = grouped.get(segment.sourceIndex) || [];
       current.push(area);
-      grouped.set(segment.index, current);
+      grouped.set(segment.sourceIndex, current);
     }
 
     const entries: ReadingEntry[] = [];
@@ -953,11 +1140,40 @@ export class TranslatorService {
     return entries;
   }
 
+  /**
+   * Find the combined-image segment a provider answer belongs to.
+   *
+   * The vertical position of the box inside the combined image is the
+   * reliable signal: the segment boundaries are known exactly (each crop is
+   * stacked with a fixed spacing), so a box that falls inside a segment
+   * belongs to that segment.
+   *
+   * `area.index` is deliberately NOT used as an anchor here. The strip is
+   * sent without the numeric anchor labels, so an `index` field on the
+   * answer is the model's own invention, not a label read off the image —
+   * trusting it would mis-map answers rather than fix them.
+   */
+  private resolveSegmentForArea(
+    area: TextArea,
+    combined: { height: number; segments: CombinedRegionSegment[] }
+  ): CombinedRegionSegment | null {
+    const segments = combined.segments;
+    if (segments.length === 0) {
+      return null;
+    }
+
+    const centerY = (area.y + area.height / 2) * combined.height;
+    const byPosition = segments.find(
+      item => centerY >= item.top && centerY <= item.top + item.height
+    );
+    return byPosition ?? this.findNearestSegment(centerY, segments);
+  }
+
   private findNearestSegment(
     centerY: number,
-    segments: Array<{ index: number; top: number; height: number }>
-  ): { index: number; top: number; height: number } | null {
-    let nearest: { index: number; top: number; height: number } | null = null;
+    segments: CombinedRegionSegment[]
+  ): CombinedRegionSegment | null {
+    let nearest: CombinedRegionSegment | null = null;
     let minDistance = Number.POSITIVE_INFINITY;
 
     for (const segment of segments) {
@@ -1163,7 +1379,7 @@ export class TranslatorService {
    * Check if provider is properly configured
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
-    if (providerRequiresApiKey(this.config.provider) && !this.config.apiKey) {
+    if (providerRequiresApiKey(this.config.provider) && !this.hasCredential()) {
       return {
         valid: false,
         message: `请配置 ${this.config.provider} 的 API Key`,
@@ -1195,17 +1411,21 @@ export class TranslatorService {
 // ==================== Factory Functions ====================
 
 /**
- * Create a translator service from the current app configuration
+ * Create a translator service from the current app configuration.
+ *
+ * The configuration comes from the redacted content-snapshot store, so the
+ * translator never holds an API key: the worker owns the credential and
+ * performs the actual provider call.
  *
  * @returns Configured TranslatorService instance
  */
 export function createTranslatorFromConfig(): TranslatorService {
-  const config = useAppConfigStore.getState();
+  const config = useContentConfigStore.getState();
   const providerSettings = config.providers[config.provider];
 
   return new TranslatorService({
     provider: config.provider,
-    apiKey: providerSettings.apiKey,
+    hasApiKey: providerSettings.hasApiKey,
     baseUrl: providerSettings.baseUrl,
     model: providerSettings.model,
     targetLanguage: config.targetLanguage,
