@@ -150,6 +150,42 @@ HTML copy to drift. Published from Settings → Pages (source `main`, folder `do
 
 ## Manual Smoke Test
 
+### Loading the extension in Chrome 137 and later
+
+`--load-extension` is disabled by default since Chrome 137, so the usual
+"launch Chrome with a flag and open chrome://extensions" no longer works out
+of the box. The supported alternative is to load the unpacked directory over
+the DevTools protocol:
+
+```bash
+# 1. Start Chrome with a remote debugging port and the flag that re-enables
+#    extension loading.
+"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" \
+  --remote-debugging-port=9333 \
+  --user-data-dir=/tmp/mt-chrome-profile \
+  --enable-unsafe-extension-debugging \
+  about:blank &
+
+# 2. Ask the browser to load dist/ over CDP.
+#    Extensions.loadUnpacked returns the extension id.
+```
+
+The extension then runs: the service worker starts, the content script is
+injected into normal pages, and the extension's own pages open. Two notes
+from doing this by hand:
+
+- The **options page and the popup must be opened by Chrome**
+  (`chrome.runtime.openOptionsPage()`, or the toolbar button), not by
+  navigating a tab to `chrome-extension://<id>/...` from an automation client
+  — Chrome answers that with `ERR_BLOCKED_BY_CLIENT` even though the same
+  page works when the extension opens it.
+- The **cross-origin image in the fixture needs a route to
+  `upload.wikimedia.org`**. Without one the image never loads (0×0) and is
+  filtered out before any request is made, so the background proxy path
+  cannot be exercised.
+
+### The steps
+
 `smoke-test-page.html` in the repository root is the fixture for steps 3-5. It
 generates its images inline, so it needs no network, and always produces the
 same input: an ordinary page with CJK and Latin bubbles, a 4000px-tall webtoon
