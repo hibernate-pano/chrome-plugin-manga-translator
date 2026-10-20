@@ -31,7 +31,7 @@
 
 | 承诺 | 代码锚点 | 文案 |
 | --- | --- | --- |
-| 译文叠加在原图对应位置，不跳转页面 | `src/services/renderer.ts:OverlayRenderer`; `src/services/translator.ts:mapTextAreasToOriginalImage`; `src/services/translator.ts:renderMode` | listing: 把译文渲染回原图对应位置; listing: 不会跳转到另一个页面 |
+| 译文叠加在原图对应位置，不跳转页面 | `src/services/renderer.ts:OverlayRenderer`; `src/services/translator.ts:mapTextAreasToOriginalImage` | listing: 把译文渲染回原图对应位置; listing: 不会跳转到另一个页面 |
 | 覆盖层默认接近不透明，原文气泡区域会被遮住 | `src/services/renderer.ts:rgba(240, 240, 235, 0.94)`; `src/services/renderer.ts:this.style.backgroundColor` | listing: 覆盖层默认是接近不透明的浅色底; release: an almost-opaque panel |
 | 覆盖层底色可在设置里调整 | `src/components/Options/OptionsApp.tsx:setOverlayStyle` | listing: 覆盖层底色可在设置里调整 |
 | 长条条漫（webtoon）切片处理 | `src/services/translator.ts:translateImageTiled`; `src/services/translator.ts:computeTiles`; `src/services/translator.ts:translateTile` | listing: 长条条漫（webtoon）会切片处理; release: for the tiled pipeline |

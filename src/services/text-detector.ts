@@ -27,7 +27,7 @@ export interface TextRegion {
   confidence: number;
 }
 
-export interface TextDetectionResult {
+interface TextDetectionResult {
   /** Array of detected text regions */
   regions: TextRegion[];
   /** Original image dimensions */
@@ -38,7 +38,7 @@ export interface TextDetectionResult {
   processingTime: number;
 }
 
-export interface TextDetectionOptions {
+interface TextDetectionOptions {
   /** Language codes (e.g., 'jpn', 'eng', 'chi_sim') */
   languages?: string[];
   /** Whether to expand regions for better coverage (0-1 ratio) */

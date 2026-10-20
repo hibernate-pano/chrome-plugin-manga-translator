@@ -19,7 +19,6 @@ import {
   CONTEXT_MENU_TRANSLATE_IMAGE,
   CONTEXT_MENU_TRANSLATE_PAGE,
   createTranslateSingleImageMessage,
-  isSupportedPageUrl,
   resolveCommandAction,
 } from './commands';
 
@@ -162,27 +161,5 @@ describe('右键菜单 id', () => {
       type: 'TRANSLATE_SINGLE_IMAGE',
       imageUrl: 'https://cdn.example/ch1/p01.jpg',
     });
-  });
-});
-
-describe('受支持页面的判断', () => {
-  it('普通网页受支持', () => {
-    expect(isSupportedPageUrl('https://manga.example/chapter/1')).toBe(true);
-    expect(isSupportedPageUrl('http://localhost:3000')).toBe(true);
-  });
-
-  it('浏览器内部页面不受支持', () => {
-    expect(isSupportedPageUrl('chrome://extensions')).toBe(false);
-    expect(isSupportedPageUrl('edge://settings')).toBe(false);
-    expect(isSupportedPageUrl('about:blank')).toBe(false);
-    expect(isSupportedPageUrl('chrome-extension://abc/options.html')).toBe(
-      false
-    );
-    expect(isSupportedPageUrl('file:///tmp/page.html')).toBe(false);
-  });
-
-  it('没有地址时不受支持', () => {
-    expect(isSupportedPageUrl(undefined)).toBe(false);
-    expect(isSupportedPageUrl('')).toBe(false);
   });
 });

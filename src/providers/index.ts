@@ -4,16 +4,15 @@
  * Exports all Vision LLM providers and utilities for manga translation.
  */
 
-// Base types and utilities
+// Base types and utilities.
+//
+// Only the members the rest of the codebase actually imports from this
+// barrel are re-exported. The providers themselves import the prompt
+// builders straight from `./base`, so re-exporting them here would be a
+// second, unused path to the same symbols.
 export {
-  type VisionProvider,
-  type ProviderConfig,
-  type VisionResponse,
-  type ValidationResult,
   type TextArea,
   type ProviderType,
-  getMangaTranslationPrompt,
-  parseVisionResponse,
   providerRequiresApiKey,
 } from './base';
 
@@ -53,20 +52,3 @@ export async function createProvider(
   await provider.initialize(config);
   return provider;
 }
-
-/**
- * Get display information for all available providers.
- *
- * NOTE: this was previously a single source of truth for provider display
- * metadata, but the Options UI and Popup UI ship their own per-provider
- * display arrays. Until the UI is refactored to consume this, callers
- * should hard-code the metadata where it is rendered. The block is kept
- * here as documentation of supported providers and their default model
- * names — do not import it; it is not part of the public API.
- */
-export type ProviderDisplayInfo = {
-  name: string;
-  description: string;
-  requiresApiKey: boolean;
-  defaultModel: string;
-};

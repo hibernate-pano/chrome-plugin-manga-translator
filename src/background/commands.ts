@@ -35,6 +35,10 @@
  * `commands.test.ts` 里留了同一份占用清单做回归保护 —— 哪天有人图省事
  * 写回 Ctrl+Shift+T，测试会立刻失败，而不是等到用户发现快捷键根本不触发。
  */
+import type {
+  CommandAction,
+  TranslateSingleImageMessage,
+} from '@/shared/runtime-contracts';
 
 /** 翻译当前页面上的所有可翻译图片。 */
 export const COMMAND_TRANSLATE_PAGE = 'translate-page';
@@ -55,7 +59,7 @@ export const CONTEXT_MENU_TRANSLATE_PAGE = 'translatePage';
 export const CONTEXT_MENU_TRANSLATE_IMAGE = 'translate-image';
 
 /** 扩展声明过的全部命令 id。 */
-export type CommandId =
+type CommandId =
   | typeof COMMAND_TRANSLATE_PAGE
   | typeof COMMAND_FORCE_RETRANSLATE
   | typeof COMMAND_CLEAR_OVERLAYS
@@ -68,7 +72,7 @@ export type CommandId =
  * default 里的 Ctrl 解释成 Command，但这里显式写一份 `mac`，避免依赖
  * 这层隐式转换）。
  */
-export interface CommandShortcut {
+interface CommandShortcut {
   default: string;
   mac: string;
 }
@@ -112,16 +116,11 @@ export const COMMAND_DESCRIPTIONS: Readonly<Record<CommandId, string>> = {
 /**
  * 快捷键最终要送达 content script 的消息。
  *
- * 前三种 content script 已经实现（见 `src/content/content.ts` 的
- * `PopupToContentMsg`）；`TOGGLE_READING_PANEL` 是新协议，content script
- * 侧待接入。
+ * `CommandAction` 是 `PopupToContentMsg` 的一个子集：快捷键只能发起页面级
+ * 动作，不能带上某张图片的地址。两边的类型都放在
+ * `@/shared/runtime-contracts`，所以"content script 认不认这条消息"由
+ * 编译器回答，不再靠注释维持。
  */
-export type CommandAction =
-  | { type: 'TRANSLATE_PAGE' }
-  | { type: 'FORCE_RETRANSLATE_PAGE' }
-  | { type: 'CLEAR_ALL' }
-  | { type: 'TOGGLE_READING_PANEL' };
-
 const COMMAND_ACTIONS: Readonly<Record<string, CommandAction>> = {
   [COMMAND_TRANSLATE_PAGE]: { type: 'TRANSLATE_PAGE' },
   [COMMAND_FORCE_RETRANSLATE]: { type: 'FORCE_RETRANSLATE_PAGE' },
@@ -151,39 +150,10 @@ export function resolveCommandAction(command: string): CommandAction | null {
  * CDN 的另一个尺寸变体，和页面里 `img.src` 不一定一致，所以 URL 原样
  * 传过去，由 content script 按最接近的 img 匹配。
  */
-export type TranslateSingleImageMessage = {
-  type: 'TRANSLATE_SINGLE_IMAGE';
-  imageUrl: string;
-};
-
 export function createTranslateSingleImageMessage(
   imageUrl: string
 ): TranslateSingleImageMessage {
   return { type: 'TRANSLATE_SINGLE_IMAGE', imageUrl };
-}
-
-/**
- * content script 不会注入这些页面，命令发过去也只会得到
- * "Receiving end does not exist"，所以直接不执行。
- *
- * 与 `src/components/Popup/popup-state.ts` 的 `isSupportedPageUrl` 保持
- * 同一份协议清单；这里独立一份是因为 background 层不应该反向依赖
- * components 层（那会把 React 拖进 service worker 的依赖图）。
- */
-const UNSUPPORTED_PROTOCOLS = [
-  'chrome:',
-  'chrome-extension:',
-  'edge:',
-  'about:',
-  'moz-extension:',
-  'file:',
-];
-
-export function isSupportedPageUrl(url?: string): boolean {
-  if (!url) {
-    return false;
-  }
-  return !UNSUPPORTED_PROTOCOLS.some(protocol => url.startsWith(protocol));
 }
 
 /**

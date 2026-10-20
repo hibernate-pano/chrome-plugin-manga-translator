@@ -4,22 +4,11 @@ import {
   getPageAvailability,
   getPrimaryActionState,
   isHostAutoTranslated,
-  isSupportedPageUrl,
   matchingAllowlistEntries,
   type PageAvailability,
 } from './popup-state';
 
 describe('popup page availability', () => {
-  it('marks chrome urls as unsupported', () => {
-    expect(isSupportedPageUrl('chrome://extensions')).toBe(false);
-    expect(isSupportedPageUrl('about:blank')).toBe(false);
-  });
-
-  it('marks normal web pages as supported', () => {
-    expect(isSupportedPageUrl('https://example.com/chapter/1')).toBe(true);
-    expect(isSupportedPageUrl('http://localhost:3000')).toBe(true);
-  });
-
   it('returns unsupported availability for unsupported urls', () => {
     expect(
       getPageAvailability({

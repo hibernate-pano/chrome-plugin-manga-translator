@@ -1,11 +1,11 @@
-export interface ReadingRegion {
+interface ReadingRegion {
   x: number;
   y: number;
   width: number;
   height: number;
 }
 
-export type ReadingEntryStatus = 'region-vlm' | 'fallback-full-image';
+type ReadingEntryStatus = 'region-vlm' | 'fallback-full-image';
 
 export interface ReadingEntry {
   id: string;
@@ -20,7 +20,7 @@ export interface ReadingEntry {
   status: ReadingEntryStatus;
 }
 
-export type ReadingPipeline = 'hybrid-regions' | 'full-image-fallback';
+type ReadingPipeline = 'hybrid-regions' | 'full-image-fallback';
 
 export interface ImageReadingResult {
   imageKey: string;

@@ -24,7 +24,7 @@ interface ProviderDirectTranslationResponse {
  * sent, which is the whole point: the endpoint the API key is sent to is
  * never something the requester can influence.
  */
-export interface ProviderDirectJob {
+interface ProviderDirectJob {
   /** The provider the user configured. */
   provider: ProviderType;
   /** The configured API key. Never leaves the worker. */

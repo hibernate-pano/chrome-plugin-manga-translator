@@ -1,27 +1,10 @@
-import { hostMatchesAllowlist } from '@/shared/app-config';
+import { hostMatchesAllowlist, isSupportedPageUrl } from '@/shared/app-config';
 
 export interface PageAvailability {
   state: 'ready' | 'unsupported' | 'needs-refresh';
   message: string;
   canRefresh: boolean;
   canRetry: boolean;
-}
-
-const UNSUPPORTED_PROTOCOLS = [
-  'chrome:',
-  'chrome-extension:',
-  'edge:',
-  'about:',
-  'moz-extension:',
-  'file:',
-];
-
-export function isSupportedPageUrl(url?: string): boolean {
-  if (!url) {
-    return false;
-  }
-
-  return !UNSUPPORTED_PROTOCOLS.some(protocol => url.startsWith(protocol));
 }
 
 export function getPageAvailability(args: {
@@ -95,7 +78,7 @@ export function isHostAutoTranslated(
  * 两个开关都关着，但用户刚才手动翻译过这一页，于是"自动续翻"照样生效，
  * 新加载的图片会自己送去翻译并扣费。弹窗上没有任何一处写着这件事。
  */
-export interface AutoTranslateStatus {
+interface AutoTranslateDescription {
   /** 这一页现在会不会自动翻译新加载的图片。 */
   armed: boolean;
   /** 提示的口气：active 是"正在花钱"，blocked 是"你设的那件事没生效"。 */
@@ -118,7 +101,7 @@ export function describeAutoTranslate(args: {
   autoContinueEnabled: boolean;
   /** 主开关开没开。 */
   masterEnabled: boolean;
-}): AutoTranslateStatus {
+}): AutoTranslateDescription {
   const { armed, hostAllowlisted, autoContinueEnabled, masterEnabled } = args;
 
   if (!masterEnabled) {
@@ -177,14 +160,14 @@ export function describeAutoTranslate(args: {
  * the button and get a real, billed API call — while the UI promised "关闭后
  * 不会请求任何模型". Turning the switch off has to mean off.
  */
-export type PrimaryActionBlocker =
+type PrimaryActionBlocker =
   | 'none'
   | 'extension-disabled'
   | 'provider-unconfigured'
   | 'page-unsupported'
   | 'page-unreachable';
 
-export interface PrimaryActionState {
+interface PrimaryActionState {
   /** Can the primary action be pressed right now? */
   canTranslate: boolean;
   /** Why not, when it cannot. */
@@ -254,7 +237,7 @@ export function getPrimaryActionState(args: {
  * `tone` drives the icon and the colour; `title` is the one line the user
  * reads first.
  */
-export interface ResultSummary {
+interface ResultSummary {
   tone: 'success' | 'neutral' | 'warning';
   title: string;
   details: string[];

@@ -17,7 +17,7 @@ export type Rgb = [number, number, number];
 /** A white manga page: the lightest backdrop the overlays can sit on. */
 export const WHITE_PAGE: Rgb = [255, 255, 255];
 
-export interface ParsedColor {
+interface ParsedColor {
   rgb: Rgb;
   alpha: number;
 }
@@ -58,7 +58,7 @@ export function parseColor(value: string): ParsedColor {
 }
 
 /** Composite a translucent colour over an opaque backdrop. */
-export function composite(color: Rgb, alpha: number, backdrop: Rgb): Rgb {
+function composite(color: Rgb, alpha: number, backdrop: Rgb): Rgb {
   return [
     color[0] * alpha + backdrop[0] * (1 - alpha),
     color[1] * alpha + backdrop[1] * (1 - alpha),
@@ -67,7 +67,7 @@ export function composite(color: Rgb, alpha: number, backdrop: Rgb): Rgb {
 }
 
 /** WCAG 2.x relative luminance. */
-export function relativeLuminance(color: Rgb): number {
+function relativeLuminance(color: Rgb): number {
   const channel = (value: number) => {
     const c = value / 255;
     return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);

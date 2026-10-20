@@ -17,7 +17,7 @@
 export const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 
 /** Fetch timeout; a hung CDN must not pin the worker. */
-export const IMAGE_FETCH_TIMEOUT_MS = 20_000;
+const IMAGE_FETCH_TIMEOUT_MS = 20_000;
 
 const BASE64_ALPHABET =
   'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';

@@ -39,7 +39,7 @@ export interface ImageProcessingOptions {
   isHybridRegions?: boolean;
 }
 
-export interface ProcessedImage {
+interface ProcessedImage {
   /** Base64 encoded image data (without data URL prefix) */
   base64: string;
   /** MIME type of the processed image */
@@ -558,7 +558,7 @@ export function dataUrlToBase64(dataUrl: string): string {
 
 // ==================== Image Cropping ====================
 
-export interface CropRegion {
+interface CropRegion {
   /** X coordinate of top-left corner */
   x: number;
   /** Y coordinate of top-left corner */
@@ -591,7 +591,7 @@ export interface CombinedRegionSegment {
   height: number;
 }
 
-export interface CombinedCroppedRegions {
+interface CombinedCroppedRegions {
   base64: string;
   width: number;
   height: number;

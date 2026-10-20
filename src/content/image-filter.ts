@@ -1,9 +1,6 @@
-import { getRealImageSource, type SiteAdapter } from './site-adapters';
-
-export interface ImageFilterOptions {
+interface ImageFilterOptions {
   debug?: boolean;
   allowIncomplete?: boolean;
-  siteAdapter?: SiteAdapter | null;
   allowImage?: (img: HTMLImageElement) => boolean;
 }
 
@@ -14,7 +11,6 @@ export function isTranslatableImage(
   const {
     debug: _debug = false,
     allowIncomplete = false,
-    siteAdapter = null,
     allowImage,
   } = options;
 
@@ -25,7 +21,9 @@ export function isTranslatableImage(
     return false;
   }
 
-  const realSrc = getRealImageSource(img, siteAdapter);
+  // `currentSrc` is what the browser actually picked, which matters for a
+  // page that sets `srcset` and lets the browser choose a candidate.
+  const realSrc = img.currentSrc || img.src;
   if (!realSrc) {
     return false;
   }

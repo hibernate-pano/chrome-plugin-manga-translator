@@ -1,5 +1,5 @@
 import type { ProviderType } from '@/providers/base';
-import { CONTENT_PROVIDER_TYPES } from '@/shared/content-config';
+import { readProviderType } from '@/shared/content-config';
 
 /**
  * The provider a translation will actually use, with its settings.
@@ -17,12 +17,6 @@ export interface ActiveProviderConfig {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
-}
-
-function readProviderType(value: unknown): ProviderType {
-  return CONTENT_PROVIDER_TYPES.includes(value as ProviderType)
-    ? (value as ProviderType)
-    : 'openai-compatible';
 }
 
 function readString(value: unknown): string {

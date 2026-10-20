@@ -9,7 +9,7 @@
  * loudly rather than silently.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { act, render, screen } from '@testing-library/react';
+import { act, render } from '@testing-library/react';
 
 const localStore: Record<string, unknown> = {};
 
@@ -41,18 +41,15 @@ function installChromeMock(): void {
   };
 }
 
-import { ThemeProvider, resolveStoredTheme, useTheme } from './theme-provider';
+import { ThemeProvider, resolveStoredTheme } from './theme-provider';
 
+/**
+ * The provider applies the theme to <html> as a class; no component reads
+ * the theme back from a context. The probe therefore only has to be mounted
+ * for the provider's effect to run — the assertions look at the document.
+ */
 function ThemeProbe() {
-  const { theme, setTheme } = useTheme();
-  return (
-    <div>
-      <span data-testid='theme'>{theme}</span>
-      <button type='button' onClick={() => setTheme('dark')}>
-        dark
-      </button>
-    </div>
-  );
+  return <div data-testid='probe'>mounted</div>;
 }
 
 describe('theme provider storage', () => {
@@ -70,7 +67,7 @@ describe('theme provider storage', () => {
     vi.unstubAllGlobals();
   });
 
-  it('reads and writes the theme through storage.local', async () => {
+  it('reads the stored theme through storage.local', async () => {
     localStore['manga-translator-theme'] = 'dark';
     render(
       <ThemeProvider storageKey='manga-translator-theme'>
@@ -81,26 +78,22 @@ describe('theme provider storage', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(screen.getByTestId('theme').textContent).toBe('dark');
-
-    await act(async () => {
-      screen.getByRole('button', { name: 'dark' }).click();
-      await Promise.resolve();
-    });
-
-    expect(localStore['manga-translator-theme']).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('light')).toBe(false);
   });
 
   it('never touches storage.sync', async () => {
     // The mock's `storage.sync` getter throws, so "no error was thrown" was
-    // the whole assertion — and a provider that wrapped its sync write in a
-    // try/catch would have passed it while silently doing nothing. Assert the
-    // write landed in local storage instead: that proves a real write happened
-    // and that it happened in the account-sync-free area.
+    // the whole assertion — and a provider that wrapped its sync read in a
+    // try/catch would have passed it while silently doing nothing. Assert
+    // that the stored value was actually read from local storage instead:
+    // that proves a real read happened, and that it happened in the
+    // account-sync-free area.
     const consoleError = vi
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 
+    localStore['manga-translator-theme'] = 'dark';
     render(
       <ThemeProvider storageKey='manga-translator-theme'>
         <ThemeProbe />
@@ -109,13 +102,8 @@ describe('theme provider storage', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    await act(async () => {
-      screen.getByRole('button', { name: 'dark' }).click();
-      await Promise.resolve();
-    });
 
-    expect(screen.getByTestId('theme').textContent).toBe('dark');
-    expect(localStore['manga-translator-theme']).toBe('dark');
+    expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -152,7 +140,6 @@ describe('theme provider honours a pinned theme', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId('theme').textContent).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.classList.contains('light')).toBe(false);
   });
@@ -174,7 +161,6 @@ describe('theme provider honours a pinned theme', () => {
       await Promise.resolve();
     });
 
-    expect(screen.getByTestId('theme').textContent).toBe('dark');
     expect(document.documentElement.classList.contains('dark')).toBe(true);
     expect(document.documentElement.classList.contains('light')).toBe(false);
   });

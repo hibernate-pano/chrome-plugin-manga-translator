@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   evaluateBaseUrlSafety,
   hostMatchesAllowlist,
+  isSupportedPageUrl,
   normalizeHostEntry,
 } from './app-config';
 
@@ -106,5 +107,27 @@ describe('evaluateBaseUrlSafety', () => {
   it('treats an unset value as no problem to report', () => {
     expect(evaluateBaseUrlSafety('')).toBe('secure');
     expect(evaluateBaseUrlSafety('   ')).toBe('secure');
+  });
+});
+
+describe('isSupportedPageUrl', () => {
+  it('accepts ordinary web pages', () => {
+    expect(isSupportedPageUrl('https://manga.example/chapter/1')).toBe(true);
+    expect(isSupportedPageUrl('http://localhost:3000')).toBe(true);
+  });
+
+  it("rejects the browser's own pages", () => {
+    expect(isSupportedPageUrl('chrome://extensions')).toBe(false);
+    expect(isSupportedPageUrl('edge://settings')).toBe(false);
+    expect(isSupportedPageUrl('about:blank')).toBe(false);
+    expect(isSupportedPageUrl('chrome-extension://abc/options.html')).toBe(
+      false
+    );
+    expect(isSupportedPageUrl('file:///tmp/page.html')).toBe(false);
+  });
+
+  it('rejects a missing address', () => {
+    expect(isSupportedPageUrl(undefined)).toBe(false);
+    expect(isSupportedPageUrl('')).toBe(false);
   });
 });

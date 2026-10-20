@@ -39,7 +39,7 @@ const PROVIDER_SETTING_KEYS: Record<ProviderType, readonly string[]> = {
   'lm-studio': ['lmStudio', 'lm-studio'],
 };
 
-export interface ContentProviderConfig {
+interface ContentProviderConfig {
   /** The endpoint the provider is called on. Not a credential. */
   baseUrl: string;
   /** The model name. */
@@ -70,7 +70,6 @@ export interface ContentConfigSnapshot {
   regionBatchSize: number;
   translationPipeline: 'hybrid-regions' | 'full-image-vlm';
   fallbackToFullImage: boolean;
-  renderMode: 'anchors-only' | 'strong-overlay-compat';
   maxImageSize: number;
   overlayStyle: {
     backgroundColor: string;
@@ -109,6 +108,16 @@ function extractState(raw: unknown): Record<string, unknown> {
   return isRecord(state) ? state : raw;
 }
 
+/**
+ * The provider named by a stored value, or the default when it names none.
+ *
+ * The worker and the content script both read the provider out of a config
+ * record, and they had two copies of this function. They agreed by luck:
+ * the worker's fallback was the literal `'openai-compatible'` and the
+ * content script's was `DEFAULT_CONFIG.provider`, which happens to be the
+ * same string today. One definition, so a future default change cannot
+ * silently split the two.
+ */
 export function readProviderType(value: unknown): ProviderType {
   return CONTENT_PROVIDER_TYPES.includes(value as ProviderType)
     ? (value as ProviderType)
@@ -186,7 +195,6 @@ export function buildContentConfigSnapshot(
   }
 
   const pipeline = state['translationPipeline'];
-  const renderMode = state['renderMode'];
   const stylePreset = state['translationStylePreset'];
 
   return {
@@ -229,10 +237,6 @@ export function buildContentConfigSnapshot(
       state['fallbackToFullImage'],
       DEFAULT_CONFIG.fallbackToFullImage
     ),
-    renderMode:
-      renderMode === 'anchors-only' || renderMode === 'strong-overlay-compat'
-        ? renderMode
-        : DEFAULT_CONFIG.renderMode,
     maxImageSize: readNumber(
       state['maxImageSize'],
       DEFAULT_CONFIG.maxImageSize

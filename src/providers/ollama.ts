@@ -17,8 +17,8 @@ import {
   ValidationResult,
   getMangaTranslationPrompt,
   parseVisionResponse,
-  TranslationStylePreset,
 } from './base';
+import type { TranslationStylePreset } from '@/utils/translation-style';
 
 const DEFAULT_MODEL = 'llava';
 const DEFAULT_BASE_URL = 'http://localhost:11434';

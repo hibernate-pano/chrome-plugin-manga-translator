@@ -54,7 +54,7 @@ export interface TranslationResult {
 /**
  * Cache entry for a translated image
  */
-export interface CacheEntry {
+interface CacheEntry {
   /** Hash of the original image */
   imageHash: string;
   /** Translation result */
@@ -92,7 +92,7 @@ export interface TranslationCacheState {
 /**
  * Cache actions
  */
-export interface TranslationCacheActions {
+interface TranslationCacheActions {
   /**
    * Get cached translation result for an image hash
    * @param imageHash Hash of the image

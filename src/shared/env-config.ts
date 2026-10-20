@@ -19,14 +19,14 @@
  * compile time. Do not import env-config.generated.ts anywhere else.
  */
 
-export interface ProviderEndpoint {
+interface ProviderEndpoint {
   /** Where the provider is called. Not a credential. */
   baseUrl: string;
   /** The model name. */
   model: string;
 }
 
-export interface EnvConfig {
+interface EnvConfig {
   /** Primary provider. MiniMax M3 by default in the user's setup. */
   minimax: ProviderEndpoint;
   /** Backup provider. OpenCodeGo-routed DeepSeek in the user's setup. */

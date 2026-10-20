@@ -12,7 +12,6 @@ import {
   sortImagesByPriority,
   getViewportFirstImages,
   processInParallel,
-  processImagesOptimized,
   splitIntoBatches,
 } from './image-priority';
 
@@ -371,7 +370,7 @@ describe('Parallel Processing', () => {
     });
   });
 
-  describe('processImagesOptimized', () => {
+  describe('viewport-first ordering', () => {
     beforeEach(() => {
       Object.defineProperty(window, 'innerHeight', {
         value: 800,
@@ -399,8 +398,12 @@ describe('Parallel Processing', () => {
 
       const processOrder: HTMLImageElement[] = [];
 
-      await processImagesOptimized(
-        [outsideImg, insideImg],
+      // The production path: sort by viewport priority, then process in
+      // parallel. The helper that combined the two was removed, so the
+      // ordering guarantee is asserted against the two live steps.
+      const sorted = getViewportFirstImages([outsideImg, insideImg]);
+      await processInParallel(
+        sorted,
         async img => {
           processOrder.push(img);
           return true;

@@ -26,8 +26,11 @@ import type {
   TranslateImageJobRequest,
   TranslateImageJobResponse,
   RequestedExecutionPath,
+  ConfigUpdatedMessage,
+  FetchImageBytesResponse,
 } from '@/shared/runtime-contracts';
 import { DEFAULT_CONFIG, APP_CONFIG_STORAGE_KEY } from '@/shared/app-config';
+import { isSupportedPageUrl } from '@/shared/app-config';
 import { normalizeRuntimeAppConfig } from '@/shared/preloaded-config';
 import { buildContentConfigSnapshot } from '@/shared/content-config';
 import { getErrorMessage } from '@/utils/error-message';
@@ -47,7 +50,6 @@ import {
   CONTEXT_MENU_TRANSLATE_PAGE,
   SUPPORTED_PAGE_URL_PATTERNS,
   createTranslateSingleImageMessage,
-  isSupportedPageUrl,
   resolveCommandAction,
 } from './commands';
 
@@ -61,6 +63,13 @@ interface MessageRequest {
   [key: string]: unknown;
 }
 
+/**
+ * A response the worker sends back.
+ *
+ * The index signature is what lets a typed protocol response
+ * (`FetchImageBytesResponse`, say) be sent without widening it: the
+ * protocol types describe the payload, this describes the envelope.
+ */
 interface MessageResponse {
   success?: boolean;
   error?: string;
@@ -220,10 +229,11 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
  */
 async function broadcastConfigSnapshot(): Promise<void> {
   const config = await getConfig();
-  await broadcastToAllTabs({
+  const message: ConfigUpdatedMessage = {
     type: 'CONFIG_UPDATED',
     config: buildContentConfigSnapshot(config),
-  });
+  };
+  await broadcastToAllTabs(message);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -533,7 +543,8 @@ async function handleMessage(
             sendResponse({ success: false, error: 'No image URL provided' });
             return;
           }
-          sendResponse(await fetchImageBytesResponse(imageUrl, sender));
+          const response = await fetchImageBytesResponse(imageUrl, sender);
+          sendResponse(response);
           return;
         }
         case 'HUD_CANCELLED':
@@ -808,7 +819,7 @@ async function sendToTab(
 async function fetchImageBytesResponse(
   imageUrl: string,
   sender: chrome.runtime.MessageSender
-): Promise<MessageResponse> {
+): Promise<FetchImageBytesResponse> {
   if (!isImageFetchAllowedForSender(imageUrl, sender)) {
     return {
       success: false,

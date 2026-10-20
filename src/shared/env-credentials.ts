@@ -13,12 +13,12 @@
  * up in `dist/content.js` anyway.
  */
 
-export interface ProviderCredential {
+interface ProviderCredential {
   /** The API key. Empty when the build carried no key. */
   apiKey: string;
 }
 
-export interface EnvCredentials {
+interface EnvCredentials {
   minimax: ProviderCredential;
   opencode: ProviderCredential;
   ollama: ProviderCredential;

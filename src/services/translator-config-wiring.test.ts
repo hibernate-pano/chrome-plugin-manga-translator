@@ -62,11 +62,9 @@ interface Harness {
       ) => void;
       setTargetLanguage: (l: string) => void;
       setTranslationStylePreset: (p: 'faithful') => void;
-      setRenderMode: (m: 'anchors-only') => void;
       isProviderConfigured: () => boolean;
       translationStylePreset: string;
       targetLanguage: string;
-      renderMode: string;
     };
   };
   createTranslatorFromConfig: () => {
@@ -77,7 +75,6 @@ interface Harness {
       model?: string;
       targetLanguage: string;
       translationStylePreset: string;
-      renderMode?: string;
     };
     initialize: () => Promise<void>;
   };
@@ -126,18 +123,16 @@ describe('config -> translator wiring', () => {
     expect(config.model).toBe('user-model');
   });
 
-  it('passes target language, style preset and render mode through', async () => {
+  it('passes target language and style preset through', async () => {
     const { store, createTranslatorFromConfig } = await createHarness();
 
     store.getState().setTargetLanguage('ja');
     store.getState().setTranslationStylePreset('faithful');
-    store.getState().setRenderMode('anchors-only');
     await settle();
 
     const config = createTranslatorFromConfig().getConfig();
     expect(config.targetLanguage).toBe('ja');
     expect(config.translationStylePreset).toBe('faithful');
-    expect(config.renderMode).toBe('anchors-only');
   });
 
   it('refuses to initialize a cloud provider with an empty API key', async () => {

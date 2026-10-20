@@ -1,9 +1,14 @@
-export type AutoTranslateStatus =
-  | 'idle'
-  | 'scanning'
-  | 'translating'
-  | 'complete'
-  | 'error';
+import type { ContentStatus } from '@/shared/runtime-contracts';
+
+/**
+ * The page status the observer reasons about.
+ *
+ * This used to be a second copy of the page-state union, defined next to
+ * the observer. It is the same five states the content script reports, so
+ * it is now the shared type: the observer is handed `currentState.status`
+ * and the compiler checks the two against one definition.
+ */
+type AutoTranslateStatus = ContentStatus;
 
 /**
  * Upper bound on follow-up page scans triggered without the user asking again.

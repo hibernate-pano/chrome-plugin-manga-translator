@@ -71,7 +71,7 @@ function _logError(message: string, ...args: unknown[]): void {
 
 // ==================== Type Definitions ====================
 
-export interface TranslatorConfig {
+interface TranslatorConfig {
   /** Provider type to use */
   provider: ProviderType;
   /**
@@ -99,34 +99,11 @@ export interface TranslatorConfig {
   cacheEnabled: boolean;
   /** Prompt style preset */
   translationStylePreset: TranslationStylePreset;
-  /** Render mode for translated content */
-  renderMode?: 'anchors-only' | 'strong-overlay-compat';
   /** Image processing options */
   imageOptions?: ImageProcessingOptions;
   /** Transport implementation */
   transport?: TranslationTransport;
 }
-
-export interface TranslationProgress {
-  /** Current image being processed */
-  current: number;
-  /** Total images to process */
-  total: number;
-  /** Current status message */
-  status: string;
-  /** Estimated time remaining in seconds (optional) */
-  estimatedTimeRemaining?: number;
-  /** Current operation phase */
-  phase:
-    | 'initializing'
-    | 'processing'
-    | 'translating'
-    | 'rendering'
-    | 'complete'
-    | 'error';
-}
-
-export type ProgressCallback = (progress: TranslationProgress) => void;
 
 /**
  * Outcome of the tiled pipeline.
@@ -550,7 +527,6 @@ export class TranslatorService {
       pageUrl: metadata?.pageUrl,
       imageUrl: metadata?.imageUrl,
       targetLanguage,
-      renderMode: this.config.renderMode,
       translationStylePreset: this.config.translationStylePreset,
       forceRefresh,
       pageKey,
@@ -596,7 +572,12 @@ export class TranslatorService {
       executionScope,
       this.config.targetLanguage,
       this.config.translationStylePreset,
-      this.config.renderMode || 'strong-overlay-compat',
+      // The render mode used to sit here as a configurable slot. It had one
+      // value in practice and the 'anchors-only' variant was never
+      // implemented, so the slot became a constant. It stays in the key
+      // anyway: dropping the element would change every key's bytes and
+      // invalidate every user's existing translation cache.
+      'strong-overlay-compat',
       HYBRID_PIPELINE_VERSION,
       // Pipeline version bump invalidates tiled-vs-pre-tiled caches on upgrade.
       TILED_PIPELINE_VERSION,
@@ -1311,61 +1292,6 @@ export class TranslatorService {
   }
 
   /**
-   * Translate multiple images
-   *
-   * @param images Array of image elements
-   * @param onProgress Progress callback
-   * @returns Array of translation results
-   */
-  async translateImages(
-    images: HTMLImageElement[],
-    onProgress?: ProgressCallback
-  ): Promise<TranslationResult[]> {
-    if (isDevelopment) {
-      _log(`开始批量翻译, 图片数量: ${images.length}`);
-    }
-
-    // 创建新的中止控制器
-    this.abortController = new AbortController();
-
-    const results: TranslationResult[] = [];
-    const total = images.length;
-
-    for (let i = 0; i < images.length; i++) {
-      // 检查是否已取消（cancel() 会把 controller 置空，两种取消形态都要兜住）
-      if (!this.abortController || this.abortController.signal.aborted) {
-        if (isDevelopment) {
-          _log('批量翻译已取消');
-        }
-        break;
-      }
-
-      const image = images[i];
-      if (!image) continue;
-
-      if (isDevelopment) {
-        _log(`处理图片 ${i + 1}/${total}`);
-      }
-      onProgress?.({
-        current: i + 1,
-        total,
-        status: `翻译中 ${i + 1}/${total}`,
-        phase: 'processing',
-      });
-
-      const result = await this.translateImage(image);
-      results.push(result);
-    }
-
-    if (isDevelopment) {
-      _log(
-        `批量翻译完成, 成功: ${results.filter(r => r.success).length}/${results.length}`
-      );
-    }
-    return results;
-  }
-
-  /**
    * Cancel ongoing translation
    */
   cancel(): void {
@@ -1431,7 +1357,6 @@ export function createTranslatorFromConfig(): TranslatorService {
     targetLanguage: config.targetLanguage,
     cacheEnabled: config.cacheEnabled,
     translationStylePreset: config.translationStylePreset,
-    renderMode: config.renderMode,
     imageOptions: {
       maxSize: config.maxImageSize,
     },
@@ -1441,7 +1366,3 @@ export function createTranslatorFromConfig(): TranslatorService {
 }
 
 // ==================== Singleton Instance ====================
-
-// ==================== Re-exports ====================
-
-export type { TranslationResult, TextArea };

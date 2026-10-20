@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { useEffect, useState } from 'react';
 
 /**
  * The extension renders exactly one theme: dark.
@@ -16,25 +16,13 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
  * and `src/index.css` declares `color-scheme: dark` to match, so native
  * controls, scrollbars and the focus ring follow the same theme.
  */
-export type Theme = 'dark';
+type Theme = 'dark';
 
 type ThemeProviderProps = {
   children: React.ReactNode;
   defaultTheme?: Theme;
   storageKey?: string;
 };
-
-type ThemeProviderState = {
-  theme: Theme;
-  setTheme: (theme: Theme) => void;
-};
-
-const initialState: ThemeProviderState = {
-  theme: 'dark',
-  setTheme: () => null,
-};
-
-const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
 /**
  * Resolve the stored preference into the theme that is actually rendered.
@@ -55,7 +43,6 @@ export function ThemeProvider({
   children,
   defaultTheme = 'dark',
   storageKey = 'manga-translator-theme',
-  ...props
 }: ThemeProviderProps) {
   const [theme, setTheme] = useState<Theme>(defaultTheme);
 
@@ -99,37 +86,9 @@ export function ThemeProvider({
     root.classList.add('dark');
   }, [theme]);
 
-  const value = {
-    theme,
-    setTheme: (theme: Theme) => {
-      try {
-        if (typeof chrome !== 'undefined' && chrome.storage) {
-          void chrome.storage.local
-            .set({ [storageKey]: theme })
-            .catch(error => console.error('Failed to save theme:', error));
-        } else {
-          localStorage.setItem(storageKey, theme);
-        }
-      } catch (error) {
-        console.error('Failed to save theme:', error);
-        localStorage.setItem(storageKey, theme);
-      }
-      setTheme(theme);
-    },
-  };
-
-  return (
-    <ThemeProviderContext.Provider {...props} value={value}>
-      {children}
-    </ThemeProviderContext.Provider>
-  );
+  // The theme is applied to the document element, not consumed from a
+  // context: the popup and the options page are hard-coded dark surfaces
+  // that follow the `dark` class on <html>, so no component needs to read
+  // the theme back.
+  return <>{children}</>;
 }
-
-export const useTheme = () => {
-  const context = useContext(ThemeProviderContext);
-
-  if (context === undefined)
-    throw new Error('useTheme must be used within a ThemeProvider');
-
-  return context;
-};

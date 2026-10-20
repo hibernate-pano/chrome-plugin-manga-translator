@@ -1,6 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType } from '@/providers/base';
+import { providerRequiresApiKey } from '@/providers/base';
 import {
   APP_CONFIG_STORAGE_KEY,
   DEFAULT_CONFIG as SHARED_DEFAULT_CONFIG,
@@ -24,7 +25,7 @@ import { isConfigValueEqual, pickConfigFields } from '@/stores/config-equality';
 
 export interface ProviderSettings extends RuntimeProviderSettings {}
 
-export interface ProvidersConfig {
+interface ProvidersConfig {
   'openai-compatible': ProviderSettings;
   ollama: ProviderSettings;
   'lm-studio': ProviderSettings;
@@ -38,22 +39,20 @@ export interface OverlayStyleConfig {
   verticalText: boolean;
 }
 
-export interface AppConfigState extends RuntimeAppConfig {
+interface AppConfigState extends RuntimeAppConfig {
   providers: ProvidersConfig;
   maxImageSize: number;
   parallelLimit: number;
   cacheEnabled: boolean;
   autoContinueEnabled: boolean;
   autoTranslateHosts: string[];
-  readingMode: 'panel';
-  renderMode: 'anchors-only' | 'strong-overlay-compat';
   translationPipeline: 'hybrid-regions' | 'full-image-vlm';
   regionBatchSize: number;
   fallbackToFullImage: boolean;
   overlayStyle: OverlayStyleConfig;
 }
 
-export interface AppConfigActions {
+interface AppConfigActions {
   setEnabled: (enabled: boolean) => void;
   toggleEnabled: () => void;
   setProvider: (provider: ProviderType) => void;
@@ -71,8 +70,6 @@ export interface AppConfigActions {
   addAutoTranslateHost: (host: string) => boolean;
   removeAutoTranslateHost: (host: string) => void;
   setTranslationStylePreset: (preset: TranslationStylePreset) => void;
-  setReadingMode: (mode: 'panel') => void;
-  setRenderMode: (mode: 'anchors-only' | 'strong-overlay-compat') => void;
   setTranslationPipeline: (
     pipeline: 'hybrid-regions' | 'full-image-vlm'
   ) => void;
@@ -114,10 +111,6 @@ const LOCAL_DEFAULT_CONFIG: AppConfigState = {
   translationStylePreset:
     SHARED_DEFAULT_CONFIG.translationStylePreset ??
     DEFAULT_TRANSLATION_STYLE_PRESET,
-  readingMode: SHARED_DEFAULT_CONFIG.readingMode,
-  renderMode: SHARED_DEFAULT_CONFIG.renderMode as
-    | 'anchors-only'
-    | 'strong-overlay-compat',
   translationPipeline: SHARED_DEFAULT_CONFIG.translationPipeline as
     | 'hybrid-regions'
     | 'full-image-vlm',
@@ -157,7 +150,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Keeping them separate is what allowed the v1.3.x write storm: `partialize`
  * wrote 19 fields while the listener compared against all 42 runtime keys.
  */
-export const PERSISTED_CONFIG_FIELDS = [
+const PERSISTED_CONFIG_FIELDS = [
   'enabled',
   'provider',
   'openaiCompatible',
@@ -171,8 +164,6 @@ export const PERSISTED_CONFIG_FIELDS = [
   'autoContinueEnabled',
   'autoTranslateHosts',
   'translationStylePreset',
-  'readingMode',
-  'renderMode',
   'translationPipeline',
   'regionBatchSize',
   'fallbackToFullImage',
@@ -603,8 +594,6 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
       },
       setTranslationStylePreset: translationStylePreset =>
         set({ translationStylePreset }),
-      setReadingMode: readingMode => set({ readingMode }),
-      setRenderMode: renderMode => set({ renderMode }),
       setTranslationPipeline: translationPipeline =>
         set({ translationPipeline }),
       setRegionBatchSize: regionBatchSize => set({ regionBatchSize }),
@@ -626,7 +615,11 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
         const state = get();
         const targetProvider = provider || state.provider;
         const settings = state.providers[targetProvider];
-        if (targetProvider === 'ollama' || targetProvider === 'lm-studio') {
+        // The keyless-local-provider list lives in one place, next to the
+        // provider definitions. Hard-coding it here meant a third local
+        // provider would be treated as needing an API key here while the
+        // translator treated it as keyless.
+        if (!providerRequiresApiKey(targetProvider)) {
           return !!settings.baseUrl;
         }
         return !!settings.apiKey;

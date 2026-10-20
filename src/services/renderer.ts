@@ -18,7 +18,7 @@ import { sortTextAreasByReadingOrder } from '@/services/reading-order';
 
 // ==================== Type Definitions ====================
 
-export interface OverlayStyleConfig {
+interface OverlayStyleConfig {
   backgroundColor: string;
   textColor: string;
   minFontSize: number;
@@ -45,7 +45,7 @@ export interface OverlayStyle {
   verticalText: boolean;
 }
 
-export interface RenderedOverlay {
+interface RenderedOverlay {
   /** The wrapper element containing the image and overlays */
   wrapper: HTMLElement;
   /** The original image element */
@@ -152,12 +152,12 @@ const FULL_WIDTH_REGEX =
  * manga is actually read — runs a column down the height of the bubble and
  * stacks the columns across its width.
  */
-export type TextDirection = 'horizontal' | 'vertical';
+type TextDirection = 'horizontal' | 'vertical';
 
 /**
  * The result of fitting a piece of text into a box.
  */
-export interface TextFit {
+interface TextFit {
   /** The font size the text was laid out at. */
   fontSize: number;
   /** The lines (horizontal) or columns (vertical) the text was split into. */
@@ -1574,7 +1574,7 @@ export function getRenderer(style?: Partial<OverlayStyle>): OverlayRenderer {
 /**
  * Find all manga translator wrappers in the document
  */
-export function findAllWrappers(): HTMLElement[] {
+function findAllWrappers(): HTMLElement[] {
   return Array.from(document.querySelectorAll(`.${WRAPPER_CLASS}`));
 }
 
