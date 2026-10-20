@@ -7,6 +7,346 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **The content script is no longer web-accessible, so a web page can no
+  longer read the API key obfuscation salt.** CRXJS cannot register a content
+  script directly: for every file in `content_scripts[].js` it emits a loader
+  whose whole body is `import(chrome.runtime.getURL('content.js'))`, and a
+  dynamic import of an extension URL from a page context is refused unless the
+  target is exposed to that page. That put `content.js` into
+  `web_accessible_resources` for every site, and the bundle carries the salt
+  and the XOR routine that uses it — so any page could fetch the bundle and
+  reverse a stored `obf:` key back into plaintext. The build now bundles the
+  content script into a self-contained IIFE and registers it as a plain static
+  file, which Chrome injects itself, so it never has to be reachable from a
+  page. `pnpm release:check` fails the build if `content.js` reappears in
+  `web_accessible_resources`, or if the salt shows up in any web-accessible
+  file under any name.
+- **The content script no longer holds the API key at all.** It used to read
+  the whole configuration out of `chrome.storage.local` and deobfuscate the
+  key itself, so the plaintext key lived in the heap of a script that is
+  injected into every page the user visits — and every translation request
+  carried the key, the endpoint and the model name from the page to the
+  worker. The key now stays in the worker: the content script asks for a
+  redacted configuration snapshot that says *whether* a key is configured,
+  never *what* it is, and the worker resolves the provider, the endpoint and
+  the model from its own configuration, ignoring whatever a request claims.
+  A request that asks for a different endpoint than the one the user
+  configured is refused, so a request from another extension cannot spend
+  the user's key against a gateway of the attacker's choosing.
+- **The built package no longer carries the obfuscation salt.** The salt and
+  the routine that uses it are only in the worker's bundle now, and the
+  build fails if they show up in the content script.
+
+### Fixed
+
+- **Almost every translation was drawn at the minimum font size.** The
+  layout asked how big the font could be for the whole text to fit on a
+  *single* line, and used that as the starting point for a downward
+  search. For anything longer than a line that answer collapses onto the
+  10px floor, so a speech bubble with room to spare was still drawn at
+  10px and had to be squinted at. The layout now asks the question the
+  reader cares about — how big can it be while it still fits — and answers
+  it by trying the sizes from the top down. A typical bubble got 60% more
+  readable text, and nothing that used to fit got smaller.
+- **Hovering a translation made it nearly invisible.** The overlay faded
+  to 15% opacity the moment the mouse was over it, which is exactly when
+  the reader is trying to select the text. The product already has a way
+  to see the original — hold Alt — so the fade had no reason to exist.
+- **A translation that did not fit was cut off without a word.** The
+  overlay clipped the text and said nothing, so a missing last line looked
+  like a complete sentence. Cut-off overlays now carry an ellipsis.
+- **An empty translation covered the bubble with an empty box.** A model
+  that returns nothing for a bubble used to put an opaque, empty rectangle
+  over the artwork. Empty translations are now left alone.
+- **Changing the font size did not change the translations already on the
+  page.** The setting only applied to the images translated afterwards, so
+  the user made the text bigger, looked at the page, saw no difference and
+  concluded the setting was broken. The overlays that are on the page are
+  re-laid out now.
+- **The bubbles of one image were listed in the order the model returned
+  them.** The reading panel inherits that order, so an image with six
+  bubbles could show them shuffled. They are now ordered the way the page
+  reads — top to bottom, and right to left for vertical manga.
+- **The reading panel had no way to be taken off the page.** Collapsing
+  it left a header bar behind, and the only other way out was a keyboard
+  shortcut no document mentioned. The panel has a close button now, and
+  the popup has a matching switch.
+- **The reading panel was 85% of a phone screen.** Its width was a fixed
+  320px. It is now as wide as the screen allows.
+- **The progress HUD sat underneath the reading panel.** Both were pinned
+  to the right, and the panel is tall enough to reach the bottom of the
+  screen, so the progress bar and the cancel button were covered by it.
+  The HUD moved to the left.
+- **The number badge was hidden behind the reading panel.** It was pinned
+  to the top-right corner of the image — the corner the panel covers. It
+  moved to the left, and it now stays on screen while a tall page is
+  being read instead of scrolling away with the image's top edge.
+- **Removing a translation left the reading panel and the badge behind.**
+  The panel kept listing a translation that was no longer on the page, and
+  the badge still claimed the image was translated.
+- **The panel's teaser could leave a stranded full stop.** The cut fell
+  wherever the character count said, and the body sometimes began with a
+  lone "。". The teaser now stops at a sentence mark.
+- **The onboarding described the extension icon as "a cyan star".** It is
+  a speech bubble that says "您好". The onboarding now describes what is
+  actually on the toolbar, and says where to find the icon if it is not
+  pinned there.
+
+- **The release guard could deadlock the build it was supposed to protect.**
+  `pnpm build` runs `check-release-consistency.mjs` both before and after Vite,
+  and the script inferred its phase from whether `dist/` existed. A `dist/`
+  left over from an earlier build was therefore judged as if it were the new
+  one — so the fix that removes `content.js` from `web_accessible_resources`
+  could never be applied: the guard failed on the stale artifact and blocked
+  the very build that would have produced the fixed one. The same root cause
+  had a quieter face: with no `dist/` at all, every artifact check took its
+  "not built yet" branch and returned success, so a build that produced
+  nothing was reported as a clean release. The phase is now stated explicitly
+  (`--source-only` before the build), and the artifact pass insists the
+  artifact exists.
+- **The release freshness guard could not be satisfied on a working
+  machine.** `src/shared/env-config.generated.ts` is regenerated from the
+  developer's local `.env` on every build, so it tracked the machine rather
+  than the repository: changing a key in `.env` changed the fingerprint, and
+  `package-extension.mjs` then refused to package a bundle that was in fact
+  current. The generated file is now excluded from the fingerprint. A private
+  build's embedded credentials were never a property of the source tree, and
+  `check-public-build.mjs` is what decides whether credentials may ship.
+- **The reading panel swallowed clicks on the page.** Its host element was a
+  320px-wide fixed rectangle with `pointer-events: auto`, so even with the
+  panel collapsed to a header bar, an invisible block of that size sat over
+  the page's right margin and ate clicks on whatever was underneath. The host
+  is now a shrink-to-fit wrapper that does not capture clicks; only the
+  panel's own pixels do, and a collapsed panel is as wide as its header.
+- **The reading panel's placeholder never went away.** It read "translations
+  will appear here" while the list of translations was right underneath it.
+  It is now hidden once there is something to show, and comes back when the
+  entries are cleared.
+- **A cancelled translation was reported as a failed one.** Cancelling
+  aborted the in-flight workers, and their throws were counted as failures —
+  so the user was told "failed 12 images" about images that had never
+  failed, and the "retry the failed images" button offered to re-translate
+  them.
+- **The floating HUD could not be dismissed.** An error card, or a
+  completion card reporting failed images, stayed pinned to the bottom-right
+  of the page for the rest of its life. Both now carry a close button.
+- **The confirmation dialog was not actually modal.** It declared
+  `aria-modal="true"` but let `Tab` walk out of it, so a keyboard user
+  ended up focused on popup controls hidden behind the overlay. Focus is now
+  trapped inside the dialog and returned to the button that opened it.
+- **The overlay style only applied to the tab it was changed in.** The
+  renderer picked the user's colours and font sizes up from a
+  `chrome.storage.onChanged` event, which only reaches a tab that was
+  already open when the setting changed. Every new page fell back to the
+  built-in defaults, and a tab that had not translated anything yet threw
+  the change away entirely. The renderer now reads the style it was given
+  when it is created, so the setting follows the user from page to page.
+- **The public packages carried a private model repository.** The public
+  build blanked the provider keys but kept the Ollama model, which in the
+  maintainer's own `.env` is a HuggingFace repository path. It shipped in
+  the public zips v1.3.3 through v2.0.3, and it became the default model
+  for every store user — a model they cannot pull, so their first
+  connection test failed on a model that does not exist for them. The
+  public build now leaves the whole Ollama entry empty (falling back to
+  `http://localhost:11434` and `llava`), and the public-build guard
+  rejects any model that names a repository instead of a model.
+- **"Retry the failed images" re-translated the whole page.** The button
+  sent the force-retranslate message, which clears every image on the page
+  and re-requests all of them, ignoring the cache — so a page with three
+  failures was billed for every image on it. The retry now re-runs only the
+  images that actually failed, the button says how many those are, and the
+  confirmation names the cost.
+- **The popup could grow past Chrome's height limit.** Expanding the
+  reading settings made the popup 708px tall against a 600px ceiling, and
+  the buttons at the bottom were cut off with no way to scroll to them. The
+  popup now scrolls.
+- **Four popup buttons failed silently.** Translation, retry, clear and
+  cancel let their errors escape, so a request that never reached the page
+  looked exactly like a request that did. They now report what went wrong.
+- **The result of a translation disappeared after two seconds.** The
+  success and failure counts, the reason for the failures and the retry
+  button were wiped before the user had read them. They stay until the next
+  run.
+- **The primary button and the switch failed WCAG AA.** White on
+  `cyan-600` is 3.68:1 — and 2.43:1 while hovered — against the 4.5:1 that
+  WCAG 1.4.3 asks for, and the unchecked switch was at 1.32:1, which made
+  it look like a smudge rather than a control. The button is now `cyan-700`
+  with a darker hover, and the switch's off state is a mid grey that can be
+  told apart from both the card and the knob.
+- **The vertical-text switch did nothing.** The setting was copied into the
+  renderer's style and then never read, so a user who turned it on for
+  Japanese manga got the same horizontal layout as everyone else — the one
+  switch in the settings that changed nothing at all. Vertical text is now
+  laid out as columns: the text runs down the height of the overlay and the
+  columns stack across the width, the way the page it replaces is read.
+- **The onboarding wizard switched the extension off when you dismissed
+  it.** Pressing `Esc` (or "later") turned the extension off, so a user who
+  had already configured and enabled it lost their settings without being
+  told. Dismissing the wizard no longer touches the on/off switch.
+- **The provider was named by its protocol, not by its service.** The popup
+  called the OpenAI-compatible slot "cloud API" while the header next to it
+  named the service the user is actually billed by. Both now name the
+  service.
+- **Protocol payloads were shown to the reader as if they were
+  explanations.** An unclassified error came out as "unknown error: HTTP 500
+  {"error":...}", which reads like a log line rather than something a
+  person can act on. Our own messages still come through; provider
+  payloads now go to the console.
+- **Two tabs translating at the same time made the token count too low.**
+  Every extension context keeps its own copy of the usage history, and the
+  last one to write replaced the whole list. Two tabs translating at once
+  therefore erased each other's entries, and the monthly total reported
+  fewer tokens than the user had actually been billed for. Writes now merge
+  into the stored history instead of replacing it, and a deletion in one
+  tab is no longer undone by a stale write from another.
+- **The on-page HUD failed WCAG AA on its error card.** The explanation
+  text sat at 2.83:1 against the card, and the close button at 3.08:1 with
+  a 22×22px hit area. The text is now 4.87:1, the button 4.53:1 with a
+  32×32px target, and the same pass fixed the muted subtitle, the action
+  buttons, the progress bar and the message line.
+- **The reading panel's grey text failed WCAG AA.** The empty-state and
+  per-entry messages sat at 3.22:1 on the panel's dark surface. They are
+  now 5.97:1.
+- **The reading panel repeated the first line of every entry.** The
+  preview line and the body both started at the same sentence, and the
+  preview was cut at 36 characters — more than the panel can show, so the
+  two did not even line up. The preview is now cut to what fits and the
+  body picks up where the preview stopped, so the text reads once and
+  nothing is lost.
+- **The focus ring was cyan everywhere except on the page.** The reading
+  anchors used a yellow ring, the only other focus colour in the
+  extension. It is now the same cyan as the rest.
+- **The store listing promised things the extension does not do.** The
+  short description said the artwork was preserved, the listing promised
+  an "automatic stitching" of long images, and the privacy policy said
+  the OCR fallback could be turned on by hand — none of which is true:
+  the overlay covers the text bubble it replaces, the long-image
+  pipeline tiles and maps coordinates back without producing an image,
+  and the OCR fallback is chosen by the provider, not by a setting. The
+  wording now matches the code, and the real capabilities that were
+  missing from the listing — translating a single image from the
+  context menu, the keyboard shortcuts, the reading panel — are in it.
+- **The privacy policy did not name the default provider.** The listing
+  and the review notes both said the extension ships pointed at
+  MiniMax, while the third-party list in the privacy policy did not
+  mention it. A reviewer comparing the two documents would have found
+  the contradiction. The policy now names it.
+- **The reading panel listed the bubbles in the order the model noticed
+  them.** The vision model returns the speech bubbles in whatever order it
+  saw them, which is not the order a reader reads them. A page with six
+  bubbles showed them shuffled: the reader had to hunt for the sentence
+  that continued the one above. The bubbles are now sorted into reading
+  order — top to bottom and left to right, or right to left for vertical
+  manga.
+- **The reading panel renumbered itself at the end of every batch.** The
+  entries were inserted in completion order and only re-sorted into
+  reading order once the run finished, so a reader working through the
+  list while it was still running had the entries jump to new numbers
+  under their finger, and the image badges changed with them. Each entry
+  now goes to the position it belongs to the moment it arrives, and the
+  numbers never move again.
+- **The panel's own ✕ button did nothing.** It asked the host to take the
+  panel off the page, but nothing was listening, so the button appeared
+  to work and left the panel exactly where it was. The panel is now
+  really hidden, and the popup's button follows the change.
+- **Deleting a translation from the image left it in the panel and on the
+  badge.** The ✕ on the overlay removed the overlay only. The reading
+  panel still listed the sentence, and the badge still said the image
+  was translated — three views of the same page telling three different
+  stories.
+- **The popup never said that a page was translating itself.** Three
+  switches decide whether new images are translated without being asked
+  for, but the page arms itself on a fourth condition the popup could
+  not see: the user translating the page by hand. The result was a page
+  translating and billing with every switch in the popup reading "off".
+  The page now reports whether it is armed, and the popup says so in
+  plain words, with a button to stop it.
+- **Turning the extension off did not stop the requests already on their
+  way.** The popup promised "关闭后不会请求任何模型", but a batch that was
+  already running kept sending images to the provider after the switch was
+  flipped, so the user watched the bill grow after turning everything off.
+  The run is now stopped at the next image boundary, every image asks the
+  switch once more before it is sent, and the popup says plainly that the
+  requests already sent cannot be taken back.
+- **A failed image was reported as "skipped".** The "skipped" count mixed
+  two different things: images that are too small or badly placed and will
+  never be translated, and images that were already translated and cost
+  nothing this time. A user could not tell which was which, so the two
+  are counted and reported separately.
+
+### Added
+
+- **Every promise in the store documents is checked against the code.**
+  `docs/store-claims.md` records each promise with the code that backs
+  it, and `scripts/check-store-claims.mjs` fails the build in both
+  directions: the code behind a promise must still exist, and the
+  documents must still make the promise. Renaming a symbol or quietly
+  rewording a document now breaks the build instead of reaching the
+  store review.
+
+
+- **"Translate this image" now works.** The context menu item sent its
+  message to a content script that had no handler for it, so the menu entry
+  did nothing at all. The content script now resolves the URL back to the
+  image on the page — matching the resolved URL, then the URL without its
+  query string, then the file name — and translates that one image, without
+  touching or billing for the rest of the page.
+- **A keyboard shortcut toggles the reading panel.** The command was
+  declared in the manifest and dispatched by the service worker, but no
+  content script received it. The panel can now be hidden entirely (not just
+  collapsed), and it is created on demand, so the shortcut works before the
+  first translation.
+- **The popup can now refresh the page for you.** When a page was opened
+  before the extension was installed, the popup said "please refresh the
+  page and try again" and left the user to work out which key to press.
+  There is a button now.
+- **The popup says whether the page is translating itself, and can stop
+  it.** The reading settings now carry one line that answers the only
+  question that matters about auto-translation: is this page spending my
+  money on its own? When the answer is yes, the line says so in plain
+  words and offers a button that stops it — either for this page only, or
+  for the whole site if the site is on the auto-translate list.
+- `LICENSE` (MIT), `CODE_OF_CONDUCT.md` and `SECURITY.md`.
+- GitHub issue templates for bug reports, feature requests and provider
+  connection problems, plus a pull request template.
+- CI runs on `ubuntu-latest` and `macos-latest` against Node 20 and 22.
+- CI now produces the uploadable release package (`release/*.zip` plus its
+  SHA-256) on tag pushes, not just on `main` pushes.
+
+### Changed
+
+- **The privacy disclosure now matches what the extension actually does.** The
+  store listing, the review notes and the privacy policy said the extension
+  "collects no user data" as an unqualified statement, while the extension
+  sends the comic images it translates to the provider the user configured.
+  That is a transfer of website content to a third party, and the Chrome Web
+  Store data-usage disclosure has to say so. All three documents now state
+  that the developer collects, receives and stores nothing, and that the
+  website content goes to the provider the user chose, under that provider's
+  own policy. `docs/store-listing-zh.md` carries the disclosure table to copy
+  into the store form.
+- **The store listing no longer promises a text-eraser feature.** The listing
+  advertised "文字擦除：可用识别结果遮盖原文". There is no such feature: the
+  renderer draws an opaque rectangle over the bubble and places the
+  translation on it. The listing now describes that.
+- **The review notes no longer ask the reviewer to open the test page over
+  `file://`.** The background worker's image fetch refuses any protocol other
+  than `http`/`https`, and Chrome does not inject content scripts into
+  `file://` pages by default, so the reviewer would have concluded the
+  extension was broken. The notes now use `python3 -m http.server` and
+  mention the "Allow access to file URLs" toggle as an alternative.
+- **The extension has one theme, and it is the dark one.** The theme
+  provider accepted `light` and `system`, but every surface in the popup and
+  the options page is painted with hard-coded dark colours while the switch
+  and the slider read the semantic CSS variables — so a light theme produced
+  a half-black, half-white page with an invisible switch. Rather than ship
+  half of a design that does not exist, the light branch is gone: the
+  palette now lives on `:root` (so the first paint is dark instead of
+  flashing white), the native scrollbars and form controls follow
+  `color-scheme: dark`, and the focus ring is one colour everywhere.
+
 ## [2.0.3] - 2026-10-08
 
 Submission-blocking metadata fix found during the Chrome Web Store package audit.
@@ -775,3 +1115,19 @@ ethically guarded, OSS-ready".
 
 [0.3.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.3
 [0.3.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.2
+[2.0.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.3
+[2.0.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.2
+[2.0.1]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.1
+[2.0.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.0
+[1.3.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.3.3
+[1.3.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.3.2
+[1.3.1]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.3.1
+[1.3.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.3.0
+[1.2.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.2.0
+[1.1.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.1.0
+[1.0.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v1.0.0
+[0.7.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.7.0
+[0.6.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.6.0
+[0.5.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.5.0
+[0.4.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.4.0
+[0.3.4]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.4
