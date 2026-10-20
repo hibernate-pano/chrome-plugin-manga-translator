@@ -22,13 +22,13 @@ const scriptPath = resolve(
 
 const FAKE_KEY = 'sk-AAAAAAAAAAAAAAAAAAAAAAdummy';
 
-function envConfig(apiKey) {
+function envConfig(apiKey, model = 'm') {
   return [
     'export const ENV_CONFIG = {',
     '  "minimax": {',
     '    "baseUrl": "https://api.example.com/v1",',
     `    "apiKey": "${apiKey}",`,
-    '    "model": "m"',
+    `    "model": "${model}"`,
     '  }',
     '} as const;',
   ].join('\n');
@@ -56,6 +56,13 @@ function writeGenerated(apiKey) {
   writeFileSync(
     join(workdir, 'src', 'shared', 'env-config.generated.ts'),
     envConfig(apiKey)
+  );
+}
+
+function writeGeneratedWithModel(model) {
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'env-config.generated.ts'),
+    envConfig('', model)
   );
 }
 
@@ -143,5 +150,54 @@ describe('check-public-build guard', () => {
     const result = runGuard(['--source-only']);
     expect(result.code).not.toBe(0);
     expect(result.output).toContain('REFUSING');
+  });
+
+  it('fails when the default model is a repository reference', () => {
+    // The exact shape that shipped in the v1.3.3 … v2.0.3 public packages:
+    // a private HuggingFace repository, published as the default model.
+    writeGeneratedWithModel(
+      'hf.co/outsourc-e/Qwen3.8-27B-Unleashed-GGUF:UD-Q2'
+    );
+    writeDist('content.js', 'console.log("hello");');
+
+    const result = runGuard();
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('REFUSING');
+    expect(result.output).toContain('model repository path');
+  });
+
+  it('fails when a HuggingFace repository reference reaches the bundle', () => {
+    writeGenerated('');
+    writeDist(
+      'content.js',
+      'var m = "hf.co/outsourc-e/Qwen3.8-27B-Unleashed-GGUF:UD-Q2_K_XL";'
+    );
+
+    const result = runGuard();
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('REFUSING');
+    expect(result.output).toContain('HuggingFace repository reference');
+  });
+
+  it('allows an ordinary model tag', () => {
+    // `qwen2.5vl:7b` is a normal Ollama tag: a colon is fine, a path is not.
+    writeGeneratedWithModel('qwen2.5vl:7b');
+    writeDist('content.js', 'console.log("hello");');
+
+    const result = runGuard();
+    expect(result.output).toContain('verified');
+    expect(result.code).toBe(0);
+  });
+
+  it('fails when the env config cannot be parsed', () => {
+    writeFileSync(
+      join(workdir, 'src', 'shared', 'env-config.generated.ts'),
+      'export const ENV_CONFIG = { broken'
+    );
+    writeDist('content.js', 'console.log("hello");');
+
+    const result = runGuard();
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('unreadable env config');
   });
 });

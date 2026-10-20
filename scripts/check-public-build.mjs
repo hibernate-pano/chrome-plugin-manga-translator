@@ -68,6 +68,92 @@ const SCANNABLE_EXTENSIONS = new Set([
   '.map',
 ]);
 
+/**
+ * References to a hosted model *repository*.
+ *
+ * A model name is allowed to look like `qwen2.5vl:7b` — that is an ordinary
+ * Ollama tag. What must never ship is a pointer at a repository
+ * (`owner/repo`, `hf.co/owner/repo:quant`): it leaks a repository the
+ * developer keeps to themselves, and it becomes the default model for every
+ * store user, who cannot pull it. Their first "test connection" then fails
+ * on a model that does not exist for them.
+ *
+ * This was not hypothetical. The public packages v1.3.3 through v2.0.3 all
+ * carried the developer's private HuggingFace repository, because the
+ * credential scan only knew about keys.
+ */
+const PUBLIC_REFERENCE_PATTERNS = [
+  {
+    name: 'HuggingFace repository reference',
+    pattern: /hf\.co\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/g,
+  },
+];
+
+/**
+ * Parse the generated env config back into an object.
+ *
+ * The file is TypeScript, but the payload is plain JSON, so it can be read
+ * back structurally instead of by regex. That matters: the credential guard
+ * originally matched `apiKey: "..."` against a JSON-shaped file, matched
+ * nothing, and reported success while real keys sat in the bundle.
+ */
+function parseEnvConfig(contents) {
+  const match = /export const ENV_CONFIG = (\{[\s\S]*\}) as const;/.exec(
+    contents
+  );
+  if (!match) {
+    return null;
+  }
+  try {
+    return JSON.parse(match[1]);
+  } catch {
+    return null;
+  }
+}
+
+function isPlainObject(value) {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/**
+ * Reject model identifiers that name a repository rather than a model.
+ *
+ * Only the generated config is inspected here; the bundle inherits the very
+ * same values, and the reference scan covers anything that reached the
+ * bundle by another route.
+ */
+function checkPublicModels(contents) {
+  const config = parseEnvConfig(contents);
+  if (!config || !isPlainObject(config)) {
+    return [
+      {
+        label: 'src/shared/env-config.generated.ts',
+        name: 'unreadable env config',
+        preview: 'ENV_CONFIG could not be parsed',
+      },
+    ];
+  }
+
+  const findings = [];
+  for (const [provider, settings] of Object.entries(config)) {
+    if (!isPlainObject(settings)) {
+      continue;
+    }
+    const model = settings['model'];
+    if (typeof model !== 'string' || !model) {
+      continue;
+    }
+    if (model.includes('/')) {
+      findings.push({
+        label: `src/shared/env-config.generated.ts (${provider}.model)`,
+        name: 'model repository path',
+        preview: model,
+      });
+    }
+  }
+  return findings;
+}
+
 const MAX_FILE_BYTES = 8 * 1024 * 1024;
 
 function hasScannableExtension(filePath) {
@@ -115,7 +201,10 @@ function scanFile(filePath, label) {
   }
 
   const findings = [];
-  for (const { name, pattern } of SECRET_PATTERNS) {
+  for (const { name, pattern } of [
+    ...SECRET_PATTERNS,
+    ...PUBLIC_REFERENCE_PATTERNS,
+  ]) {
     // These regexes are module-level and global, so state carries over
     // between calls unless the cursor is reset.
     pattern.lastIndex = 0;
@@ -141,8 +230,9 @@ const findings = [];
 // 1. The generated source of truth for build-time credentials. This runs
 //    before the bundle exists, so it fails fast on a bad `--public-build`
 //    injection.
+let generatedContents;
 try {
-  readFileSync(generatedPath, 'utf8');
+  generatedContents = readFileSync(generatedPath, 'utf8');
 } catch {
   console.error(
     '[public-build] cannot read src/shared/env-config.generated.ts — run scripts/inject-env-config.mjs first'
@@ -150,6 +240,7 @@ try {
   process.exit(1);
 }
 findings.push(...scanFile(generatedPath, 'src/shared/env-config.generated.ts'));
+findings.push(...checkPublicModels(generatedContents));
 
 // 2. The shipped bundle. Skipped with `--source-only` when invoked before the
 //    build (dist/ still holds the previous, possibly private, build).
@@ -169,7 +260,9 @@ if (!sourceOnly) {
 }
 
 if (findings.length > 0) {
-  console.error('[public-build] REFUSING to package: credentials detected');
+  console.error(
+    '[public-build] REFUSING to package: credentials or private references detected'
+  );
   const seen = new Set();
   for (const finding of findings) {
     const signature = `${finding.name}|${finding.preview}`;
@@ -186,6 +279,6 @@ if (findings.length > 0) {
 
 console.log(
   sourceOnly
-    ? '[public-build] verified: no provider credentials in build-time config'
-    : `[public-build] verified: ${distFiles.length} dist file(s) scanned, no provider credentials embedded`
+    ? '[public-build] verified: no provider credentials or private model references in build-time config'
+    : `[public-build] verified: ${distFiles.length} dist file(s) scanned, no provider credentials or private model references embedded`
 );

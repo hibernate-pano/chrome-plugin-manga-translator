@@ -5,10 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && vite",
-    "build": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-release-consistency.mjs && node scripts/record-source-fingerprint.mjs",
-    "build:public": "node scripts/check-release-consistency.mjs && node scripts/inject-env-config.mjs --public-build && node scripts/check-public-build.mjs --source-only && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-public-build.mjs && node scripts/check-release-consistency.mjs && node scripts/record-source-fingerprint.mjs",
+    "build": "node scripts/check-release-consistency.mjs --source-only && node scripts/check-store-claims.mjs --source-only && node scripts/inject-env-config.mjs && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-release-consistency.mjs && node scripts/record-source-fingerprint.mjs",
+    "build:public": "node scripts/check-release-consistency.mjs --source-only && node scripts/check-store-claims.mjs --source-only && node scripts/inject-env-config.mjs --public-build && node scripts/check-public-build.mjs --source-only && node scripts/copy-tesseract.js && tsc && vite build && node scripts/check-public-build.mjs && node scripts/check-release-consistency.mjs && node scripts/record-source-fingerprint.mjs",
     "package:public": "pnpm build:public && node scripts/package-extension.mjs",
-    "release:check": "node scripts/check-release-consistency.mjs",
+    "release:check": "node scripts/check-release-consistency.mjs && node scripts/check-store-claims.mjs",
+    "check:claims": "node scripts/check-store-claims.mjs",
     "preview": "vite preview",
     "test": "node scripts/inject-env-config.mjs && vitest",
     "test:ui": "node scripts/inject-env-config.mjs && vitest --ui",
@@ -31,8 +32,16 @@
     "react",
     "typescript"
   ],
-  "author": "",
+  "author": "Manga Translator contributors",
   "license": "MIT",
+  "homepage": "https://github.com/hibernate-pano/chrome-plugin-manga-translator#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hibernate-pano/chrome-plugin-manga-translator.git"
+  },
+  "bugs": {
+    "url": "https://github.com/hibernate-pano/chrome-plugin-manga-translator/issues"
+  },
   "packageManager": "pnpm@12.4.1",
   "engines": {
     "node": ">=20"

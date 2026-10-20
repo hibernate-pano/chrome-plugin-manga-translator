@@ -13,46 +13,52 @@
 **简短说明**（≤132 字符）
 
 ```
-在网页原位翻译漫画与条漫图片，保留原画不被覆盖。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。
+在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。
 ```
 
 **详细说明**
 
 ```
-漫画翻译助手是一个「就地翻译」工具：它在你正在阅读的漫画页面上直接叠加译文，保留原图完整显示，不会跳转到另一个页面，也不会用译文盖住画面。
+漫画翻译助手是一个「就地翻译」工具：它在你正在阅读的漫画页面上直接叠加译文，不会跳转到另一个页面。译文画在原文所在位置的一块覆盖层上，气泡里的文字会被这块覆盖层遮住，画面其余部分保持原样。
 
 ■ 核心能力
 
-· 原位叠加译文：识别漫画图片中的文字，把翻译结果渲染回原图对应位置，保留气泡、网点与作画风格。
-· 支持多种阅读形态：普通漫画分镜、长条条漫（webtoon）会切片处理，超长图自动拼接。
-· 文字擦除：可用识别结果遮盖原文，避免中英文字重叠。
-· 本地 OCR 兜底：当视觉模型未识别出文字时，内置 Tesseract OCR 可继续工作。
+· 原位叠加译文：识别漫画图片中的文字，把译文渲染回原图对应位置。
+· 支持多种阅读形态：普通漫画分镜、长条条漫（webtoon）会切片处理（切块分别送模型，译文坐标再映射回原图）。
+· 译文直接覆盖在原文字区域上：使用与原文字框相同的位置与样式渲染译文；覆盖层默认是接近不透明的浅色底，原文气泡区域会被遮住，覆盖层底色可在设置里调整。
+· 本地 OCR 兜底：视觉模型没有识别出文字时，内置 Tesseract OCR 可继续工作（使用 Ollama 时不启用该兜底）。
 · 翻译缓存：相同图片不重复请求，节省额度；缓存仅保存在本机浏览器内。
-· 手动/自动两种模式：随时点击工具栏按钮或右键菜单翻译当前页；也可把常用站点加入自动翻译白名单。
+· 手动/自动两种模式：点击工具栏按钮，或在页面右键菜单选择「翻译当前页面」/「翻译这张图片」；也可把常用站点加入自动翻译白名单（默认为空）。
+· 自动翻译状态一目了然：弹窗会直接写明当前页面是否正在自动翻译新加载的图片（会产生费用），需要时可一键停掉，不会出现开关都关着却仍在自动翻译的情况。
+· 键盘快捷键：Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重译、+E 清除覆盖层、+S 开关译文阅读面板。
+· 译文阅读面板：页面右侧列出本页所有译文，按阅读顺序编号，可从面板跳到对应图片。
 
 ■ 支持的服务商
 
-· 任意 OpenAI 兼容接口（可自定义 base URL 与模型名）
+· 任意 OpenAI 兼容接口（可自定义 base URL 与模型名）。安装后的默认端点为 MiniMax（https://api.minimaxi.com/v1，模型 MiniMax-M3），你可以在设置里改成任意其他 OpenAI 兼容服务，或改成本地服务。
 · Ollama（本地，默认 http://localhost:11434）
-· LM Studio（本地，默认 http://localhost:1234）
+· LM Studio（本地，默认 http://localhost:1234/v1）
 
 ■ 关于隐私
 
-· 不收集任何用户数据，没有统计、没有遥测、没有崩溃上报，没有广告 SDK。
+· 开发者不收集、不接收、不存储任何用户数据，没有统计、没有遥测、没有崩溃上报，没有广告 SDK。
 · 开发者不运行任何服务器，不会收到你的图片、密钥或浏览记录。
+· 需要说明的是：翻译时，你正在阅读的页面上的漫画图片会被发送至「你自行配置的服务商」，这构成 Website content 的传输；该服务商如何处理这些数据，适用其自身的隐私政策。
+· 若希望图片完全不离开本机，请使用本地服务商（Ollama 或 LM Studio）。
 · API Key 仅保存在本机 chrome.storage.local，不随 Google 账号同步。
-· 图片只会发往你自行配置的服务商；页面图片由浏览器直接向该页自己的图床发起 GET 请求（不携带你的 Cookie），不是开发者架设的代理。
+· 页面图片由浏览器直接向该页自己的图床发起 GET 请求（不携带你的 Cookie），不是开发者架设的代理。
+· OCR 语言包在首次使用 OCR 兜底时从 jsdelivr 公开 CDN 下载（不含任何图片或页面内容）。
 · 卸载扩展即删除全部本地数据。
 
 ■ 使用方式
 
 1. 安装后在弹窗中完成引导。
 2. 选择服务商并填入 API Key 与模型名，点击「测试配置」确认连通。
-3. 打开含漫画图片的网页，点击工具栏图标或右键「翻译当前页面」。
+3. 打开含漫画图片的网页，点击工具栏图标，或右键「翻译当前页面」/「翻译这张图片」，也可以直接按快捷键。
 
 ■ 常见问题
 
-· 没有识别到文字？先确认服务商可用；若视觉模型未返回文本，扩展会自动尝试内置 OCR。
+· 没有识别到文字？先确认服务商可用；若视觉模型未返回文本，扩展会自动尝试内置 OCR（使用 Ollama 时不启用该兜底）。
 · 某站点不生效？确认该站点在自动翻译白名单中，或使用手动触发。
 · 图片加载不出？部分站点图片受 CORS 或防盗链限制，扩展会尝试由后台直接取图；若站点本身需要登录态，可能仍失败。
 
@@ -89,4 +95,52 @@ Chrome 商店要求隐私政策是**可公开访问的 URL**，不能是本地�
 本项目已通过 GitHub Pages 托管：`https://hibernate-pano.github.io/chrome-plugin-manga-translator/privacy-policy.html`
 
 源头是 `docs/privacy-policy.md`，由 Pages 直接渲染，**改文档即改线上内容**，无需维护第二份 HTML 副本。Pages 的发布配置在仓库 Settings → Pages（源 `main` / `docs`）。
+
+## CWS 数据使用披露（Data Usage Disclosure）
+
+Chrome 商店的新建条目流程会要求逐项填写数据使用披露。下面是本扩展**照抄即可**的填写建议。
+
+### 单一用途声明
+
+```
+The extension's single purpose is to translate text in comic images on the
+page the user is reading, and overlay the translation on that page.
+```
+
+### 数据使用披露表格
+
+| 数据类型 | 是否收集 | 是否与用户身份关联 | 是否用于广告 | 收集目的 | 数据去向 |
+| --- | --- | --- | --- | --- | --- |
+| Website content | 是（仅传输给用户配置的服务商，开发者不接收） | 否 | 否 | 应用功能：翻译用户请求翻译的漫画图片 | 传输给用户自行配置的第三方 Vision LLM 服务商；开发者不接收、不存储 |
+| User activity | 否 | — | — | — | — |
+| Website content（浏览记录） | 否 | — | — | — | — |
+| Information about the user | 否 | — | — | — | — |
+| PII or financial information | 否 | — | — | — | — |
+| Health information | 否 | — | — | — | — |
+| Authentication information | 否 | — | — | — | — |
+| Personal communications | 否 | — | — | — | — |
+| Location | 否 | — | — | — | — |
+| Web history | 否 | — | — | — | — |
+| Identifiers | 否 | — | — | — | — |
+| Diagnostics | 否 | — | — | — | — |
+
+**关于 "Website content" 这一项的说明（填进备注框，可选但建议填）：**
+
+```
+Website content is transmitted only when the user explicitly asks for a
+translation (toolbar button, context menu, or a site the user added to the
+auto-translate list). The comic images being translated are sent from the
+user's browser directly to the Vision LLM provider the user configured. The
+extension developer operates no server, receives no data, and stores no
+data. Users who configure a local provider (Ollama or LM Studio) send
+nothing off their own machine at all.
+```
+
+### 远程代码执行
+
+选 **"No"**。扩展不加载任何远程代码；`'wasm-unsafe-eval'` 仅用于实例化随包发布的 Tesseract OCR WASM 核心。
+
+### 数据处理方式
+
+选 **"Not applicable — the developer collects no user data"**（若商店要求在"数据收集者"一栏选择，沿用"开发者不收集"这一表述，不要勾选任何暗示开发者会接收数据的选项）。
 

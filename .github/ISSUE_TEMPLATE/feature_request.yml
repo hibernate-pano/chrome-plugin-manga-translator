@@ -1,0 +1,61 @@
+name: Feature request
+description: Suggest something the extension could do.
+title: "[Feature] "
+labels: ["enhancement", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        A good feature request says what problem you have, not just what
+        feature you want. The distinction matters here: the extension already
+        has a lot of surface area, and the bar for adding more is "solves a
+        problem people actually hit".
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem are you trying to solve?
+      description: Describe the situation, not the solution.
+      placeholder: |
+        I read manga on a site that replaces each panel with a new <img> as I
+        scroll, and I have to re-trigger translation on every chapter.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What would you like the extension to do?
+      description: How you imagine it working, in concrete terms.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: What have you tried instead?
+      description: Workarounds, other extensions, or a script.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: How much does this change?
+      options:
+        - Small — a setting, a tweak to existing behaviour
+        - Medium — a new option or a new provider
+        - Large — a new subsystem
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: constraints
+    attributes:
+      label: Constraints
+      options:
+        - label: This must work without sending data to any new third party.
+        - label: This must work with a local provider (Ollama / LM Studio).
+        - label: This must not require a new permission.
+    validations:
+      required: false

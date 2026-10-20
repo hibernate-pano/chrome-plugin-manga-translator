@@ -1,0 +1,106 @@
+name: Bug report
+description: Something in the extension does not work as described.
+title: "[Bug] "
+labels: ["bug", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the report. Two things make a bug report actionable here:
+        the **version of the extension** and the **exact provider you
+        configured** (OpenAI-compatible / Ollama / LM Studio). A report that
+        says "it does not work" without those usually cannot be reproduced.
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you expected, and what happened instead.
+      placeholder: |
+        Expected: the overlay appears on the first panel.
+        Actual: the HUD says "0 images found" and nothing is translated.
+    validations:
+      required: true
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Numbered, starting from a freshly loaded page.
+      placeholder: |
+        1. Open a manga page with 10 images.
+        2. Click the toolbar icon, then "Translate current page".
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Console output
+      description: |
+        Right-click the page -> Inspect -> Console, then reproduce. Paste the
+        lines that mention the extension. Lines starting with `[ContentScript]`,
+        `[Translator]` or `[Background]` are the useful ones.
+      render: text
+    validations:
+      required: false
+
+  - type: input
+    id: extension-version
+    attributes:
+      label: Extension version
+      description: The version shown on chrome://extensions -> Details.
+      placeholder: "2.0.3"
+    validations:
+      required: true
+
+  - type: input
+    id: chrome-version
+    attributes:
+      label: Chrome version
+      placeholder: "130.0.6723.58"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider are you using?
+      options:
+        - OpenAI-compatible (hosted)
+        - Ollama (local)
+        - LM Studio (local)
+        - Not configured yet / onboarding
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      description: The model name you configured, if any.
+      placeholder: "gpt-4o-mini"
+    validations:
+      required: false
+
+  - type: dropdown
+    id: page-type
+    attributes:
+      label: What kind of page?
+      options:
+        - Ordinary manga page (separate panels)
+        - Long webtoon strip
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: Anything else
+      description: |
+        Site URL if it is public, screenshots, or whatever else you think is
+        relevant. Please do not post your API key.
+    validations:
+      required: false

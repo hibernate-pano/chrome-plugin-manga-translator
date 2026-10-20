@@ -112,6 +112,17 @@ function main() {
         ...loadedConfig,
         minimax: { ...loadedConfig.minimax, apiKey: '' },
         opencode: { ...loadedConfig.opencode, apiKey: '' },
+        // A developer's Ollama model is usually a *repository* reference
+        // (`hf.co/owner/repo:quant` or `owner/repo:tag`), not a plain tag.
+        // It is not a credential, but publishing it leaks a private
+        // repository and — worse — it becomes the default model for every
+        // store user, who cannot pull it: their very first "test
+        // connection" fails on a model that does not exist for them.
+        //
+        // Blanking the whole provider entry falls back to the public
+        // defaults in `src/shared/app-config.ts` (`http://localhost:11434`
+        // + `llava`), which every Ollama user can actually pull.
+        ollama: { ...loadedConfig.ollama, apiKey: '', baseUrl: '', model: '' },
       }
     : loadedConfig;
 

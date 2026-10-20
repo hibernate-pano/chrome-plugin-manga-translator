@@ -1,0 +1,97 @@
+name: Provider connection issue
+description: The extension cannot reach or authenticate with your model provider.
+title: "[Provider] "
+labels: ["provider", "needs triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        For "the extension cannot connect to my provider", or "my API key is
+        rejected". Use this form instead of the bug report, because the
+        diagnosis starts with the provider configuration rather than with the
+        page.
+
+        **Never paste your API key into this issue.** If you need to show the
+        shape of a key, write something like `sk-abc...` — but the first six
+        and last four characters of a real key are enough to identify it, so
+        redact generously.
+
+  - type: dropdown
+    id: provider
+    attributes:
+      label: Which provider are you using?
+      options:
+        - OpenAI-compatible (hosted)
+        - Ollama (local)
+        - LM Studio (local)
+        - Other
+    validations:
+      required: true
+
+  - type: input
+    id: base-url
+    attributes:
+      label: Base URL
+      description: The full URL, including the path and any /v1 suffix.
+      placeholder: "https://api.openai.com/v1"
+    validations:
+      required: true
+
+  - type: input
+    id: model
+    attributes:
+      label: Model
+      placeholder: "gpt-4o-mini"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: symptom
+    attributes:
+      label: What happens when you click "测试配置"?
+      options:
+        - "Reports success, but translation then fails"
+        - Authentication failed (401 / 403)
+        - Could not connect / timeout
+        - Model not found (404)
+        - Rate limited (429)
+        - CORS error in the console
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: message
+    attributes:
+      label: The exact error message
+      description: Copy it verbatim from the HUD or the options page.
+      render: text
+    validations:
+      required: true
+
+  - type: textarea
+    id: provider-info
+    attributes:
+      label: About your setup
+      description: |
+        - Is the provider running locally or hosted?
+        - If local: how was it started, and did you set `OLLAMA_ORIGINS`?
+        - If hosted: does the same key work with a direct curl to the API?
+      placeholder: |
+        Local Ollama started with `ollama serve`. OLLAMA_ORIGINS is not set.
+    validations:
+      required: false
+
+  - type: textarea
+    id: curl
+    attributes:
+      label: A direct API call
+      description: |
+        The result of calling the provider directly, with the key redacted.
+        This is the fastest way to tell "the provider is down" apart from "the
+        extension is doing something wrong".
+      render: shell
+      placeholder: |
+        curl https://api.openai.com/v1/models -H "Authorization: Bearer sk-..."
+    validations:
+      required: false

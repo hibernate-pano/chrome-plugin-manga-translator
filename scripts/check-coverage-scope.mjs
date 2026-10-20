@@ -28,11 +28,6 @@ const reportPath = path.join(repoRoot, 'coverage/coverage-final.json');
  * a reason a reviewer can check.
  */
 const UNTESTED_ALLOWLIST = new Set([
-  // React shells for the two extension pages. Rendering them needs the whole
-  // persist/store/transport graph mounted; their decision logic is extracted
-  // into pure, tested modules (popup-state, app-config) instead.
-  'src/components/Options/OptionsApp.tsx',
-  'src/components/Popup/PopupApp.tsx',
   // Entry points that only call createRoot().render(); no logic to assert.
   'src/options.tsx',
   'src/popup.tsx',
