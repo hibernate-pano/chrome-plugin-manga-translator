@@ -185,6 +185,34 @@ describe('OllamaProvider.analyzeAndTranslate', () => {
       'empty response'
     );
   });
+
+  it('sends the generation request with an abort signal', async () => {
+    // Without a timeout, a local model that is busy loading its weights
+    // never answers: the fetch never settles, the tile's promise never
+    // settles, `processInParallel`'s worker never releases, and the whole
+    // page translation hangs until the user cancels.
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(makeTagsResponse(['llava']))
+      .mockResolvedValueOnce(
+        makeGenerateResponse({
+          response: JSON.stringify({ textAreas: [] }),
+          done: true,
+        })
+      );
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+    await provider.analyzeAndTranslate('QUJD', 'zh-CN');
+
+    const generateCall = fetchSpy.mock.calls[2] as unknown as [
+      string,
+      { signal?: AbortSignal },
+    ];
+    expect(generateCall[1].signal).toBeDefined();
+    expect(generateCall[1].signal?.aborted).toBe(false);
+  });
 });
 
 describe('OllamaProvider.model checks', () => {

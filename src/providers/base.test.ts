@@ -7,7 +7,13 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { parseVisionResponse, getMangaTranslationPrompt } from './base';
+import {
+  parseVisionResponse,
+  getMangaTranslationPrompt,
+  createApiError,
+  createApiErrorWithStatus,
+} from './base';
+import { parseTranslationError } from '@/utils/error-handler';
 
 describe('parseVisionResponse', () => {
   it('should parse valid JSON response', () => {
@@ -239,5 +245,61 @@ describe('getTranslationStyleInstruction', () => {
     expect(style).toContain('-요');
     expect(style).toContain('ㅋㅋ');
     expect(style).toContain('반말');
+  });
+});
+
+describe('createApiError (HTTP status propagation)', () => {
+  it('carries the status on the error object', () => {
+    const error = createApiError('Invalid API key', 'OpenAI-Compatible', 401);
+
+    expect(error.status).toBe(401);
+  });
+
+  it('embeds the status in the message so it survives flattening to a string', () => {
+    // The background worker turns every error into its message before it
+    // reaches the content script, so a status that only lives on the object
+    // is lost. The in-message marker is what keeps it.
+    const error = createApiError('Invalid API key', 'OpenAI-Compatible', 401);
+
+    expect(error.message).toContain('[HTTP 401]');
+    expect(error.message).toContain('Invalid API key');
+  });
+
+  it('classifies 401 as an auth error', () => {
+    const error = createApiError('Invalid API key', 'OpenAI-Compatible', 401);
+
+    expect(parseTranslationError(error).code).toBe('AUTH_ERROR');
+  });
+
+  it('classifies 429 as a rate limit', () => {
+    const error = createApiError('too many requests', 'OpenAI-Compatible', 429);
+
+    expect(parseTranslationError(error).code).toBe('RATE_LIMIT');
+  });
+
+  it('classifies 422 as content blocked', () => {
+    const error = createApiError(
+      'unprocessable_entity',
+      'OpenAI-Compatible',
+      422
+    );
+
+    const friendly = parseTranslationError(error);
+    expect(friendly.code).toBe('CONTENT_BLOCKED');
+    expect(friendly.retryable).toBe(false);
+  });
+
+  it('leaves the message free of the marker for a status-less error', () => {
+    const error = createApiError('boom', 'OpenAI-Compatible');
+
+    expect(error.message).toBe('OpenAI-Compatible: boom');
+    expect(error.status).toBeUndefined();
+  });
+
+  it('createApiErrorWithStatus behaves the same way', () => {
+    const error = createApiErrorWithStatus('nope', 'OpenAI-Compatible', 401);
+
+    expect(error.status).toBe(401);
+    expect(parseTranslationError(error).code).toBe('AUTH_ERROR');
   });
 });

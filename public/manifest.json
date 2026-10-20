@@ -3,7 +3,7 @@
   "name": "漫画翻译助手",
   "version": "2.0.3",
   "minimum_chrome_version": "110",
-  "description": "Translate manga and webtoon images in place with a vision model, overlaying translations while preserving the artwork.",
+  "description": "Translate manga and webtoon images in place with a vision model, replacing each text bubble with its translation.",
   "permissions": [
     "storage",
     "contextMenus",
@@ -28,6 +28,36 @@
     "16": "icons/icon16.png",
     "48": "icons/icon48.png",
     "128": "icons/icon128.png"
+  },
+  "commands": {
+    "translate-page": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+Y",
+        "mac": "Command+Shift+Y"
+      },
+      "description": "翻译当前页面"
+    },
+    "force-retranslate": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+X",
+        "mac": "Command+Shift+X"
+      },
+      "description": "忽略缓存重新翻译当前页面"
+    },
+    "clear-overlays": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+E",
+        "mac": "Command+Shift+E"
+      },
+      "description": "清除当前页面的译文覆盖层"
+    },
+    "toggle-reading-panel": {
+      "suggested_key": {
+        "default": "Ctrl+Shift+S",
+        "mac": "Command+Shift+S"
+      },
+      "description": "显示或隐藏译文阅读面板"
+    }
   },
   "options_page": "src/options.html",
   "content_security_policy": {

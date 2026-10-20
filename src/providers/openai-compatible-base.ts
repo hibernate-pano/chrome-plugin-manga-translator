@@ -46,6 +46,9 @@ interface ChatResponse {
 
 const MINIMAX_M3_MODEL_PATTERN = /^minimax-m3(?:$|[-.:/])/i;
 
+/** Default timeout for a cloud translation request. */
+const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
+
 export function isMiniMaxM3Model(model: string | undefined): boolean {
   return Boolean(model && MINIMAX_M3_MODEL_PATTERN.test(model.trim()));
 }
@@ -111,13 +114,19 @@ export abstract class OpenAICompatibleProvider
         method: 'POST',
         headers,
         body,
+        timeout: this.getRequestTimeoutMs(),
       }
     );
 
     if (!httpResponse.ok) {
+      // The status is what turns "翻译失败" into "API 密钥无效" (401),
+      // "请求过于频繁" (429) or "图片被内容审核拦截" (422). Dropping it
+      // here made every one of those mappings unreachable for provider
+      // errors.
       throw createApiError(
         httpResponse.error || httpResponse.statusText,
-        this.name
+        this.name,
+        httpResponse.status
       );
     }
 
@@ -284,4 +293,16 @@ export abstract class OpenAICompatibleProvider
 
   /** 子类覆写：是否强制要求 apiKey（云端 API=true，本地服务=false） */
   protected abstract requiresAuth(): boolean;
+
+  /**
+   * Timeout for a translation request.
+   *
+   * Cloud APIs answer in seconds; a local model can take a minute or two,
+   * especially the first time it has to load its weights. Local providers
+   * override this so a slow-but-healthy local model is not reported as a
+   * network failure.
+   */
+  protected getRequestTimeoutMs(): number {
+    return DEFAULT_REQUEST_TIMEOUT_MS;
+  }
 }
