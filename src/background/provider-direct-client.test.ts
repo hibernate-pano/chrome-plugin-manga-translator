@@ -13,19 +13,18 @@ describe('provider-direct-client', () => {
     vi.mocked(createProvider).mockReset();
   });
 
-  it('creates the openai-compatible provider with direct settings', async () => {
+  it('creates the openai-compatible provider with the worker-side settings', async () => {
     vi.mocked(createProvider).mockResolvedValue({
       analyzeAndTranslate: vi.fn().mockResolvedValue({ textAreas: [] }),
     } as never);
 
     await translateImageViaProviderDirect({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      targetLanguage: 'zh-CN',
       provider: 'openai-compatible',
       apiKey: 'sk-test',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-4o',
+      imageBase64: 'base64-data',
+      targetLanguage: 'zh-CN',
       translationStylePreset: 'natural-zh',
     });
 
@@ -42,17 +41,17 @@ describe('provider-direct-client', () => {
     } as never);
 
     await translateImageViaProviderDirect({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      targetLanguage: 'zh-CN',
       provider: 'lm-studio',
+      apiKey: '',
       baseUrl: 'http://localhost:1234/v1',
       model: 'qwen',
+      imageBase64: 'base64-data',
+      targetLanguage: 'zh-CN',
       translationStylePreset: 'natural-zh',
     });
 
     expect(createProvider).toHaveBeenCalledWith('lm-studio', {
-      apiKey: undefined,
+      apiKey: '',
       baseUrl: 'http://localhost:1234/v1',
       model: 'qwen',
     });
@@ -80,13 +79,12 @@ describe('provider-direct-client', () => {
     } as never);
 
     const result = await translateImageViaProviderDirect({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      targetLanguage: 'zh-CN',
       provider: 'openai-compatible',
       apiKey: 'sk-test',
       baseUrl: 'https://api.openai.com/v1',
       model: 'gpt-4o',
+      imageBase64: 'base64-data',
+      targetLanguage: 'zh-CN',
       translationStylePreset: 'natural-zh',
     });
 
@@ -104,10 +102,12 @@ describe('provider-direct-client', () => {
 
   it('rejects unknown provider types without calling createProvider', async () => {
     const result = await translateImageViaProviderDirect({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      targetLanguage: 'zh-CN',
       provider: 'unknown-provider' as never,
+      apiKey: '',
+      baseUrl: '',
+      model: '',
+      imageBase64: 'base64-data',
+      targetLanguage: 'zh-CN',
       translationStylePreset: 'natural-zh',
     });
 
@@ -118,11 +118,12 @@ describe('provider-direct-client', () => {
 
   it('rejects invalid translation style preset', async () => {
     const result = await translateImageViaProviderDirect({
-      imageBase64: 'base64-data',
-      mimeType: 'image/png',
-      targetLanguage: 'zh-CN',
       provider: 'openai-compatible',
       apiKey: 'sk-test',
+      baseUrl: '',
+      model: '',
+      imageBase64: 'base64-data',
+      targetLanguage: 'zh-CN',
       translationStylePreset: 'invalid-style' as never,
     });
 

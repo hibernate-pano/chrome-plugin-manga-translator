@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2, Info, Sparkles, X } from 'lucide-react';
 
 import { useAppConfigStore } from '@/stores/config-v2';
 import { ENV_CONFIG } from '@/shared/env-config';
+import { ENV_CREDENTIALS } from '@/shared/env-credentials';
 import { cn } from '@/lib/utils';
 
 /**
@@ -35,10 +36,19 @@ export const OnboardingApp: React.FC<OnboardingAppProps> = ({ forceOpen }) => {
 
   const visible = forceOpen === true || onboardingCompleted === false;
 
+  /**
+   * Dismiss the wizard without touching the extension's on/off switch.
+   *
+   * It used to switch the extension off as well, which silently turned off
+   * an extension the user had already configured and enabled: pressing Esc
+   * to get the dialog out of the way left the extension dead, and nothing
+   * on screen said so. A fresh install is off by default anyway
+   * (`DEFAULT_CONFIG.enabled` is false), so dropping the call changes
+   * nothing for a first run and stops breaking an existing setup.
+   */
   const close = useCallback(() => {
     setOnboardingCompleted(true);
-    setEnabled(false);
-  }, [setEnabled, setOnboardingCompleted]);
+  }, [setOnboardingCompleted]);
 
   const goNext = useCallback(() => {
     const idx = stepIndex(step);
@@ -156,10 +166,10 @@ const Stepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
 // instead of hardcoding MiniMax as "the default".
 const configuredBackends = (): Array<{ label: string; detail: string }> => {
   const out: Array<{ label: string; detail: string }> = [];
-  if (ENV_CONFIG.minimax.apiKey && ENV_CONFIG.minimax.model) {
+  if (ENV_CREDENTIALS.minimax.apiKey && ENV_CONFIG.minimax.model) {
     out.push({ label: 'MiniMax', detail: ENV_CONFIG.minimax.model });
   }
-  if (ENV_CONFIG.opencode.apiKey && ENV_CONFIG.opencode.model) {
+  if (ENV_CREDENTIALS.opencode.apiKey && ENV_CONFIG.opencode.model) {
     out.push({
       label: 'OpenCodeGo · DeepSeek',
       detail: ENV_CONFIG.opencode.model,
@@ -179,7 +189,7 @@ const WelcomeStep: React.FC<{ onNext: () => void }> = ({ onNext }) => (
       </div>
       <div>
         <h2 id='onboarding-title' className='text-lg font-semibold text-white'>
-          欢迎使用 Manga Translator
+          欢迎使用漫画翻译助手
         </h2>
         <p className='mt-1 text-sm text-slate-400'>
           网页漫画的实时翻译阅读体验。译文覆盖在原图上，保留画风与排版。
@@ -233,7 +243,7 @@ const WelcomeStep: React.FC<{ onNext: () => void }> = ({ onNext }) => (
     <button
       type='button'
       onClick={onNext}
-      className='mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
+      className='mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
     >
       下一步
       <ArrowRight className='h-4 w-4' />
@@ -244,22 +254,29 @@ const WelcomeStep: React.FC<{ onNext: () => void }> = ({ onNext }) => (
 const ReadyStep: React.FC<{ onFinish: () => void }> = ({ onFinish }) => (
   <div className='space-y-4'>
     <div>
-      <h2 className='text-lg font-semibold text-white'>准备就绪</h2>
+      <h2 id='onboarding-title' className='text-lg font-semibold text-white'>
+        准备就绪
+      </h2>
       <p className='mt-1 text-sm text-slate-400'>现在点完成，会启用翻译。</p>
     </div>
 
     <div className='rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm text-slate-300'>
       <p className='leading-relaxed'>
-        接下来去你常去的漫画页，点浏览器右上角的 Manga Translator 图标 →
+        接下来去你常去的漫画页，点浏览器右上角的{' '}
+        <span className='font-medium text-white'>扩展图标</span>
+        （一个写着「您好」 的对话气泡）→ 打开弹窗 → 点
         <span className='font-medium text-white'>「翻译当前页面」</span>。
-        第一次建议在测试页试试，确认无误后再翻整本。
+        工具栏上找不到它？点地址栏右侧的
+        <span className='font-medium text-white'>拼图按钮</span>
+        ，在列表里把它固定住。 译文会直接覆盖在原图上；按住 Alt
+        键可临时切回原文。
       </p>
     </div>
 
     <button
       type='button'
       onClick={onFinish}
-      className='inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
+      className='inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
     >
       完成并启用翻译
       <CheckCircle2 className='h-4 w-4' />

@@ -233,5 +233,28 @@ describe('LMStudioProvider', () => {
         provider.analyzeAndTranslate(base64Image, 'zh-CN')
       ).rejects.toThrow('LM Studio');
     });
+
+    it('uses a local-model timeout instead of the 30s cloud budget', async () => {
+      // A local model paging its weights into memory routinely needs more
+      // than 30s. Killing the request that early reports a perfectly
+      // healthy local model as a network failure.
+      vi.mocked(httpRequest).mockResolvedValue({
+        ok: true,
+        status: 200,
+        statusText: 'OK',
+        data: {
+          choices: [{ message: { content: '{"textAreas":[]}' } }],
+        },
+      });
+
+      await provider.initialize({
+        baseUrl: 'http://localhost:1234/v1',
+        model: 'my-model',
+      });
+      await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+      const options = vi.mocked(httpRequest).mock.calls[0]?.[1];
+      expect(options?.timeout).toBe(120_000);
+    });
   });
 });

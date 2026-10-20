@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
  * - role="alertdialog" + aria-labelledby / aria-describedby
  * - 打开时自动聚焦"取消"按钮（安全默认：不执行危险动作）
  * - Escape 关闭、点击遮罩关闭
+ * - Tab 焦点锁在对话框内，关闭后焦点回到触发按钮
  */
 export interface ConfirmDialogProps {
   open: boolean;
@@ -38,21 +39,76 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  /**
+   * The element that had focus before the dialog opened, so it can be given
+   * the focus back when the dialog closes.
+   */
+  const previouslyFocused = useRef<HTMLElement | null>(null);
 
-  // 打开时聚焦"取消"（安全默认），Escape 关闭
+  // 打开时聚焦"取消"（安全默认），Escape 关闭，Tab 锁在对话框内
   useEffect(() => {
     if (!open) {
       return;
     }
+    previouslyFocused.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     cancelRef.current?.focus();
+
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onCancel();
+        return;
+      }
+      if (e.key !== 'Tab') {
+        return;
+      }
+      // A modal dialog that lets Tab walk out of it is not modal: the user
+      // ends up focused on Popup controls behind the overlay, which they
+      // cannot see, and a keyboard user has no way to tell where they are.
+      const focusable = dialogRef.current?.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+      );
+      if (!focusable || focusable.length === 0) {
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!first || !last) {
+        return;
+      }
+      const active = document.activeElement;
+      if (
+        e.shiftKey &&
+        (active === first || !dialogRef.current?.contains(active))
+      ) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
   }, [open, onCancel]);
+
+  // 关闭后把焦点还给触发按钮。
+  //
+  // Without this the focus falls back to <body>, and a keyboard user who
+  // opened the dialog from a button has no idea where they are afterwards.
+  useEffect(() => {
+    if (open) {
+      return;
+    }
+    const target = previouslyFocused.current;
+    if (target && target.isConnected) {
+      target.focus();
+      previouslyFocused.current = null;
+    }
+  }, [open]);
 
   if (!open) {
     return null;
@@ -65,6 +121,7 @@ export function ConfirmDialog({
       role='presentation'
     >
       <div
+        ref={dialogRef}
         role='alertdialog'
         aria-modal='true'
         aria-labelledby='confirm-dialog-title'
@@ -102,8 +159,8 @@ export function ConfirmDialog({
             className={cn(
               'rounded-lg px-4 py-2 text-sm font-medium text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
               destructive
-                ? 'bg-red-600 hover:bg-red-500 focus-visible:ring-red-400'
-                : 'bg-cyan-600 hover:bg-cyan-500 focus-visible:ring-cyan-400'
+                ? 'bg-red-700 hover:bg-red-800 focus-visible:ring-red-400'
+                : 'bg-cyan-700 hover:bg-cyan-800 focus-visible:ring-cyan-400'
             )}
           >
             {confirmLabel}

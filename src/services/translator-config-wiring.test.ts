@@ -1,5 +1,5 @@
 /**
- * Config -> translator wiring.
+ * Config -> translator wiring (trusted contexts).
  *
  * Replaces a 386-line suite that mocked the config store away and asserted on
  * local variables (`currentPipeline = 'x'; expect(currentPipeline).toBe('x')`),
@@ -89,11 +89,11 @@ async function createHarness(): Promise<Harness> {
   // factory must come from the same registry.
   vi.resetModules();
   const configModule = await import('@/stores/config-v2');
-  const translatorModule = await import('@/services/translator');
+  const translatorModule = await import('@/services/translator-trusted');
   const harness: Harness = {
     store: configModule.useAppConfigStore as unknown as Harness['store'],
     createTranslatorFromConfig:
-      translatorModule.createTranslatorFromConfig as unknown as Harness['createTranslatorFromConfig'],
+      translatorModule.createTrustedTranslatorFromConfig as unknown as Harness['createTranslatorFromConfig'],
   };
   await settle();
   return harness;

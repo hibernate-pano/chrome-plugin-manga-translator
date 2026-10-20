@@ -4,7 +4,7 @@ title: 漫画翻译助手 · 文档
 
 # 漫画翻译助手（Manga Translator）
 
-Chrome 浏览器扩展：在网页原位翻译漫画与条漫图片，保留原画不被覆盖。
+Chrome 浏览器扩展：在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。
 
 - 源码：[github.com/hibernate-pano/chrome-plugin-manga-translator](https://github.com/hibernate-pano/chrome-plugin-manga-translator)
 - 下载：[GitHub Releases](https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases)
@@ -21,4 +21,5 @@ Chrome 浏览器扩展：在网页原位翻译漫画与条漫图片，保留原�
 - [Chrome 商店上架清单](chrome-web-store-release.md)
 - [商店文案（中文）](store-listing-zh.md)
 - [商店审核备注（中文）](store-review-notes-zh.md)
+- [对外承诺 → 代码锚点对照表](store-claims.md)
 - [架构说明](architecture-notes.md)

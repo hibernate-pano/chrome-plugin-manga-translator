@@ -1,6 +1,22 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 
-type Theme = 'dark' | 'light' | 'system';
+/**
+ * The extension renders exactly one theme: dark.
+ *
+ * The popup and options pages paint their own surfaces with hard-coded dark
+ * utilities (`bg-slate-950`, `text-slate-100`) while the shadcn primitives
+ * — the switch, the slider — read the semantic CSS variables. A `light`
+ * class therefore repainted the page background and those primitives white
+ * while every card stayed dark: a half-black/half-white page, with an
+ * unchecked switch whose white knob sat on its own track and vanished.
+ *
+ * A light theme is not a rendering bug to be patched, it is a second design
+ * that does not exist yet. Rather than ship the broken half of it, the
+ * provider resolves every request — stored, pinned or system — to `dark`,
+ * and `src/index.css` declares `color-scheme: dark` to match, so native
+ * controls, scrollbars and the focus ring follow the same theme.
+ */
+export type Theme = 'dark';
 
 type ThemeProviderProps = {
   children: React.ReactNode;
@@ -14,15 +30,30 @@ type ThemeProviderState = {
 };
 
 const initialState: ThemeProviderState = {
-  theme: 'system',
+  theme: 'dark',
   setTheme: () => null,
 };
 
 const ThemeProviderContext = createContext<ThemeProviderState>(initialState);
 
+/**
+ * Resolve the stored preference into the theme that is actually rendered.
+ *
+ * The stored value can only narrow the theme, and there is only one theme.
+ * A `light` or `system` value left behind by an earlier version resolves to
+ * the pinned default instead of repainting the page — the pinned default is
+ * what the caller asked for, so it wins over whatever is in storage.
+ */
+export function resolveStoredTheme(saved: unknown, defaultTheme: Theme): Theme {
+  if (saved === 'dark') {
+    return 'dark';
+  }
+  return defaultTheme;
+}
+
 export function ThemeProvider({
   children,
-  defaultTheme = 'system',
+  defaultTheme = 'dark',
   storageKey = 'manga-translator-theme',
   ...props
 }: ThemeProviderProps) {
@@ -39,46 +70,33 @@ export function ThemeProvider({
           // the legacy sync copy to honour that. Writing the theme to sync put
           // it straight back and contradicted the claim.
           const result = await chrome.storage.local.get([storageKey]);
-          const savedTheme = result[storageKey] as Theme;
-          if (savedTheme) {
-            setTheme(savedTheme);
-          }
+          setTheme(resolveStoredTheme(result[storageKey], defaultTheme));
         } else {
           // 降级到localStorage
-          const savedTheme = localStorage.getItem(storageKey) as Theme;
-          if (savedTheme) {
-            setTheme(savedTheme);
-          }
+          setTheme(
+            resolveStoredTheme(localStorage.getItem(storageKey), defaultTheme)
+          );
         }
       } catch (error) {
         console.error('Failed to load theme:', error);
         // 降级到localStorage
-        const savedTheme = localStorage.getItem(storageKey) as Theme;
-        if (savedTheme) {
-          setTheme(savedTheme);
-        }
+        setTheme(
+          resolveStoredTheme(localStorage.getItem(storageKey), defaultTheme)
+        );
       }
     };
 
     loadTheme();
-  }, [storageKey]);
+  }, [defaultTheme, storageKey]);
 
   useEffect(() => {
     const root = window.document.documentElement;
 
-    root.classList.remove('light', 'dark');
-
-    if (theme === 'system') {
-      const systemTheme = window.matchMedia('(prefers-color-scheme: dark)')
-        .matches
-        ? 'dark'
-        : 'light';
-
-      root.classList.add(systemTheme);
-      return;
-    }
-
-    root.classList.add(theme);
+    // One theme. The class is the `darkMode: 'class'` marker that Tailwind
+    // and any future `dark:` variant key off; a `light` class left by an
+    // older build is removed so it can never repaint the page either.
+    root.classList.remove('light');
+    root.classList.add('dark');
   }, [theme]);
 
   const value = {

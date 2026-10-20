@@ -8,7 +8,18 @@ Manga Translator is a Chrome extension that translates foreign-language manga/co
 
 ## Data Collection
 
-**This extension does NOT collect, transmit, or store any user data on external servers controlled by the extension developer.**
+**The extension developer does not collect, receive, or store any user data. The developer operates no server of any kind.**
+
+This does not mean nothing leaves your device. When you translate a page, the
+extension sends the comic images it is translating to the Vision LLM provider
+**you configured** — that is the whole point of the tool. Those images are
+transmitted to that third party, which processes them under its own privacy
+policy and terms of service.
+
+In Chrome Web Store data-usage terms, that transmission is a **Website
+content** disclosure: the extension transmits content from the page you are
+reading to a third party. It is not a collection by the developer, and the
+developer never receives the data.
 
 All processing happens either locally on your device or through API calls to third-party Vision LLM providers that **you configure yourself**.
 
@@ -16,7 +27,15 @@ All processing happens either locally on your device or through API calls to thi
 
 ### 1. Manga/Comic Images on Web Pages
 
-When you activate the extension on a webpage, the extension captures images from the page for OCR and translation. These images are sent directly from your browser to the Vision LLM provider **you have configured** (e.g., OpenAI API, Ollama running on localhost, LM Studio running on localhost). The extension developer runs no server and does not receive, see, or store any images.
+When you activate the extension on a webpage, the extension captures images from the page for OCR and translation. These images are sent directly from your browser to the Vision LLM provider **you have configured** (e.g., MiniMax, OpenAI API, Ollama running on localhost, LM Studio running on localhost). The extension developer runs no server and does not receive, see, or store any images.
+
+The images are the content of the page you are reading, so this is a transfer of
+website content to the provider you chose. If you use a local provider
+(Ollama, LM Studio), the images never leave your machine at all. If you use a
+hosted provider, they do leave your machine, and that provider's data handling
+applies — including whatever it retains, for how long, and whether it is used
+for training. Review that provider's privacy policy before sending anything to
+it.
 
 ### 2. API Keys
 
@@ -29,6 +48,8 @@ providers). User-entered keys are:
   any extension granted `storage` permission, or anyone with the unpacked bundle,
   can reverse it. Its only purpose is to keep a key from being readable at a
   glance in the storage inspector — do not treat it as a security boundary.
+  The content script is not web-accessible, so a page cannot read the salt
+  out of the shipped bundle, but the bundle itself is not a secret.
 - Never transmitted to any server other than the API provider you configure
 - Never sent to the extension developer
 
@@ -37,6 +58,14 @@ build time. Those credentials are compiled into that private extension bundle
 and must not be distributed publicly. The `build:public` release path omits
 provider API keys and is the required path for shared or Chrome Web Store
 artifacts.
+
+The plaintext key is held only by the extension's service worker and its own
+pages. It is never placed in the content script — the code that runs inside
+every page you visit — because a key there would be a key in every page. The
+build enforces this in two ways: it fails if the content script's import graph
+can reach the module that holds the key, and it fails if the built content
+script contains a key at all. The content script receives only the endpoint,
+the model name, and whether a key is configured.
 
 > Note: Prior to v0.3.5, configuration was stored in `chrome.storage.sync`, which meant obfuscated API keys were synced across devices via the user's Google account. v0.3.5 moved all configuration to `chrome.storage.local` and performs a one-time automatic migration on startup; the old `storage.sync` copy is deleted after migration.
 
@@ -52,6 +81,7 @@ Translated text results are cached locally in your browser's `chrome.storage.loc
 
 The extension integrates with third-party Vision LLM providers. When you configure a provider:
 
+- **MiniMax**: This is the endpoint the extension ships with by default (`https://api.minimaxi.com/v1`, model `MiniMax-M3`). Images are sent there unless you change the provider in Settings. MiniMax's privacy policy applies to data sent to their servers.
 - **OpenAI**: Images are sent to `https://api.openai.com` (or your custom base URL). OpenAI's privacy policy applies to data sent to their servers.
 - **Ollama**: All data stays on your local machine (`localhost:11434`).
 - **LM Studio**: All data stays on your local machine (`localhost:1234`).
@@ -61,9 +91,10 @@ You are responsible for reviewing the privacy policies of any third-party API pr
 ## When Images Are Sent
 
 Images leave your device only when the extension translates them. That happens
-when you ask for it — the popup button, the context menu, or by translating a
-page and then scrolling images into view — or when the page's site is on the
-auto-translate list you control from the popup.
+when you ask for it — the popup button, the context menu (whole page or a
+single image), a keyboard shortcut, or by translating a page and then scrolling
+images into view — or when the page's site is on the auto-translate list you
+control from the popup.
 
 The auto-translate list is empty by default, so enabling the extension does not
 by itself cause any image to be uploaded. Nothing is ever sent from a site you
@@ -73,10 +104,11 @@ have not chosen to translate.
 
 The extension ships the Tesseract worker script and the SIMD WASM core locally
 in the bundle, so the OCR engine itself needs no download. When the OCR fallback
-path is used — only for pages where the configured vision model returns no text,
-or when the user selects the OCR-assisted pipeline — Tesseract downloads the
-language model (`.traineddata`) for the languages being detected from the
-official `@tesseract.js-data` package on jsdelivr.
+path is used — that is, when the configured vision model returns no text, and
+only for providers other than Ollama — Tesseract downloads the language model
+(`.traineddata`) for the languages it is set up to recognize (Korean, Japanese,
+English, Simplified Chinese) from the official `@tesseract.js-data` package on
+jsdelivr.
 
 - No image content, page content, or user data is included in that request.
 - The request is a plain download of a public language model file.
@@ -116,9 +148,16 @@ who may request a fetch.
 
 This extension contains **no analytics, no tracking scripts, no telemetry, and no crash reporting**. There are no third-party SDKs for analytics or advertising. The extension does not use cookies or any form of user tracking.
 
+The developer collects nothing: no identifiers, no usage data, no diagnostics.
+The only data that moves is the page content you asked to have translated,
+going to the provider you configured.
+
 ## Data Retention
 
 All data (configuration, API keys, translation cache) is stored locally in your browser. Uninstalling the extension removes all stored data. You can also clear the data at any time through Chrome's extension settings.
+
+Data that reaches a third-party provider is retained according to that
+provider's own policy, not this extension's.
 
 ## Children's Privacy
 
@@ -138,3 +177,9 @@ If you have questions about this privacy policy, you can open an issue on the ex
 image host of the page you asked to translate. The extension developer never
 sees your images, your API keys, or your browsing activity, and operates no
 server that receives any of them.**
+
+**This means the extension does transfer website content** — the comic images
+you ask it to translate — to the third-party provider you configured. That
+provider's handling of those images is governed by its own policy. If you
+want the images to stay on your machine, configure a local provider (Ollama or
+LM Studio).

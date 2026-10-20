@@ -3,6 +3,10 @@ import {
   getTranslationStyleInstruction,
   type TranslationStylePreset,
 } from '@/utils/translation-style';
+import {
+  formatHttpStatusMessage,
+  type HttpStatusError,
+} from '@/utils/error-handler';
 
 export {
   DEFAULT_TRANSLATION_STYLE_PRESET,
@@ -415,31 +419,73 @@ export function parseImageData(base64: string): ImageData {
 
 /**
  * Create standardized API error from various provider error formats
+ *
+ * `status` is the HTTP status of the response that failed. It is carried on
+ * the error object AND embedded in the message, because the background worker
+ * flattens errors to plain messages before they reach the content script —
+ * without the in-message marker the status is lost and every provider
+ * failure degrades to a generic "翻译失败" instead of "API 密钥无效".
  */
-export function createApiError(error: unknown, providerName: string): Error {
+export function createApiError(
+  error: unknown,
+  providerName: string,
+  status?: number
+): HttpStatusError {
+  if (typeof status === 'number' && status > 0) {
+    return createApiErrorWithStatus(error, providerName, status);
+  }
+  return new Error(formatApiErrorMessage(error, providerName));
+}
+
+/**
+ * Extract a human-readable message out of the many shapes an API error can
+ * take, without the HTTP status decoration.
+ */
+function formatApiErrorMessage(error: unknown, providerName: string): string {
   if (error instanceof Error) {
-    return error;
+    return error.message;
   }
 
   if (typeof error === 'string' && error.length > 0) {
-    return new Error(`${providerName}: ${error}`);
+    return `${providerName}: ${error}`;
   }
 
   if (typeof error === 'object' && error !== null) {
     const err = error as Record<string, unknown>;
     if (typeof err['message'] === 'string') {
-      return new Error(`${providerName}: ${err['message']}`);
+      return `${providerName}: ${err['message']}`;
     }
     if (
       typeof err['error'] === 'object' &&
       err['error'] !== null &&
       typeof (err['error'] as Record<string, unknown>)['message'] === 'string'
     ) {
-      return new Error(
-        `${providerName}: ${(err['error'] as Record<string, unknown>)['message']}`
-      );
+      return `${providerName}: ${(err['error'] as Record<string, unknown>)['message']}`;
     }
   }
 
-  return new Error(`${providerName}: Unknown API error`);
+  return `${providerName}: Unknown API error`;
+}
+
+/**
+ * Create an API error that carries the HTTP status of the failed response.
+ *
+ * The status lands in two places on purpose:
+ * - `error.status` for in-process consumers (the extension page, the
+ *   provider's own tests) that can read the object directly.
+ * - the message, prefixed with `[HTTP <code>]`, for every consumer that
+ *   only ever sees a string — the background worker's `getErrorMessage()`
+ *   flattening is the common case.
+ */
+export function createApiErrorWithStatus(
+  error: unknown,
+  providerName: string,
+  status: number
+): HttpStatusError {
+  const base = formatApiErrorMessage(error, providerName);
+  const withStatus: HttpStatusError = new Error(
+    formatHttpStatusMessage(status, base)
+  );
+  withStatus.status = status;
+  return withStatus;
 }

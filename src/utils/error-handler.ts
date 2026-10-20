@@ -8,6 +8,97 @@
  */
 
 // ============================================================================
+// HTTP 状态码载体
+// ============================================================================
+
+/**
+ * An Error that carries the HTTP status code of the response that failed.
+ *
+ * The status is what turns a generic "翻译失败" into "API 密钥无效" (401),
+ * "请求过于频繁" (429) or "图片被内容审核拦截" (422), so it has to survive
+ * every hop: provider → background worker → content script.
+ */
+export interface HttpStatusError extends Error {
+  /** HTTP status code, when the failure came from an HTTP response. */
+  status?: number;
+}
+
+/**
+ * Machine-readable prefix that carries an HTTP status inside a plain-text
+ * error message.
+ *
+ * The background worker flattens every error to its message before handing
+ * it back to the content script, so the `status` property cannot survive on
+ * its own — the status also has to travel inside the message.
+ *
+ * The marker is not anchored: a message may pick up a prefix on the way
+ * (a provider name, a job id), and the status still has to be found.
+ */
+const HTTP_STATUS_MARKER = /\[HTTP (\d{3})\]/;
+
+/**
+ * Prefix an error message with its HTTP status.
+ */
+export function formatHttpStatusMessage(
+  status: number,
+  message: string
+): string {
+  return `[HTTP ${status}] ${message}`;
+}
+
+/**
+ * Read the HTTP status back out of a message produced by
+ * {@link formatHttpStatusMessage}.
+ */
+export function parseHttpStatusFromMessage(
+  message: string
+): number | undefined {
+  const match = HTTP_STATUS_MARKER.exec(message);
+  const raw = match?.[1];
+  if (!raw) {
+    return undefined;
+  }
+  const status = Number.parseInt(raw, 10);
+  return Number.isFinite(status) ? status : undefined;
+}
+
+/**
+ * Remove the status marker so the raw provider message can be shown to the
+ * user without the internal prefix.
+ */
+export function stripHttpStatusMarker(message: string): string {
+  return message.replace(HTTP_STATUS_MARKER, '').trim();
+}
+
+/**
+ * Does this raw message look like a sentence written for the reader?
+ *
+ * Our own errors are written in Chinese, for the person using the
+ * extension. What comes back from a provider is a protocol payload: an
+ * HTTP status line, a JSON body, an English stack. Pasting that into the
+ * popup made the extension look like it was showing a log instead of an
+ * explanation, so those go to the console and the reader gets the plain
+ * message.
+ */
+function isReaderFacingMessage(message: string): boolean {
+  if (message.length > 120) {
+    return false;
+  }
+  return /[一-鿿]/.test(message);
+}
+
+/**
+ * Create an error that carries an HTTP status code.
+ */
+export function createHttpStatusError(message: string, status?: number): Error {
+  const error: HttpStatusError = new Error(message);
+  if (typeof status === 'number' && status > 0) {
+    error.status = status;
+  }
+  return error;
+}
+
+// ============================================================================
 // 错误码定义（符合设计文档）
 // ============================================================================
 
@@ -188,7 +279,7 @@ const ERROR_MESSAGES: Record<
   [TranslationErrorCode.CONTENT_BLOCKED]: {
     message: '图片被内容审核拦截',
     suggestion:
-      '服务端(MiniMax 等)拒绝了该图片(422 unprocessable_entity / sensitive)。重试无效：请更换为不带审核的 Provider，或改用本地 Ollama 模型(如 qwen2-vl-uncensored 等社区脱敏 VLM)。',
+      '这张图被服务方的内容审核拦下了，重试没有用。可以换一个不带审核的服务，或改用本地 Ollama 试试。',
     retryable: false,
   },
   [TranslationErrorCode.PARSE_ERROR]: {
@@ -226,8 +317,14 @@ export class TranslationErrorHandler {
 
     const rawErrorMessage =
       error instanceof Error ? error.message : String(error);
-    const errorMessage = rawErrorMessage.toLowerCase();
-    const statusCode = TranslationErrorHandler.extractStatusCode(error);
+    // The `[HTTP 401]` marker is internal plumbing — it must never reach the
+    // user, but it does have to be read before the keyword heuristics run,
+    // because it carries the authoritative status code.
+    const messageWithoutMarker = stripHttpStatusMarker(rawErrorMessage);
+    const errorMessage = messageWithoutMarker.toLowerCase();
+    const statusCode =
+      TranslationErrorHandler.extractStatusCode(error) ??
+      parseHttpStatusFromMessage(rawErrorMessage);
 
     // 根据状态码判断
     if (statusCode) {
@@ -244,13 +341,18 @@ export class TranslationErrorHandler {
 
     if (
       code === TranslationErrorCode.UNKNOWN_ERROR &&
-      rawErrorMessage.trim() &&
-      rawErrorMessage !== friendlyError.message
+      messageWithoutMarker.trim() &&
+      messageWithoutMarker !== friendlyError.message
     ) {
-      return {
-        ...friendlyError,
-        message: `${friendlyError.message}：${rawErrorMessage}`,
-      };
+      const detail = messageWithoutMarker.trim();
+      if (isReaderFacingMessage(detail)) {
+        return {
+          ...friendlyError,
+          message: `${friendlyError.message}：${detail}`,
+        };
+      }
+      // A protocol payload is for the console, not for the reader.
+      console.error('[Translation] 未分类错误原文:', detail);
     }
 
     return friendlyError;
@@ -306,6 +408,8 @@ export class TranslationErrorHandler {
       case 422:
         // MiniMax 等 Provider 用 422 unprocessable_entity 表示图片敏感。
         return TranslationErrorCode.CONTENT_BLOCKED;
+      case 408:
+        return TranslationErrorCode.TIMEOUT_ERROR;
       case 500:
       case 502:
       case 503:

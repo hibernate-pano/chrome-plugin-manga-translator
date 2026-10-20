@@ -1,12 +1,19 @@
 import type { TextArea } from '@/providers/base';
 import type {
   JobPriorityClass,
-  RequestedExecutionPath,
   TranslateImageJobRequest,
   TranslateImageJobResponse,
 } from '@/shared/runtime-contracts';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 
+/**
+ * A translation request on its way to the worker.
+ *
+ * It carries the image and the output preferences, never the provider
+ * settings. The worker resolves the provider, the endpoint and the API key
+ * from the authoritative configuration: a request that named them could send
+ * the user's key to an endpoint of the requester's choosing.
+ */
 export interface TranslationTransportRequest {
   imageBase64: string;
   mimeType: string;
@@ -14,11 +21,6 @@ export interface TranslationTransportRequest {
   pageUrl?: string;
   imageUrl?: string;
   targetLanguage: string;
-  provider: string;
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
-  requestedPath?: RequestedExecutionPath;
   renderMode?: 'anchors-only' | 'strong-overlay-compat';
   translationStylePreset: TranslationStylePreset;
   forceRefresh?: boolean;
@@ -55,32 +57,75 @@ export interface TranslationTransport {
   ): Promise<TranslationTransportResponse>;
 }
 
+/**
+ * Generate a job id that works in EVERY context the content script runs in.
+ *
+ * `crypto.randomUUID()` is a `[SecureContext]` API. A content script
+ * inherits the page's secure-context state, so on a plain `http://` page
+ * `crypto.randomUUID` is `undefined` and calling it throws a TypeError —
+ * which used to be swallowed into a bare `{success: false}`, making the
+ * extension look completely broken on every non-HTTPS manga site.
+ *
+ * `crypto.getRandomValues` is available in insecure contexts, so it is the
+ * primary source; the timestamp+Math.random pair is the last resort for
+ * environments that expose neither.
+ */
+export function generateJobId(): string {
+  const cryptoRef: Crypto | undefined =
+    typeof globalThis !== 'undefined' ? globalThis.crypto : undefined;
+
+  if (cryptoRef && typeof cryptoRef.randomUUID === 'function') {
+    try {
+      return cryptoRef.randomUUID();
+    } catch {
+      // Some embedders expose randomUUID but throw on it. Fall through.
+    }
+  }
+
+  if (cryptoRef && typeof cryptoRef.getRandomValues === 'function') {
+    try {
+      const bytes = cryptoRef.getRandomValues(new Uint8Array(16));
+      // RFC 4122 version 4 layout, so the value is still a well-formed UUID.
+      bytes[6] = ((bytes[6] ?? 0) & 0x0f) | 0x40;
+      bytes[8] = ((bytes[8] ?? 0) & 0x3f) | 0x80;
+      const hex = Array.from(bytes, byte =>
+        byte.toString(16).padStart(2, '0')
+      ).join('');
+      return [
+        hex.slice(0, 8),
+        hex.slice(8, 12),
+        hex.slice(12, 16),
+        hex.slice(16, 20),
+        hex.slice(20, 32),
+      ].join('-');
+    } catch {
+      // Fall through to the last-resort id.
+    }
+  }
+
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+}
+
 export class ChromeRuntimeTranslationTransport implements TranslationTransport {
   async translateImage(
     request: TranslationTransportRequest
   ): Promise<TranslationTransportResponse> {
-    const requestedPath = this.resolveRequestedPath(request);
     const pageKey =
       request.pageKey || request.imageUrl || request.imageKey || 'inline-image';
 
     const response = this.normalizeJobResponse(
       (await chrome.runtime.sendMessage({
         type: 'JOB_TRANSLATE_IMAGE',
-        jobId: request.jobId || crypto.randomUUID(),
+        jobId: request.jobId || generateJobId(),
         pageKey,
         scope: request.scope || 'page',
         priorityClass: request.priorityClass || 'visible-now',
-        requestedPath,
         imageBase64: request.imageBase64,
         mimeType: request.mimeType,
         imageUrl: request.imageUrl,
         sourcePageUrl: request.pageUrl,
         targetLanguage: request.targetLanguage,
         translationStylePreset: request.translationStylePreset,
-        provider: request.provider,
-        apiKey: request.apiKey,
-        baseUrl: request.baseUrl,
-        model: request.model,
         forceRefresh: request.forceRefresh,
         isHybridRegions: request.isHybridRegions,
       } satisfies TranslateImageJobRequest)) as
@@ -93,23 +138,6 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
     }
 
     return response;
-  }
-
-  private resolveRequestedPath(
-    request: TranslationTransportRequest
-  ): RequestedExecutionPath {
-    if (request.requestedPath) {
-      return request.requestedPath;
-    }
-
-    // Both Ollama and LM Studio are local OpenAI-compatible servers, so
-    // route them to ollama-direct. Must match runtime-contracts.ts
-    // `deriveRequestedPath` so the cache key agrees across the transport
-    // and the background handler.
-    if (request.provider === 'ollama' || request.provider === 'lm-studio') {
-      return 'ollama-direct';
-    }
-    return 'plugin-direct';
   }
 
   private normalizeJobResponse(

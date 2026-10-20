@@ -570,7 +570,23 @@ export interface CropRegion {
 }
 
 export interface CombinedRegionSegment {
+  /**
+   * Position of this segment inside the COMBINED image.
+   *
+   * It is the index of the segment in the stack, which is NOT the index of
+   * the source region when some crops failed to load and were dropped.
+   */
   index: number;
+  /**
+   * Index of the source crop this segment was built from, in the ORIGINAL
+   * input array.
+   *
+   * `combineCroppedRegions` drops crops whose image fails to load, so the
+   * stacked index shifts for every segment after the first failure. Without
+   * this field the caller cannot tell which source region a segment came
+   * from, and it maps translations onto the wrong bubbles.
+   */
+  sourceIndex: number;
   top: number;
   height: number;
 }
@@ -714,7 +730,7 @@ export async function combineCroppedRegions(
       base64: croppedImages[0] ?? '',
       width: single.width,
       height: single.height,
-      segments: [{ index: 0, top: 0, height: single.height }],
+      segments: [{ index: 0, sourceIndex: 0, top: 0, height: single.height }],
     };
   }
 
@@ -723,17 +739,23 @@ export async function combineCroppedRegions(
     croppedImages.map(base64 => imageFromBase64(base64))
   );
 
+  // Keep the ORIGINAL index of every crop that loaded. A crop that fails to
+  // load is dropped from the stack, so the stacked position and the source
+  // position diverge from that point on — the caller has to be able to map a
+  // segment back to the region it came from.
   const images: HTMLImageElement[] = [];
-  for (const result of settledResults) {
+  const sourceIndexes: number[] = [];
+  settledResults.forEach((result, sourceIndex) => {
     if (result.status === 'fulfilled') {
       images.push(result.value);
+      sourceIndexes.push(sourceIndex);
     } else {
       console.error(
         '[ImageProcessor] Failed to load image in combineCroppedRegions:',
         result.reason
       );
     }
-  }
+  });
 
   if (images.length === 0) {
     throw new Error('No images to combine');
@@ -774,6 +796,7 @@ export async function combineCroppedRegions(
   for (let index = 0; index < images.length; index += 1) {
     const img = images[index];
     if (!img) continue;
+    const sourceIndex = sourceIndexes[index] ?? index;
 
     // Draw index anchor label if isHybridRegions is enabled
     if (opts.isHybridRegions) {
@@ -800,6 +823,7 @@ export async function combineCroppedRegions(
     ctx.drawImage(img, x, currentY);
     segments.push({
       index,
+      sourceIndex,
       top: currentY,
       height: img.height,
     });

@@ -181,8 +181,11 @@ describe('config store <-> chrome.storage sync', () => {
     // reset in between would hand back a translator bound to a different
     // store instance and assert against the wrong object.
     const { useAppConfigStore } = await loadStore();
-    const { createTranslatorFromConfig } =
-      await import('@/services/translator');
+    // The trusted factory: it is the only one that carries the key, and it
+    // lives in its own module so a content script cannot reach it by
+    // accident.
+    const { createTrustedTranslatorFromConfig } =
+      await import('@/services/translator-trusted');
 
     useAppConfigStore.getState().setProvider('openai-compatible');
     useAppConfigStore.getState().updateProviderSettings('openai-compatible', {
@@ -196,7 +199,7 @@ describe('config store <-> chrome.storage sync', () => {
       useAppConfigStore.getState().providers['openai-compatible'].apiKey;
     expect(live).toBe('sk-what-the-provider-sees-1234567890');
     expect(live.startsWith('obf:')).toBe(false);
-    expect(createTranslatorFromConfig().getConfig().apiKey).toBe(
+    expect(createTrustedTranslatorFromConfig().getConfig().apiKey).toBe(
       'sk-what-the-provider-sees-1234567890'
     );
   });

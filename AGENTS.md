@@ -149,6 +149,29 @@ const store = useAppConfigStore();
   read, so anything comparing or merging that data must use
   `persisted-config` helpers rather than raw object equality.
 
+### The credential boundary
+
+The content script is injected into every page the user opens. A key it can
+reach is a key in every page, so the boundary is structural, not a matter of
+remembering:
+
+| Module | Holds | Imported by |
+| --- | --- | --- |
+| `src/shared/env-config.generated.ts` | endpoint, model | anything (it is not a credential) |
+| `src/shared/env-credentials.generated.ts` | the API key | the worker and the extension's own pages only |
+
+`src/shared/app-config.ts` is what the content script imports, and it must
+never import the credential half. The build-time key reaches the worker
+through `src/shared/preloaded-config.ts`, which is a privileged module: if
+the content script's import closure reaches it, the key is in the page.
+
+`scripts/check-release-consistency.mjs` enforces this twice — once on the
+source import graph (`checkCredentialBoundary`) and once on the built bytes
+(`checkNoCredentialsInContentScript`). Both directions are pinned by tests in
+`scripts/__tests__/check-release-consistency.test.mjs`. Importing
+`@/stores/config-v2` from a content script is the same bug in a different
+shape: the persist middleware deobfuscates the key at module evaluation.
+
 ### Component Patterns
 
 - **UI components**: shadcn/ui style lives in `src/components/ui/`. Only keep

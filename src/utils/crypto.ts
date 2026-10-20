@@ -2,9 +2,82 @@
  * API Key 安全混淆工具
  *
  * 供 Chrome 插件在持久化存储时对密钥进行混淆与还原，防止明文直接暴露在 LocalStorage 或 Chrome Sync 中。
+ *
+ * ## 这不是加密
+ *
+ * 这里做的是**混淆**（obfuscation），不是加密：算法是固定盐值的 XOR，盐值随扩展一起分发。
+ * 任何能读到扩展代码的人都能把 `obf:` 值还原成明文。真正的保护来自"扩展代码不可被网页读取"
+ * 这一前提 —— `scripts/check-release-consistency.mjs` 会在构建时检查：一旦混淆代码出现在
+ * 任何 web-accessible 资源里，构建直接失败。
+ *
+ * 改成"安装期生成随机盐并存进 chrome.storage.local"**并不能**带来实际收益：
+ *   - 网页本来就读不到扩展的 storage，也读不到非 web-accessible 的扩展代码；
+ *   - 能读到本机 storage 的人同时也能读到盐，盐放在同一处毫无区别；
+ *   - 而改造要求把同步 API 改成异步，会波及 `src/background/background.ts` 等文件，
+ *     并引入"盐读取失败 → key 用错误的盐混淆 → 用户的 key 永久无法还原"的风险。
+ *
+ * 详见 `docs/privacy-policy.md` 与 `docs/store-review-notes-zh.md` 中的如实表述。
  */
 
 const SALT = 'manga-translator-salt';
+
+/**
+ * 混淆前缀。
+ *
+ * 存储里带这个前缀的值走还原流程，不带的原样返回 —— 这样手工写入的明文 key
+ * 也能正常工作。
+ */
+const OBFUSCATED_PREFIX = 'obf:';
+
+const SALT_BYTES = new TextEncoder().encode(SALT);
+
+/**
+ * 严格解码器：遇到非法 UTF-8 字节序列就抛错。
+ *
+ * 这样被损坏的 `obf:` 值会走"还原失败 → 原样返回"的路径，而不是被静默地
+ * 解成一串替换字符（U+FFFD）——后者会变成一个看起来正常、实则完全错误的 key。
+ */
+const DECODER = new TextDecoder('utf-8', { fatal: true });
+
+const HEX_PATTERN = /^[0-9a-fA-F]*$/;
+
+function toHex(bytes: Uint8Array): string {
+  let hex = '';
+  for (const byte of bytes) {
+    hex += byte.toString(16).padStart(2, '0');
+  }
+  return hex;
+}
+
+function fromHex(hex: string): Uint8Array | null {
+  if (hex.length % 2 !== 0 || !HEX_PATTERN.test(hex)) {
+    return null;
+  }
+  const bytes = new Uint8Array(hex.length / 2);
+  for (let index = 0; index < hex.length; index += 2) {
+    const byte = Number.parseInt(hex.slice(index, index + 2), 16);
+    if (Number.isNaN(byte)) {
+      return null;
+    }
+    bytes[index / 2] = byte;
+  }
+  return bytes;
+}
+
+/**
+ * 与盐值逐字节异或。
+ *
+ * XOR 是自逆运算：同样的函数再跑一次就还原了，所以混淆与还原共用这一段。
+ */
+function xorBytes(bytes: Uint8Array): Uint8Array {
+  const result = new Uint8Array(bytes.length);
+  for (let index = 0; index < bytes.length; index += 1) {
+    const byte = bytes[index] ?? 0;
+    const saltByte = SALT_BYTES[index % SALT_BYTES.length] ?? 0;
+    result[index] = byte ^ saltByte;
+  }
+  return result;
+}
 
 /**
  * 混淆 API Key
@@ -12,21 +85,23 @@ const SALT = 'manga-translator-salt';
  */
 export function obfuscateApiKey(key: string): string {
   if (!key) return '';
-  if (key.startsWith('obf:')) return key;
+  if (key.startsWith(OBFUSCATED_PREFIX)) return key;
 
   try {
-    const latin1Key = unescape(encodeURIComponent(key));
-
-    let hex = '';
-    for (let i = 0; i < latin1Key.length; i++) {
-      const charCode =
-        latin1Key.charCodeAt(i) ^ SALT.charCodeAt(i % SALT.length);
-      hex += charCode.toString(16).padStart(2, '0');
+    // TextEncoder 输出 UTF-8 字节，与旧实现（escape/unescape 方案）对所有
+    // 合法字符串完全一致，因此升级后用户已存的 key 依然能还原。
+    const bytes = new TextEncoder().encode(key);
+    // 编码会替换掉落单的代理项（U+D800 之类）。那种字符串还原回来就变了，
+    // 用户的 key 会凭空损坏 —— 与其存一个坏值，不如退回明文，至少还能用。
+    if (DECODER.decode(bytes) !== key) {
+      console.error('[Crypto] API Key 含有非法字符序列，返回原值');
+      return key;
     }
-
-    return `obf:${hex}`;
-  } catch (e) {
-    console.error('[Crypto] 混淆 API Key 失败，返回原值:', e);
+    return `${OBFUSCATED_PREFIX}${toHex(xorBytes(bytes))}`;
+  } catch (error) {
+    // 走到这里说明连编码都失败了。返回原值可以让用户的 key 继续可用，
+    // 代价是它在存储里是明文 —— 所以必须留下错误日志，而不是静默吞掉。
+    console.error('[Crypto] 混淆 API Key 失败，返回原值:', error);
     return key;
   }
 }
@@ -36,21 +111,17 @@ export function obfuscateApiKey(key: string): string {
  */
 export function deobfuscateApiKey(obfuscatedKey: string): string {
   if (!obfuscatedKey) return '';
-  if (!obfuscatedKey.startsWith('obf:')) return obfuscatedKey;
+  if (!obfuscatedKey.startsWith(OBFUSCATED_PREFIX)) return obfuscatedKey;
 
   try {
-    const hex = obfuscatedKey.substring(4);
-    let latin1Key = '';
-    for (let i = 0; i < hex.length; i += 2) {
-      const charHex = hex.substring(i, i + 2);
-      const charCode =
-        parseInt(charHex, 16) ^ SALT.charCodeAt((i / 2) % SALT.length);
-      latin1Key += String.fromCharCode(charCode);
+    const hex = obfuscatedKey.slice(OBFUSCATED_PREFIX.length);
+    const bytes = fromHex(hex);
+    if (!bytes) {
+      return obfuscatedKey;
     }
-
-    return decodeURIComponent(escape(latin1Key));
-  } catch (e) {
-    console.error('[Crypto] 还原 API Key 失败，返回混淆值:', e);
+    return DECODER.decode(xorBytes(bytes));
+  } catch (error) {
+    console.error('[Crypto] 还原 API Key 失败，返回混淆值:', error);
     return obfuscatedKey;
   }
 }

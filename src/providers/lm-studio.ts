@@ -8,6 +8,15 @@
 import { ValidationResult } from './base';
 import { OpenAICompatibleProvider } from './openai-compatible-base';
 
+/**
+ * Timeout for a local LM Studio request.
+ *
+ * A local model that has to be paged into memory can take well over the
+ * cloud client's 30s budget, and killing the request that early reports a
+ * perfectly healthy local model as a network failure.
+ */
+const LM_STUDIO_REQUEST_TIMEOUT_MS = 120_000;
+
 export class LMStudioProvider extends OpenAICompatibleProvider {
   readonly name = 'LM Studio';
   readonly type = 'lm-studio' as const;
@@ -22,6 +31,10 @@ export class LMStudioProvider extends OpenAICompatibleProvider {
 
   protected requiresAuth(): boolean {
     return false;
+  }
+
+  protected override getRequestTimeoutMs(): number {
+    return LM_STUDIO_REQUEST_TIMEOUT_MS;
   }
 
   override async validateConfig(): Promise<ValidationResult> {

@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
 import { useAppConfigStore } from './config-v2';
-import { DEFAULT_OPENAI_COMPATIBLE_CONFIG } from '@/shared/app-config';
+import { PRELOADED_OPENAI_COMPATIBLE_CONFIG } from '@/shared/preloaded-config';
 import { shallowChanged } from './config-v2';
 
 describe('AppConfigStore', () => {
@@ -306,7 +306,7 @@ describe('AppConfigStore', () => {
 
     const settings =
       useAppConfigStore.getState().providers['openai-compatible'];
-    expect(settings.apiKey).toBe(DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey);
+    expect(settings.apiKey).toBe(PRELOADED_OPENAI_COMPATIBLE_CONFIG.apiKey);
     expect(settings.baseUrl).toBe('https://api.openai.com/v1');
     expect(settings.model).toBe('gpt-4o-legacy');
   });

@@ -15,8 +15,26 @@ concurrency:
 jobs:
   verify:
     name: Lint, test, build
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The matrix exists to catch the class of bug that only appears on one
+    # platform. Two of them have bitten this project:
+    #
+    #   - The content script is bundled and rebundled with esbuild, and the
+    #     path separator it uses to resolve entry points differs between
+    #     platforms. A path that resolves on Linux and 404s on macOS ships a
+    #     broken extension to whichever platform the release was cut on.
+    #   - The packaging step shells out to `zip`, which is present on macOS
+    #     and on most Linux images but is not guaranteed everywhere. A release
+    #     that only ever ran on one platform would find out at upload time.
+    #
+    # Node 20 is the floor declared in package.json's `engines`; Node 22 is
+    # what most users have. Both must pass.
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+        node: [20, 22]
 
     steps:
       - uses: actions/checkout@v4
@@ -29,7 +47,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: ${{ matrix.node }}
           cache: pnpm
 
       - name: Install dependencies
@@ -63,12 +81,23 @@ jobs:
       - name: Test (with coverage threshold)
         run: pnpm test:coverage
 
+      # The store listing, the privacy policy and the review notes make
+      # promises to the Chrome Web Store reviewer. `check-store-claims`
+      # resolves the code anchor behind every registered promise and checks
+      # that each document still makes the promise it is recorded as making.
+      # It reads only source files, so it runs before the build as well as
+      # from `pnpm build` and `pnpm release:check`.
+      - name: Verify store claims against the code
+        run: pnpm check:claims
+
       - name: Build
         run: pnpm build
 
       # The content script is injected into every page, so its size is a
       # user-visible cost. `check-release-consistency` enforces the budget and
-      # fails the build if it is exceeded.
+      # fails the build if it is exceeded. The same script now also fails the
+      # build if the content script or the key-obfuscation salt is exposed to
+      # web pages.
       - name: Verify release consistency and size budget
         run: pnpm release:check
 
@@ -77,6 +106,57 @@ jobs:
       # a populated .env.
       - name: Scan built bundle for embedded credentials
         run: node scripts/check-public-build.mjs
+
+  # The uploadable store package is produced by its own job, so that the
+  # matrix above does not produce four competing ZIPs and so that the
+  # credential-free path (`package:public`) is the only thing that ever
+  # produces an artifact.
+  package:
+    name: Build release package
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 12.4.1
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      # `package:public` is the credential-free path. It builds, refuses to
+      # package anything containing a provider API key, and writes the ZIP
+      # plus a SHA-256 checksum next to it. The plain `build` command
+      # deliberately supports private personal builds that may contain
+      # `.env` credentials, so it must never be the source of an uploaded
+      # artifact.
+      - name: Build credential-free package
+        run: pnpm package:public
+
+      # A tag push is a release. The old condition
+      # (`github.event_name == 'push' && github.ref == 'refs/heads/main'`)
+      # meant a tagged build produced no artifact at all — the one run that
+      # most needs an artifact was the one that skipped it.
+      - name: Upload release package
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/'))
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-package
+          path: |
+            release/*.zip
+            release/*.sha256
+          retention-days: 30
+          if-no-files-found: error
 
       - name: Upload dist artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

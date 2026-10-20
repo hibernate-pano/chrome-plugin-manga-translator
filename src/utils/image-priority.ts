@@ -185,9 +185,6 @@ export async function processInParallel<T, R>(
   let completedCount = 0;
   const total = items.length;
 
-  // Track the order in which items start processing
-  let startOrder = 0;
-
   // Create a pool of workers
   const workers: Promise<void>[] = [];
 
@@ -203,9 +200,13 @@ export async function processInParallel<T, R>(
 
       if (item === undefined) continue;
 
-      // Notify that this item is starting (1-indexed for display)
-      onItemStart?.(startOrder + 1);
-      startOrder++;
+      // Notify that this item is starting (1-indexed for display).
+      //
+      // The item's own position in the array, not the order in which the
+      // workers happened to pick items up. The two used to be the same
+      // counter, and the difference showed up as the HUD numbering one
+      // image while the reading panel numbered another.
+      onItemStart?.(index + 1);
 
       try {
         const result = await processor(item, index);

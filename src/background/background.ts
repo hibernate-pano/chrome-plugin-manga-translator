@@ -27,19 +27,29 @@ import type {
   TranslateImageJobResponse,
   RequestedExecutionPath,
 } from '@/shared/runtime-contracts';
-import type { TranslationTransportRequest } from '@/services/translation-transport';
-import {
-  DEFAULT_CONFIG,
-  normalizeRuntimeAppConfig,
-  APP_CONFIG_STORAGE_KEY,
-} from '@/shared/app-config';
+import { DEFAULT_CONFIG, APP_CONFIG_STORAGE_KEY } from '@/shared/app-config';
+import { normalizeRuntimeAppConfig } from '@/shared/preloaded-config';
+import { buildContentConfigSnapshot } from '@/shared/content-config';
 import { getErrorMessage } from '@/utils/error-message';
 import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
 
 import { translateImageViaProviderDirect } from './provider-direct-client';
+import {
+  resolveActiveProvider,
+  type ActiveProviderConfig,
+} from './provider-config';
+import { createProvider } from '@/providers';
 import { BackgroundJobQueue, createJobStatus } from './job-queue';
 import { fetchImageBytes } from './image-fetch-guard';
 import { deriveRequestedPath } from '@/shared/runtime-contracts';
+import {
+  CONTEXT_MENU_TRANSLATE_IMAGE,
+  CONTEXT_MENU_TRANSLATE_PAGE,
+  SUPPORTED_PAGE_URL_PATTERNS,
+  createTranslateSingleImageMessage,
+  isSupportedPageUrl,
+  resolveCommandAction,
+} from './commands';
 
 interface MessageRequest {
   action?: string;
@@ -56,7 +66,7 @@ interface MessageResponse {
   error?: string;
   received?: boolean;
   state?: unknown;
-  config?: Record<string, unknown>;
+  config?: unknown;
   [key: string]: unknown;
 }
 
@@ -187,6 +197,35 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   syncQueueLimit(configChange.newValue || {});
 });
 
+// 配置变化后，把新的脱敏快照推给所有标签页。
+//
+// Content script 不再自己读 chrome.storage.local：它们拿的是 worker 发出的
+// 脱敏快照（没有 API key）。这个广播让快照保持新鲜，即使 content script
+// 之后不再能收到 storage.onChanged。
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName !== 'local') {
+    return;
+  }
+  if (!changes[APP_CONFIG_STORAGE_KEY]) {
+    return;
+  }
+  void broadcastConfigSnapshot().catch(() => undefined);
+});
+
+/**
+ * Push the redacted configuration snapshot to every tab.
+ *
+ * The snapshot carries no credential, so it is safe to hand to a content
+ * script — which is exactly what it is for.
+ */
+async function broadcastConfigSnapshot(): Promise<void> {
+  const config = await getConfig();
+  await broadcastToAllTabs({
+    type: 'CONFIG_UPDATED',
+    config: buildContentConfigSnapshot(config),
+  });
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null;
 }
@@ -227,10 +266,26 @@ function normalizeStoredConfigSnapshot(
 }
 
 chrome.runtime.onInstalled.addListener(details => {
-  chrome.contextMenus.create({
-    id: 'translatePage',
-    title: '翻译当前页面',
-    contexts: ['page'],
+  // 菜单项必须先 removeAll 再 create。
+  //
+  // onInstalled 在 install 和 update 两种情况下都会跑，而菜单项的 id 是
+  // 固定的。用同一个 id 直接 create 两次，第二次会报 duplicate id 并且
+  // 失败（menu item not created）。removeAll 是异步的，所以创建动作放在
+  // 它的回调里，保证顺序。
+  chrome.contextMenus.removeAll(() => {
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE_PAGE,
+      title: '翻译当前页面',
+      contexts: ['page'],
+      documentUrlPatterns: SUPPORTED_PAGE_URL_PATTERNS,
+    });
+
+    chrome.contextMenus.create({
+      id: CONTEXT_MENU_TRANSLATE_IMAGE,
+      title: '翻译这张图片',
+      contexts: ['image'],
+      documentUrlPatterns: SUPPORTED_PAGE_URL_PATTERNS,
+    });
   });
 
   if (details.reason === 'install') {
@@ -241,13 +296,65 @@ chrome.runtime.onInstalled.addListener(details => {
   }
 });
 
-// 右键菜单"翻译当前页面" → 转发 TRANSLATE_PAGE 到当前 tab 的 content script。
-// 复用 forwardToActiveTab 已有的错误处理链路。
+// 右键菜单 → 转发到当前 tab 的 content script。
+// 复用 sendToTab 已有的错误处理链路。
 chrome.contextMenus.onClicked.addListener((info, tab) => {
-  if (info.menuItemId !== 'translatePage' || !tab?.id) {
+  if (!tab?.id) {
     return;
   }
-  void sendToTab(tab.id, { type: 'TRANSLATE_PAGE' }).catch(() => undefined);
+
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE_PAGE) {
+    if (!isSupportedPageUrl(tab.url ?? info.pageUrl)) {
+      return;
+    }
+    void sendToTab(tab.id, { type: 'TRANSLATE_PAGE' }).catch(() => undefined);
+    return;
+  }
+
+  if (info.menuItemId === CONTEXT_MENU_TRANSLATE_IMAGE) {
+    if (!isSupportedPageUrl(tab.url ?? info.pageUrl)) {
+      return;
+    }
+    // srcUrl 是 Chrome 认定的被右键图片地址，可能是缩略图，也可能是
+    // CDN 的另一个尺寸变体，和页面里 img.src 不一定一致。URL 原样传过去，
+    // 由 content script 按最接近的 img 匹配。
+    const imageUrl = info.srcUrl;
+    if (!imageUrl) {
+      return;
+    }
+    void sendToTab(tab.id, createTranslateSingleImageMessage(imageUrl)).catch(
+      () => undefined
+    );
+  }
+});
+
+// 键盘快捷键 → 转发到当前活动标签页的 content script。
+//
+// 目标标签页用 tabs.query({active:true, currentWindow:true}) 取，和
+// forwardToActiveTab 是同一个口径。
+chrome.commands.onCommand.addListener((command, tab) => {
+  const action = resolveCommandAction(command);
+  if (!action) {
+    return;
+  }
+
+  void (async () => {
+    const [activeTab] = await chrome.tabs.query({
+      active: true,
+      currentWindow: true,
+    });
+    const targetTab = activeTab ?? tab;
+    if (!targetTab?.id) {
+      return;
+    }
+    // content script 不会注入内部页面，命令发过去只会得到
+    // "Receiving end does not exist"，所以直接不执行。
+    // tab.url 需要 "tabs" 权限才拿得到，拿不到时退回到事件自带的 tab。
+    if (!isSupportedPageUrl(targetTab.url ?? tab?.url)) {
+      return;
+    }
+    await sendToTab(targetTab.id, action).catch(() => undefined);
+  })();
 });
 
 chrome.runtime.onStartup.addListener(() => {
@@ -368,12 +475,40 @@ async function handleMessage(
     if (request.type && !request.action) {
       switch (request.type) {
         case 'JOB_TRANSLATE_IMAGE':
+          // Only this extension's own content scripts may ask for a
+          // translation. Another extension's content script shares the page
+          // but not the origin, and it would be spending the user's key.
+          if (!isExtensionOrigin) {
+            sendResponse({
+              success: false,
+              error: 'JOB_TRANSLATE_IMAGE requires extension origin',
+            });
+            return;
+          }
           sendResponse(
             (await enqueueTranslationJob(
               request as unknown as TranslateImageJobRequest
             )) as unknown as MessageResponse
           );
           return;
+        case 'GET_CONFIG': {
+          // The redacted snapshot: no credential crosses this boundary, so a
+          // content script can read it without the worker giving away the
+          // API key.
+          const config = await getConfig();
+          sendResponse({
+            success: true,
+            config: buildContentConfigSnapshot(config),
+          });
+          return;
+        }
+        case 'PROVIDER_PREFLIGHT': {
+          const config = await getConfig();
+          const active = resolveActiveProvider(config);
+          const probe = await probeProvider(active);
+          sendResponse(probe);
+          return;
+        }
         case 'STATE_UPDATE':
           void chrome.runtime.sendMessage(request).catch(() => undefined);
           sendResponse({ received: true });
@@ -421,7 +556,7 @@ async function handleMessage(
           return;
         }
         await setConfig(request.config);
-        await broadcastToAllTabs({ action: 'configUpdated' });
+        await broadcastConfigSnapshot();
         sendResponse({ success: true });
         return;
       case 'toggleTranslation':
@@ -469,20 +604,87 @@ async function handleMessage(
   }
 }
 
-function deriveActualPath(
-  request: TranslateImageJobRequest
-): RequestedExecutionPath {
-  return deriveRequestedPath(request.provider);
+function deriveActualPath(provider: string): RequestedExecutionPath {
+  return deriveRequestedPath(provider);
+}
+
+/**
+ * Check that the configured provider is usable.
+ *
+ * The check needs the API key, so it can only run in the worker. The content
+ * script asks for it over a message and gets back a verdict, never the key.
+ */
+async function probeProvider(active: ActiveProviderConfig): Promise<{
+  success: boolean;
+  valid: boolean;
+  message: string;
+  error?: string;
+}> {
+  try {
+    const provider = await createProvider(active.provider, {
+      apiKey: active.apiKey,
+      baseUrl: active.baseUrl,
+      model: active.model,
+    });
+    const probe = await provider.validateConfig();
+    return {
+      success: true,
+      valid: probe.valid,
+      message: probe.message,
+    };
+  } catch (error) {
+    return {
+      success: false,
+      valid: false,
+      message: getErrorMessage(error),
+    };
+  }
 }
 
 async function enqueueTranslationJob(
   request: TranslateImageJobRequest
 ): Promise<TranslateImageJobResponse> {
+  // The master switch gates every path that can reach a paid endpoint.
+  //
+  // The content script checks it too, but that check lives in a context a
+  // user can bypass — the context menu, a keyboard shortcut, or a message
+  // sent directly. The background worker is the last place before the
+  // request, so the check belongs here as well: "off" has to mean off all
+  // the way down, or the extension bills the user for a switch they turned
+  // off.
+  const currentConfig = await getConfig();
+
+  // The provider, the endpoint and the API key are resolved here, from the
+  // worker's own configuration.
+  //
+  // The request used to carry them, which meant any content script able to
+  // post a message could point the user's real key at an endpoint of its
+  // choosing. Nothing a requester sends can influence which endpoint the
+  // key is sent to any more.
+  const active = resolveActiveProvider(currentConfig);
+
+  const requestedPath = deriveActualPath(active.provider);
+
+  if (!isTranslationEnabled(currentConfig)) {
+    return {
+      success: false,
+      job: createJobStatus({
+        jobId: request.jobId,
+        pageKey: request.pageKey,
+        priorityClass: request.priorityClass,
+        requestedPath,
+        scope: request.scope,
+      }),
+      textAreas: [],
+      error: '扩展已关闭，请先在弹窗中开启「启用扩展」',
+    };
+  }
+
   const job = createJobStatus({
     jobId: request.jobId,
     pageKey: request.pageKey,
     priorityClass: request.priorityClass,
-    requestedPath: request.requestedPath,
+    requestedPath,
     scope: request.scope,
   });
 
@@ -493,15 +695,22 @@ async function enqueueTranslationJob(
     // silently returns the result it was meant to replace.
     forceRefresh: request.forceRefresh,
     run: async () => {
-      const actualCapabilityUsed = deriveActualPath(request);
+      const actualCapabilityUsed = requestedPath;
       translationJobQueue.updateJob(request.jobId, {
         actualCapabilityUsed,
         state: 'running',
       });
 
-      const response = await translateImageViaProviderDirect(
-        request as TranslationTransportRequest
-      );
+      const response = await translateImageViaProviderDirect({
+        provider: active.provider,
+        apiKey: active.apiKey,
+        baseUrl: active.baseUrl,
+        model: active.model,
+        imageBase64: request.imageBase64,
+        targetLanguage: request.targetLanguage,
+        translationStylePreset: request.translationStylePreset,
+        isHybridRegions: request.isHybridRegions,
+      });
 
       if (!response.success) {
         const failureJob = translationJobQueue.updateJob(request.jobId, {

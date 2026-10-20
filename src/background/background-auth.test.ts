@@ -25,8 +25,14 @@ interface SenderFields {
 interface ChromeHarness {
   onMessage: Listener[];
   onAlarm: Listener[];
+  onCommand: Listener[];
+  onContextMenuClicked: Listener[];
+  onInstalled: Listener[];
   storageChanged: Listener[];
   tabsQuerySpy: ReturnType<typeof vi.fn>;
+  sendMessageSpy: ReturnType<typeof vi.fn>;
+  contextMenusCreateSpy: ReturnType<typeof vi.fn>;
+  contextMenusRemoveAllSpy: ReturnType<typeof vi.fn>;
   sendToMessage: (
     request: unknown,
     sender: SenderFields
@@ -39,9 +45,15 @@ const EXTENSION_ID = 'test-extension-id';
 function installChromeMock(): ChromeHarness {
   const onMessage: Listener[] = [];
   const onAlarm: Listener[] = [];
+  const onCommand: Listener[] = [];
+  const onContextMenuClicked: Listener[] = [];
+  const onInstalled: Listener[] = [];
   const storageChanged: Listener[] = [];
   const localStore: Record<string, unknown> = {};
   const tabsQuerySpy = vi.fn(async () => []);
+  const sendMessageSpy = vi.fn(async () => undefined);
+  const contextMenusCreateSpy = vi.fn();
+  const contextMenusRemoveAllSpy = vi.fn();
 
   const chromeMock = {
     runtime: {
@@ -58,7 +70,7 @@ function installChromeMock(): ChromeHarness {
         removeListener: () => undefined,
       },
       onInstalled: {
-        addListener: () => undefined,
+        addListener: (l: Listener) => onInstalled.push(l),
         removeListener: () => undefined,
       },
     },
@@ -94,16 +106,21 @@ function installChromeMock(): ChromeHarness {
       clear: vi.fn(),
       onAlarm: { addListener: (l: Listener) => onAlarm.push(l) },
     },
+    commands: {
+      onCommand: { addListener: (l: Listener) => onCommand.push(l) },
+    },
     contextMenus: {
-      create: vi.fn(),
+      create: contextMenusCreateSpy,
       update: vi.fn(),
-      onClicked: { addListener: () => undefined },
+      onClicked: {
+        addListener: (l: Listener) => onContextMenuClicked.push(l),
+      },
       remove: vi.fn(),
-      removeAll: vi.fn(),
+      removeAll: contextMenusRemoveAllSpy,
     },
     tabs: {
       query: tabsQuerySpy,
-      sendMessage: vi.fn(async () => undefined),
+      sendMessage: sendMessageSpy,
       onUpdated: { addListener: () => undefined },
     },
   } as unknown as typeof globalThis.chrome;
@@ -113,8 +130,14 @@ function installChromeMock(): ChromeHarness {
   return {
     onMessage,
     onAlarm,
+    onCommand,
+    onContextMenuClicked,
+    onInstalled,
     storageChanged,
     tabsQuerySpy,
+    sendMessageSpy,
+    contextMenusCreateSpy,
+    contextMenusRemoveAllSpy,
     localStore,
     sendToMessage: (request, sender) =>
       new Promise<ResponseFields>(resolve => {
@@ -581,5 +604,233 @@ describe('service worker keepalive and queue sync', () => {
       { tab: { id: 7, url: 'https://manga.example/ch1' } }
     );
     expect(response).toMatchObject({ received: true });
+  });
+});
+
+describe('keyboard shortcuts', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(() => {
+    harness = installChromeMock();
+  });
+
+  async function runCommand(
+    command: string,
+    tab: { id: number; url?: string } | undefined
+  ): Promise<void> {
+    harness.tabsQuerySpy.mockResolvedValue(tab ? [tab] : []);
+    expect(harness.onCommand.length).toBeGreaterThan(0);
+    for (const listener of harness.onCommand) {
+      listener(command, tab);
+    }
+    // The handler awaits tabs.query before sending; give the microtask queue
+    // a chance to drain.
+    await new Promise(resolve => setTimeout(resolve, 0));
+  }
+
+  it('translates the active tab on translate-page', async () => {
+    await loadWorker();
+    await runCommand('translate-page', {
+      id: 7,
+      url: 'https://manga.example/ch1',
+    });
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(7, {
+      type: 'TRANSLATE_PAGE',
+    });
+  });
+
+  it('ignores the cache on force-retranslate', async () => {
+    await loadWorker();
+    await runCommand('force-retranslate', {
+      id: 7,
+      url: 'https://manga.example/ch1',
+    });
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(7, {
+      type: 'FORCE_RETRANSLATE_PAGE',
+    });
+  });
+
+  it('clears the overlays on clear-overlays', async () => {
+    await loadWorker();
+    await runCommand('clear-overlays', {
+      id: 7,
+      url: 'https://manga.example/ch1',
+    });
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(7, {
+      type: 'CLEAR_ALL',
+    });
+  });
+
+  it('asks the content script to toggle the reading panel', async () => {
+    await loadWorker();
+    await runCommand('toggle-reading-panel', {
+      id: 7,
+      url: 'https://manga.example/ch1',
+    });
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(7, {
+      type: 'TOGGLE_READING_PANEL',
+    });
+  });
+
+  it('targets the active tab of the current window', async () => {
+    await loadWorker();
+    await runCommand('translate-page', {
+      id: 42,
+      url: 'https://manga.example/ch1',
+    });
+
+    expect(harness.tabsQuerySpy).toHaveBeenCalledWith({
+      active: true,
+      currentWindow: true,
+    });
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(42, {
+      type: 'TRANSLATE_PAGE',
+    });
+  });
+
+  it('does nothing on a browser internal page', async () => {
+    // The content script is never injected into chrome:// pages, so the
+    // message would bounce off with "Receiving end does not exist".
+    await loadWorker();
+    await runCommand('translate-page', {
+      id: 7,
+      url: 'chrome://extensions',
+    });
+
+    expect(harness.sendMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it('does nothing when there is no active tab and no event tab', async () => {
+    await loadWorker();
+    await runCommand('translate-page', undefined);
+
+    expect(harness.sendMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it('falls back to the event tab when the query finds nothing', async () => {
+    // chrome.commands.onCommand 自带一个 tab 参数。tabs.query 偶尔会返回
+    // 空（比如标签页刚被关闭），这时事件里的 tab 仍然是可靠的。
+    await loadWorker();
+    harness.tabsQuerySpy.mockResolvedValue([]);
+    expect(harness.onCommand.length).toBeGreaterThan(0);
+    for (const listener of harness.onCommand) {
+      listener('translate-page', { id: 9, url: 'https://manga.example/ch1' });
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(9, {
+      type: 'TRANSLATE_PAGE',
+    });
+  });
+
+  it('ignores an unknown command', async () => {
+    await loadWorker();
+    await runCommand('not-a-command', {
+      id: 7,
+      url: 'https://manga.example/ch1',
+    });
+
+    expect(harness.sendMessageSpy).not.toHaveBeenCalled();
+  });
+});
+
+describe('context menu', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(() => {
+    harness = installChromeMock();
+  });
+
+  function clickMenu(
+    info: { menuItemId: string; srcUrl?: string; pageUrl?: string },
+    tab: { id: number; url?: string }
+  ): void {
+    expect(harness.onContextMenuClicked.length).toBeGreaterThan(0);
+    for (const listener of harness.onContextMenuClicked) {
+      listener(info, tab);
+    }
+  }
+
+  it('creates both menu items after removing the old ones', async () => {
+    // onInstalled runs on install AND on update. Creating the same id twice
+    // makes the second create fail with a duplicate id, so the menu items have
+    // to be created inside the removeAll callback.
+    await loadWorker();
+    expect(harness.onInstalled.length).toBeGreaterThan(0);
+    for (const listener of harness.onInstalled) {
+      listener({ reason: 'update' });
+    }
+
+    expect(harness.contextMenusRemoveAllSpy).toHaveBeenCalledTimes(1);
+    // removeAll is async: nothing may be created before its callback runs.
+    expect(harness.contextMenusCreateSpy).not.toHaveBeenCalled();
+
+    const callback = harness.contextMenusRemoveAllSpy.mock.calls[0]?.[0] as
+      | (() => void)
+      | undefined;
+    expect(typeof callback).toBe('function');
+    callback?.();
+
+    const created = harness.contextMenusCreateSpy.mock.calls.map(
+      call => (call[0] as { id: string; contexts: string[] }).id
+    );
+    expect(created).toEqual(['translatePage', 'translate-image']);
+  });
+
+  it('translates the page from the page context menu', async () => {
+    await loadWorker();
+    clickMenu(
+      { menuItemId: 'translatePage', pageUrl: 'https://manga.example/ch1' },
+      { id: 7, url: 'https://manga.example/ch1' }
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(7, {
+      type: 'TRANSLATE_PAGE',
+    });
+  });
+
+  it('sends the right-clicked image URL for translate-image', async () => {
+    await loadWorker();
+    clickMenu(
+      {
+        menuItemId: 'translate-image',
+        srcUrl: 'https://cdn.example/ch1/p01.jpg',
+        pageUrl: 'https://manga.example/ch1',
+      },
+      { id: 7, url: 'https://manga.example/ch1' }
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(harness.sendMessageSpy).toHaveBeenCalledWith(7, {
+      type: 'TRANSLATE_SINGLE_IMAGE',
+      imageUrl: 'https://cdn.example/ch1/p01.jpg',
+    });
+  });
+
+  it('does nothing when the right-clicked image has no source URL', async () => {
+    await loadWorker();
+    clickMenu(
+      { menuItemId: 'translate-image', pageUrl: 'https://manga.example/ch1' },
+      { id: 7, url: 'https://manga.example/ch1' }
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(harness.sendMessageSpy).not.toHaveBeenCalled();
+  });
+
+  it('does nothing on a browser internal page', async () => {
+    await loadWorker();
+    clickMenu(
+      { menuItemId: 'translatePage', pageUrl: 'chrome://extensions' },
+      { id: 7, url: 'chrome://extensions' }
+    );
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(harness.sendMessageSpy).not.toHaveBeenCalled();
   });
 });

@@ -6,13 +6,14 @@ A Chrome Manifest V3 extension that translates foreign-language manga in your br
 
 It calls **any OpenAI-compatible Vision LLM** (OpenAI, Qwen-VL, Gemini via OpenRouter,
 SiliconFlow, ...) or a **local model** (Ollama, LM Studio) on demand, then overlays the
-translation on top of the original image. The art stays untouched, the styles are
-preserved, and the overlay renders inside the page so you can read without leaving your
-manga site.
+translation on top of the original image. The overlay renders inside the page, on top of
+the original text bubble, so you can read without leaving your manga site. The picture
+around the bubble is left alone; the bubble itself is covered by the overlay.
 
-> **Reading, not just translation.** v0.5.0 added a side panel that lists every
-> translated panel in reading order with numbered anchors on each image — a small
-> thing, but the first "this isn't just a translation tool" moment for the project.
+> **Reading, not just translation.** v0.5.0 added an in-page reading panel that
+> lists every translated panel in reading order with numbered anchors on each
+> image — a small thing, but the first "this isn't just a translation tool"
+> moment for the project.
 
 ---
 
@@ -64,19 +65,31 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
 
 - **In-place overlay translation**: detected text is replaced with the translation
   while keeping the surrounding art intact.
+- **Three ways to start**: the toolbar button, the right-click menu
+  (「翻译当前页面」 for the page, 「翻译这张图片」 for one image), or a keyboard
+  shortcut — `Ctrl`/`⌘`+`Shift`+`Y` translate, `+X` re-translate ignoring the
+  cache, `+E` clear the overlays, `+S` toggle the reading panel.
 - **Auto-continue**: once you have translated a page, images that load later
-  (webtoon readers replace them as you scroll) are translated too.
+  (webtoon readers replace them as you scroll) are translated too. The popup
+  says so in as many words whenever a page is armed this way — the switches
+  in the reading settings are only three of the four things that decide it,
+  and the fourth one is the page you just translated by hand.
 - **Per-site automation, off by default**: the extension only translates a page
   on its own for sites you add to the auto-translate list from the popup. Every
   other site waits for you to press the button. Automatic translation used to
   fire on every navigation in every tab once the extension was enabled, which
   sent images from whatever you were browsing to your provider and billed for
   them.
-- **MiniMax-M3 fast mode**: thinking is disabled for structured manga
-  translation, avoiding wasted `<think>` tokens and reducing response time.
-- **Reading mode side panel**: a right-side panel listing every translation in
-  reading order, with numbered anchors on each image. Click a panel entry to jump
-  to the image; click an image badge to jump to its panel entry.
+- **MiniMax-M3 fast mode**: when the configured model name is MiniMax-M3, the
+  request disables that model's thinking mode and asks it to split reasoning
+  from the answer, avoiding wasted `<think>` tokens. Other models keep their
+  provider's defaults.
+- **Reading mode side panel**: an in-page panel pinned to the right edge,
+  listing every translation in reading order, with numbered anchors on each
+  image. Click a panel entry to jump to the image; click an image badge to jump
+  to its panel entry. The panel can be collapsed to its header or closed
+  entirely — from its own ✕ button, from the popup, or with the keyboard
+  shortcut.
 - **HUD with stages**: scanning → translating → rendering, with cache-hit and
   filtered-image counts surfaced in the completion card.
 - **Errors as repair menus**: every common failure has a fix-it button. Ollama
@@ -84,7 +97,9 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
   `OLLAMA_ORIGINS=chrome-extension://* ollama serve`. Auth failed? Open Settings.
 - **Local-first**: user-entered config and obfuscated API keys live in
   `chrome.storage.local`. Nothing syncs to your Google account. No telemetry.
-  No analytics.
+  No analytics. (The API key is obfuscated, not encrypted — the salt ships in
+  the bundle. The content script is not web-accessible, so a page cannot read
+  it out of the shipped extension, but the bundle itself is not a secret.)
 
 ---
 
@@ -152,6 +167,10 @@ See [`CONTRIBUTING.md`](./CONTRIBUTING.md).
 For store submission and final smoke testing, see
 [`docs/chrome-web-store-release.md`](./docs/chrome-web-store-release.md).
 
+To report a security problem, please do not open a public issue — see
+[`SECURITY.md`](./SECURITY.md). Participation in this project is governed by
+[`CODE_OF_CONDUCT.md`](./CODE_OF_CONDUCT.md).
+
 ---
 
 ## Privacy
@@ -163,6 +182,11 @@ For store submission and final smoke testing, see
   remain.
 - When you translate, the extension sends the image **directly** to your
   configured VLM endpoint. The extension author never sees it.
+- To be precise about what that means: the author collects nothing, but the
+  comic images you ask to translate are transmitted to the provider you
+  configured, which handles them under its own policy. Point the extension at
+  a local provider (Ollama, LM Studio) and the images never leave your
+  machine.
 - No analytics, no telemetry, no remote logging. See [`docs/privacy-policy.md`](./docs/privacy-policy.md).
 
 ---
@@ -171,6 +195,7 @@ For store submission and final smoke testing, see
 
 | Version | Status | Highlights |
 |---|---|---|
+| v2.0.3 | current | Chrome Web Store field limits enforced at build time |
 | v2.0.1 | current | Release-tag CI verification |
 | v2.0.0 | current | Opt-in per-site auto-translation, config storage loop fixed, guarded image proxy, 65% smaller content script, enforced quality gates |
 | v1.3.3 | shipped | Reliable long-strip tiling, safe public builds, editable providers |

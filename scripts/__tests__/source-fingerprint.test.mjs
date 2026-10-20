@@ -76,6 +76,46 @@ describe('source fingerprint', () => {
     }
   });
 
+  it('ignores the generated env config, which tracks .env and not the repo', async () => {
+    const mod = await import(pathToFileURL(modulePath).href);
+    const before = mod.computeSourceFingerprint().digest;
+
+    // `src/shared/env-config.generated.ts` is regenerated from the developer's
+    // local `.env` on every build. Including it made the freshness guard
+    // unsatisfiable on a working machine: changing a key in `.env` changed
+    // the digest, so `package-extension.mjs` refused to package a bundle
+    // that was in fact current. A private build embeds whatever credentials
+    // the local `.env` holds, which is a property of the machine and not of
+    // the source tree.
+    const target = join(
+      projectRoot,
+      'src',
+      'shared',
+      'env-config.generated.ts'
+    );
+    const original = readFileSync(target, 'utf8');
+    try {
+      writeFileSync(
+        target,
+        original.replace(/"apiKey"/, '"apiKey": "sk-fingerprint-probe')
+      );
+      expect(mod.computeSourceFingerprint().digest).toBe(before);
+    } finally {
+      writeFileSync(target, original);
+    }
+
+    // The exclusion must be narrow: a real source edit still has to change
+    // the digest, or the guard would approve a stale bundle.
+    const source = join(projectRoot, 'src', 'shared', 'runtime-contracts.ts');
+    const sourceOriginal = readFileSync(source, 'utf8');
+    try {
+      writeFileSync(source, `${sourceOriginal}\n// fingerprint probe\n`);
+      expect(mod.computeSourceFingerprint().digest).not.toBe(before);
+    } finally {
+      writeFileSync(source, sourceOriginal);
+    }
+  });
+
   it('agrees with itself: changed iff no fingerprint matches the tree', async () => {
     const mod = await import(pathToFileURL(modulePath).href);
     const target = join(projectRoot, 'src', 'shared', 'runtime-contracts.ts');

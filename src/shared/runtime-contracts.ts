@@ -1,4 +1,5 @@
 import type { TextArea } from '@/providers/base';
+import type { ContentConfigSnapshot } from '@/shared/content-config';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 
 export type SupportedSite = 'manhwaread';
@@ -68,23 +69,28 @@ export interface JobStatusPayload {
     | null;
 }
 
+/**
+ * A translation job, as it travels from a content script to the worker.
+ *
+ * The request carries the *work*, never the *credentials*. `provider`,
+ * `apiKey`, `baseUrl` and `model` used to be part of it, which meant any
+ * content script able to post a message could choose the endpoint that the
+ * user's API key was sent to. The worker now resolves the provider and its
+ * settings from the authoritative configuration instead, so the only endpoint
+ * a request can ever reach is the one the user configured.
+ */
 export interface TranslateImageJobRequest {
   type: 'JOB_TRANSLATE_IMAGE';
   jobId: string;
   pageKey: string;
   scope: JobScope;
   priorityClass: JobPriorityClass;
-  requestedPath: RequestedExecutionPath;
   imageBase64: string;
   mimeType: string;
   imageUrl?: string;
   sourcePageUrl?: string;
   targetLanguage: string;
   translationStylePreset: TranslationStylePreset;
-  provider: string;
-  apiKey?: string;
-  baseUrl?: string;
-  model?: string;
   forceRefresh?: boolean;
   isHybridRegions?: boolean;
 }
@@ -101,4 +107,51 @@ export interface TranslateImageJobResponse {
     totalTokens: number;
   } | null;
   error?: string;
+}
+
+/**
+ * Ask the worker for the redacted configuration.
+ *
+ * The worker answers with a snapshot that carries no credential — see
+ * `@/shared/content-config`. Content scripts use it instead of reading
+ * `chrome.storage.local` themselves, so the master switch and the provider
+ * settings they act on are the worker's view of the truth.
+ */
+export interface GetConfigRequest {
+  type: 'GET_CONFIG';
+}
+
+export interface GetConfigResponse {
+  success: boolean;
+  config?: ContentConfigSnapshot;
+  error?: string;
+}
+
+/**
+ * Ask the worker to check that the configured provider is usable.
+ *
+ * The check needs the API key, so it cannot run in the content script: the
+ * worker builds the provider from the authoritative configuration and
+ * reports back only whether the configuration is valid.
+ */
+export interface ProviderPreflightRequest {
+  type: 'PROVIDER_PREFLIGHT';
+}
+
+export interface ProviderPreflightResponse {
+  success: boolean;
+  valid: boolean;
+  message: string;
+  error?: string;
+}
+
+/**
+ * The worker telling every tab that the configuration changed.
+ *
+ * The payload is the same redacted snapshot, so a content script can refresh
+ * its view without reading storage.
+ */
+export interface ConfigUpdatedMessage {
+  type: 'CONFIG_UPDATED';
+  config: ContentConfigSnapshot;
 }

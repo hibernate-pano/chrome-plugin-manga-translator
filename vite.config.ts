@@ -5,7 +5,7 @@ import path from 'path';
 import manifest from './public/manifest.json';
 
 /**
- * Vite plugin: 构建后将 content.js 重新打包为自包含模块
+ * Vite plugin: 构建后将 content.js 重新打包为自包含脚本
  *
  * 问题：Chrome 扩展 content script 通过 dynamic import 加载时，
  * 其内部的 ES module import 语句会相对于页面 URL 解析，
@@ -13,6 +13,12 @@ import manifest from './public/manifest.json';
  *
  * 解决：构建完成后用 esbuild 将 content.js 及其所有 chunk 依赖
  * 内联为一个自包含文件，消除对外部 chunk 的引用。
+ *
+ * 格式必须是 IIFE 而不是 ESM：Manifest V3 的 content script 一律是
+ * classic script，浏览器不会以 module 语义执行它，`import`/`export`
+ * 语句在 classic script 里是语法错误。CRXJS 之所以能注册 ESM 版的
+ * content.js，正是因为它改用 loader + dynamic import 绕开了这一点
+ * （见 promoteContentScriptToStaticEntry）。
  *
  * 副作用：@crxjs/vite-plugin 早期内联之前就已经根据模块图把这些
  * chunk 写进了 web_accessible_resources。内联之后 content.js 不再引用
@@ -37,7 +43,9 @@ function contentScriptRebundler(): Plugin {
         bundle: true,
         outfile: contentPath,
         allowOverwrite: true,
-        format: 'esm',
+        // IIFE, not ESM: a Manifest V3 content script is a classic script and
+        // the browser refuses to run `export {}` in one.
+        format: 'iife',
         // The Vite build minifies each chunk separately, but those chunks are
         // still emitted as separate modules; this step inlines them into one
         // file, which creates a fresh opportunity for dead code and repeated
@@ -48,9 +56,89 @@ function contentScriptRebundler(): Plugin {
         logLevel: 'info',
       });
 
+      await promoteContentScriptToStaticEntry(distDir);
       await pruneWebAccessibleResources(distDir);
     },
   };
+}
+
+/**
+ * Register the content script as a plain static file instead of CRXJS's
+ * loader, so it no longer has to be web-accessible.
+ *
+ * CRXJS cannot register the content script directly. For every file in
+ * `content_scripts[].js` it emits a loader asset whose entire body is
+ *
+ *   const { onExecute } = await import(chrome.runtime.getURL("content.js"));
+ *
+ * and a dynamic import of an extension URL from a page context is refused
+ * unless the target is listed in `web_accessible_resources` for that page.
+ * So the loader forced `content.js` into that list with `matches:
+ * ["<all_urls>"]`, and every site on the internet could fetch the bundle —
+ * including the API key obfuscation salt and the XOR routine that reverses
+ * it, which together turn a stored `obf:` key back into plaintext.
+ *
+ * The premise behind the loader does not hold here. After the esbuild pass
+ * the bundle is self-contained, and Chrome injects a content script listed in
+ * `content_scripts` itself — it is never fetched through the page — so it
+ * does not need to be web-accessible at all. Pointing the manifest at the
+ * bundle directly removes the only reason `content.js` was ever exposed.
+ *
+ * The loader file is deleted rather than left behind on purpose:
+ * `pruneWebAccessibleResources` keeps every resource it can resolve through
+ * `chrome.runtime.getURL()`, and the loader is precisely the file that
+ * resolves `content.js` that way.
+ */
+async function promoteContentScriptToStaticEntry(
+  distDir: string
+): Promise<void> {
+  const { readFileSync, writeFileSync, existsSync, rmSync } =
+    await import('fs');
+  const manifestPath = path.join(distDir, 'manifest.json');
+  const built = JSON.parse(readFileSync(manifestPath, 'utf8')) as {
+    content_scripts?: Array<{ js?: string[] }>;
+  };
+
+  // A CRXJS loader is identified by what it does, not by its file name: the
+  // hash in the name changes with every build.
+  const isLoader = (file: string): boolean => {
+    const full = path.join(distDir, file);
+    if (!existsSync(full)) return false;
+    try {
+      return /getURL\(\s*["']content\.js["']\s*\)/.test(
+        readFileSync(full, 'utf8')
+      );
+    } catch {
+      return false;
+    }
+  };
+
+  const loaderFiles: string[] = [];
+  for (const entry of built.content_scripts ?? []) {
+    for (const file of entry.js ?? []) {
+      if (isLoader(file) && !loaderFiles.includes(file)) {
+        loaderFiles.push(file);
+      }
+    }
+  }
+  if (loaderFiles.length === 0) return;
+
+  for (const entry of built.content_scripts ?? []) {
+    if ((entry.js ?? []).some(file => loaderFiles.includes(file))) {
+      entry.js = ['content.js'];
+    }
+  }
+  writeFileSync(manifestPath, JSON.stringify(built, null, 2));
+
+  for (const file of loaderFiles) {
+    const full = path.join(distDir, file);
+    if (existsSync(full)) {
+      rmSync(full, { force: true });
+    }
+  }
+  console.warn(
+    `[content-script] registered content.js directly; removed loader(s): ${loaderFiles.join(', ')}`
+  );
 }
 
 /**
@@ -65,11 +153,17 @@ function contentScriptRebundler(): Plugin {
  *
  * The rule is deliberately NOT "keep what the source manifest declares". That
  * version of this function bricked the extension: the content script Chrome
- * registers is a CRXJS loader whose body is
- * `import(chrome.runtime.getURL("content.js"))`, so `content.js` must stay
- * web-accessible even though nothing declares it. Anything resolved that way is
+ * registered was a CRXJS loader whose body is
+ * `import(chrome.runtime.getURL("content.js"))`, so `content.js` had to stay
+ * web-accessible even though nothing declared it. Anything resolved that way is
  * discovered from the emitted files, so a resource loaded at runtime cannot be
  * pruned by accident.
+ *
+ * `promoteContentScriptToStaticEntry` removes the loader first, so the one
+ * path that used to pull `content.js` back in no longer exists by the time
+ * this runs. What remains are the Tesseract worker and WASM core, which the
+ * OCR fallback genuinely loads from the page context and therefore genuinely
+ * has to be web-accessible.
  */
 async function pruneWebAccessibleResources(distDir: string): Promise<void> {
   const { readFileSync, writeFileSync, readdirSync, statSync } =

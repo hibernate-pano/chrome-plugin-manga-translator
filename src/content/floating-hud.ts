@@ -31,6 +31,12 @@ export type HudState =
       failedCount: number;
       cachedCount: number;
       skippedCount?: number;
+      /**
+       * The first image's failure reason. Without it the user only sees
+       * "failed 20" and has to guess whether the key is wrong, the provider
+       * is throttling, or the model choked.
+       */
+      lastError?: string;
     }
   | {
       status: 'error';
@@ -53,7 +59,11 @@ export class FloatingHud {
     Object.assign(this.container.style, {
       position: 'fixed',
       bottom: '20px',
-      right: '20px',
+      // The bottom-left, not the bottom-right: the reading panel is docked
+      // on the right and is tall enough to reach the bottom of the screen,
+      // so a HUD in the same corner ended up underneath it — the progress
+      // bar and the cancel button were covered by the panel.
+      left: '20px',
       zIndex: '2147483647',
       pointerEvents: 'none',
     });
@@ -66,7 +76,13 @@ export class FloatingHud {
     // 事件委托：在 shadow root 上统一处理按钮点击
     this.shadow.addEventListener('click', (e: Event) => {
       const target = e.target as HTMLElement;
-      if (target.id === 'cancel-btn') {
+      if (target.id === 'close-btn') {
+        // The HUD is pinned to the bottom-right of somebody else's page.
+        // An error card or a "some images failed" card used to stay there
+        // forever, with no way to dismiss it — the reader had to reload the
+        // page to get the corner of the screen back.
+        this.update({ status: 'hidden' });
+      } else if (target.id === 'cancel-btn') {
         this.container.dispatchEvent(
           new CustomEvent('hud-cancel', { bubbles: true, composed: true })
         );
@@ -187,13 +203,20 @@ export class FloatingHud {
           state.cachedCount > 0
             ? `<div class="hud-sub hud-sub-muted">其中 ${state.cachedCount} 张来自缓存</div>`
             : '';
+        const errorLine = state.lastError
+          ? `<div class="hud-sub hud-sub-error">失败原因：${escapeHtml(
+              state.lastError
+            )}</div>`
+          : '';
         if (state.failedCount > 0) {
           return `
             <div class="hud-card">
+              <button id="close-btn" class="hud-close" type="button" aria-label="关闭">×</button>
               <div class="hud-title">翻译完成</div>
               <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
               ${cachedLine}
               ${skippedLine}
+              ${errorLine}
               <button id="retry-failed-btn" class="hud-retry">重新翻译失败项</button>
             </div>
           `;
@@ -204,6 +227,8 @@ export class FloatingHud {
             <div class="hud-sub">成功 ${state.translatedCount}，失败 ${state.failedCount}，缓存 ${state.cachedCount}</div>
             ${cachedLine}
             ${skippedLine}
+            ${errorLine}
+            <div class="hud-sub hud-sub-muted">译文已直接覆盖在原图上</div>
           </div>
         `;
       }
@@ -211,6 +236,7 @@ export class FloatingHud {
       case 'error': {
         return `
           <div class="hud-card hud-card--error">
+            <button id="close-btn" class="hud-close" type="button" aria-label="关闭">×</button>
             <div class="hud-title">翻译出错</div>
             <div class="hud-message">${escapeHtml(state.message)}</div>
             ${
@@ -249,6 +275,43 @@ export class FloatingHud {
           max-width: 280px;
           pointer-events: auto;
           font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+          /* Room for the close button in the top-right corner. */
+          position: relative;
+        }
+
+        /* The close button sits in the corner of somebody else's page, so it
+           has to be reachable: WCAG 2.5.8 asks for a 24x24 CSS-pixel target
+           and the old 22x22 box was below it. The box is now 32x32 while the
+           glyph stays an 18px "×", centred with flex so it does not move.
+           It is anchored 2px from the corner, which leaves the title — the
+           only thing on that row — completely uncovered. */
+        .hud-close {
+          position: absolute;
+          top: 2px;
+          right: 2px;
+          width: 32px;
+          height: 32px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          border: none;
+          background: transparent;
+          /* 0.9 alpha over the red error card (rgb(191,64,64) on a white
+             page) is rgb(249,236,236): 4.53:1, where 0.65 managed 3.08:1. */
+          color: rgba(255, 255, 255, 0.9);
+          font-size: 18px;
+          line-height: 1;
+          cursor: pointer;
+          border-radius: 6px;
+          transition: background 0.15s, color 0.15s;
+        }
+        .hud-close:hover {
+          background: rgba(255, 255, 255, 0.15);
+          color: #fff;
+        }
+        .hud-close:focus-visible {
+          outline: 2px solid #22d3ee;
+          outline-offset: 1px;
         }
 
         .hud-card--error {
@@ -263,49 +326,74 @@ export class FloatingHud {
           margin-bottom: 6px;
         }
 
+        /* Alpha ladder on the dark card (rgb(64,64,64) on a white page):
+           title #fff -> sub 0.8 (7.36:1) -> muted 0.7 (6.07:1). The muted
+           line used to sit at 0.5 / 11px, which measured 3.95:1 — below the
+           4.5:1 that small text owes. */
         .hud-sub {
-          color: rgba(255, 255, 255, 0.7);
+          color: rgba(255, 255, 255, 0.8);
           font-size: 12px;
           line-height: 1.4;
         }
         .hud-sub-muted {
-          color: rgba(255, 255, 255, 0.5);
-          font-size: 11px;
+          color: rgba(255, 255, 255, 0.7);
+          font-size: 12px;
           margin-top: 2px;
         }
 
+        .hud-sub-error {
+          color: #fecaca;
+          font-size: 11px;
+          margin-top: 4px;
+          line-height: 1.5;
+          word-break: break-word;
+        }
+
+        /* The error text is the reason the card exists, so it is fully
+           opaque: 5.22:1 on the red card, against 4.53:1 at 0.9 alpha. */
         .hud-message {
-          color: rgba(255, 255, 255, 0.9);
+          color: #fff;
           font-size: 12px;
           line-height: 1.4;
           margin-top: 4px;
         }
 
+        /* The hint under an error message is the text that tells the reader
+           what to do next, so it has to be readable. 0.6 alpha over the red
+           card (rgb(191,64,64) on a white page) was rgb(230,179,179) —
+           2.83:1. 0.95 gives rgb(252,245,245), 4.87:1, and 12px keeps it
+           out of the "too small to read" range. */
         .hud-suggestion {
-          color: rgba(255, 255, 255, 0.6);
-          font-size: 11px;
+          color: rgba(255, 255, 255, 0.95);
+          font-size: 12px;
           line-height: 1.4;
           margin-top: 8px;
           padding-top: 8px;
           border-top: 1px solid rgba(255, 255, 255, 0.15);
         }
 
+        /* The action button only ever appears on the red error card. A
+           translucent *white* plate under a white label measured 4.05:1 —
+           under the 4.5:1 that a 12px label owes. A translucent *black*
+           plate keeps the label at 8.39:1 and still reads as a button,
+           because the border is what outlines it. */
         .hud-action {
           margin-top: 10px;
           padding: 6px 12px;
-          background: rgba(255, 255, 255, 0.15);
+          background: rgba(0, 0, 0, 0.28);
           color: #fff;
-          border: 1px solid rgba(255, 255, 255, 0.25);
+          border: 1px solid rgba(255, 255, 255, 0.45);
           border-radius: 6px;
           font-size: 12px;
           font-weight: 500;
           cursor: pointer;
           pointer-events: auto;
-          transition: background 0.15s;
+          transition: background 0.15s, border-color 0.15s;
         }
 
         .hud-action:hover {
-          background: rgba(255, 255, 255, 0.25);
+          background: rgba(0, 0, 0, 0.18);
+          border-color: rgba(255, 255, 255, 0.7);
         }
 
         .hud-progress-track {
@@ -316,8 +404,12 @@ export class FloatingHud {
           overflow: hidden;
         }
 
+        /* The fill has to be told apart from the track it sits in, or the
+           progress is unreadable: #3b82f6 on the track measured 1.56:1.
+           #93c5fd reaches 3.18:1 against the track and 5.77:1 against the
+           card, and it stays visible on a dark page too. */
         .hud-progress-bar {
-          background: #3b82f6;
+          background: #93c5fd;
           height: 100%;
           border-radius: 4px;
           transition: width 0.3s ease;
@@ -327,7 +419,7 @@ export class FloatingHud {
           margin-top: 10px;
           background: none;
           border: none;
-          color: rgba(255, 255, 255, 0.6);
+          color: rgba(255, 255, 255, 0.8);
           font-size: 12px;
           cursor: pointer;
           padding: 0;

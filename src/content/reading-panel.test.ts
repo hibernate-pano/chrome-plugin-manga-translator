@@ -1,6 +1,14 @@
 import { describe, expect, it, beforeEach, vi } from 'vitest';
 import { ReadingPanel } from './reading-panel';
 import type { TextArea } from '@/providers/base';
+import {
+  WHITE_PAGE,
+  cssBlock,
+  cssDeclaration,
+  surfaceColor,
+  textContrast,
+} from '@/test/contrast';
+import type { Rgb } from '@/test/contrast';
 
 function makeImage(width = 200, height = 100): HTMLImageElement {
   const img = document.createElement('img');
@@ -65,6 +73,87 @@ describe('ReadingPanel', () => {
     panel.destroy();
   });
 
+  it('reindex numbers entries by their position in the document', () => {
+    // The images are appended to the body in this order: first, second,
+    // third. The panel receives them in the opposite order, which is what a
+    // concurrent, viewport-first translation does.
+    const first = makeImage();
+    const second = makeImage();
+    const third = makeImage();
+
+    const panel = new ReadingPanel();
+    panel.upsert(third, makeAreas(['C']));
+    panel.upsert(first, makeAreas(['A']));
+    panel.upsert(second, makeAreas(['B']));
+
+    panel.reindex();
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const entries = Array.from(shadow.querySelectorAll('.entry'));
+    expect(entries.map(e => e.getAttribute('data-index'))).toEqual([
+      '1',
+      '2',
+      '3',
+    ]);
+    expect(
+      entries.map(e => e.querySelector('.entry-preview')?.textContent)
+    ).toEqual(['A', 'B', 'C']);
+    panel.destroy();
+  });
+
+  it('reindex reorders the list items, not just their numbers', () => {
+    const first = makeImage();
+    const second = makeImage();
+
+    const panel = new ReadingPanel();
+    panel.upsert(second, makeAreas(['B']));
+    panel.upsert(first, makeAreas(['A']));
+    panel.reindex();
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const previews = Array.from(shadow.querySelectorAll('.entry-preview')).map(
+      e => e.textContent
+    );
+    expect(previews).toEqual(['A', 'B']);
+    panel.destroy();
+  });
+
+  it('getIndexByImage reports the DOM-order index of each image', () => {
+    const first = makeImage();
+    const second = makeImage();
+
+    const panel = new ReadingPanel();
+    panel.upsert(second, makeAreas(['B']));
+    panel.upsert(first, makeAreas(['A']));
+    panel.reindex();
+
+    const indices = panel.getIndexByImage();
+    expect(indices.get(first)).toBe(1);
+    expect(indices.get(second)).toBe(2);
+    panel.destroy();
+  });
+
+  it('focusEntryByIndex follows the renumbered entries', () => {
+    // After a reindex, "index 1" must be the first image in the document,
+    // not the one that happened to be translated first.
+    const first = makeImage();
+    const second = makeImage();
+
+    const panel = new ReadingPanel();
+    panel.upsert(second, makeAreas(['B']));
+    panel.upsert(first, makeAreas(['A']));
+    panel.reindex();
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const entry = shadow.querySelector<HTMLElement>('.entry[data-index="1"]');
+    expect(entry).toBeTruthy();
+    expect(entry?.querySelector('.entry-preview')?.textContent).toBe('A');
+
+    panel.focusEntryByIndex(1);
+    expect(entry?.classList.contains('flash')).toBe(true);
+    panel.destroy();
+  });
+
   it('upsert is idempotent for the same image', () => {
     const panel = new ReadingPanel();
     const img = makeImage();
@@ -94,13 +183,38 @@ describe('ReadingPanel', () => {
     panel.destroy();
   });
 
-  it('renders the full body when there are 2+ areas', () => {
+  it('renders the body without repeating the previewed line', () => {
+    // The head shows the first bubble as a teaser. The body used to print
+    // the whole list again, so the first sentence appeared twice — once in
+    // the title row and once as the first line of the body.
     const panel = new ReadingPanel();
     const img = makeImage();
     panel.upsert(img, makeAreas(['第一句', '第二句']));
     const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
-    const items = shadow.querySelectorAll('.entry-body li');
-    expect(items.length).toBe(2);
+    const items = Array.from(shadow.querySelectorAll('.entry-body li')).map(
+      li => li.textContent
+    );
+    expect(items).toEqual(['第二句']);
+    panel.destroy();
+  });
+
+  it('keeps the part of a long first bubble that the teaser cannot show', () => {
+    // The teaser is one line. Anything past it has to land somewhere, or
+    // the panel silently drops part of a translation.
+    const long = '从前有座山山里有座庙庙里有个老和尚老和尚在讲故事';
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, makeAreas([long, '第二句']));
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const preview = shadow.querySelector('.entry-preview')?.textContent ?? '';
+    const items = Array.from(shadow.querySelectorAll('.entry-body li')).map(
+      li => li.textContent
+    );
+    expect(preview.length).toBeLessThan(long.length);
+    expect(items[0]).toBe(long.slice(preview.length));
+    expect(items[1]).toBe('第二句');
+    // Nothing is lost: the teaser and the body together spell the bubble.
+    expect(preview + (items[0] ?? '')).toBe(long);
     panel.destroy();
   });
 
@@ -130,6 +244,89 @@ describe('ReadingPanel', () => {
   it('focusEntryByIndex is a no-op for unknown index', () => {
     const panel = new ReadingPanel();
     expect(() => panel.focusEntryByIndex(99)).not.toThrow();
+    panel.destroy();
+  });
+
+  it('drops the entry when the translation is removed from the image', () => {
+    // The panel is another view of the same translations. When the user
+    // removes a translation from the image, the panel has to let it go —
+    // otherwise it keeps listing a translation that is no longer there.
+    const panel = new ReadingPanel();
+    const first = makeImage();
+    const second = makeImage();
+    panel.upsert(first, makeAreas(['第一张']));
+    panel.upsert(second, makeAreas(['第二张']));
+    expect(panel.getEntryCount()).toBe(2);
+
+    panel.remove(first);
+
+    expect(panel.getEntryCount()).toBe(1);
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const previews = Array.from(shadow.querySelectorAll('.entry-preview')).map(
+      node => node.textContent
+    );
+    expect(previews.some(text => text?.includes('第一张'))).toBe(false);
+    // The remaining entry is renumbered, so "第 2 张" does not point at
+    // nothing.
+    const numbers = Array.from(shadow.querySelectorAll('.entry-num')).map(
+      node => node.textContent
+    );
+    expect(numbers).toEqual(['1']);
+    panel.destroy();
+  });
+
+  it('asks the host to take the panel off the page', () => {
+    // The panel used to have exactly one way out — a keyboard shortcut
+    // nobody was told about — so a reader whose panel covered the manga
+    // had nothing to click.
+    const panel = new ReadingPanel();
+    const host = document.querySelector(
+      '[data-manga-translator-reading-panel]'
+    ) as HTMLElement;
+    const seen: string[] = [];
+    host.addEventListener('reading-panel-hide', () => seen.push('hidden'));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    (shadow.getElementById('hide-btn') as HTMLButtonElement).click();
+
+    expect(seen).toEqual(['hidden']);
+    panel.destroy();
+  });
+
+  it('expands itself when an entry is focused while collapsed', () => {
+    // A collapsed panel hides the list, so focusing an entry inside it
+    // scrolled nothing and flashed nothing: the click looked like it did
+    // nothing at all.
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好世界']));
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    (shadow.getElementById('collapse-btn') as HTMLButtonElement).click();
+    expect(panel.isCollapsed()).toBe(true);
+
+    panel.focusEntryByIndex(1);
+
+    expect(panel.isCollapsed()).toBe(false);
+    panel.destroy();
+  });
+
+  it('does not leave a stranded full stop at the start of the body', () => {
+    // The teaser is cut at a fixed length, and the character right after the
+    // cut is sometimes a full stop. Showing that on a line of its own makes
+    // the panel look broken.
+    const head = '一二三四五六七八九十一二三四五六七八九十';
+    const text = `${head}。后面还有更多内容`;
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, makeAreas([text]));
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const preview = shadow.querySelector('.entry-preview')?.textContent ?? '';
+    const items = Array.from(shadow.querySelectorAll('.entry-body li')).map(
+      li => li.textContent
+    );
+
+    expect(preview).toBe(`${head}。`);
+    expect(items[0]).toBe('后面还有更多内容');
     panel.destroy();
   });
 });
@@ -167,6 +364,28 @@ describe('ReadingPanel interactions', () => {
     panel.destroy();
   });
 
+  it('focusEntryByIndex uses the configured highlight duration', () => {
+    // The flash used to be removed after a hardcoded 1200ms while the image
+    // highlight used the configured duration. A panel configured for 300ms
+    // kept the entry flashing long after the image highlight was gone.
+    vi.useFakeTimers();
+    const panel = new ReadingPanel({ highlightDurationMs: 300 });
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好']));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const entry = shadow.querySelector('.entry') as HTMLElement;
+
+    panel.focusEntryByIndex(1);
+    expect(entry.classList.contains('flash')).toBe(true);
+
+    vi.advanceTimersByTime(300);
+    expect(entry.classList.contains('flash')).toBe(false);
+
+    vi.useRealTimers();
+    panel.destroy();
+  });
+
   it('expand returns from collapsed state with labels updated', () => {
     const panel = new ReadingPanel();
     const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
@@ -186,5 +405,242 @@ describe('ReadingPanel interactions', () => {
     const preview = shadow.querySelector('.entry-preview');
     expect(preview?.textContent).toContain('无文字气泡');
     panel.destroy();
+  });
+});
+
+// The panel is an overlay on someone else's page. Every pixel it does not
+// use is a pixel it takes away from the page, and a click it swallows is a
+// click the reader cannot make.
+describe('reading panel footprint', () => {
+  it('does not swallow clicks on the page when collapsed', () => {
+    const panel = new ReadingPanel({ initiallyCollapsed: true });
+    try {
+      const host = document.querySelector(
+        '[data-manga-translator-reading-panel]'
+      ) as HTMLElement;
+      // The host is a shrink-to-fit wrapper; only the panel's own pixels
+      // capture clicks. A host that captured them would sit over the page
+      // as an invisible 320px rectangle.
+      expect(host.style.pointerEvents).toBe('none');
+      expect(host.style.width).toBe('');
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('shrinks to its header when collapsed', () => {
+    const panel = new ReadingPanel({ initiallyCollapsed: true });
+    try {
+      const root = (panel as unknown as { root: HTMLElement }).root;
+      expect(root.classList.contains('collapsed')).toBe(true);
+      // The collapsed panel is a header bar, not a full-width panel.
+      expect(root.style.width).toBe('');
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('hides the placeholder once there are translations', () => {
+    const panel = new ReadingPanel();
+    try {
+      const img = document.createElement('img');
+      document.body.appendChild(img);
+      panel.upsert(img, [
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.4,
+          height: 0.1,
+          originalText: 'original',
+          translatedText: '译文',
+        },
+      ]);
+
+      const empty = (
+        panel as unknown as { shadow: ShadowRoot }
+      ).shadow.getElementById('empty');
+      // The placeholder says "translations will appear here". Once they
+      // have, that sentence is stale and contradicts the list below it.
+      expect(empty?.hidden).toBe(true);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('shows the placeholder again when the entries are cleared', () => {
+    const panel = new ReadingPanel();
+    try {
+      const img = document.createElement('img');
+      document.body.appendChild(img);
+      panel.upsert(img, [
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.4,
+          height: 0.1,
+          originalText: 'original',
+          translatedText: '译文',
+        },
+      ]);
+      panel.reset();
+
+      const empty = (
+        panel as unknown as { shadow: ShadowRoot }
+      ).shadow.getElementById('empty');
+      expect(empty?.hidden).toBe(false);
+    } finally {
+      panel.destroy();
+    }
+  });
+});
+
+describe('reading panel visibility', () => {
+  it('can be hidden entirely and shown again', () => {
+    const panel = new ReadingPanel();
+    try {
+      const host = document.querySelector(
+        '[data-manga-translator-reading-panel]'
+      ) as HTMLElement;
+
+      expect(panel.isVisible()).toBe(true);
+      panel.setVisible(false);
+      expect(panel.isVisible()).toBe(false);
+      expect(host.style.display).toBe('none');
+
+      panel.setVisible(true);
+      expect(panel.isVisible()).toBe(true);
+      expect(host.style.display).toBe('');
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('keeps the collapsed state separate from the visible state', () => {
+    const panel = new ReadingPanel();
+    try {
+      // Hiding the panel must not un-collapse it, or the panel comes back
+      // in a different shape than the user left it.
+      panel.setCollapsed(true);
+      panel.setVisible(false);
+      panel.setVisible(true);
+      expect(panel.isCollapsed()).toBe(true);
+    } finally {
+      panel.destroy();
+    }
+  });
+});
+
+describe('阅读顺序在插入的那一刻就成立', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  it('numbers an entry by its place in the chapter, not by arrival', () => {
+    const panel = new ReadingPanel();
+    try {
+      // Three images in the document, in this order.
+      const first = makeImage();
+      const second = makeImage();
+      const third = makeImage();
+
+      // The middle one finishes first. That is what a concurrent,
+      // viewport-first run does all the time.
+      expect(panel.upsert(second, makeAreas(['第二张']))).toBe(1);
+      // The first one arrives next: it belongs in front, so it takes
+      // number 1 and pushes the other one down.
+      expect(panel.upsert(first, makeAreas(['第一张']))).toBe(1);
+      expect(panel.upsert(third, makeAreas(['第三张']))).toBe(3);
+
+      const indices = panel.getIndexByImage();
+      expect(indices.get(first)).toBe(1);
+      expect(indices.get(second)).toBe(2);
+      expect(indices.get(third)).toBe(3);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('keeps the list in reading order while the batch is still running', () => {
+    const panel = new ReadingPanel();
+    try {
+      const first = makeImage();
+      const second = makeImage();
+
+      panel.upsert(second, makeAreas(['第二张']));
+      panel.upsert(first, makeAreas(['第一张']));
+
+      const entries = panel.getEntriesInOrder();
+      expect(
+        entries.map(entry => entry.textAreas[0]?.translatedText ?? '')
+      ).toEqual(['第一张', '第二张']);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('renumbers the entries after one is removed', () => {
+    const panel = new ReadingPanel();
+    try {
+      const first = makeImage();
+      const second = makeImage();
+      const third = makeImage();
+
+      panel.upsert(first, makeAreas(['第一张']));
+      panel.upsert(second, makeAreas(['第二张']));
+      panel.upsert(third, makeAreas(['第三张']));
+
+      panel.remove(second);
+
+      const indices = panel.getIndexByImage();
+      expect(indices.get(first)).toBe(1);
+      expect(indices.get(third)).toBe(2);
+    } finally {
+      panel.destroy();
+    }
+  });
+});
+
+// The panel floats over somebody else's comic page. The grey it used to
+// print its placeholder and its "no text found" note in measured 3.22:1
+// against the panel surface — under the 4.5:1 that small text owes.
+describe('阅读面板的对比度预算', () => {
+  function stylesheet(panel: ReadingPanel): string {
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    return shadow.querySelector('style')?.textContent ?? '';
+  }
+
+  /** The colour the panel paints, once it is composited over the page. */
+  function panelSurface(panel: ReadingPanel): Rgb {
+    const background = cssDeclaration(
+      cssBlock(stylesheet(panel), '#root'),
+      'background'
+    );
+    return surfaceColor(background, WHITE_PAGE);
+  }
+
+  function contrastOf(panel: ReadingPanel, selector: string): number {
+    const color = cssDeclaration(
+      cssBlock(stylesheet(panel), selector),
+      'color'
+    );
+    return textContrast(color, panelSurface(panel));
+  }
+
+  it('空状态提示在面板底色上至少 4.5:1', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(contrastOf(panel, '#empty')).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('“未识别出文字”提示在面板底色上至少 4.5:1', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(contrastOf(panel, '.entry-empty')).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      panel.destroy();
+    }
   });
 });

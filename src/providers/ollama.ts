@@ -23,6 +23,19 @@ import {
 const DEFAULT_MODEL = 'llava';
 const DEFAULT_BASE_URL = 'http://localhost:11434';
 
+/**
+ * Timeout for a generation request.
+ *
+ * A local model that is not loaded yet can sit and load weights for minutes
+ * before it answers. Without a timeout the fetch never settles, the tile's
+ * promise never settles, `processInParallel`'s worker never releases, and the
+ * whole page translation hangs until the user cancels.
+ *
+ * Local inference is slower than a cloud API, so this is deliberately much
+ * longer than the cloud client's 30s budget.
+ */
+const OLLAMA_GENERATE_TIMEOUT_MS = 120_000;
+
 interface OllamaGenerateRequest {
   model: string;
   prompt: string;
@@ -106,6 +119,7 @@ export class OllamaProvider implements VisionProvider {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify(requestBody),
+      signal: AbortSignal.timeout(OLLAMA_GENERATE_TIMEOUT_MS),
     });
 
     if (!response.ok) {
