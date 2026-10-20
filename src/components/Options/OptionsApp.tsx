@@ -29,6 +29,7 @@ import { getProviderLabel } from '@/utils/provider-label';
 import type { ProviderType } from '@/providers/base';
 import { evaluateBaseUrlSafety } from '@/shared/app-config';
 import { ENV_CONFIG } from '@/shared/env-config';
+import { ENV_CREDENTIALS } from '@/shared/env-credentials';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { OnboardingApp } from '@/components/Onboarding/OnboardingApp';
 import { Slider } from '@/components/ui/slider';
@@ -655,12 +656,12 @@ const OptionsApp: React.FC = () => {
           )}
 
           {providerType === 'openai-compatible' &&
-            ENV_CONFIG.opencode.apiKey && (
+            ENV_CREDENTIALS.opencode.apiKey && (
               <button
                 type='button'
                 onClick={() =>
                   updateProviderSettings('openai-compatible', {
-                    apiKey: ENV_CONFIG.opencode.apiKey,
+                    apiKey: ENV_CREDENTIALS.opencode.apiKey,
                     baseUrl: ENV_CONFIG.opencode.baseUrl,
                     model: ENV_CONFIG.opencode.model,
                   })

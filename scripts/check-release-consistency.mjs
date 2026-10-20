@@ -256,6 +256,229 @@ function checkContentScriptSize() {
 }
 
 /**
+ * The credential boundary: the content script must not be able to reach the
+ * module that holds the API key.
+ *
+ * This is checked on the *source* import graph rather than only on the built
+ * artifact, because the artifact check is downstream of the mistake it is
+ * supposed to prevent. A content script is injected into every page the user
+ * opens, so a key in its bundle is a key in every page — and by the time the
+ * built file can be inspected, the key has already been written to disk.
+ *
+ * The rule is structural: a module that holds a credential is only ever
+ * imported by a privileged context (the worker, the Settings page, the
+ * onboarding modal). `src/shared/preloaded-config.ts` is that module, and
+ * `src/shared/env-credentials.generated.ts` is what it wraps. If the content
+ * script's import closure reaches either, the build fails here — before Vite
+ * ever writes a bundle.
+ *
+ * Type-only imports are erased at compile time and are not edges in the
+ * bundle graph, so they are not followed. That distinction matters: a
+ * `import type { ProviderSettings }` is documentation, not a dependency.
+ */
+const CREDENTIAL_MODULES = [
+  'src/shared/env-credentials.generated.ts',
+  'src/shared/env-credentials.ts',
+  'src/shared/preloaded-config.ts',
+];
+
+/**
+ * Resolve an import specifier to a file inside the project.
+ */
+function resolveImport(specifier, fromFile) {
+  let base;
+  if (specifier.startsWith('.')) {
+    base = resolve(dirname(fromFile), specifier);
+  } else if (specifier.startsWith('@/')) {
+    base = join(projectRoot, 'src', specifier.slice(2));
+  } else {
+    return null;
+  }
+  const candidates = [
+    base,
+    `${base}.ts`,
+    `${base}.tsx`,
+    join(base, 'index.ts'),
+    join(base, 'index.tsx'),
+  ];
+  for (const candidate of candidates) {
+    if (existsSync(candidate) && statSync(candidate).isFile()) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+/**
+ * Collect the modules a file depends on at runtime.
+ *
+ * `import type {...}` is erased and is not a dependency. `import { type A, b }`
+ * is a real dependency because `b` survives the compile.
+ */
+function runtimeImports(source) {
+  const specifiers = [];
+  const named = /\{([\s\S]*)\}/;
+
+  // import ... from '...'
+  const fromPattern = /^import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/gm;
+  let match;
+  while ((match = fromPattern.exec(source))) {
+    const clause = match[1].trim();
+    // A type-only import carries no runtime dependency.
+    if (/^type\s/.test(clause)) continue;
+    // `import { type A, type B } from '...'` is type-only as a whole.
+    const bindings = clause.match(named);
+    if (bindings) {
+      const names = bindings[1]
+        .split(',')
+        .map(part => part.trim())
+        .filter(Boolean);
+      if (names.length > 0 && names.every(part => /^type\s/.test(part))) {
+        continue;
+      }
+    }
+    specifiers.push(match[2]);
+  }
+
+  // import '...' | export ... from '...' | import('...')
+  const others = [
+    /^import\s+['"]([^'"]+)['"]/gm,
+    /^export\s+[\s\S]*?\s+from\s+['"]([^'"]+)['"]/gm,
+    /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
+  ];
+  for (const pattern of others) {
+    pattern.lastIndex = 0;
+    while ((match = pattern.exec(source))) {
+      specifiers.push(match[1]);
+    }
+  }
+
+  return specifiers;
+}
+
+/**
+ * Compute every module reachable from an entry point.
+ */
+function importClosure(entry) {
+  const seen = new Set();
+  const queue = [entry];
+  while (queue.length) {
+    const file = queue.pop();
+    if (seen.has(file)) continue;
+    seen.add(file);
+    const source = readFileSync(file, 'utf8');
+    for (const specifier of runtimeImports(source)) {
+      const resolved = resolveImport(specifier, file);
+      if (resolved && !seen.has(resolved)) {
+        queue.push(resolved);
+      }
+    }
+  }
+  return seen;
+}
+
+function checkCredentialBoundary() {
+  const contentEntry = join(projectRoot, 'src', 'content', 'content.ts');
+  if (!existsSync(contentEntry)) {
+    fail(
+      'src/content/content.ts is missing — there is no content script to check'
+    );
+  }
+
+  const closure = importClosure(contentEntry);
+  const reached = CREDENTIAL_MODULES.filter(module =>
+    closure.has(join(projectRoot, module))
+  );
+
+  if (reached.length > 0) {
+    console.error(
+      `[release-check] the content script can reach the credential module: ${reached.join(', ')}`
+    );
+    console.error(
+      '[release-check] the content script is injected into every page the user opens, so a key it ' +
+        'can reach is a key in every page. Keep the key in a module that only the worker and the ' +
+        "extension's own pages import, and keep the endpoint/model in @/shared/app-config."
+    );
+    process.exit(1);
+  }
+
+  return `content script reaches no credential module (${closure.size} module(s) in closure)`;
+}
+
+/**
+ * Refuse to ship a build whose content script has a credential baked into it.
+ *
+ * This is the artifact-level backstop for the source-level boundary check
+ * above. The two answer different questions: the boundary check asks whether
+ * the *code* can reach a key, and this one asks whether a key actually made it
+ * into the *bytes* that get injected into every page.
+ */
+function checkNoCredentialsInContentScript() {
+  const contentPath = join(projectRoot, 'dist', 'content.js');
+  if (!existsSync(contentPath)) {
+    fail(
+      'dist/content.js is missing — the build produced no content script, so there is nothing to release'
+    );
+  }
+
+  const generatedPath = join(
+    projectRoot,
+    'src',
+    'shared',
+    'env-credentials.generated.ts'
+  );
+  const credentials = new Set();
+  if (existsSync(generatedPath)) {
+    // The credentials are read structurally, not by scanning for string
+    // literals. A literal scan would treat a provider *name* — "opencode" is
+    // eight characters — as a credential, and the guard would then fail on
+    // every build for a reason that has nothing to do with the key.
+    const source = readFileSync(generatedPath, 'utf8');
+    const match = /export const ENV_CREDENTIALS = (\{[\s\S]*\}) as const;/.exec(
+      source
+    );
+    if (match) {
+      try {
+        const parsed = JSON.parse(match[1]);
+        for (const provider of Object.values(parsed)) {
+          const key = provider?.apiKey;
+          if (typeof key === 'string' && key.length >= 8) {
+            credentials.add(key);
+          }
+        }
+      } catch {
+        fail(
+          'src/shared/env-credentials.generated.ts could not be parsed — run scripts/inject-env-config.mjs'
+        );
+      }
+    }
+  }
+
+  if (credentials.size === 0) {
+    return 'content.js carries no build-time credential (build has none)';
+  }
+
+  const content = readFileSync(contentPath, 'utf8');
+  const leaked = [...credentials].filter(credential =>
+    content.includes(credential)
+  );
+
+  if (leaked.length > 0) {
+    console.error(
+      '[release-check] dist/content.js contains a build-time API key'
+    );
+    console.error(
+      '[release-check] the content script is injected into every page the user visits. A key in it ' +
+        'is a key in every page. Split the build-time configuration: endpoints and models in ' +
+        '@/shared/env-config, keys in @/shared/env-credentials, and let only the worker import the latter.'
+    );
+    process.exit(1);
+  }
+
+  return `content.js carries none of the ${credentials.size} build-time credential(s)`;
+}
+
+/**
  * Chrome Web Store field limits, from
  * https://developer.chrome.com/docs/extensions/reference/manifest
  * ("Keys required by Chrome Web Store") and the Web Store title rules.
@@ -312,6 +535,7 @@ if (packageJson.version !== manifest.version) {
 }
 
 const fieldNote = checkStoreFieldLimits();
+const boundaryNote = checkCredentialBoundary();
 
 if (sourceOnly) {
   // The artifact has not been built yet (or is a leftover from a previous
@@ -319,7 +543,7 @@ if (sourceOnly) {
   // pass by accident, so the artifact checks are deferred to the post-build
   // invocation instead.
   console.log(
-    `[release-check] version ${packageJson.version} is consistent; ${fieldNote}; artifact checks deferred to the post-build pass`
+    `[release-check] version ${packageJson.version} is consistent; ${fieldNote}; ${boundaryNote}; artifact checks deferred to the post-build pass`
   );
   process.exit(0);
 }
@@ -327,7 +551,8 @@ if (sourceOnly) {
 const sizeNote = checkContentScriptSize();
 const resourceNote = checkWebAccessibleIntegrity();
 const exposureNote = checkNoSecretsExposed();
+const credentialNote = checkNoCredentialsInContentScript();
 
 console.log(
-  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}; ${exposureNote}; ${fieldNote}`
+  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}; ${exposureNote}; ${boundaryNote}; ${credentialNote}; ${fieldNote}`
 );

@@ -4,15 +4,17 @@ import type { ProviderType } from '@/providers/base';
 import {
   APP_CONFIG_STORAGE_KEY,
   DEFAULT_CONFIG as SHARED_DEFAULT_CONFIG,
-  DEFAULT_OPENAI_COMPATIBLE_CONFIG,
-  DEFAULT_OLLAMA_CONFIG,
-  DEFAULT_LM_STUDIO_CONFIG,
-  normalizeRuntimeAppConfig,
   normalizeHostEntry,
   normalizeHostList,
   type RuntimeAppConfig,
   type ProviderSettings as RuntimeProviderSettings,
 } from '@/shared/app-config';
+import {
+  PRELOADED_OPENAI_COMPATIBLE_CONFIG,
+  PRELOADED_OLLAMA_CONFIG,
+  PRELOADED_LM_STUDIO_CONFIG,
+  normalizeRuntimeAppConfig,
+} from '@/shared/preloaded-config';
 import {
   DEFAULT_TRANSLATION_STYLE_PRESET,
   type TranslationStylePreset,
@@ -92,10 +94,17 @@ export interface AppConfigActions {
 const LOCAL_DEFAULT_CONFIG: AppConfigState = {
   enabled: SHARED_DEFAULT_CONFIG.enabled,
   provider: SHARED_DEFAULT_CONFIG.provider,
-  openaiCompatible: SHARED_DEFAULT_CONFIG.openaiCompatible,
-  ollama: SHARED_DEFAULT_CONFIG.ollama,
-  lmStudio: SHARED_DEFAULT_CONFIG.lmStudio,
-  providers: SHARED_DEFAULT_CONFIG.providers,
+  // The preloaded settings carry the build-time key, so a personal build is
+  // zero-config. The shared defaults deliberately do not: they are the
+  // credential-free half, and the content script imports them.
+  openaiCompatible: PRELOADED_OPENAI_COMPATIBLE_CONFIG,
+  ollama: PRELOADED_OLLAMA_CONFIG,
+  lmStudio: PRELOADED_LM_STUDIO_CONFIG,
+  providers: {
+    'openai-compatible': PRELOADED_OPENAI_COMPATIBLE_CONFIG,
+    ollama: PRELOADED_OLLAMA_CONFIG,
+    'lm-studio': PRELOADED_LM_STUDIO_CONFIG,
+  },
   targetLanguage: SHARED_DEFAULT_CONFIG.targetLanguage,
   maxImageSize: SHARED_DEFAULT_CONFIG.maxImageSize,
   parallelLimit: SHARED_DEFAULT_CONFIG.parallelLimit,
@@ -282,11 +291,11 @@ function migratePersistedConfig(
       legacyProvidersRecord['openai-compatible']
     ) ??
       (openaiEntry as ProviderSettings | null) ??
-      normalized.openaiCompatible ?? { ...DEFAULT_OPENAI_COMPATIBLE_CONFIG },
+      normalized.openaiCompatible ?? { ...PRELOADED_OPENAI_COMPATIBLE_CONFIG },
     ollama: asProviderSettingsOrNull(legacyProvidersRecord['ollama']) ??
-      normalized.ollama ?? { ...DEFAULT_OLLAMA_CONFIG },
+      normalized.ollama ?? { ...PRELOADED_OLLAMA_CONFIG },
     'lm-studio': asProviderSettingsOrNull(legacyProvidersRecord['lm-studio']) ??
-      normalized.lmStudio ?? { ...DEFAULT_LM_STUDIO_CONFIG },
+      normalized.lmStudio ?? { ...PRELOADED_LM_STUDIO_CONFIG },
   };
 
   const migratedState: Record<string, unknown> = {
@@ -366,19 +375,19 @@ function mergePersistedConfig<S extends AppConfigState>(
   });
 
   const nextOpenaiCompatible = mergeProvider(
-    DEFAULT_OPENAI_COMPATIBLE_CONFIG,
+    PRELOADED_OPENAI_COMPATIBLE_CONFIG,
     current.openaiCompatible,
     asProviderSettings(base.openaiCompatible) ??
       asProviderSettings(persistedProviders['openai-compatible'])
   );
   const nextOllama = mergeProvider(
-    DEFAULT_OLLAMA_CONFIG,
+    PRELOADED_OLLAMA_CONFIG,
     current.ollama,
     asProviderSettings(base.ollama) ??
       asProviderSettings(persistedProviders['ollama'])
   );
   const nextLmStudio = mergeProvider(
-    DEFAULT_LM_STUDIO_CONFIG,
+    PRELOADED_LM_STUDIO_CONFIG,
     current.lmStudio,
     asProviderSettings(base.lmStudio) ??
       asProviderSettings(persistedProviders['lm-studio'])
@@ -664,28 +673,28 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
 
         snapshot['openaiCompatible'] = serializeProvider(
           state.openaiCompatible,
-          DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
+          PRELOADED_OPENAI_COMPATIBLE_CONFIG.apiKey
         );
         snapshot['ollama'] = serializeProvider(
           state.ollama,
-          DEFAULT_OLLAMA_CONFIG.apiKey
+          PRELOADED_OLLAMA_CONFIG.apiKey
         );
         snapshot['lmStudio'] = serializeProvider(
           state.lmStudio,
-          DEFAULT_LM_STUDIO_CONFIG.apiKey
+          PRELOADED_LM_STUDIO_CONFIG.apiKey
         );
         snapshot['providers'] = {
           'openai-compatible': serializeProvider(
             state.providers['openai-compatible'],
-            DEFAULT_OPENAI_COMPATIBLE_CONFIG.apiKey
+            PRELOADED_OPENAI_COMPATIBLE_CONFIG.apiKey
           ),
           ollama: serializeProvider(
             state.providers.ollama,
-            DEFAULT_OLLAMA_CONFIG.apiKey
+            PRELOADED_OLLAMA_CONFIG.apiKey
           ),
           'lm-studio': serializeProvider(
             state.providers['lm-studio'],
-            DEFAULT_LM_STUDIO_CONFIG.apiKey
+            PRELOADED_LM_STUDIO_CONFIG.apiKey
           ),
         };
 

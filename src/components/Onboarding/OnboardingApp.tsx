@@ -3,6 +3,7 @@ import { ArrowRight, CheckCircle2, Info, Sparkles, X } from 'lucide-react';
 
 import { useAppConfigStore } from '@/stores/config-v2';
 import { ENV_CONFIG } from '@/shared/env-config';
+import { ENV_CREDENTIALS } from '@/shared/env-credentials';
 import { cn } from '@/lib/utils';
 
 /**
@@ -165,10 +166,10 @@ const Stepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
 // instead of hardcoding MiniMax as "the default".
 const configuredBackends = (): Array<{ label: string; detail: string }> => {
   const out: Array<{ label: string; detail: string }> = [];
-  if (ENV_CONFIG.minimax.apiKey && ENV_CONFIG.minimax.model) {
+  if (ENV_CREDENTIALS.minimax.apiKey && ENV_CONFIG.minimax.model) {
     out.push({ label: 'MiniMax', detail: ENV_CONFIG.minimax.model });
   }
-  if (ENV_CONFIG.opencode.apiKey && ENV_CONFIG.opencode.model) {
+  if (ENV_CREDENTIALS.opencode.apiKey && ENV_CONFIG.opencode.model) {
     out.push({
       label: 'OpenCodeGo · DeepSeek',
       detail: ENV_CONFIG.opencode.model,

@@ -27,11 +27,8 @@ import type {
   TranslateImageJobResponse,
   RequestedExecutionPath,
 } from '@/shared/runtime-contracts';
-import {
-  DEFAULT_CONFIG,
-  normalizeRuntimeAppConfig,
-  APP_CONFIG_STORAGE_KEY,
-} from '@/shared/app-config';
+import { DEFAULT_CONFIG, APP_CONFIG_STORAGE_KEY } from '@/shared/app-config';
+import { normalizeRuntimeAppConfig } from '@/shared/preloaded-config';
 import { buildContentConfigSnapshot } from '@/shared/content-config';
 import { getErrorMessage } from '@/utils/error-message';
 import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';

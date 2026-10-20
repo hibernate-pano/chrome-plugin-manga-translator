@@ -34,6 +34,22 @@ function envConfig(apiKey, model = 'm') {
   ].join('\n');
 }
 
+/**
+ * The credential half of the generated build-time configuration.
+ *
+ * It is a separate file on purpose — the content script must not be able to
+ * reach it — so the guard has to read it separately too.
+ */
+function envCredentials(apiKey) {
+  return [
+    'export const ENV_CREDENTIALS = {',
+    '  "minimax": {',
+    `    "apiKey": "${apiKey}"`,
+    '  }',
+    '} as const;',
+  ].join('\n');
+}
+
 let workdir;
 
 function runGuard(args = []) {
@@ -57,12 +73,20 @@ function writeGenerated(apiKey) {
     join(workdir, 'src', 'shared', 'env-config.generated.ts'),
     envConfig(apiKey)
   );
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'env-credentials.generated.ts'),
+    envCredentials(apiKey)
+  );
 }
 
 function writeGeneratedWithModel(model) {
   writeFileSync(
     join(workdir, 'src', 'shared', 'env-config.generated.ts'),
     envConfig('', model)
+  );
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'env-credentials.generated.ts'),
+    envCredentials('')
   );
 }
 
@@ -194,10 +218,34 @@ describe('check-public-build guard', () => {
       join(workdir, 'src', 'shared', 'env-config.generated.ts'),
       'export const ENV_CONFIG = { broken'
     );
+    writeFileSync(
+      join(workdir, 'src', 'shared', 'env-credentials.generated.ts'),
+      envCredentials('')
+    );
     writeDist('content.js', 'console.log("hello");');
 
     const result = runGuard();
     expect(result.code).not.toBe(0);
     expect(result.output).toContain('unreadable env config');
+  });
+
+  it('fails when a key is present in the generated credentials file', () => {
+    // The key half is a separate file, so the guard has to read it. Reading
+    // only the endpoint half would report "verified" about a file that never
+    // holds a key.
+    writeFileSync(
+      join(workdir, 'src', 'shared', 'env-config.generated.ts'),
+      envConfig('')
+    );
+    writeFileSync(
+      join(workdir, 'src', 'shared', 'env-credentials.generated.ts'),
+      envCredentials(FAKE_KEY)
+    );
+    writeDist('content.js', 'console.log("hello");');
+
+    const result = runGuard();
+    expect(result.code).not.toBe(0);
+    expect(result.output).toContain('REFUSING');
+    expect(result.output).toContain('env-credentials.generated.ts');
   });
 });

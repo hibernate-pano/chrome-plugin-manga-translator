@@ -7,7 +7,7 @@
  * provider credentials.
  *
  * It scans BOTH:
- *   1. the generated env-config source, and
+ *   1. the generated env sources, and
  *   2. every emitted file under dist/.
  *
  * Scanning only the source was not enough. The previous guard matched
@@ -16,6 +16,12 @@
  * the check printed "verified" while real keys sat in the bundle. Scanning
  * dist/ as well means a credential that arrives by any other route is still
  * caught before packaging.
+ *
+ * There are now two generated sources, because the build-time configuration
+ * was split in two: endpoints and models in `env-config.generated.ts`, keys
+ * in `env-credentials.generated.ts`. The key half used to live in the same
+ * file as the endpoint half, so reading only the endpoint file would now
+ * report "verified" about a file that never holds a key. Both are read.
  */
 
 import { readFileSync, readdirSync, statSync } from 'node:fs';
@@ -33,6 +39,12 @@ const generatedPath = join(
   'src',
   'shared',
   'env-config.generated.ts'
+);
+const credentialsPath = join(
+  projectRoot,
+  'src',
+  'shared',
+  'env-credentials.generated.ts'
 );
 const distDir = join(projectRoot, 'dist');
 
@@ -229,7 +241,8 @@ const findings = [];
 
 // 1. The generated source of truth for build-time credentials. This runs
 //    before the bundle exists, so it fails fast on a bad `--public-build`
-//    injection.
+//    injection. Both generated files are read: the endpoint half and the
+//    credential half.
 let generatedContents;
 try {
   generatedContents = readFileSync(generatedPath, 'utf8');
@@ -239,7 +252,18 @@ try {
   );
   process.exit(1);
 }
+try {
+  readFileSync(credentialsPath, 'utf8');
+} catch {
+  console.error(
+    '[public-build] cannot read src/shared/env-credentials.generated.ts — run scripts/inject-env-config.mjs first'
+  );
+  process.exit(1);
+}
 findings.push(...scanFile(generatedPath, 'src/shared/env-config.generated.ts'));
+findings.push(
+  ...scanFile(credentialsPath, 'src/shared/env-credentials.generated.ts')
+);
 findings.push(...checkPublicModels(generatedContents));
 
 // 2. The shipped bundle. Skipped with `--source-only` when invoked before the

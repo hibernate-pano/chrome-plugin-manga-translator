@@ -42,6 +42,8 @@ web_accessible_resources 仅声明 tesseract/*：
 - tesseract/* ：内容脚本在页面上下文中通过 chrome.runtime.getURL() 创建 OCR Web Worker，页面上下文只能加载被声明为 web-accessible 的扩展资源。
 content script 本身以普通静态文件方式注册（content_scripts 直接指向 content.js），由浏览器直接注入，不经过网页，因此无需声明为 web-accessible。
 其余内部模块（含密钥混淆模块）均未暴露：扩展包中不含任何可供网页读取的密钥混淆代码，构建流程会对此做断言并在违规时使构建失败。
+
+密钥只存在于 service worker 与扩展自有页面，明文密钥不进入 content script 的导入闭包。构建流程有两道断言：content script 的导入图一旦能到达持有密钥的模块即失败；产物 dist/content.js 里一旦出现密钥即失败。内容脚本只拿到端点、模型名以及「是否已配置密钥」这一个布尔值。
 ```
 
 ## 数据收集声明

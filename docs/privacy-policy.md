@@ -59,6 +59,14 @@ and must not be distributed publicly. The `build:public` release path omits
 provider API keys and is the required path for shared or Chrome Web Store
 artifacts.
 
+The plaintext key is held only by the extension's service worker and its own
+pages. It is never placed in the content script — the code that runs inside
+every page you visit — because a key there would be a key in every page. The
+build enforces this in two ways: it fails if the content script's import graph
+can reach the module that holds the key, and it fails if the built content
+script contains a key at all. The content script receives only the endpoint,
+the model name, and whether a key is configured.
+
 > Note: Prior to v0.3.5, configuration was stored in `chrome.storage.sync`, which meant obfuscated API keys were synced across devices via the user's Google account. v0.3.5 moved all configuration to `chrome.storage.local` and performs a one-time automatic migration on startup; the old `storage.sync` copy is deleted after migration.
 
 ### 3. Configuration Preferences

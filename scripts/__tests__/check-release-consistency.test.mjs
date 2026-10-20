@@ -62,6 +62,8 @@ function makeWorkdir() {
   mkdirSync(join(workdir, 'public'), { recursive: true });
   mkdirSync(join(workdir, 'dist'), { recursive: true });
   mkdirSync(join(workdir, 'scripts'), { recursive: true });
+  mkdirSync(join(workdir, 'src', 'content'), { recursive: true });
+  mkdirSync(join(workdir, 'src', 'shared'), { recursive: true });
   copyFileSync(
     scriptPath,
     join(workdir, 'scripts', 'check-release-consistency.mjs')
@@ -96,7 +98,62 @@ function makeWorkdir() {
     join(workdir, 'dist', 'content.js'),
     'chrome.runtime.getURL("tesseract/worker.min.js");'
   );
+  writeSourceTree(workdir);
   return workdir;
+}
+
+/**
+ * The credential half of the build-time configuration, in the shape the
+ * injection script writes it.
+ */
+const FAKE_KEY = 'sk-guardfixturekey0123456789';
+
+/**
+ * A source tree the credential-boundary check can walk: a content script that
+ * reaches the endpoint half of the build-time configuration but not the
+ * credential half.
+ */
+function writeSourceTree(workdir) {
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'app-config.ts'),
+    [
+      "import { ENV_CONFIG } from './env-config';",
+      'export const DEFAULT_CONFIG = {',
+      '  baseUrl: ENV_CONFIG.minimax.baseUrl,',
+      '  model: ENV_CONFIG.minimax.model,',
+      '};',
+    ].join('\n')
+  );
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'env-config.ts'),
+    [
+      "import { ENV_CONFIG as GENERATED } from './env-config.generated';",
+      'export const ENV_CONFIG = GENERATED;',
+    ].join('\n')
+  );
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'env-config.generated.ts'),
+    [
+      'export const ENV_CONFIG = {',
+      '  "minimax": { "baseUrl": "https://api.example.com/v1", "model": "m" }',
+      '} as const;',
+    ].join('\n')
+  );
+  writeFileSync(
+    join(workdir, 'src', 'shared', 'env-credentials.generated.ts'),
+    [
+      'export const ENV_CREDENTIALS = {',
+      `  "minimax": { "apiKey": "${FAKE_KEY}" }`,
+      '} as const;',
+    ].join('\n')
+  );
+  writeFileSync(
+    join(workdir, 'src', 'content', 'content.ts'),
+    [
+      "import { DEFAULT_CONFIG } from '@/shared/app-config';",
+      'export const base = DEFAULT_CONFIG.baseUrl;',
+    ].join('\n')
+  );
 }
 
 function setWar(workdir, resources) {
@@ -254,6 +311,128 @@ describe('release consistency guard: build phase', () => {
       const result = runGuard(workdir);
       expect(result.code).not.toBe(0);
       expect(result.output).toContain('no content script');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The credential boundary.
+ *
+ * The content script is injected into every page the user opens, so a key it
+ * can reach is a key in every page. The v3 hardening round claimed this was
+ * fixed while `dist/content.js` still carried the plaintext key: the key
+ * reached the content script through `app-config.ts` → `env-config.ts` →
+ * `env-config.generated.ts`, and nothing checked.
+ *
+ * Both directions are pinned here, because a guard that only ever passes is
+ * worse than no guard at all.
+ */
+describe('release consistency guard: the credential boundary', () => {
+  it('accepts a content script that cannot reach the credential module', () => {
+    const workdir = makeWorkdir();
+    try {
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain(
+        'content script reaches no credential module'
+      );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the content script can reach the credential module', () => {
+    const workdir = makeWorkdir();
+    try {
+      // The exact mistake: a content script that imports the module holding
+      // the key. The bundle would then carry the key into every page.
+      writeFileSync(
+        join(workdir, 'src', 'content', 'content.ts'),
+        [
+          "import { ENV_CREDENTIALS } from '@/shared/env-credentials.generated';",
+          'export const key = ENV_CREDENTIALS.minimax.apiKey;',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('can reach the credential module');
+      expect(result.output).toContain('env-credentials.generated.ts');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the content script reaches the key through a shared module', () => {
+    const workdir = makeWorkdir();
+    try {
+      // The indirect route: the content script never names the credential
+      // module, but a module it does import does.
+      writeFileSync(
+        join(workdir, 'src', 'shared', 'preloaded-config.ts'),
+        [
+          "import { ENV_CREDENTIALS } from './env-credentials.generated';",
+          'export const PRELOADED = ENV_CREDENTIALS.minimax.apiKey;',
+        ].join('\n')
+      );
+      writeFileSync(
+        join(workdir, 'src', 'shared', 'app-config.ts'),
+        [
+          "import { PRELOADED } from './preloaded-config';",
+          'export const DEFAULT_CONFIG = { key: PRELOADED };',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('can reach the credential module');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not treat a type-only import as a dependency', () => {
+    const workdir = makeWorkdir();
+    try {
+      // A type-only import is erased at compile time, so it cannot carry a
+      // key into the bundle. Flagging it would train people to work around
+      // the guard instead of fixing the real leak.
+      writeFileSync(
+        join(workdir, 'src', 'content', 'content.ts'),
+        [
+          "import type { ENV_CREDENTIALS } from '@/shared/env-credentials.generated';",
+          'export type Key = typeof ENV_CREDENTIALS;',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain(
+        'content script reaches no credential module'
+      );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the built content script carries the key', () => {
+    const workdir = makeWorkdir();
+    try {
+      // The source boundary is clean, but the key is in the bytes anyway —
+      // the artifact check is the backstop for a route the source graph does
+      // not show.
+      writeFileSync(
+        join(workdir, 'dist', 'content.js'),
+        `var key = "${FAKE_KEY}";`
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(
+        'dist/content.js contains a build-time API key'
+      );
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }

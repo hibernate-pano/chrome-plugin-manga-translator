@@ -38,6 +38,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **The built package no longer carries the obfuscation salt.** The salt and
   the routine that uses it are only in the worker's bundle now, and the
   build fails if they show up in the content script.
+- **The build-time API key no longer reaches the content script's bundle.**
+  The previous entry claimed the content script no longer held the key, and
+  at runtime that was true — but the *bundle* still carried it. The key was
+  injected at build time into `env-config.generated.ts`, which
+  `app-config.ts` imported, which the content script imported: so the
+  plaintext key was compiled into `dist/content.js` and shipped to every
+  page the user opened. The build-time configuration is now split in two:
+  `env-config.generated.ts` carries the endpoint and the model, and
+  `env-credentials.generated.ts` carries the key. The key half is imported
+  only by the service worker and the extension's own pages; the content
+  script's import closure cannot reach it. Two build guards now hold that
+  line: the build fails if the content script's import graph can reach a
+  credential module, and it fails if a key turns up in the built
+  `dist/content.js`.
 
 ### Fixed
 
