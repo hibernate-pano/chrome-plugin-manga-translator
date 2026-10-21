@@ -267,8 +267,54 @@ python3 -m http.server 8000
     regression in that registration — check that the HUD appears and that
     translation still triggers from the toolbar button.
 
-## Assets Still Required
+## Listing Assets
 
-- At least one 1280x800 or 640x400 screenshot showing translation in context.
-- A 30-second demo recording.
+The listing needs a screenshot and a demo recording, and both of them show
+the extension actually working — a mock-up would not survive the review.
+
+They are produced by two scripts, in this order:
+
+```bash
+node scripts/build-demo-page.mjs      # store/demo/ — the manga pages
+pnpm build                            # dist/ — the extension to load
+node scripts/capture-store-assets.mjs # store/listing/ — screenshot + video
+```
+
+`scripts/build-demo-page.mjs` renders two manga pages with Japanese dialogue
+burned into the pixels. The text has to be in the pixels: the extension sends
+the *image* to the vision model, so lettering drawn in HTML would never be
+seen, let alone translated.
+
+`scripts/capture-store-assets.mjs` drives a Chrome with the built extension
+loaded over CDP, translates the demo page and records what happens. It
+produces:
+
+| File | What it is |
+| --- | --- |
+| `store/listing/screenshot-1280x800.png` | The listing screenshot: the translated page, reading panel closed |
+| `store/listing/screenshot-panel-1280x800.png` | The same page with the reading panel open |
+| `store/listing/demo.mp4` | The demo recording |
+
+Both screenshots are framed by the script rather than by hand: it measures
+where the translation overlays landed and picks a scroll position where the
+viewport cuts no overlay in half, because a half-cut overlay reads as a
+rendering bug rather than as a long web page.
+
+Two things the capture depends on, and both are load-bearing:
+
+- The extension has to be built with `pnpm build`, which injects the
+  provider credentials. `pnpm build:public` produces a credential-free
+  build, which cannot translate anything.
+- Chrome 137 and later refuse `--load-extension`. The script starts Chrome
+  with `--enable-unsafe-extension-debugging` and loads `dist/` through
+  `Extensions.loadUnpacked` instead.
+
+The artwork in `store/artwork/` is AI-generated, so the listing ships
+without borrowing anyone's copyrighted page. The rendered demo pages and the
+recording are build outputs and are not committed; the commands above
+rebuild them.
+
+## Still Required
+
 - A support URL and Chrome Web Store developer account.
+- The five API values for `scripts/publish-to-store.mjs` (see above).

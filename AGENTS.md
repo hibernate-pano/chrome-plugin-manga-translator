@@ -213,6 +213,28 @@ There is no `src/api/` or `src/hooks/`. Earlier revisions of this file listed
 both, plus TanStack Query, React Hook Form, Zod and Framer Motion as project
 dependencies; none of them were ever installed or imported.
 
+### Store Listing Assets
+
+`store/` holds the Chrome Web Store listing's material, in three layers:
+
+```
+store/
+├── artwork/   # AI-generated manga pages (committed)
+├── demo/      # the same pages with Japanese dialogue burned in (generated)
+└── listing/   # the screenshot and the demo recording (generated)
+```
+
+`scripts/build-demo-page.mjs` renders `store/demo/` and
+`scripts/capture-store-assets.mjs` produces `store/listing/`. The capture
+drives a real Chrome over CDP with `dist/` loaded through
+`Extensions.loadUnpacked` — Chrome 137 and later refuse `--load-extension`.
+See `docs/chrome-web-store-release.md` for the whole flow.
+
+The dialogue has to be burned into the pixels of the demo pages. The
+extension sends the image to the vision model, so lettering drawn in HTML is
+invisible to it, and the demo would show the original Japanese with the
+translation floating next to it.
+
 ### Testing Patterns
 
 - **Test files**: `*.test.ts` or `*.test.tsx` alongside source

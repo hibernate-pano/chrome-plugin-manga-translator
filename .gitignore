@@ -20,6 +20,14 @@ src/shared/env-credentials.generated.ts
 # Test coverage reports
 coverage/
 
+# Store listing assets: the demo pages and the recording are build outputs.
+# Rebuild them with `node scripts/build-demo-page.mjs` and
+# `node scripts/capture-store-assets.mjs`. The artwork and the screenshots
+# are committed: they are what the listing shows.
+store/demo/
+store/listing/demo.mp4
+store/listing/.debug/
+
 # AI tooling state (never commit these)
 .opencode/
 .mavis/
