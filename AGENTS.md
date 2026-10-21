@@ -23,6 +23,11 @@ pnpm lint:fix               # ESLint auto-fix
 pnpm format                 # Prettier write all files
 pnpm format:check           # Check formatting
 pnpm type-check             # TypeScript type check only
+
+# Store
+pnpm package:public         # Credential-free ZIP in release/
+node scripts/publish-to-store.mjs --dry-run   # Verify without uploading
+pnpm release:publish        # Package, upload and publish in one command
 ```
 
 **Required before PR** — this is exactly what CI runs, in this order:
@@ -234,6 +239,24 @@ The dialogue has to be burned into the pixels of the demo pages. The
 extension sends the image to the vision model, so lettering drawn in HTML is
 invisible to it, and the demo would show the original Japanese with the
 translation floating next to it.
+
+### Publishing to the store
+
+`scripts/publish-to-store.mjs` uploads a package and publishes it. Three
+things about it are load-bearing:
+
+- **The package is checked before it is uploaded.** The ZIP is unpacked and
+  scanned with the same patterns `check-public-build.mjs` uses
+  (`scripts/credential-scan.mjs`), so a private key cannot reach the store
+  through the publish path either.
+- **The publish request is explicit.** `publishType` and the rollout
+  percentage travel in the request body, so what happens to a version is
+  decided by the command rather than by whatever the dashboard last saved.
+- **There is no create-item endpoint.** The listing is made once in the
+  dashboard; the API covers upload, publish and status from then on.
+
+The command-line parsing, the credential resolution and the request body live
+in `scripts/store-publish.mjs` so they can be tested without a network.
 
 ### Testing Patterns
 

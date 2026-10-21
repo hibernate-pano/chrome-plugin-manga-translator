@@ -22,11 +22,16 @@
  * in `env-credentials.generated.ts`. The key half used to live in the same
  * file as the endpoint half, so reading only the endpoint file would now
  * report "verified" about a file that never holds a key. Both are read.
+ *
+ * The credential patterns themselves live in `credential-scan.mjs`, shared
+ * with the publish script: two guards that ask the same question must agree
+ * on the answer.
  */
 
-import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { collectFiles, formatFindings, scanFile } from './credential-scan.mjs';
 
 // The root is overridable so the guard's own test suite can point it at a
 // throwaway tree instead of the real working copy.
@@ -47,59 +52,6 @@ const credentialsPath = join(
   'env-credentials.generated.ts'
 );
 const distDir = join(projectRoot, 'dist');
-
-/**
- * Credential shapes we refuse to publish. Deliberately broad: a false
- * positive costs one build cycle, a false negative ships someone's key.
- */
-const SECRET_PATTERNS = [
-  // JSON-shaped env config: "apiKey": "sk-..."
-  { name: 'env-config apiKey', pattern: /"apiKey"\s*:\s*"([^"]+)"/g },
-  // Source-shaped: apiKey: 'sk-...'
-  {
-    name: 'env-config apiKey (unquoted key)',
-    pattern: /apiKey\s*:\s*['"]([^'"]+)['"]/g,
-  },
-  // Provider key prefixes, anywhere in any emitted file.
-  { name: 'OpenAI-style key', pattern: /\bsk-[A-Za-z0-9_-]{16,}\b/g },
-  { name: 'SiliconFlow key', pattern: /\bsf-[A-Za-z0-9]{16,}\b/g },
-  // Authorization headers baked into a bundle.
-  { name: 'bearer header', pattern: /Bearer\s+[A-Za-z0-9._-]{20,}/g },
-];
-
-const SCANNABLE_EXTENSIONS = new Set([
-  '.js',
-  '.mjs',
-  '.cjs',
-  '.ts',
-  '.tsx',
-  '.json',
-  '.html',
-  '.css',
-  '.txt',
-  '.map',
-]);
-
-/**
- * References to a hosted model *repository*.
- *
- * A model name is allowed to look like `qwen2.5vl:7b` — that is an ordinary
- * Ollama tag. What must never ship is a pointer at a repository
- * (`owner/repo`, `hf.co/owner/repo:quant`): it leaks a repository the
- * developer keeps to themselves, and it becomes the default model for every
- * store user, who cannot pull it. Their first "test connection" then fails
- * on a model that does not exist for them.
- *
- * This was not hypothetical. The public packages v1.3.3 through v2.0.3 all
- * carried the developer's private HuggingFace repository, because the
- * credential scan only knew about keys.
- */
-const PUBLIC_REFERENCE_PATTERNS = [
-  {
-    name: 'HuggingFace repository reference',
-    pattern: /hf\.co\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+/g,
-  },
-];
 
 /**
  * Parse the generated env config back into an object.
@@ -166,77 +118,6 @@ function checkPublicModels(contents) {
   return findings;
 }
 
-const MAX_FILE_BYTES = 8 * 1024 * 1024;
-
-function hasScannableExtension(filePath) {
-  const dot = filePath.lastIndexOf('.');
-  return dot >= 0 && SCANNABLE_EXTENSIONS.has(filePath.slice(dot));
-}
-
-function collectFiles(dir) {
-  const out = [];
-  let entries;
-  try {
-    entries = readdirSync(dir);
-  } catch {
-    return out;
-  }
-  for (const entry of entries) {
-    if (entry === '.DS_Store') {
-      continue;
-    }
-    const full = join(dir, entry);
-    let stats;
-    try {
-      stats = statSync(full);
-    } catch {
-      continue;
-    }
-    if (stats.isDirectory()) {
-      out.push(...collectFiles(full));
-      continue;
-    }
-    if (!hasScannableExtension(full) || stats.size > MAX_FILE_BYTES) {
-      continue;
-    }
-    out.push(full);
-  }
-  return out;
-}
-
-function scanFile(filePath, label) {
-  let contents;
-  try {
-    contents = readFileSync(filePath, 'utf8');
-  } catch {
-    return [];
-  }
-
-  const findings = [];
-  for (const { name, pattern } of [
-    ...SECRET_PATTERNS,
-    ...PUBLIC_REFERENCE_PATTERNS,
-  ]) {
-    // These regexes are module-level and global, so state carries over
-    // between calls unless the cursor is reset.
-    pattern.lastIndex = 0;
-    for (const match of contents.matchAll(pattern)) {
-      const value = match[1] ?? match[0];
-      // Empty placeholders are exactly what a public build should contain.
-      if (!value || value === 'EMPTY' || value === 'null') {
-        continue;
-      }
-      findings.push({
-        label,
-        name,
-        preview:
-          value.length > 12 ? `${value.slice(0, 6)}…${value.slice(-4)}` : value,
-      });
-    }
-  }
-  return findings;
-}
-
 const findings = [];
 
 // 1. The generated source of truth for build-time credentials. This runs
@@ -287,16 +168,8 @@ if (findings.length > 0) {
   console.error(
     '[public-build] REFUSING to package: credentials or private references detected'
   );
-  const seen = new Set();
-  for (const finding of findings) {
-    const signature = `${finding.name}|${finding.preview}`;
-    if (seen.has(signature)) {
-      continue;
-    }
-    seen.add(signature);
-    console.error(
-      `  - ${finding.name} in ${finding.label} (${finding.preview})`
-    );
+  for (const line of formatFindings(findings)) {
+    console.error(line);
   }
   process.exit(1);
 }

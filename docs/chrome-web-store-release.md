@@ -17,11 +17,19 @@ Never upload a ZIP produced by `pnpm build`; that command intentionally supports
 private personal builds that may contain `.env` credentials. `package:public`
 uses the credential-free path and writes a SHA-256 checksum next to the ZIP.
 
+Once the listing exists and the credentials are in place, one command does
+the rest:
+
+```bash
+pnpm release:publish              # build the package, upload it, publish it
+node scripts/publish-to-store.mjs --dry-run   # check everything, upload nothing
+```
+
 ## Uploading With the API
 
 `scripts/publish-to-store.mjs` uploads the package and publishes it in one
-step. It needs five values, all read from the environment so that no secret
-is ever written to a file in this repository:
+step. It needs two values that identify the listing and one way to
+authenticate:
 
 ```bash
 CLIENT_ID=... CLIENT_SECRET=... REFRESH_TOKEN=... \
@@ -29,26 +37,97 @@ PUBLISHER_ID=... ITEM_ID=... \
   node scripts/publish-to-store.mjs
 ```
 
-Where they come from:
+The five values are read from the environment first and from a credentials
+file second (`$CWS_CREDENTIALS_FILE`, or
+`~/.config/chrome-web-store/credentials.env`), so that no secret is ever
+written to a file in this repository. The script refuses to read a
+credentials file or a service account key that lives inside the repository.
 
 | Value | Where |
 | --- | --- |
-| `CLIENT_ID` / `CLIENT_SECRET` | The OAuth client of type **Web application** in the Google Cloud project that has the Chrome Web Store API enabled |
-| `REFRESH_TOKEN` | Obtained by exchanging an authorization code for tokens with the scope `https://www.googleapis.com/auth/chromewebstore` (the OAuth 2.0 Playground is the documented route) |
 | `PUBLISHER_ID` | Developer dashboard → **Publisher → Settings** |
 | `ITEM_ID` | The id in the store listing's dashboard URL — `chrome.google.com/webstore/devconsole/<ITEM_ID>` |
+| `CLIENT_ID` / `CLIENT_SECRET` | The OAuth client of type **Web application** in the Google Cloud project that has the Chrome Web Store API enabled |
+| `REFRESH_TOKEN` | Obtained by exchanging an authorization code for tokens with the scope `https://www.googleapis.com/auth/chromewebstore` (the OAuth 2.0 Playground is the documented route) |
 
 The script exchanges the refresh token for a short-lived access token, uploads
 the ZIP's raw bytes, waits for the store to finish processing it, and then
 publishes. Uploading alone only creates a draft: without the publish call the
 version sits in the dashboard and never reaches the store.
 
-Two things the store enforces, both of which the script cannot work around:
+### The flags that change what goes live
 
-- The manifest `version` must be **higher** than the currently published
-  one, or the upload is rejected.
+| Flag | What it does |
+| --- | --- |
+| `--dry-run` | Verify the package, the credentials and the item; upload nothing |
+| `--publish-type=default` | Go live as soon as the review approves (the default) |
+| `--publish-type=staged` | Wait for approval, then release it with a second call |
+| `--rollout=N` | Give the new version to N% of users first; the rest follow |
+| `--set-percentage=N` | Raise the rollout of the version that is already live |
+| `--block-on-warnings` | Fail the publish if the store reports warnings |
+
+`--publish-type` and `--rollout` are sent in the publish request, so they
+decide what happens rather than deferring to whatever the dashboard has
+saved. `--set-percentage` is the follow-up: it raises the rollout of the live
+version after it has been reviewed, which the store only allows for items
+with more than 10,000 seven-day active users.
+
+### Three ways to authenticate
+
+| Mode | Values | When |
+| --- | --- | --- |
+| `ACCESS_TOKEN` | A token that is already valid | A CI job that mints one per run (`gcloud auth print-access-token`) |
+| `SERVICE_ACCOUNT_KEY` | Path to a service account JSON key | No human in the loop; the service account's address has to be added to the dashboard under **Account** |
+| `CLIENT_ID` + `CLIENT_SECRET` + `REFRESH_TOKEN` | The OAuth Playground path | One person publishing their own extension |
+
+### What the API cannot do
+
+- There is **no** create-item endpoint and **no** listing-metadata endpoint.
+  The listing has to be created and filled in once, in the dashboard.
 - Every version is **reviewed** before it goes live. Publishing submits it;
   it does not make it available immediately.
+- The manifest `version` must be **higher** than the currently published one.
+  The script checks this against the store's own report of the live version
+  before it uploads anything.
+- Visibility changes are published with the settings the item already has. If
+  they were changed in the dashboard, the first publish has to be done from
+  the dashboard once, or the API refuses it.
+
+## One-Time Setup
+
+The API can upload and publish, but it cannot create a listing. So the first
+version is made in the dashboard, and every version after that is a command.
+
+### 1. The listing (dashboard, once)
+
+1. Developer dashboard → **Add new item**.
+2. Upload `release/manga-translator-v<version>-public.zip` there. This is
+   what creates the item.
+3. **Store Listing** tab: the fields are in
+   [`docs/store-listing-zh.md`](./store-listing-zh.md) — name, short
+   description, description, category, language, and the screenshot from
+   `store/listing/`.
+4. **Privacy** tab: the single-purpose statement and the data-usage table
+   from the same document.
+5. **Distribution** tab: visibility (public) and the countries.
+6. Save. The item id is in the URL of the item's page:
+   `chrome.google.com/webstore/devconsole/<ITEM_ID>`.
+
+### 2. The API credentials (Google Cloud, once)
+
+1. In a Google Cloud project, enable the **Chrome Web Store API**.
+2. Configure an **OAuth consent screen** (External), add yourself as a test
+   user, and skip the scopes screen.
+3. **Credentials → OAuth client ID → Web application**, with
+   `https://developers.google.com/oauthplayground` as an authorised redirect
+   URI.
+4. In the OAuth 2.0 Playground, use those credentials, add the scope
+   `https://www.googleapis.com/auth/chromewebstore`, and exchange the
+   authorization code for tokens. The refresh token is the long-lived half.
+
+The account that owns the store items is not necessarily the account that
+owns the Cloud project, and it needs two-step verification switched on.
+
 
 ## Store Listing
 
@@ -317,4 +396,6 @@ rebuild them.
 ## Still Required
 
 - A support URL and Chrome Web Store developer account.
-- The five API values for `scripts/publish-to-store.mjs` (see above).
+- The listing created once in the dashboard (see **One-Time Setup**), and the
+  `PUBLISHER_ID` and `ITEM_ID` that come out of it.
+- One way to authenticate for `scripts/publish-to-store.mjs` (see above).

@@ -67,7 +67,7 @@
 | alarms 不阻止 Chrome 回收 worker，长任务靠消息通道维持 | `src/background/background.ts:KEEPALIVE_ALARM`; `src/background/background.ts:startKeepalive` | review: 该定时器不阻止 Chrome 回收 worker; release: does **not** keep the worker alive |
 | contextMenus 提供两个菜单入口 | `src/background/background.ts:chrome.contextMenus.create`; `src/background/commands.ts:CONTEXT_MENU_TRANSLATE_IMAGE` | review: contextMenus —— 在页面右键菜单中提供两个入口; release: Add two page context menu items |
 | v0.3.5 起配置从 storage.sync 迁到 storage.local 并删除旧副本 | `src/background/background.ts:migrateConfigFromSyncToLocal` | privacy: v0.3.5 moved all configuration to `chrome.storage.local` |
-| 公共构建产物不含服务商 API Key | `scripts/inject-env-config.mjs:apiKey: ''`; `scripts/check-public-build.mjs:PUBLIC_REFERENCE_PATTERNS` | release: Public release artifacts contain no provider API keys. |
+| 公共构建产物不含服务商 API Key | `scripts/inject-env-config.mjs:apiKey: ''`; `scripts/credential-scan.mjs:PUBLIC_REFERENCE_PATTERNS`; `scripts/publish-to-store.mjs:scanTree` | release: Public release artifacts contain no provider API keys. |
 | MiniMax-M3 才关闭思考模式 | `src/providers/openai-compatible-base.ts:isMiniMaxM3Model`; `src/providers/openai-compatible-base.ts:thinking` | readme: when the configured model name is MiniMax-M3 |
 | 三个后端：OpenAI 兼容 / Ollama / LM Studio | `src/providers/openai-compatible-base.ts:OpenAICompatibleProvider`; `src/providers/ollama.ts:OllamaProvider`; `src/providers/lm-studio.ts:LMStudioProvider` | readme: any endpoint that speaks Chat Completions works |
 | 错误带可复制的修复命令 | `src/utils/error-handler.ts:OLLAMA_ORIGINS=chrome-extension://* ollama serve`; `src/utils/error-handler.ts:ollama serve` | readme: Errors as repair menus |

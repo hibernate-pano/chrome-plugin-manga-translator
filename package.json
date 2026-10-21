@@ -10,6 +10,7 @@
     "package:public": "pnpm build:public && node scripts/package-extension.mjs",
     "release:check": "node scripts/check-release-consistency.mjs && node scripts/check-store-claims.mjs",
     "publish:store": "node scripts/publish-to-store.mjs",
+    "release:publish": "pnpm package:public && node scripts/publish-to-store.mjs",
     "check:claims": "node scripts/check-store-claims.mjs",
     "preview": "vite preview",
     "test": "node scripts/inject-env-config.mjs && vitest",
