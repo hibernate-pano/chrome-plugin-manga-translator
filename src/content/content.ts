@@ -297,6 +297,7 @@ function setState(state: ContentState): void {
           total: reported.total,
           currentImageIndex: reported.currentImageIndex,
           phase: reported.phase,
+          etaSeconds: reported.etaSeconds,
         });
         break;
       case 'complete':
@@ -1055,6 +1056,24 @@ async function runTranslation(
     const total = images.length;
     let current = 0;
     let currentImageIndex = 0;
+    /**
+     * Rough seconds left, for the HUD.
+     *
+     * One chapter page can hold 20+ images, and each one costs a round trip
+     * to the provider. "第 7 张 / 20" says nothing about whether the run is
+     * worth waiting for; an ETA does. The estimate is deliberately coarse —
+     * average time per finished image times the ones still to go — and it
+     * stays absent until the first image lands, because dividing by zero
+     * yields a number that is confidently wrong.
+     */
+    const translateStartedAt = performance.now();
+    const computeEtaSeconds = (): number | undefined => {
+      const remaining = total - current;
+      if (current < 1 || remaining <= 0) return undefined;
+      const elapsedSeconds = (performance.now() - translateStartedAt) / 1000;
+      if (elapsedSeconds <= 0) return undefined;
+      return Math.max(1, Math.round((elapsedSeconds / current) * remaining));
+    };
     let successCount = 0;
     failedCount = 0;
     cachedCount = 0;
@@ -1103,6 +1122,7 @@ async function runTranslation(
             total,
             currentImageIndex: index,
             phase: 'translating',
+            etaSeconds: computeEtaSeconds(),
           });
         }
       },
@@ -1115,6 +1135,7 @@ async function runTranslation(
             total,
             currentImageIndex,
             phase: 'translating',
+            etaSeconds: computeEtaSeconds(),
           });
         }
       },

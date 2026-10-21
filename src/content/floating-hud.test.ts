@@ -108,6 +108,48 @@ describe('FloatingHud', () => {
 
       expect(cancelBtn).not.toBeNull();
     });
+
+    it('有 etaSeconds 时显示剩余时间', () => {
+      hud.update({
+        status: 'translating',
+        current: 3,
+        total: 10,
+        etaSeconds: 45,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('约 45 秒');
+    });
+
+    it('超过一分钟的剩余时间用分表示', () => {
+      hud.update({
+        status: 'translating',
+        current: 3,
+        total: 10,
+        etaSeconds: 90,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      expect(hudDiv?.textContent).toContain('约 1 分 30 秒');
+    });
+
+    it('没有 etaSeconds 时不显示剩余时间', () => {
+      hud.update({ status: 'translating', current: 3, total: 10 });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      const hudDiv = shadow?.getElementById('hud');
+
+      // "还剩多久"在信息不足时必须缺席，不能显示成 0 秒——那会被读成"卡住了"。
+      expect(hudDiv?.textContent).not.toContain('约');
+      expect(hudDiv?.textContent).not.toContain('秒');
+    });
   });
 
   describe('update - complete 状态', () => {

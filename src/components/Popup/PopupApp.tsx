@@ -35,6 +35,7 @@ import type {
   ContentState,
   PopupToContentMsg,
 } from '@/shared/runtime-contracts';
+import { formatEta } from '@/shared/eta';
 
 const TARGET_LANGUAGES = [
   // Wording matches the Settings page. The popup used "简中 / 繁中" while
@@ -623,8 +624,15 @@ const PopupApp: React.FC = () => {
         return contentState.candidateCount
           ? `扫描当前页面图片中（找到 ${contentState.candidateCount} 张）`
           : '扫描当前页面图片中';
-      case 'translating':
-        return `翻译中 ${contentState.current}/${contentState.total}`;
+      case 'translating': {
+        // 弹窗是用户查进度的地方，"还要多久"比"到第几张"更有用。
+        const eta =
+          typeof contentState.etaSeconds === 'number' &&
+          contentState.etaSeconds > 0
+            ? ` · 约 ${formatEta(contentState.etaSeconds)}`
+            : '';
+        return `翻译中 ${contentState.current}/${contentState.total}${eta}`;
+      }
       case 'complete':
         return resultSummary?.title ?? '翻译完成';
       case 'error':

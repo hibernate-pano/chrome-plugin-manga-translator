@@ -14,6 +14,7 @@
 // ==================== 类型定义 ====================
 
 import type { ErrorAction } from '@/utils/error-handler';
+import { formatEta } from '@/shared/eta';
 
 export type HudState =
   | { status: 'hidden' }
@@ -24,6 +25,8 @@ export type HudState =
       total: number;
       currentImageIndex?: number;
       phase?: 'translating' | 'rendering';
+      /** Rough seconds remaining. Undefined = not enough signal yet. */
+      etaSeconds?: number;
     }
   | {
       status: 'complete';
@@ -181,13 +184,17 @@ export class FloatingHud {
           : `${state.current}`;
         const phaseLabel =
           state.phase === 'rendering' ? '正在渲染...' : '正在翻译...';
+        const etaLabel =
+          typeof state.etaSeconds === 'number' && state.etaSeconds > 0
+            ? ` · 约 ${formatEta(state.etaSeconds)}`
+            : '';
         return `
           <div class="hud-card">
             <div class="hud-title">${escapeHtml(phaseLabel)}</div>
             <div class="hud-progress-track">
               <div class="hud-progress-bar" style="width:${pct}%"></div>
             </div>
-            <div class="hud-sub">${escapeHtml(imageLabel)} / ${state.total}</div>
+            <div class="hud-sub">${escapeHtml(imageLabel)} / ${state.total}${escapeHtml(etaLabel)}</div>
             <button id="cancel-btn" class="hud-cancel">取消</button>
           </div>
         `;

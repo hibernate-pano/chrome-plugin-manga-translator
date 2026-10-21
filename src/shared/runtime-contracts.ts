@@ -225,6 +225,15 @@ export type ContentState = ContentStateReport &
         total: number;
         currentImageIndex?: number;
         phase?: 'translating' | 'rendering';
+        /**
+         * Rough seconds left, once there is enough signal to estimate.
+         *
+         * A 20-page chapter takes minutes. "第 7 张 / 20" alone leaves the
+         * user guessing whether to wait or to give up; a rough ETA is the
+         * difference between "it is working" and "it is stuck". Undefined
+         * means "not enough information yet" — never rendered as zero.
+         */
+        etaSeconds?: number;
       }
     | {
         status: 'complete';

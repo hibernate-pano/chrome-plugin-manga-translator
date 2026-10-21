@@ -201,6 +201,31 @@ describe('PopupApp', () => {
     });
   });
 
+  it('says how much longer the page will take', async () => {
+    // 一页二十张图的时候，"还要多久"比"到第几张"更有用——没有它，用户只能
+    // 盯着进度条猜是不是卡住了。
+    tabsMock.sendMessage.mockImplementation(
+      (_tabId: number, msg: { type: string }) => {
+        if (msg.type === 'GET_STATE') {
+          return Promise.resolve({
+            state: {
+              status: 'translating',
+              current: 7,
+              total: 20,
+              etaSeconds: 45,
+            },
+          });
+        }
+        return Promise.resolve({ success: true });
+      }
+    );
+
+    render(<PopupApp />);
+
+    const status = await screen.findByText(/翻译中 7\/20/);
+    expect(status).toHaveTextContent('约 45 秒');
+  });
+
   it('stays quiet about auto-translation when the page has not answered', async () => {
     // 页面还没回答之前，弹窗不能说"不会自动翻译"——那也是一种撒谎。
     tabsMock.sendMessage.mockImplementation(
