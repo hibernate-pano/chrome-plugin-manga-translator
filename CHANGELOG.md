@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.0.4] - 2026-10-21
+
+Security and correctness release. The credential boundary that v2.0.4's
+predecessor broke is restored, and the defect that made the source Japanese
+show through the translation is fixed.
+
 ### Security
 
 - **The public package no longer ships the developer's private model
@@ -1225,6 +1231,7 @@ ethically guarded, OSS-ready".
 
 [0.3.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.3
 [0.3.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.2
+[2.0.4]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.4
 [2.0.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.3
 [2.0.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.2
 [2.0.1]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.1
