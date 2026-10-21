@@ -17,6 +17,39 @@ Never upload a ZIP produced by `pnpm build`; that command intentionally supports
 private personal builds that may contain `.env` credentials. `package:public`
 uses the credential-free path and writes a SHA-256 checksum next to the ZIP.
 
+## Uploading With the API
+
+`scripts/publish-to-store.mjs` uploads the package and publishes it in one
+step. It needs five values, all read from the environment so that no secret
+is ever written to a file in this repository:
+
+```bash
+CLIENT_ID=... CLIENT_SECRET=... REFRESH_TOKEN=... \
+PUBLISHER_ID=... ITEM_ID=... \
+  node scripts/publish-to-store.mjs
+```
+
+Where they come from:
+
+| Value | Where |
+| --- | --- |
+| `CLIENT_ID` / `CLIENT_SECRET` | The OAuth client of type **Web application** in the Google Cloud project that has the Chrome Web Store API enabled |
+| `REFRESH_TOKEN` | Obtained by exchanging an authorization code for tokens with the scope `https://www.googleapis.com/auth/chromewebstore` (the OAuth 2.0 Playground is the documented route) |
+| `PUBLISHER_ID` | Developer dashboard → **Publisher → Settings** |
+| `ITEM_ID` | The id in the store listing's dashboard URL — `chrome.google.com/webstore/devconsole/<ITEM_ID>` |
+
+The script exchanges the refresh token for a short-lived access token, uploads
+the ZIP's raw bytes, waits for the store to finish processing it, and then
+publishes. Uploading alone only creates a draft: without the publish call the
+version sits in the dashboard and never reaches the store.
+
+Two things the store enforces, both of which the script cannot work around:
+
+- The manifest `version` must be **higher** than the currently published
+  one, or the upload is rejected.
+- Every version is **reviewed** before it goes live. Publishing submits it;
+  it does not make it available immediately.
+
 ## Store Listing
 
 Every promise in the listing, the privacy policy and the review notes has a
