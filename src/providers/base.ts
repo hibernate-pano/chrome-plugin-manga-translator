@@ -200,8 +200,8 @@ Return ONLY valid JSON: {"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,
 
 RULES:
 1. Find ALL text: bubbles, narration, signs, SFX, tiny side text, faint small captions. Don't miss small text.
-2. x,y,width,height are 0.0-1.0 ratios relative to image. x,y = top-left corner. Mark a TIGHT box around the text itself, not the whole speech bubble or empty padding.
-3. Merge multi-line text in one bubble into ONE item.
+2. x,y,width,height are 0.0-1.0 ratios relative to image. x,y = top-left corner. The box MUST fully CONTAIN every character of the text — the translation is drawn on top of this box and covers the original, so any character outside the box stays visible next to the translation. Leave a small margin (about 5% of the text size) around the glyphs. Do NOT clip a character, and do NOT shrink the box to the first line of a multi-line bubble: ALL lines of the bubble must be inside the box.
+3. Merge multi-line text in one bubble into ONE item — one box covering all of its lines.
 4. SFX: use target language onomatopoeia.
 5. Keep original speaker tone (formal/casual).
 6. Use \\\\n for line breaks in translatedText.

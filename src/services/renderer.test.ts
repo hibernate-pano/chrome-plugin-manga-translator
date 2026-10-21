@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   estimateTextWidth,
   fitTextToBox,
@@ -19,6 +19,34 @@ import type { TextArea } from '@/providers/base';
  */
 const measureByEstimate: TextMeasurer = (text, fontSize) =>
   estimateTextWidth(text, fontSize);
+
+/**
+ * Every renderer this file creates is disposed here, whether the test that
+ * created it passed or failed.
+ *
+ * The Alt-key listener behind the "hold Alt to see the original"
+ * gesture is shared between renderers, and the count behind it is a count of
+ * live renderers. A renderer that is never disposed holds that count up, and
+ * every later test then sees a renderer that cannot release the listener —
+ * so one failing assertion used to turn into three unrelated failures
+ * further down the file.
+ */
+const liveRenderers = new Set<OverlayRenderer>();
+
+function createRenderer(
+  ...args: ConstructorParameters<typeof OverlayRenderer>
+): OverlayRenderer {
+  const renderer = new OverlayRenderer(...args);
+  liveRenderers.add(renderer);
+  return renderer;
+}
+
+afterEach(() => {
+  for (const renderer of liveRenderers) {
+    renderer.dispose();
+  }
+  liveRenderers.clear();
+});
 
 describe('OverlayRenderer adaptive layout', () => {
   describe('fitTextToBox', () => {
@@ -134,7 +162,7 @@ describe('OverlayRenderer adaptive layout', () => {
       value: 1000,
     });
 
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     const textAreas: TextArea[] = [
       {
         x: 0.1,
@@ -151,9 +179,72 @@ describe('OverlayRenderer adaptive layout', () => {
     const overlay = document.querySelector(
       '.manga-translator-overlay'
     ) as HTMLElement;
-    expect(parseFloat(overlay.style.width)).toBeLessThan(360);
-    expect(parseFloat(overlay.style.height)).toBeLessThan(200);
+    // The box is sized to the original it covers, plus the padding
+    // around it — so it no longer shrinks to the two characters of the
+    // translation, because then the original would stay visible
+    // next to it. The original is 0.5 of a 720px image, so the
+    // box is a little wider than 360px.
+    expect(parseFloat(overlay.style.width)).toBeGreaterThanOrEqual(360);
+    expect(parseFloat(overlay.style.width)).toBeLessThan(720);
+    expect(parseFloat(overlay.style.height)).toBeGreaterThanOrEqual(200);
     expect(overlay.style.whiteSpace).toBe('pre-wrap');
+    renderer.dispose();
+  });
+
+  it('covers the original even when the translation is shorter', () => {
+    // The overlay used to be sized to the translation alone. A translation
+    // shorter than the original left the rest of the bubble
+    // uncovered, so the reader saw the original beside the
+    // translation — and where the two did overlap, the original
+    // ghosted through the panel's 6% transparency.
+    //
+    // The store listing promises the bubble is covered. This is the test that
+    // keeps that promise honest.
+    document.body.innerHTML = `
+      <div id="root">
+        <img id="manga-image" src="/page.jpg" style="width: 1000px; height: 620px;" />
+      </div>
+    `;
+    const img = document.getElementById('manga-image') as HTMLImageElement;
+    Object.defineProperty(img, 'offsetWidth', {
+      configurable: true,
+      value: 1000,
+    });
+    Object.defineProperty(img, 'offsetHeight', {
+      configurable: true,
+      value: 620,
+    });
+
+    const renderer = createRenderer({}, { measure: measureByEstimate });
+    // The original occupies 355px of a 1000px image; the
+    // translation is two characters wide.
+    renderer.render(
+      img,
+      [
+        {
+          x: 0.108,
+          y: 0.141,
+          width: 0.355,
+          height: 0.138,
+          originalText: 'また明日ね！\n今日はいい修行だった。',
+          translatedText: '明天再见！',
+        },
+      ],
+      true
+    );
+
+    const overlay = document.querySelector(
+      '.manga-translator-overlay'
+    ) as HTMLElement;
+    const width = parseFloat(overlay.style.width);
+    const height = parseFloat(overlay.style.height);
+
+    // Wide enough to cover the original box it stands in for.
+    expect(width).toBeGreaterThanOrEqual(355);
+    expect(height).toBeGreaterThanOrEqual(0.138 * 620);
+    // And still inside the image.
+    expect(parseFloat(overlay.style.left) + width).toBeLessThanOrEqual(1000);
+    expect(parseFloat(overlay.style.top) + height).toBeLessThanOrEqual(620);
     renderer.dispose();
   });
 
@@ -175,7 +266,7 @@ describe('OverlayRenderer adaptive layout', () => {
       value: 1000,
     });
 
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(
       img,
       [
@@ -212,7 +303,7 @@ describe('OverlayRenderer adaptive layout', () => {
       value: 1000,
     });
 
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(
       img,
       [
@@ -258,7 +349,7 @@ describe('OverlayRenderer adaptive layout', () => {
       value: 1000,
     });
 
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(
       img,
       [
@@ -318,7 +409,7 @@ describe('OverlayRenderer original-text layer', () => {
 
   it('keeps both the translation and the original in the overlay', () => {
     const img = mountImage();
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(img, textAreas, true);
 
     const overlay = document.querySelector(
@@ -340,7 +431,7 @@ describe('OverlayRenderer original-text layer', () => {
 
   it('reveals the original while Alt is held and restores the translation after', () => {
     const img = mountImage();
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(img, textAreas, true);
 
     expect(
@@ -364,7 +455,7 @@ describe('OverlayRenderer original-text layer', () => {
 
   it('drops the class when the window loses focus mid-gesture', () => {
     const img = mountImage();
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(img, textAreas, true);
 
     window.dispatchEvent(
@@ -386,7 +477,7 @@ describe('OverlayRenderer original-text layer', () => {
 
   it('cleans the class up when the renderer is disposed', () => {
     const img = mountImage();
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     renderer.render(img, textAreas, true);
 
     window.dispatchEvent(
@@ -397,6 +488,40 @@ describe('OverlayRenderer original-text layer', () => {
     expect(
       document.body.classList.contains('manga-translator-show-original')
     ).toBe(false);
+  });
+
+  it('survives being disposed twice', () => {
+    // The Alt-key listener is shared, and the count behind it is a count of
+    // live renderers. A second `dispose()` used to release the shared
+    // listener a second time, which took the count below the number of
+    // renderers still alive — and the next renderer to be disposed left the
+    // `show-original` class stuck on `<body>`, so the page
+    // showed the original text with no way to get the translation back.
+    const img = mountImage();
+    const renderer = createRenderer({}, { measure: measureByEstimate });
+    renderer.render(img, textAreas, true);
+
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Alt', altKey: true })
+    );
+    renderer.dispose();
+    renderer.dispose();
+
+    expect(
+      document.body.classList.contains('manga-translator-show-original')
+    ).toBe(false);
+
+    // A renderer created afterwards still gets the gesture back.
+    const next = createRenderer({}, { measure: measureByEstimate });
+    next.render(img, textAreas, true);
+    window.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Alt', altKey: true })
+    );
+    expect(
+      document.body.classList.contains('manga-translator-show-original')
+    ).toBe(true);
+    window.dispatchEvent(new KeyboardEvent('keyup', { key: 'Alt' }));
+    next.dispose();
   });
 });
 
@@ -421,7 +546,7 @@ describe('OverlayRenderer persisted style', () => {
       verticalText: true,
     });
 
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     await vi.waitFor(() => {
       expect(renderer.getStyle().textColor).toBe('#ffee00');
     });
@@ -435,7 +560,7 @@ describe('OverlayRenderer persisted style', () => {
   });
 
   it('keeps the default style when nothing was configured', async () => {
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     await vi.waitFor(() => {
       expect(renderer.getStyle().textColor).toBe('#111111');
     });
@@ -451,7 +576,7 @@ describe('OverlayRenderer persisted style', () => {
       verticalText: false,
     });
 
-    const renderer = new OverlayRenderer({}, { measure: measureByEstimate });
+    const renderer = createRenderer({}, { measure: measureByEstimate });
     // A storage event arrives with a newer value while the persisted one is
     // still in flight. The newer value has to survive.
     renderer.updateStyleFromConfig({
@@ -469,12 +594,14 @@ describe('OverlayRenderer persisted style', () => {
 });
 
 describe('OverlayRenderer vertical text', () => {
+  // A vertical column of text: tall and narrow, the shape a vertical
+  // Japanese text box actually has.
   const textAreas: TextArea[] = [
     {
       x: 0.1,
       y: 0.1,
-      width: 0.5,
-      height: 0.2,
+      width: 0.12,
+      height: 0.5,
       originalText: 'おはようございます',
       translatedText: '早上好，今天天气不错呢',
     },
@@ -500,7 +627,7 @@ describe('OverlayRenderer vertical text', () => {
 
   function renderWith(vertical: boolean): HTMLElement {
     const img = mountImage();
-    const renderer = new OverlayRenderer(
+    const renderer = createRenderer(
       { verticalText: vertical },
       { measure: measureByEstimate }
     );

@@ -33,13 +33,19 @@ model, replacing each text bubble with its translation.
 This is the text in `public/manifest.json`, and `check-release-consistency.mjs`
 fails the build if it grows past the store's 132-character limit. "Replacing
 each text bubble" is literal: the translation is drawn in an overlay
-positioned over the bubble, and that bubble is covered by an almost-opaque
+positioned over the bubble, and that bubble is covered by an opaque
 panel — the picture around it is left alone, the bubble itself is not. Do not
 restate it as "leaving the original image uncovered": the listing used to say
 that, and it contradicts `src/services/renderer.ts`, which draws the overlay
-with a `rgba(240, 240, 235, 0.94)` background. The wording used to be
+with a `rgb(240, 240, 235)` background. The wording used to be
 "preserving the artwork", which a reviewer reads as "the original text stays
 visible"; that was not true, so it was replaced.
+
+The panel is opaque, and the box is snapped to the real extent of the glyphs
+before it is drawn (`src/services/text-box-refiner.ts`). Both parts matter:
+an opaque panel over a box that stops short of the text still leaves the
+source visible, and that is what used to happen — the source Japanese showed
+through at a contrast of 7:1, four times the threshold for readable text.
 
 **Single purpose:** Detect text in comic images on the current page, send those
 images to the translation provider selected by the user, and overlay the

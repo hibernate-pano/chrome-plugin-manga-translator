@@ -70,7 +70,11 @@ describe('OverlayRenderer Integration', () => {
   });
 
   afterEach(() => {
-    renderer.removeAll();
+    // `dispose()`, not just `removeAll()`: the renderer holds a shared
+    // window listener, and leaving it alive leaks that listener — and the
+    // `show-original` class it manages — for the rest of the
+    // page's life.
+    renderer.dispose();
     container.remove();
   });
 
@@ -413,7 +417,7 @@ describe('OverlayRenderer Integration', () => {
       expect(overlay.style.backgroundColor).toContain('255, 255, 0');
       expect(overlay.style.color).toBe('rgb(255, 0, 0)');
 
-      customRenderer.removeAll();
+      customRenderer.dispose();
     });
 
     it('updates style dynamically', () => {
@@ -433,7 +437,10 @@ describe('OverlayRenderer Integration', () => {
       );
 
       const initialStyle = renderer.getStyle();
-      expect(initialStyle.backgroundColor).toBe('rgba(240, 240, 235, 0.94)');
+      // Opaque by default: the overlay covers the source text, and a
+      // translucent panel let the original show through at a readable
+      // contrast.
+      expect(initialStyle.backgroundColor).toBe('rgb(240, 240, 235)');
 
       renderer.updateStyle({ backgroundColor: 'rgba(0, 0, 0, 0.5)' });
       const updatedStyle = renderer.getStyle();
@@ -542,7 +549,11 @@ describe('Overlay Collision Resolution', () => {
   });
 
   afterEach(() => {
-    renderer.removeAll();
+    // `dispose()`, not just `removeAll()`: the renderer holds a shared
+    // window listener, and leaving it alive leaks that listener — and the
+    // `show-original` class it manages — for the rest of the
+    // page's life.
+    renderer.dispose();
     container.remove();
   });
 

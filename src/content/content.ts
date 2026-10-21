@@ -34,6 +34,7 @@ import {
   type ParallelProcessingOptions,
 } from '@/utils/image-priority';
 import { sortTextAreasByReadingOrder } from '@/services/reading-order';
+import { refineTextAreasForImage } from '@/services/text-box-refiner.service';
 import { useContentConfigStore } from '@/stores/content-config';
 import { hostMatchesAllowlist } from '@/shared/app-config';
 import { fetchContentConfig } from '@/shared/config-client';
@@ -633,16 +634,27 @@ async function processSingleImage(
     renderer.getStyle().verticalText
   );
 
+  // 把模型给的框吸附到文字真正的边界上。
+  //
+  // 这一步放在渲染之前而不是翻译时，是有原因的：翻译结果会进缓存，
+  // 而缓存里存的是模型给的框。放在翻译时精修的话，升级前存下的旧框
+  // 永远不会被修正，读者升级后看到的还是漏字的译文。放在渲染前，
+  // 缓存命中与否都走同一条路。
+  //
+  // 精修只依赖像素，不请求模型，所以不花钱；缓存的 key 也不变，
+  // 不会让任何用户的缓存失效、重新计费。
+  const refinedAreas = refineTextAreasForImage(img, orderedAreas);
+
   // autoPinned = true: the translation is drawn straight over the artwork.
   // Without it the overlay sits at opacity 0 until the user hovers the image,
   // so a finished translation looks like nothing happened.
-  renderer.render(img, orderedAreas, true);
+  renderer.render(img, refinedAreas, true);
 
   // 同步到阅读面板 + 图上编号锚点。
   //
   // 面板按图片在 DOM 中的位置插入并编号，插在中间会把后面的编号顶掉一位。
   // 锚点必须立刻跟上：等一批跑完再统一改，用户看到的编号会先错后跳。
-  const entryIndex = readingPanel?.upsert(img, orderedAreas);
+  const entryIndex = readingPanel?.upsert(img, refinedAreas);
   if (entryIndex !== undefined) {
     readingAnchors?.upsert(img, entryIndex);
     readingAnchors?.syncIndices(readingPanel?.getIndexByImage() ?? new Map());

@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **The public package no longer ships the developer's private model
+  repository.** The public build path blanks the whole Ollama provider entry,
+  so the package falls back to the public defaults in `src/shared/app-config.ts`
+  (`http://localhost:11434` + `llava`) instead of pointing every store user at
+  a HuggingFace repository they cannot pull. `check-public-build.mjs` fails the
+  build if a repository-shaped model reference reaches `dist/`. The packages
+  published as v1.3.3 through v2.0.3 still carried it — those releases cannot
+  be withdrawn, so v2.0.4 replaces them.
+- **The content script is no longer web-accessible, so a web page can no
+
 - **The content script is no longer web-accessible, so a web page can no
   longer read the API key obfuscation salt.** CRXJS cannot register a content
   script directly: for every file in `content_scripts[].js` it emits a loader
@@ -55,6 +65,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The source Japanese showed through the translation.** The translation is
+  drawn on top of the original text, so the panel has to cover it exactly —
+  and it did not. A vision model is good at saying "there is text around
+  here" and bad at saying where the edges are: measured against a manga
+  panel with known ground truth, its box was off by up to 25px vertically
+  and 80px horizontally, and it often covered only the first line of a
+  two-line bubble. Asking the model more carefully did not help — thirty
+  measured calls with six different prompt wordings produced the same
+  spread, and a fixed padding is blind to which way the box was wrong (at
+  +28px the worst sample still leaked 17% of the ink). The pixels know
+  where the ink is, though, so the box is now snapped to the real extent of
+  the glyphs before the panel is drawn: the ink is found by connected-component
+  analysis, bubble outlines and panel borders are told apart from letters by
+  their ink density, and the panel is grown to reach the text the model
+  missed. The refined box matched the ground truth exactly on the panel
+  that was measured.
+- **The translation panel was 94% opaque, so the source text still showed
+  through it.** Even with the box in the right place, the panel's own
+  6% transparency let the original Japanese sit under the Chinese at a
+  contrast of 7:1 — four times the threshold for readable text, so the
+  panel looked like a half-finished translation. The default is now opaque.
+  A user who had not touched the setting gets the new default on upgrade;
+  a user who chose their own background keeps it.
+- **A double `dispose()` left the "show original" key stuck on.** The
+  renderer releases a shared window listener when it is disposed, and the
+  release was not idempotent: disposing twice took the live-renderer count
+  below the number of renderers that were still alive, and the
+  `show-original` class stayed on `<body>` for the rest of the page's
+  life. Two test-hygiene bugs were hiding it — a failing assertion leaked
+  a renderer, and the integration suite never disposed its renderers at
+  all — so the leak was invisible to the suite that should have caught it.
 - **The build was red on `main`.** Two tests in `src/shared/preloaded-config.test.ts`
   asserted that the preloaded provider settings mirror the build-time
   environment exactly. They do not: when the build has no `.env` — which is

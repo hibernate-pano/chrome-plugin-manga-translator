@@ -272,6 +272,75 @@ describe('AppConfigStore', () => {
     });
   });
 
+  // ================================================================
+  // v3 → v4 upgrade migration (the overlay became opaque)
+  // ================================================================
+  describe('v3 → v4 upgrade migration', () => {
+    const rehydrate = async (): Promise<void> => {
+      const persistApi = (
+        useAppConfigStore as unknown as {
+          persist: { rehydrate: () => Promise<void> };
+        }
+      ).persist;
+      await persistApi.rehydrate();
+    };
+
+    it('makes the old default overlay background opaque', async () => {
+      // The old default was 94% opaque, which let the source Japanese
+      // show through the translation panel at a readable contrast.
+      await chrome.storage.local.set({
+        'manga-translator-config-v2': {
+          state: {
+            enabled: true,
+            provider: 'openai-compatible',
+            overlayStyle: {
+              backgroundColor: 'rgba(240, 240, 235, 0.94)',
+              textColor: '#111111',
+              minFontSize: 10,
+              maxFontSize: 22,
+              verticalText: false,
+            },
+          },
+          version: 3,
+        },
+      });
+
+      await rehydrate();
+
+      expect(useAppConfigStore.getState().overlayStyle.backgroundColor).toBe(
+        'rgb(240, 240, 235)'
+      );
+    });
+
+    it('keeps a background the user chose themselves', async () => {
+      // The migration only replaces the old default. A user who picked
+      // their own colour keeps it — including a user who deliberately
+      // chose a translucent panel.
+      await chrome.storage.local.set({
+        'manga-translator-config-v2': {
+          state: {
+            enabled: true,
+            provider: 'openai-compatible',
+            overlayStyle: {
+              backgroundColor: 'rgba(17, 34, 51, 0.94)',
+              textColor: '#111111',
+              minFontSize: 10,
+              maxFontSize: 22,
+              verticalText: false,
+            },
+          },
+          version: 3,
+        },
+      });
+
+      await rehydrate();
+
+      expect(useAppConfigStore.getState().overlayStyle.backgroundColor).toBe(
+        'rgba(17, 34, 51, 0.94)'
+      );
+    });
+  });
+
   // Empty persisted keys mean "use the build-time default". Non-empty
   // endpoint/model values still survive as user overrides.
   it('preserves env-injected apiKey across rehydrate from stripped storage', async () => {

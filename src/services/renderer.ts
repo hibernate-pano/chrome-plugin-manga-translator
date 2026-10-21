@@ -102,7 +102,18 @@ const ORIGINAL_TEXT_CLASS = 'manga-translator-text-original';
 const HOVER_HIDE_DELAY = 120; // delay hide on mouseleave to prevent rapid toggle flicker
 
 const DEFAULT_STYLE: OverlayStyle = {
-  backgroundColor: 'rgba(240, 240, 235, 0.94)',
+  // Fully opaque, not "almost opaque".
+  //
+  // The overlay is drawn on top of the source text, so anything the panel
+  // does not completely hide stays visible next to the translation. At 94%
+  // opacity the source Japanese showed through at a contrast of 7:1 — four
+  // times the threshold for readable text — so the panel looked like a
+  // half-finished translation: you could read the original behind the
+  // Chinese. The box is now snapped to the real extent of the glyphs
+  // (see services/text-box-refiner.ts), so the panel can afford to be
+  // opaque, and a reader who wants to see the artwork through it can set
+  // the alpha in the options.
+  backgroundColor: 'rgb(240, 240, 235)',
   textColor: '#111111',
   fontFamily:
     '"PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Noto Sans SC", sans-serif',
@@ -448,11 +459,15 @@ function computeAdaptiveOverlayLayout(
       : 1;
   // The overlay may grow past the original bubble when the translation is
   // longer than the source, but never past this much of the image.
-  const maxWidth = Math.min(
+  //
+  // These are budgets for the *text*, so they deliberately exclude the
+  // padding: the box the text is measured against is the box the text is
+  // drawn in, padding included.
+  const textBudgetWidth = Math.min(
     imageWidth * 0.78,
     areaWidth * widthExpansionFactor
   );
-  const maxHeight = Math.min(
+  const textBudgetHeight = Math.min(
     imageHeight * 0.58,
     areaHeight * heightExpansionFactor
   );
@@ -461,25 +476,53 @@ function computeAdaptiveOverlayLayout(
 
   const fit = fitTextToBox(
     area.translatedText,
-    maxWidth,
-    maxHeight,
+    textBudgetWidth,
+    textBudgetHeight,
     style,
     'horizontal',
     measure
   );
 
-  const minimumWidth = Math.min(maxWidth, Math.max(fit.fontSize * 2.4, 48));
+  const minimumWidth = Math.min(
+    textBudgetWidth,
+    Math.max(fit.fontSize * 2.4, 48)
+  );
   const minimumHeight = Math.min(
-    maxHeight,
+    textBudgetHeight,
     Math.max(fit.fontSize * LINE_HEIGHT_RATIO + style.padding * 2, 28)
   );
+  // The overlay has to cover the original bubble, not just the translation.
+  //
+  // It used to be sized to the translation alone, so a translation shorter than
+  // the original left the rest of the bubble uncovered: the reader
+  // saw the original beside the translation, and where the two did
+  // overlap the original ghosted through the panel's 6% transparency.
+  // The store listing promises the bubble is covered, and it was not.
+  //
+  // So the original box is the floor, not the ceiling: the overlay is
+  // at least as wide and as tall as the original it replaces, and it
+  // grows past it only when the translation needs more room.
+  //
+  // The floor is the original box plus the padding, and it is
+  // deliberately *not* clamped to the text budget above: that budget is what
+  // the text may occupy, and the padding is what the box adds around it.
+  // Clamping the floor to the budget threw the padding away and left the
+  // bottom of a two-line bubble uncovered.
   const width = Math.min(
-    maxWidth,
-    Math.max(fit.width + visualPaddingX, minimumWidth)
+    imageWidth * 0.92,
+    Math.max(
+      fit.width + visualPaddingX,
+      minimumWidth,
+      areaWidth + visualPaddingX
+    )
   );
   const height = Math.min(
-    maxHeight,
-    Math.max(fit.height + visualPaddingY, minimumHeight)
+    imageHeight * 0.78,
+    Math.max(
+      fit.height + visualPaddingY,
+      minimumHeight,
+      areaHeight + visualPaddingY
+    )
   );
   const left = Math.min(
     Math.max(0, areaLeft + (areaWidth - width) / 2),
@@ -540,17 +583,22 @@ function computeVerticalOverlayLayout(
   );
 
   const width = Math.min(
-    maxThickness,
+    imageWidth * 0.92,
     Math.max(
       fit.width,
-      Math.min(maxThickness, fit.fontSize * 1.8 + style.padding * 2)
+      Math.min(maxThickness, fit.fontSize * 1.8 + style.padding * 2),
+      // Cover the original it replaces — see the horizontal
+      // layout for why the original box is a floor, not a ceiling,
+      // and why the floor is not clamped to the text budget.
+      areaWidth + style.padding * 2
     )
   );
   const height = Math.min(
-    maxLength,
+    imageHeight * 0.85,
     Math.max(
       fit.height,
-      Math.min(maxLength, fit.fontSize * 2.4 + style.padding * 2)
+      Math.min(maxLength, fit.fontSize * 2.4 + style.padding * 2),
+      areaHeight + style.padding * 2
     )
   );
   const left = Math.min(
@@ -800,6 +848,17 @@ function ensureStylesInjected(): void {
  */
 const SHOW_ORIGINAL_CLASS = 'manga-translator-show-original';
 
+/**
+ * How many renderers are currently alive.
+ *
+ * This is a count of *live instances*, not of calls: `acquire` is called
+ * once per renderer and `release` once per renderer, and the release is
+ * idempotent per instance (see `OverlayRenderer.dispose`). Counting calls
+ * instead of instances meant a renderer that was disposed twice released the
+ * shared listener twice, and a renderer that was never disposed held it
+ * forever — in both cases the `show-original` class stayed on
+ * `<body>` and the page was stuck showing the original text.
+ */
 let showOriginalListenerCount = 0;
 let originalTextKeyDownHandler: ((event: KeyboardEvent) => void) | null = null;
 let originalTextKeyUpHandler: ((event: KeyboardEvent) => void) | null = null;
@@ -1151,6 +1210,13 @@ export class OverlayRenderer {
    * is torn down so a re-initialised renderer does not stack listeners.
    */
   dispose(): void {
+    // Disposing twice must not release the shared Alt-key listener twice:
+    // the counter is a count of live renderers, and a double release would
+    // take it below the number of renderers that are still alive — leaving
+    // the `show-original` class stuck on `<body>`.
+    if (this.disposed) {
+      return;
+    }
     this.disposed = true;
     releaseShowOriginalListener();
     this.resizeObserver?.disconnect();

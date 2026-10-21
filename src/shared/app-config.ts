@@ -176,7 +176,9 @@ export const DEFAULT_CONFIG: Readonly<{
   fallbackToFullImage: true,
   // UI fields (from config-v2.ts overlayStyle)
   overlayStyle: {
-    backgroundColor: 'rgba(240, 240, 235, 0.94)',
+    // Opaque, so the source text is actually hidden rather than showing
+    // through the panel. See the note on DEFAULT_STYLE in services/renderer.ts.
+    backgroundColor: 'rgb(240, 240, 235)',
     textColor: '#111111',
     minFontSize: 10,
     maxFontSize: 22,

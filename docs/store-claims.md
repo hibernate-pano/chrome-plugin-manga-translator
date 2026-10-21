@@ -32,7 +32,7 @@
 | 承诺 | 代码锚点 | 文案 |
 | --- | --- | --- |
 | 译文叠加在原图对应位置，不跳转页面 | `src/services/renderer.ts:OverlayRenderer`; `src/services/translator.ts:mapTextAreasToOriginalImage` | listing: 把译文渲染回原图对应位置; listing: 不会跳转到另一个页面 |
-| 覆盖层默认接近不透明，原文气泡区域会被遮住 | `src/services/renderer.ts:rgba(240, 240, 235, 0.94)`; `src/services/renderer.ts:this.style.backgroundColor` | listing: 覆盖层默认是接近不透明的浅色底; release: an almost-opaque panel |
+| 覆盖层不透明，原文气泡区域会被完整遮住 | `src/services/renderer.ts:rgb(240, 240, 235)`; `src/services/renderer.ts:this.style.backgroundColor`; `src/services/text-box-refiner.ts:refineTextBox` | listing: 覆盖层默认是不透明的浅色底; release: an opaque panel |
 | 覆盖层底色可在设置里调整 | `src/components/Options/OptionsApp.tsx:setOverlayStyle` | listing: 覆盖层底色可在设置里调整 |
 | 长条条漫（webtoon）切片处理 | `src/services/translator.ts:translateImageTiled`; `src/services/translator.ts:computeTiles`; `src/services/translator.ts:translateTile` | listing: 长条条漫（webtoon）会切片处理; release: for the tiled pipeline |
 | 视觉模型零文字时用内置 Tesseract OCR 兜底（Ollama 除外） | `src/services/translator.ts:translateWithHybridPipeline`; `src/services/translator.ts:this.config.provider !== 'ollama'`; `src/services/translator.ts:translateRegionsWithHybrid` | listing: 内置 Tesseract OCR 可继续工作（使用 Ollama 时不启用该兜底） |

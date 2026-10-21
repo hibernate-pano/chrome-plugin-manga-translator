@@ -39,6 +39,19 @@ export interface OverlayStyleConfig {
   verticalText: boolean;
 }
 
+/**
+ * The overlay background that shipped before v2.0.4.
+ *
+ * It was 94% opaque, which let the source Japanese show through the
+ * translation panel at a contrast of 7:1 — clearly readable, so the panel
+ * looked like a half-finished translation. The migration below replaces
+ * it, but only where the stored value is still exactly this string.
+ */
+const LEGACY_OVERLAY_BACKGROUND = 'rgba(240, 240, 235, 0.94)';
+
+/** The opaque overlay background that replaced it. */
+const OPAQUE_OVERLAY_BACKGROUND = 'rgb(240, 240, 235)';
+
 interface AppConfigState extends RuntimeAppConfig {
   providers: ProvidersConfig;
   maxImageSize: number;
@@ -190,7 +203,7 @@ function pickLegacyProviderEntry(
 }
 
 /**
- * Migration for persisted config (v0 → v1 → v2 → v3).
+ * Migration for persisted config (v0 → v1 → v2 → v3 → v4).
  *
  * v0.3.1 persisted state:
  *   { provider: 'openai' | 'ollama' | 'siliconflow' | ...,
@@ -205,6 +218,12 @@ function pickLegacyProviderEntry(
  * upgrade from v2 are marked as `onboardingCompleted: true` automatically
  * so they are not re-prompted.
  *
+ * v2.0.4 makes the overlay's default background opaque. At 94% opacity the
+ * source Japanese showed through the translation panel at a contrast of
+ * 7:1 — clearly readable, so the panel looked unfinished. The overlay box
+ * is now snapped to the real extent of the glyphs, so the panel can hide
+ * the source completely. A user who chose their own background keeps it.
+ *
  * We rebuild providers and the top-level provider fields from the legacy
  * shape so v0.3.1 users do not get undefined on providers['openai-compatible']
  * / providers['lm-studio'].
@@ -215,6 +234,41 @@ function migratePersistedConfig(
 ): unknown {
   if (!isRecord(persistedState)) {
     return persistedState;
+  }
+
+  // Already on v4 — pass through.
+  if ((version ?? 0) >= 4) {
+    return persistedState;
+  }
+
+  // Upgrading from v3 → v4: the overlay background became opaque.
+  //
+  // Only a background that is still the old default is changed. A user who
+  // picked their own colour — including one they set to the old default on
+  // purpose — keeps it.
+  if ((version ?? 0) === 3) {
+    const inner = isRecord(persistedState['state'])
+      ? (persistedState['state'] as Record<string, unknown>)
+      : persistedState;
+    const styleValue = inner['overlayStyle'];
+    if (isRecord(styleValue)) {
+      const style = {
+        ...styleValue,
+        ...(styleValue['backgroundColor'] === LEGACY_OVERLAY_BACKGROUND
+          ? { backgroundColor: OPAQUE_OVERLAY_BACKGROUND }
+          : {}),
+      };
+      return isRecord(persistedState['state'])
+        ? {
+            ...persistedState,
+            state: { ...inner, overlayStyle: style },
+            version: 4,
+          }
+        : { ...persistedState, overlayStyle: style, version: 4 };
+    }
+    return isRecord(persistedState['state'])
+      ? { ...persistedState, version: 4 }
+      : { ...persistedState, version: 4 };
   }
 
   // Already on v3 — pass through.
@@ -646,7 +700,7 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
     {
       name: APP_CONFIG_STORAGE_KEY,
       storage: createJSONStorage(() => chromeStorage),
-      version: 3,
+      version: 4,
       migrate: migratePersistedConfig,
       merge: mergePersistedConfig,
       partialize: state => {
