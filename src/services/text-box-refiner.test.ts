@@ -192,6 +192,51 @@ describe('refineTextBox', () => {
     expect(refined).toEqual(modelBox);
   });
 
+  it('recovers a box the model put on blank paper', () => {
+    // The model read the words and then put the box in the wrong place —
+    // measured against a page with known ground truth, its box was off by
+    // up to 80px horizontally. A box on blank paper is a box about the
+    // words the model read, so the nearest text is the better answer.
+    //
+    // The box here sits to the right of the bubble, on empty paper, the
+    // size of the text it should have pointed at.
+    const modelBox = box(102 / 200, 30 / 120, 40 / 200, 34 / 120);
+
+    const refined = refineTextBox(bitmap, modelBox);
+
+    // The text inside the bubble spans x 30..100 and y 30..64.
+    expect(refined.x * 200).toBeLessThanOrEqual(30);
+    expect((refined.x + refined.width) * 200).toBeGreaterThanOrEqual(100);
+    expect(refined.y * 120).toBeLessThanOrEqual(30);
+    expect((refined.y + refined.height) * 120).toBeGreaterThanOrEqual(64);
+  });
+
+  it('does not drag a small box onto a big block of text', () => {
+    // The same situation, but the model asked for something small. A sound
+    // effect that landed in the wrong place is not a caption: putting the
+    // translation over the caption would cover the wrong words with the
+    // wrong words.
+    const modelBox = box(102 / 200, 40 / 120, 10 / 200, 10 / 120);
+
+    const refined = refineTextBox(bitmap, modelBox);
+
+    expect(refined).toEqual(modelBox);
+  });
+
+  it('does not recover onto a single blob', () => {
+    // The block on the right is one solid rectangle, not a run of glyphs.
+    // Where artwork touches lettering, the lettering can be swallowed by
+    // the artwork and stop being visible at all — the model still reads it,
+    // but the refiner cannot. Recovering from "no ink under the box" then
+    // means picking up the nearest drawing, and putting the translation
+    // over a face.
+    const modelBox = box(125 / 200, 30 / 120, 20 / 200, 12 / 120);
+
+    const refined = refineTextBox(bitmap, modelBox);
+
+    expect(refined).toEqual(modelBox);
+  });
+
   it('returns a normalised box inside the image', () => {
     const modelBox = box(0.1, 0.1, 0.3, 0.2);
 

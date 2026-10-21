@@ -130,6 +130,32 @@ const MAX_GROUP_DISTANCE = 40;
 const MIN_OVERLAP_RATIO = 0.35;
 
 /**
+ * How much bigger the recovered text may be than the box the model asked
+ * for.
+ *
+ * A model box for a sound effect is small; a box for a caption is large. If
+ * the ink next to an empty model box is much bigger than that box, the ink
+ * is a different piece of text that happens to be nearby — a caption next
+ * to a misplaced sound effect. Dragging the translation onto it would put
+ * the wrong words over the wrong words, which is worse than leaving the
+ * translation where the model put it.
+ */
+const MAX_RECOVERED_SIZE_RATIO = 2;
+
+/**
+ * How many glyphs a recovered text has to have.
+ *
+ * Text is a run of glyphs. A single blob is a drawing: an eye, a window
+ * frame, the tail of a speech bubble. On a page whose artwork touches the
+ * lettering, the lettering itself can be swallowed by the artwork and stop
+ * being visible at all — the model still reads it correctly, but the
+ * refiner cannot see it. Recovering from "no ink under the box" then means
+ * picking up the nearest blob of artwork instead, which puts the
+ * translation over a face. So a recovery needs at least two glyphs.
+ */
+const MIN_RECOVERED_GLYPHS = 2;
+
+/**
  * A single connected blob of dark pixels.
  */
 interface Component {
@@ -374,12 +400,37 @@ function groupExtent(group: Component[]): {
 }
 
 /**
+ * The gap between two boxes. Zero when they touch or overlap.
+ */
+function boxGap(a: PixelBox, b: PixelBox): number {
+  const dx = Math.max(0, Math.max(a.left - b.right, b.left - a.right));
+  const dy = Math.max(0, Math.max(a.top - b.bottom, b.top - a.bottom));
+  return Math.hypot(dx, dy);
+}
+
+/**
+ * A group of glyphs, and how it stands to the model's box.
+ */
+interface GroupSelection {
+  group: Component[];
+  /** How much of the group's extent falls inside the model's box. */
+  coverage: number;
+  /** The gap between the group's extent and the model's box. */
+  distance: number;
+}
+
+/**
  * Pick the group of glyphs the model's box is about.
  *
  * The group that covers the most of the model's box wins. A model box
  * that sits on one line of a two-line bubble still selects that bubble's
  * group, because the group is what the text is — and the group's extent
  * is what the translation has to cover.
+ *
+ * When no group overlaps the model's box at all, the box is sitting on
+ * blank paper, and the nearest group is the better answer: the model read
+ * the words and then put the box in the wrong place, and where the box is
+ * is the only clue left about which words it meant.
  *
  * Both boxes are in pixels here. The group's extent comes out of the
  * bitmap in pixels, and comparing it against a normalised box would put
@@ -389,9 +440,11 @@ function groupExtent(group: Component[]): {
 function selectGroupForModelBox(
   groups: Component[][],
   modelBoxInPixels: PixelBox
-): Component[] | null {
+): GroupSelection | null {
   let best: Component[] | null = null;
   let bestCoverage = 0;
+  let nearest: Component[] | null = null;
+  let nearestDistance = Infinity;
 
   for (const group of groups) {
     const extent = groupExtent(group);
@@ -413,9 +466,20 @@ function selectGroupForModelBox(
       bestCoverage = coverage;
       best = group;
     }
+    const distance = boxGap(groupBox, modelBoxInPixels);
+    if (distance < nearestDistance) {
+      nearestDistance = distance;
+      nearest = group;
+    }
   }
 
-  return best;
+  if (best) {
+    return { group: best, coverage: bestCoverage, distance: 0 };
+  }
+  if (nearest) {
+    return { group: nearest, coverage: 0, distance: nearestDistance };
+  }
+  return null;
 }
 
 /**
@@ -482,17 +546,51 @@ function refineAgainstGlyphs(
   // every glyph in the window would merge the two and stretch the box
   // across both. So the glyphs are grouped, and only the group the
   // model's box actually sits in is used.
-  const group = selectGroupForModelBox(groupGlyphs(nearby), {
+  const selection = selectGroupForModelBox(groupGlyphs(nearby), {
     left: modelLeft,
     top: modelTop,
     right: modelRight,
     bottom: modelBottom,
   });
-  if (!group) {
+  if (!selection) {
     return modelBox;
   }
 
-  const extent = groupExtent(group);
+  const extent = groupExtent(selection.group);
+
+  // The model's box holds no text at all.
+  //
+  // Measured against a page with known ground truth, the model's box was
+  // off by up to 80px horizontally. A box that lands on blank paper is not
+  // a box about that blank paper: it is a box about the words the model
+  // read, put in the wrong place. Where the box is the only clue left
+  // about which words it meant, so the nearest text wins.
+  //
+  // Two guards keep the recovery honest. The nearest text has to be the
+  // size of text the model asked for — a small box next to a long caption
+  // is a sound effect that landed in the wrong place, not a caption. And
+  // it has to be a run of glyphs, because a single blob is artwork: on a
+  // page where the artwork touches the lettering, the lettering can be
+  // swallowed whole and the only blob nearby is an eye.
+  if (selection.coverage === 0) {
+    const modelWidth = modelRight - modelLeft;
+    const modelHeight = modelBottom - modelTop;
+    const groupWidth = extent.maxX - extent.minX;
+    const groupHeight = extent.maxY - extent.minY;
+    if (
+      selection.group.length < MIN_RECOVERED_GLYPHS ||
+      groupWidth > modelWidth * MAX_RECOVERED_SIZE_RATIO ||
+      groupHeight > modelHeight * MAX_RECOVERED_SIZE_RATIO
+    ) {
+      return modelBox;
+    }
+    return {
+      x: extent.minX / imageWidth,
+      y: extent.minY / imageHeight,
+      width: groupWidth / imageWidth,
+      height: groupHeight / imageHeight,
+    };
+  }
 
   // The refined box is the union of the model's box and the ink, never
   // smaller than the model asked for.
@@ -540,6 +638,10 @@ function refineAgainstGlyphs(
  * refinement: no glyphs found, only borders found, or the refinement drifts
  * too far from what the model asked for. A wrong refinement is worse than
  * no refinement, because it can move the translation off the text.
+ *
+ * The one case where the box does move is a box that holds no text at all:
+ * the model read the words and put the box in the wrong place, and the
+ * nearest text is the only thing that can say which words it meant.
  *
  * @param bitmap The greyscale image the box refers to.
  * @param modelBox The box the vision model reported, normalised.
