@@ -62,9 +62,28 @@ export interface TranslationUsageRecord {
   usage: TokenUsage;
   /** 是否从缓存命中（缓存不消耗 Token） */
   cached: boolean;
+  /**
+   * Whether this call is already counted in an accumulator.
+   *
+   * The accumulator is what the monthly summary reads, so a record that is
+   * counted there must not be counted a second time from the detail list.
+   * Records written before the accumulator existed do not carry the flag, and
+   * they are exactly the ones the seed entry takes over.
+   */
+  accumulated?: boolean;
+  /**
+   * The running totals of the calls this context made.
+   *
+   * Only the synthetic accumulator records carry it. They are what keeps the
+   * monthly total exact once the detail list starts dropping records.
+   */
+  accumulator?: UsageAccumulator;
 }
 
-interface DailyUsageSummary {
+/**
+ * The totals of one day.
+ */
+export interface DailyUsageSummary {
   date: string;
   totalTokens: number;
   promptTokens: number;
@@ -72,6 +91,26 @@ interface DailyUsageSummary {
   translationCount: number;
   cachedCount: number;
   providers: Partial<Record<ProviderType, number>>;
+}
+
+/**
+ * The running totals of one context.
+ *
+ * The accumulator is the reason the monthly bill is a number the user can
+ * trust: it counts every call the moment it happens, while the detail list
+ * behind it is allowed to forget.
+ */
+export interface UsageAccumulator {
+  /** 每个自然日的用量（YYYY-MM-DD） */
+  byDay: Record<string, DailyUsageSummary>;
+  /**
+   * The clear stamp this accumulator was written at.
+   *
+   * An accumulator that was last written before the history was cleared
+   * carries counts the user asked to forget, so it is dropped when the
+   * snapshot is merged.
+   */
+  clearedAt: number;
 }
 
 interface UsageStoreState {
@@ -147,33 +186,348 @@ function todayString(): string {
   return formatLocalDate();
 }
 
+/**
+ * Is this record one of the synthetic accumulator records?
+ */
+function isAccumulator(record: TranslationUsageRecord): boolean {
+  return record.accumulator !== undefined;
+}
+
+/**
+ * The id prefix every accumulator record carries.
+ */
+const ACCUMULATOR_ID_PREFIX = 'acc-';
+
+/**
+ * The id of the entry that takes over the calls recorded before the
+ * accumulator existed.
+ *
+ * It is deliberately *not* per-context: the calls it covers are the ones
+ * every context can see, so exactly one entry may account for them. A
+ * per-context id would let two tabs each claim the same history.
+ */
+const LEGACY_SEED_ID = 'acc-seed';
+
+function createDaySummary(date: string): DailyUsageSummary {
+  return {
+    date,
+    totalTokens: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    translationCount: 0,
+    cachedCount: 0,
+    providers: {},
+  };
+}
+
+/**
+ * Fold one call into a day's totals.
+ */
+function applyRecordToDay(
+  day: DailyUsageSummary,
+  record: TranslationUsageRecord
+): DailyUsageSummary {
+  const next: DailyUsageSummary = {
+    ...day,
+    providers: { ...day.providers },
+  };
+  next.translationCount += 1;
+  if (record.cached) {
+    next.cachedCount += 1;
+    return next;
+  }
+  next.totalTokens += record.usage.totalTokens;
+  next.promptTokens += record.usage.promptTokens;
+  next.completionTokens += record.usage.completionTokens;
+  next.providers[record.provider] = (next.providers[record.provider] || 0) + 1;
+  return next;
+}
+
+/**
+ * Add two days' totals together.
+ *
+ * Two accumulators can cover the same day — the seed entry accounts for the
+ * calls made before the accumulator existed, while a context's own
+ * accumulator accounts for the ones made after — and the day is the sum of
+ * both.
+ */
+function mergeDaySummaries(
+  base: DailyUsageSummary,
+  incoming: DailyUsageSummary
+): DailyUsageSummary {
+  const providers = { ...base.providers };
+  for (const [provider, count] of Object.entries(incoming.providers)) {
+    const key = provider as ProviderType;
+    providers[key] = (providers[key] || 0) + (count || 0);
+  }
+  return {
+    date: base.date,
+    totalTokens: base.totalTokens + incoming.totalTokens,
+    promptTokens: base.promptTokens + incoming.promptTokens,
+    completionTokens: base.completionTokens + incoming.completionTokens,
+    translationCount: base.translationCount + incoming.translationCount,
+    cachedCount: base.cachedCount + incoming.cachedCount,
+    providers,
+  };
+}
+
+/**
+ * The whole history, counted exactly once.
+ *
+ * The accumulators carry the calls; the detail records that no accumulator
+ * covers are counted directly. A record that an accumulator already accounts
+ * for is skipped, which is what keeps the two from adding up to twice the
+ * calls the user made.
+ */
+function collectUsage(records: TranslationUsageRecord[]): {
+  days: Map<string, DailyUsageSummary>;
+  looseRecords: TranslationUsageRecord[];
+} {
+  const days = new Map<string, DailyUsageSummary>();
+  const coveredDays = new Set<string>();
+
+  for (const record of records) {
+    if (!isAccumulator(record)) {
+      continue;
+    }
+    const byDay = record.accumulator?.byDay ?? {};
+    for (const [day, summary] of Object.entries(byDay)) {
+      coveredDays.add(day);
+      const existing = days.get(day);
+      days.set(
+        day,
+        existing ? mergeDaySummaries(existing, summary) : { ...summary }
+      );
+    }
+  }
+
+  const looseRecords = records.filter(
+    record => !isAccumulator(record) && !coveredDays.has(record.date)
+  );
+
+  return { days, looseRecords };
+}
+
+/**
+ * 本月的用量汇总。
+ *
+ * 这个数字是用户唯一能看到的账，所以它必须是真的。明细记录只保留最近
+ * 500 条，超过的部分由累加器（accumulator）记住：每发生一次调用就立刻
+ * 累加一次，因此本月的调用次数和 token 不再被明细条数截断。
+ */
 export function summarizeUsageForMonth(
   records: TranslationUsageRecord[],
   now: Date = new Date()
 ): UsageOverview {
   const monthPrefix = formatLocalMonth(now);
-  const monthRecords = records.filter(record =>
-    record.date.startsWith(monthPrefix)
-  );
-  const billable = monthRecords.filter(record => !record.cached);
-  const cachedCount = monthRecords.length - billable.length;
+  const { days, looseRecords } = collectUsage(records);
+
+  let translations = 0;
+  let billableCalls = 0;
+  let cachedCalls = 0;
+  let tokens = 0;
+
+  for (const [day, summary] of days) {
+    if (!day.startsWith(monthPrefix)) {
+      continue;
+    }
+    translations += summary.translationCount;
+    cachedCalls += summary.cachedCount;
+    billableCalls += summary.translationCount - summary.cachedCount;
+    tokens += summary.totalTokens;
+  }
+
+  for (const record of looseRecords) {
+    if (!record.date.startsWith(monthPrefix)) {
+      continue;
+    }
+    translations += 1;
+    if (record.cached) {
+      cachedCalls += 1;
+    } else {
+      billableCalls += 1;
+      tokens += record.usage.totalTokens;
+    }
+  }
 
   return {
-    translations: monthRecords.length,
-    billableCalls: billable.length,
-    tokens: billable.reduce(
-      (total, record) => total + record.usage.totalTokens,
-      0
-    ),
+    translations,
+    billableCalls,
+    tokens,
     cacheHitRate:
-      monthRecords.length > 0
-        ? Math.round((cachedCount / monthRecords.length) * 100)
-        : 0,
+      translations > 0 ? Math.round((cachedCalls / translations) * 100) : 0,
   };
 }
 
-function isCurrentMonth(dateStr: string): boolean {
-  return dateStr.startsWith(formatLocalMonth());
+// ==================== Accumulator ====================
+
+/**
+ * The id of the accumulator that holds a month's running totals.
+ *
+ * It used to carry a per-context id: every extension context counted its
+ * own calls, and the summary added the accumulators up. The cost was that
+ * the id changed every time a context started — the worker is torn down
+ * after half a minute of idle and comes back with a new one, and every
+ * page load is a new content script — so the list grew by one accumulator
+ * per process start, month after month, and every single call rewrote all
+ * of it.
+ *
+ * One accumulator per month is enough now, because there is exactly one
+ * writer: the worker. The content script reports its cache hits to the
+ * worker instead of writing them itself, so every count in the month lands
+ * in the same record, and the worker reads what is already stored before it
+ * writes — the merge keeps the newer copy, which is the one that includes
+ * everything counted before it.
+ */
+function accumulatorId(month: string): string {
+  return historyLoaded
+    ? `${ACCUMULATOR_ID_PREFIX}${month}`
+    : `${ACCUMULATOR_ID_PREFIX}early-${month}`;
+}
+
+/**
+ * The month before the given one, as `YYYY-MM`.
+ */
+function previousMonth(month: string): string {
+  const [year, monthNumber] = month.split('-').map(Number);
+  if (!year || !monthNumber) {
+    return month;
+  }
+  const firstOfPrevious = new Date(year, monthNumber - 2, 1);
+  return formatLocalMonth(firstOfPrevious);
+}
+
+/**
+ * Whether the stored history has been read into this context yet.
+ *
+ * A call can be recorded before the first read comes back — the worker
+ * starts, a translation finishes, and the record is written while the
+ * history is still on its way. The counts that are already stored are not
+ * known at that point, so the accumulator gets its own id: the merge keeps
+ * both and the summary adds them up, exactly as the old per-context ids
+ * did. Once the history is in, everything lands in the month's own
+ * accumulator.
+ */
+let historyLoaded = false;
+
+/**
+ * Drop the accumulators of the months nobody looks at any more.
+ *
+ * The summary reports the current month and the daily chart covers the
+ * last thirty days, so the month before this one is the oldest one that can
+ * still be read. Everything older is dead weight — and dead weight that
+ * grows, because a record is never dropped on its own.
+ */
+function dropStaleAccumulators(
+  records: TranslationUsageRecord[],
+  now: Date = new Date()
+): TranslationUsageRecord[] {
+  const oldest = previousMonth(formatLocalMonth(now));
+  return records.filter(
+    record => !isAccumulator(record) || record.date.slice(0, 7) >= oldest
+  );
+}
+
+function createAccumulatorRecord(args: {
+  id: string;
+  month: string;
+  byDay: Record<string, DailyUsageSummary>;
+  clearedAt: number;
+  timestamp: number;
+  provider: ProviderType;
+}): TranslationUsageRecord {
+  return {
+    id: args.id,
+    timestamp: args.timestamp,
+    date: args.month,
+    provider: args.provider,
+    usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+    cached: false,
+    accumulator: { byDay: args.byDay, clearedAt: args.clearedAt },
+  };
+}
+
+/**
+ * Fold a call into the accumulator of the month it belongs to.
+ *
+ * The detail record is kept as well: it is what the user sees in the
+ * history, and what the daily chart falls back to. The accumulator is what
+ * survives the detail list being capped.
+ */
+function withAccumulator(
+  records: TranslationUsageRecord[],
+  record: TranslationUsageRecord,
+  clearedAt: number
+): TranslationUsageRecord[] {
+  const month = record.date.slice(0, 7);
+  const id = accumulatorId(month);
+  const existing = records.find(entry => entry.id === id);
+  const byDay = { ...(existing?.accumulator?.byDay ?? {}) };
+  byDay[record.date] = applyRecordToDay(
+    byDay[record.date] ?? createDaySummary(record.date),
+    record
+  );
+
+  const accumulator = createAccumulatorRecord({
+    id,
+    month,
+    byDay,
+    clearedAt,
+    timestamp: record.timestamp,
+    provider: record.provider,
+  });
+
+  return [...records.filter(entry => entry.id !== id), accumulator];
+}
+
+/**
+ * Account for the calls that were recorded before the accumulator existed.
+ *
+ * The seed entry is created once, from the history that is on disk, and it
+ * is not per-context: those calls are the same calls for every tab, so
+ * exactly one entry may claim them. Without it, a user who upgrades
+ * mid-month would see the calls they made before the upgrade disappear from
+ * the bill as soon as the accumulator for that month exists.
+ */
+function withLegacySeed(
+  records: TranslationUsageRecord[],
+  clearedAt: number
+): TranslationUsageRecord[] {
+  const legacy = records.filter(
+    record => !isAccumulator(record) && record.accumulated !== true
+  );
+  if (legacy.length === 0) {
+    return records;
+  }
+
+  const byMonth = new Map<string, Record<string, DailyUsageSummary>>();
+  for (const record of legacy) {
+    const month = record.date.slice(0, 7);
+    const days = byMonth.get(month) ?? {};
+    days[record.date] = applyRecordToDay(
+      days[record.date] ?? createDaySummary(record.date),
+      record
+    );
+    byMonth.set(month, days);
+  }
+
+  const seeds = [...byMonth.entries()]
+    .filter(
+      ([month]) =>
+        !records.some(entry => entry.id === `${LEGACY_SEED_ID}-${month}`)
+    )
+    .map(([month, byDay]) =>
+      createAccumulatorRecord({
+        id: `${LEGACY_SEED_ID}-${month}`,
+        month,
+        byDay,
+        clearedAt,
+        timestamp: nextTimestamp(),
+        provider: 'openai-compatible',
+      })
+    );
+
+  return [...records, ...seeds];
 }
 
 // ==================== Record identity ====================
@@ -321,6 +675,9 @@ function normalizeRecord(value: unknown): TranslationUsageRecord | null {
       ? rawId
       : legacyRecordId(timestamp, provider, totalTokens, cached);
 
+  const accumulated = value['accumulated'] === true;
+  const accumulator = normalizeAccumulator(value['accumulator']);
+
   return {
     id,
     timestamp,
@@ -328,6 +685,74 @@ function normalizeRecord(value: unknown): TranslationUsageRecord | null {
     provider,
     usage: { promptTokens, completionTokens, totalTokens },
     cached,
+    ...(accumulated ? { accumulated: true } : {}),
+    ...(accumulator ? { accumulator } : {}),
+  };
+}
+
+function toProviderCounts(
+  value: unknown
+): Partial<Record<ProviderType, number>> {
+  const counts: Partial<Record<ProviderType, number>> = {};
+  if (!isRecord(value)) {
+    return counts;
+  }
+  for (const [provider, count] of Object.entries(value)) {
+    if (isProviderType(provider) && isFiniteNumber(count)) {
+      counts[provider] = count;
+    }
+  }
+  return counts;
+}
+
+/**
+ * Turn an untrusted stored accumulator into a usable one.
+ *
+ * A malformed accumulator is dropped rather than repaired: half a month of
+ * totals is worse than none, because the summary would then under-report
+ * the bill.
+ */
+function normalizeAccumulator(value: unknown): UsageAccumulator | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const rawByDay = value['byDay'];
+  if (!isRecord(rawByDay)) {
+    return undefined;
+  }
+  const byDay: Record<string, DailyUsageSummary> = {};
+  for (const [day, summary] of Object.entries(rawByDay)) {
+    if (!isRecord(summary)) {
+      continue;
+    }
+    const translationCount = summary['translationCount'];
+    const cachedCount = summary['cachedCount'];
+    const totalTokens = summary['totalTokens'];
+    if (
+      !isFiniteNumber(translationCount) ||
+      !isFiniteNumber(cachedCount) ||
+      !isFiniteNumber(totalTokens)
+    ) {
+      continue;
+    }
+    byDay[day] = {
+      date: day,
+      totalTokens,
+      promptTokens: isFiniteNumber(summary['promptTokens'])
+        ? (summary['promptTokens'] as number)
+        : 0,
+      providers: toProviderCounts(summary['providers']),
+      completionTokens: isFiniteNumber(summary['completionTokens'])
+        ? (summary['completionTokens'] as number)
+        : 0,
+      translationCount,
+      cachedCount,
+    };
+  }
+  const rawClearedAt = value['clearedAt'];
+  return {
+    byDay,
+    clearedAt: isFiniteNumber(rawClearedAt) ? rawClearedAt : 0,
   };
 }
 
@@ -363,6 +788,11 @@ function toSnapshot(value: unknown): UsageSnapshot {
  * The records already in `base` keep their object, so a change notification
  * that echoes back what this context just wrote is recognised as "nothing
  * new" instead of triggering another write.
+ *
+ * An accumulator is the exception: its id is stable for the life of a
+ * context, and every call adds to it, so the newer version is the one with
+ * the larger total. Keeping the older one would drop calls that were
+ * already counted.
  */
 function unionRecords(
   base: TranslationUsageRecord[],
@@ -374,7 +804,12 @@ function unionRecords(
   }
   for (const record of incoming) {
     const id = recordId(record);
-    if (!byId.has(id)) {
+    const existing = byId.get(id);
+    if (!existing) {
+      byId.set(id, record);
+      continue;
+    }
+    if (isAccumulator(record) && record.timestamp > existing.timestamp) {
       byId.set(id, record);
     }
   }
@@ -398,24 +833,39 @@ function sortRecords(
 }
 
 /**
- * Keep the newest `MAX_RECORDS` records.
+ * Keep the newest `MAX_RECORDS` detail records.
+ *
+ * The accumulators are not detail records and are never dropped here: they
+ * are the running totals, and the whole point of them is that they outlive
+ * the list they were counted from. They sit behind the details, so the
+ * newest call is still the first entry of the list.
+ *
+ * The months nobody reads any more are dropped, though: an accumulator is
+ * the one record that is never evicted, so without this the list would
+ * grow by one entry per month, forever, and every call would rewrite all
+ * of them.
  */
 function capRecords(
-  records: TranslationUsageRecord[]
+  records: TranslationUsageRecord[],
+  now: Date = new Date()
 ): TranslationUsageRecord[] {
-  if (records.length <= MAX_RECORDS) {
-    return records;
-  }
-  return sortRecords(records).slice(0, MAX_RECORDS);
+  const accumulators = records.filter(record => isAccumulator(record));
+  const details = records.filter(record => !isAccumulator(record));
+  const cappedDetails =
+    details.length <= MAX_RECORDS
+      ? details
+      : sortRecords(details).slice(0, MAX_RECORDS);
+  return [
+    ...sortRecords(cappedDetails),
+    ...dropStaleAccumulators(accumulators, now),
+  ];
 }
 
 /**
  * The month total, recomputed whenever the records change.
  */
 function computeMonthlyTokens(records: TranslationUsageRecord[]): number {
-  return records
-    .filter(record => isCurrentMonth(record.date) && !record.cached)
-    .reduce((total, record) => total + record.usage.totalTokens, 0);
+  return summarizeUsageForMonth(records).tokens;
 }
 
 /**
@@ -436,6 +886,10 @@ function sameRecords(
  * clear is treated as cleared too. The user's intent — "erase my history" —
  * wins the tie, and a record from another context that lands in the same
  * millisecond is one the user never saw anyway.
+ *
+ * An accumulator carries the clear stamp it was written at instead of its
+ * timestamp: it is dropped when it was last written before the clear, which
+ * is the same intent applied to the running totals.
  */
 function applyClearStamp(
   records: TranslationUsageRecord[],
@@ -444,7 +898,12 @@ function applyClearStamp(
   if (clearedAt <= 0) {
     return records;
   }
-  return records.filter(record => record.timestamp > clearedAt);
+  return records.filter(record => {
+    if (isAccumulator(record)) {
+      return (record.accumulator?.clearedAt ?? 0) >= clearedAt;
+    }
+    return record.timestamp > clearedAt;
+  });
 }
 
 // ==================== Chrome Local Storage Adapter ====================
@@ -527,7 +986,7 @@ function mergeSnapshots(
     unionRecords(base.records, incoming.records),
     clearedAt
   );
-  return { records: capRecords(sortRecords(records)), clearedAt };
+  return { records: capRecords(records), clearedAt };
 }
 
 const chromeLocalStorage = {
@@ -578,13 +1037,16 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
           id: nextRecordId(),
           timestamp: nextTimestamp(),
           date: todayString(),
+          // The accumulator counts this call from now on, so the detail
+          // record must not be counted a second time.
+          accumulated: true,
         };
 
         set(state => {
-          // 最多保留 500 条记录（LRU 淘汰旧记录）
-          const newRecords = capRecords(
-            sortRecords(unionRecords(state.records, [record]))
-          );
+          // 最多保留 500 条明细记录（LRU 淘汰旧记录）
+          const merged = unionRecords(state.records, [record]);
+          const withTotals = withAccumulator(merged, record, state.clearedAt);
+          const newRecords = capRecords(withTotals);
 
           return {
             records: newRecords,
@@ -602,36 +1064,26 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
         // 按日期聚合
         const byDate: Record<string, DailyUsageSummary> = {};
 
-        for (const record of records) {
-          if (record.date < cutoffStr) continue;
+        const addDay = (date: string, summary: DailyUsageSummary): void => {
+          if (date < cutoffStr) return;
+          const existing = byDate[date];
+          byDate[date] = existing
+            ? mergeDaySummaries(existing, summary)
+            : { ...summary, date };
+        };
 
-          if (!byDate[record.date]) {
-            byDate[record.date] = {
-              date: record.date,
-              totalTokens: 0,
-              promptTokens: 0,
-              completionTokens: 0,
-              translationCount: 0,
-              cachedCount: 0,
-              providers: {},
-            };
-          }
+        // 累加器里的每日合计
+        const { days: accumulated, looseRecords } = collectUsage(records);
+        for (const [date, summary] of accumulated) {
+          addDay(date, summary);
+        }
 
-          const day = byDate[record.date];
-          if (!day) {
-            continue;
-          }
-          day.translationCount++;
-
-          if (record.cached) {
-            day.cachedCount++;
-          } else {
-            day.totalTokens += record.usage.totalTokens;
-            day.promptTokens += record.usage.promptTokens;
-            day.completionTokens += record.usage.completionTokens;
-            day.providers[record.provider] =
-              (day.providers[record.provider] || 0) + 1;
-          }
+        // 没有被累加器覆盖的明细（升级前的历史）
+        for (const record of looseRecords) {
+          addDay(
+            record.date,
+            applyRecordToDay(createDaySummary(record.date), record)
+          );
         }
 
         return Object.values(byDate).sort((a, b) =>
@@ -641,24 +1093,37 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
 
       getSummary: () => {
         const { records, monthlyTokens } = get();
-        const apiRecords = records.filter(r => !r.cached);
-        const totalTokens = apiRecords.reduce(
-          (s, r) => s + r.usage.totalTokens,
-          0
-        );
+        const { days, looseRecords } = collectUsage(records);
+
+        let totalRecords = 0;
+        let billableRecords = 0;
+        let cachedRecords = 0;
+        let totalTokens = 0;
+
+        for (const summary of days.values()) {
+          totalRecords += summary.translationCount;
+          cachedRecords += summary.cachedCount;
+          billableRecords += summary.translationCount - summary.cachedCount;
+          totalTokens += summary.totalTokens;
+        }
+
+        for (const record of looseRecords) {
+          totalRecords += 1;
+          if (record.cached) {
+            cachedRecords += 1;
+          } else {
+            billableRecords += 1;
+            totalTokens += record.usage.totalTokens;
+          }
+        }
 
         return {
-          totalRecords: records.length,
+          totalRecords,
           totalTokens,
           monthlyTokens,
           avgTokensPerTranslation:
-            apiRecords.length > 0
-              ? Math.round(totalTokens / apiRecords.length)
-              : 0,
-          cacheHitRate:
-            records.length > 0
-              ? records.filter(r => r.cached).length / records.length
-              : 0,
+            billableRecords > 0 ? Math.round(totalTokens / billableRecords) : 0,
+          cacheHitRate: totalRecords > 0 ? cachedRecords / totalRecords : 0,
         };
       },
 
@@ -682,9 +1147,23 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
         records: state.records,
         clearedAt: state.clearedAt,
       }),
+      onRehydrateStorage: () => () => {
+        // The stored history is in: from here on the counts of the month go
+        // into the month's own accumulator.
+        historyLoaded = true;
+      },
       merge: (persistedState, currentState) => {
         const snapshot = toSnapshot(persistedState);
-        const records = applyClearStamp(snapshot.records, snapshot.clearedAt);
+        // A call recorded before the history finished loading must not be
+        // lost, so the two histories are merged instead of replaced.
+        const merged = unionRecords(
+          applyClearStamp(snapshot.records, snapshot.clearedAt),
+          applyClearStamp(currentState.records, snapshot.clearedAt)
+        );
+        // The calls that were recorded before the accumulator existed are
+        // taken over by the seed entry, so that dropping their details from
+        // the list does not drop them from the bill.
+        const records = capRecords(withLegacySeed(merged, snapshot.clearedAt));
         return {
           ...currentState,
           records,
@@ -764,12 +1243,7 @@ function applyExternalSnapshot(snapshot: UsageSnapshot): void {
     const state = useUsageStore.getState();
     const clearedAt = Math.max(state.clearedAt, snapshot.clearedAt);
     const merged = capRecords(
-      sortRecords(
-        applyClearStamp(
-          unionRecords(state.records, snapshot.records),
-          clearedAt
-        )
-      )
+      applyClearStamp(unionRecords(state.records, snapshot.records), clearedAt)
     );
 
     // Nothing new arrived: do not touch the state, and therefore do not

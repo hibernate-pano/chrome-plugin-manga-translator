@@ -28,10 +28,15 @@ export async function httpRequest<T = unknown>(
 ): Promise<HttpResponse<T>> {
   const { method = 'GET', headers = {}, body, timeout = 30000 } = options;
 
-  try {
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), timeout);
+  // The timer lives outside the `try` so that the `finally` below always
+  // cancels it. It used to be cleared on the success path only, which left a
+  // pending 30 s timer behind every request that threw — a timeout fires the
+  // abort on a controller nobody is waiting for, and in a service worker it
+  // keeps the worker alive for the length of the timeout.
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
+  try {
     const response = await fetch(url, {
       method,
       headers: {
@@ -41,8 +46,6 @@ export async function httpRequest<T = unknown>(
       body: body ? JSON.stringify(body) : undefined,
       signal: controller.signal,
     });
-
-    clearTimeout(timeoutId);
 
     if (!response.ok) {
       const errorText = await response.text().catch(() => response.statusText);
@@ -85,5 +88,7 @@ export async function httpRequest<T = unknown>(
       statusText: 'Unknown Error',
       error: 'Unknown network error',
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }

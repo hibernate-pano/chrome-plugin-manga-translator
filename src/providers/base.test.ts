@@ -77,9 +77,9 @@ describe('parseVisionResponse', () => {
       textAreas: [
         {
           x: -0.1,
-          y: 1.5,
+          y: 0.4,
           width: 2.0,
-          height: -0.5,
+          height: 0.5,
           originalText: 'test',
           translatedText: '测试',
         },
@@ -90,9 +90,84 @@ describe('parseVisionResponse', () => {
     const firstArea = result.textAreas[0];
 
     expect(firstArea?.x).toBe(0);
-    expect(firstArea?.y).toBe(1);
+    expect(firstArea?.y).toBe(0.4);
+    // 宽度被夹到 1，而 x=0，所以它仍然落在图里。
     expect(firstArea?.width).toBe(1);
-    expect(firstArea?.height).toBe(0);
+    expect(firstArea?.height).toBe(0.5);
+  });
+
+  it('refuses an answer that has no textAreas field at all', () => {
+    /*
+     * 「这一页没有文字」在提示词里写的是 `{"textAreas":[]}`。字段整个不见
+     * 了，只可能是模型没照格式来（大小写写错、换了字段名）。
+     *
+     * 以前这种回答被读成"一个文字区都没有"，然后作为"这一页确实没有文字"
+     * 缓存下来：用户付了钱，看到一页没翻的漫画，而且永远不会再问第二次。
+     * 抛错才是诚实的说法 —— 这一轮算失败，可以重试。
+     */
+    const response = JSON.stringify({
+      textareas: [
+        {
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'test',
+          translatedText: '测试',
+        },
+      ],
+    });
+
+    expect(() => parseVisionResponse(response)).toThrow(/textAreas/);
+  });
+
+  it('does not draw a translation that came back without a box', () => {
+    /*
+     * 模型忘了给坐标时，那句译文以前会被画成左上角一列单字 —— 盖在画面
+     * 上，而真正的气泡还留着原文。这种"画出来了"的假成功比"没画"更糟。
+     */
+    const response = JSON.stringify({
+      textAreas: [
+        { originalText: 'こんにちは', translatedText: '你好' },
+        {
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'test',
+          translatedText: '测试',
+        },
+      ],
+    });
+
+    const result = parseVisionResponse(response);
+
+    expect(result.textAreas).toHaveLength(1);
+    expect(result.textAreas[0]?.translatedText).toBe('测试');
+    // 放不下的那一个要记账：页面上少了一个气泡，用户得知道。
+    expect(result.unplacedCount).toBe(1);
+  });
+
+  it('pulls a box that runs past the edge back into the picture', () => {
+    // x=0.9、width=0.5 的框有四成在图外。以前渲染器会把面板往左挪，
+    // 译文于是画在模型没有指的地方；缩小框至少让它留在模型说的位置。
+    const response = JSON.stringify({
+      textAreas: [
+        {
+          x: 0.9,
+          y: 0.2,
+          width: 0.5,
+          height: 0.1,
+          originalText: 'test',
+          translatedText: '测试',
+        },
+      ],
+    });
+
+    const result = parseVisionResponse(response);
+
+    expect(result.textAreas[0]?.x).toBe(0.9);
+    expect(result.textAreas[0]?.width).toBeCloseTo(0.1);
   });
 
   it('should filter out invalid text areas', () => {
@@ -141,7 +216,7 @@ Hope this helps!`;
     expect(result.textAreas).toHaveLength(1);
   });
 
-  it('should parse valid hybrid JSON response without coordinates but with index', () => {
+  it('drops an area the model gave no box for, wherever it came from', () => {
     const response = JSON.stringify({
       textAreas: [
         {
@@ -154,16 +229,14 @@ Hope this helps!`;
 
     const result = parseVisionResponse(response);
 
-    expect(result.textAreas).toHaveLength(1);
-    expect(result.textAreas[0]).toEqual({
-      x: 0,
-      y: 0,
-      width: 0,
-      height: 0,
-      originalText: 'Hello',
-      translatedText: '你好',
-      index: 1,
-    });
+    // 没有框就没有地方画。留着它，译文会以最小字号落在左上角，盖在画面上，
+    // 而真正的气泡还留着原文 —— 一次"画出来了"的假成功。
+    //
+    // 编号救不了它：拼图条是一张真图，位置本来就有（提示词要的就是坐标），
+    // 编号是模型自己编的，认它反而会把译文画到别的块上去。丢掉，并且记进
+    // "没翻出来"的数字里，用户看得见。
+    expect(result.textAreas).toHaveLength(0);
+    expect(result.unplacedCount).toBe(1);
   });
 });
 
@@ -183,11 +256,18 @@ describe('getMangaTranslationPrompt', () => {
     expect(prompt).toContain('ratio');
   });
 
-  it('should return hybrid prompt when isHybridRegions is true', () => {
+  it('describes the strip as a stack of separate blocks', () => {
     const prompt = getMangaTranslationPrompt('zh-CN', 'faithful', true);
-    expect(prompt).toContain('numeric anchor label');
-    expect(prompt).toContain('index');
-    expect(prompt).toContain('Do NOT return coordinates');
+    // The strip is a stack of unrelated crops, and the prompt has to say so:
+    // the full-image prompt tells the model to merge a bubble's lines into
+    // one item, and on a strip that merges two different bubbles.
+    expect(prompt).toContain('SEPARATE cropped blocks');
+    expect(prompt).toContain('horizontal rule');
+    expect(prompt).toContain('NEVER merge text from two different blocks');
+    // Coordinates are still relative to the whole strip, so the boxes can be
+    // mapped back onto the crop they came from.
+    expect(prompt).toContain('THIS WHOLE IMAGE');
+    expect(prompt).toContain('0.0-1.0');
   });
 });
 
@@ -245,6 +325,35 @@ describe('getTranslationStyleInstruction', () => {
     expect(style).toContain('-요');
     expect(style).toContain('ㅋㅋ');
     expect(style).toContain('반말');
+  });
+
+  /**
+   * The style instruction used to name Chinese in every preset, so a user
+   * who picked English was told to write "polished natural Simplified
+   * Chinese" in the same request that asked for English.
+   */
+  it('does not tell the model to write Chinese when English was asked for', async () => {
+    const { getTranslationStyleInstruction } =
+      await import('@/utils/translation-style');
+    const style = getTranslationStyleInstruction('natural-zh', 'en');
+    expect(style).toContain('English');
+    expect(style).not.toContain('Simplified Chinese');
+    expect(style).not.toContain('Traditional Chinese');
+  });
+});
+
+describe('getMangaTranslationPrompt', () => {
+  it('names the target language and never contradicts it', async () => {
+    const { getMangaTranslationPrompt } = await import('@/providers/base');
+    const prompt = getMangaTranslationPrompt('en', 'natural-zh');
+    expect(prompt).toContain('translate to English');
+    expect(prompt).not.toContain('Simplified Chinese');
+  });
+
+  it('still asks for Chinese when Chinese is the target', async () => {
+    const { getMangaTranslationPrompt } = await import('@/providers/base');
+    const prompt = getMangaTranslationPrompt('zh-CN', 'natural-zh');
+    expect(prompt).toContain('Simplified Chinese');
   });
 });
 

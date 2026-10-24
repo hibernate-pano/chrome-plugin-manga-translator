@@ -1,10 +1,12 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import type { ProviderType } from '@/providers/base';
-import { providerRequiresApiKey } from '@/providers/base';
+import { providerRequiresApiKey } from '@/shared/local-providers';
 import {
   APP_CONFIG_STORAGE_KEY,
+  APP_CONFIG_VERSION,
   DEFAULT_CONFIG as SHARED_DEFAULT_CONFIG,
+  detectFlatConfigVersion,
   normalizeHostEntry,
   normalizeHostList,
   type RuntimeAppConfig,
@@ -237,7 +239,7 @@ function migratePersistedConfig(
   }
 
   // Already on v4 — pass through.
-  if ((version ?? 0) >= 4) {
+  if ((version ?? 0) >= APP_CONFIG_VERSION) {
     return persistedState;
   }
 
@@ -262,13 +264,17 @@ function migratePersistedConfig(
         ? {
             ...persistedState,
             state: { ...inner, overlayStyle: style },
-            version: 4,
+            version: APP_CONFIG_VERSION,
           }
-        : { ...persistedState, overlayStyle: style, version: 4 };
+        : {
+            ...persistedState,
+            overlayStyle: style,
+            version: APP_CONFIG_VERSION,
+          };
     }
     return isRecord(persistedState['state'])
-      ? { ...persistedState, version: 4 }
-      : { ...persistedState, version: 4 };
+      ? { ...persistedState, version: APP_CONFIG_VERSION }
+      : { ...persistedState, version: APP_CONFIG_VERSION };
   }
 
   // Already on v3 — pass through.
@@ -477,6 +483,28 @@ function mergePersistedConfig<S extends AppConfigState>(
   return merged as S;
 }
 
+/**
+ * Which shape version a flat config on disk holds.
+ *
+ * The old worker wrote a flat copy of whatever config it was reading, so a
+ * flat object on disk is a snapshot of the version the user was on — not
+ * necessarily the oldest one. Guessing "version 0" for it would replay the
+ * whole legacy migration over a perfectly modern config: the provider names
+ * would be remapped again, and `onboardingCompleted` — a field the v2→v3
+ * step adds — would never be set, so the user would be shown the first-run
+ * wizard again even though they had already been through it.
+ *
+ * `onboardingCompleted` arrived with v3 and is the field that dates a
+ * snapshot: the legacy names in `providers` are gone by then, so its
+ * presence means the flat object is already in the modern shape and only
+ * the last step (the opaque overlay background) is left to run.
+ *
+ * The rule itself lives in `@/shared/app-config`, because the worker has to
+ * agree with the store about which version a flat value is: two copies of
+ * the rule would drift, and the drift would show up as a user being shown
+ * the first-run wizard for the second time.
+ */
+
 const chromeStorage = {
   getItem: async (name: string): Promise<string | null> => {
     try {
@@ -492,10 +520,28 @@ const chromeStorage = {
       const parsed = JSON.parse(dataStr);
       if (parsed && parsed.state) {
         deobfuscateAllApiKeys(parsed.state);
-      } else {
-        deobfuscateAllApiKeys(parsed);
+        return JSON.stringify(parsed);
       }
-      return JSON.stringify(parsed);
+
+      // A flat object on disk is the shape the worker used to write before
+      // the envelope existed. Zustand rehydrates from `state`, so a flat
+      // object reads back as "nothing stored": the defaults are merged over
+      // the user's settings and written back, and the API key, endpoint,
+      // model and allowlist are gone for good.
+      //
+      // Wrapping the flat value here keeps it readable — the store's own
+      // migration upgrades it to the current version on the next write, and
+      // the user's settings survive that trip.
+      if (!isRecord(parsed)) {
+        // Not a config object at all. Hand it back untouched and let zustand
+        // decide what to do with it.
+        return JSON.stringify(parsed);
+      }
+      deobfuscateAllApiKeys(parsed);
+      return JSON.stringify({
+        state: parsed,
+        version: detectFlatConfigVersion(parsed),
+      });
     } catch (error) {
       console.error('[ConfigStore] getItem error:', error);
       return null;
@@ -507,6 +553,9 @@ const chromeStorage = {
       if (parsedValue && parsedValue.state) {
         // Remember the pre-obfuscation shape: the echo we get back is
         // deobfuscated before comparison, so the two forms must match.
+        // The copy that keeps the two forms the same is taken inside
+        // `rememberSelfWrite` — the obfuscation below rewrites the apiKey
+        // in place, and it would rewrite the remembered one with it.
         rememberSelfWrite(parsedValue.state);
         obfuscateAllApiKeys(parsedValue.state);
       } else {
@@ -700,7 +749,13 @@ export const useAppConfigStore = create<AppConfigState & AppConfigActions>()(
     {
       name: APP_CONFIG_STORAGE_KEY,
       storage: createJSONStorage(() => chromeStorage),
-      version: 4,
+      // The constant, not a literal. The worker stamps the same number into
+      // the same key (`src/background/config-writer.ts`), and the two writers
+      // have to agree: a store that writes one version while the worker
+      // writes another is how a user's stored configuration ends up replaced
+      // by defaults. A literal here is a version bump that silently splits
+      // them.
+      version: APP_CONFIG_VERSION,
       migrate: migratePersistedConfig,
       merge: mergePersistedConfig,
       partialize: state => {
@@ -795,9 +850,38 @@ let storageChangeListenerInitialized = false;
 const SELF_WRITE_LIMIT = 8;
 const recentSelfWrites: Array<Record<string, unknown>> = [];
 
+/**
+ * A deep copy of a persisted snapshot.
+ *
+ * The copy has to be deep. `pickConfigFields` only copies the top level, so
+ * the provider records inside are the very objects the caller obfuscates in
+ * place one line later — the remembered apiKey is rewritten to `obf:…` along
+ * with the one on its way to storage.
+ *
+ * That matters because the echo comes back *deobfuscated*: an obfuscated
+ * memory can never equal a plaintext echo, so the guard silently stopped
+ * firing. The write it was written for — a stale echo of an older write
+ * landing after a newer edit — was then applied as if it came from another
+ * context, and the user's freshly typed key was rolled back to the previous
+ * value without a word.
+ */
+function copyConfigSnapshot(
+  snapshot: Record<string, unknown>
+): Record<string, unknown> {
+  try {
+    return JSON.parse(JSON.stringify(snapshot)) as Record<string, unknown>;
+  } catch (error) {
+    // A snapshot that cannot be copied cannot be compared either. Dropping
+    // the entry costs one echo; throwing here would abort the write and
+    // lose the user's settings altogether.
+    console.error('[ConfigStore] 无法复制自写快照:', error);
+    return {};
+  }
+}
+
 function rememberSelfWrite(snapshot: unknown): void {
   const fields = pickConfigFields(snapshot, PERSISTED_CONFIG_FIELDS);
-  recentSelfWrites.push(fields);
+  recentSelfWrites.push(copyConfigSnapshot(fields));
   while (recentSelfWrites.length > SELF_WRITE_LIMIT) {
     recentSelfWrites.shift();
   }

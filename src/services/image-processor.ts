@@ -35,8 +35,6 @@ export interface ImageProcessingOptions {
    * of the whole image being downscaled to a thumbnail.
    */
   cropRegion?: { top: number; height: number };
-  /** Whether to add visual indices for hybrid region stitching */
-  isHybridRegions?: boolean;
 }
 
 interface ProcessedImage {
@@ -68,7 +66,7 @@ type FilledOptions = Omit<ImageProcessingOptions, 'cropRegion'> &
   Required<
     Pick<
       ImageProcessingOptions,
-      'maxSize' | 'quality' | 'format' | 'viewportCrop' | 'isHybridRegions'
+      'maxSize' | 'quality' | 'format' | 'viewportCrop'
     >
   > & {
     cropRegion?: { top: number; height: number };
@@ -84,7 +82,6 @@ export const DEFAULT_OPTIONS: FilledOptions = {
   format: 'jpeg',
   viewportCrop: false,
   cropRegion: undefined,
-  isHybridRegions: false,
 };
 
 export function shouldPreserveTallMangaPage(
@@ -589,6 +586,22 @@ export interface CombinedRegionSegment {
   sourceIndex: number;
   top: number;
   height: number;
+  /**
+   * Left edge of this crop inside the combined image.
+   *
+   * The crops are drawn 1:1 — no scaling — and centred horizontally, so the
+   * left edge is NOT always 0. Without it the caller cannot tell where a
+   * crop starts, and a box the model found inside the combined image cannot
+   * be mapped back onto the region it came from.
+   */
+  left: number;
+  /**
+   * Width of this crop inside the combined image.
+   *
+   * The scale between the combined image and the source region: the crop is
+   * the region, so its width in the combined image is the region's width.
+   */
+  width: number;
 }
 
 interface CombinedCroppedRegions {
@@ -724,13 +737,22 @@ export async function combineCroppedRegions(
 
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  if (croppedImages.length === 1 && !opts.isHybridRegions) {
+  if (croppedImages.length === 1) {
     const single = await imageFromBase64(croppedImages[0] ?? '');
     return {
       base64: croppedImages[0] ?? '',
       width: single.width,
       height: single.height,
-      segments: [{ index: 0, sourceIndex: 0, top: 0, height: single.height }],
+      segments: [
+        {
+          index: 0,
+          sourceIndex: 0,
+          top: 0,
+          height: single.height,
+          left: 0,
+          width: single.width,
+        },
+      ],
     };
   }
 
@@ -768,13 +790,23 @@ export async function combineCroppedRegions(
     maxWidth = Math.max(maxWidth, img.width);
   }
 
-  // Add spacing between regions
-  const spacing = 20;
+  /*
+   * 块与块之间要有一道看得见的界线。
+   *
+   * 这一叠不是一张漫画页，是一块一块互不相关的裁剪（每一块是 OCR 找到的
+   * 一个文字区）。以前块与块之间只有 20 像素的白 —— 对模型来说，两块
+   * 挨着的文字和一段话没有区别，于是它把相邻的两块当成同一个气泡，合成
+   * 一个大框。译文于是整段盖在其中一块上，另一块什么都没有，而这一轮
+   * 仍然被记成成功。
+   *
+   * 根因不是模型不听话，是这张图长得就不像"一块漫画页"。现在块与块之间
+   * 画一道横线：分界线是给模型看的，提示词里也写着"块之间有分隔线"。
+   */
+  const spacing = 32;
+  const ruleHeight = 2;
   totalHeight += spacing * (images.length - 1);
 
-  // Width budget for label column on the left
-  const labelWidth = opts.isHybridRegions ? 60 : 0;
-  const canvasWidth = maxWidth + labelWidth;
+  const canvasWidth = maxWidth;
 
   // Create canvas and draw all images
   const canvas = document.createElement('canvas');
@@ -798,36 +830,25 @@ export async function combineCroppedRegions(
     if (!img) continue;
     const sourceIndex = sourceIndexes[index] ?? index;
 
-    // Draw index anchor label if isHybridRegions is enabled
-    if (opts.isHybridRegions) {
-      // Vertically center the anchor label alongside the cropped region
-      const labelY = currentY + Math.max(0, (img.height - 40) / 2);
-      ctx.fillStyle = '#1e293b'; // Slate-800
-      ctx.beginPath();
-      if (typeof ctx.roundRect === 'function') {
-        ctx.roundRect(10, labelY, 40, 40, 8);
-      } else {
-        ctx.rect(10, labelY, 40, 40);
-      }
-      ctx.fill();
-
-      ctx.fillStyle = '#f8fafc'; // Slate-50
-      ctx.font = 'bold 20px system-ui, -apple-system, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.textBaseline = 'middle';
-      ctx.fillText(`${index + 1}`, 30, labelY + 20);
-    }
-
-    // Shift image drawing by labelWidth, centering horizontally in the remaining area
-    const x = labelWidth + Math.round((maxWidth - img.width) / 2);
+    // Center the crop horizontally in the strip.
+    const x = Math.round((maxWidth - img.width) / 2);
     ctx.drawImage(img, x, currentY);
     segments.push({
       index,
       sourceIndex,
       top: currentY,
       height: img.height,
+      left: x,
+      width: img.width,
     });
     currentY += img.height + spacing;
+
+    if (index < images.length - 1) {
+      // The rule sits in the middle of the gap between two blocks.
+      const ruleY = currentY - Math.round(spacing / 2);
+      ctx.fillStyle = '#cbd5e1'; // Slate-300
+      ctx.fillRect(0, ruleY, canvas.width, ruleHeight);
+    }
   }
 
   // Convert to base64

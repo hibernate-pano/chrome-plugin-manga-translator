@@ -43,7 +43,7 @@ import type {
 /** 翻译当前页面上的所有可翻译图片。 */
 export const COMMAND_TRANSLATE_PAGE = 'translate-page';
 
-/** 忽略缓存重新翻译当前页面。 */
+/** 忽略缓存重翻：整页重新翻译，不看缓存。 */
 export const COMMAND_FORCE_RETRANSLATE = 'force-retranslate';
 
 /** 清除当前页面上本扩展画出的所有译文覆盖层。 */
@@ -108,7 +108,7 @@ export const COMMAND_SHORTCUTS: Readonly<Record<CommandId, CommandShortcut>> = {
  */
 export const COMMAND_DESCRIPTIONS: Readonly<Record<CommandId, string>> = {
   [COMMAND_TRANSLATE_PAGE]: '翻译当前页面',
-  [COMMAND_FORCE_RETRANSLATE]: '忽略缓存重新翻译当前页面',
+  [COMMAND_FORCE_RETRANSLATE]: '忽略缓存重翻',
   [COMMAND_CLEAR_OVERLAYS]: '清除当前页面的译文覆盖层',
   [COMMAND_TOGGLE_READING_PANEL]: '显示或隐藏译文阅读面板',
 };

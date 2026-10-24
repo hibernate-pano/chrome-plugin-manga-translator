@@ -93,7 +93,7 @@ describe('P4 perf: long-session cleanup', () => {
     expect(stats.entryCount).toBeLessThanOrEqual(50);
   });
 
-  it('usage record store: capped at 500 (LRU-style)', () => {
+  it('usage record store: details capped at 500, the bill is not', () => {
     const usage = useUsageStore.getState();
     for (let i = 0; i < 600; i++) {
       usage.addRecord({
@@ -102,7 +102,12 @@ describe('P4 perf: long-session cleanup', () => {
         cached: false,
       });
     }
-    const summary = usage.getSummary();
-    expect(summary.totalRecords).toBeLessThanOrEqual(500);
+    const records = useUsageStore.getState().records;
+    const details = records.filter(record => record.accumulator === undefined);
+    // The detail list stays bounded...
+    expect(details.length).toBeLessThanOrEqual(500);
+    // ...but the number the user reads as their bill counts every call. It
+    // used to be capped at 500 too, which under-reported the month.
+    expect(usage.getSummary().totalRecords).toBe(600);
   });
 });

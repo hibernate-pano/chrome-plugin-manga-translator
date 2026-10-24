@@ -15,6 +15,7 @@ import {
   parseTranslationError,
   TranslationErrorCode,
 } from '@/utils/error-handler';
+import { summarizeUsageForMonth, useUsageStore } from '@/stores/usage-store';
 
 import { OpenAICompatibleProvider } from './openai-compatible-base';
 
@@ -133,7 +134,10 @@ describe('OpenAICompatibleProvider error status propagation', () => {
     await provider.analyzeAndTranslate(base64Image, 'zh-CN');
 
     const options = vi.mocked(httpRequest).mock.calls[0]?.[1];
-    expect(options?.timeout).toBe(30_000);
+    // 30 s was below what a `detail: 'high'` request with a 4096-token
+    // ceiling actually needs: the client gave up while the model was still
+    // working, and the provider billed for the abandoned request anyway.
+    expect(options?.timeout).toBe(90_000);
   });
 
   it('survives the background worker flattening the error to a string', async () => {
@@ -171,5 +175,251 @@ describe('OpenAICompatibleProvider error status propagation', () => {
     const friendly = parseTranslationError((error as Error).message);
     expect(friendly.code).toBe(TranslationErrorCode.CONTENT_BLOCKED);
     expect(friendly.retryable).toBe(false);
+  });
+});
+
+/**
+ * The token counts are the only number the extension has that says what a
+ * request cost.
+ *
+ * The response was parsed and the usage was thrown away, so the usage store
+ * never received a record and the popup's 「本月 N 次 API 调用」 said zero for
+ * the rest of the user's life no matter how much they were billed. These
+ * tests pin the capture at the only place it can be lost.
+ */
+describe('OpenAICompatibleProvider token usage capture', () => {
+  let provider: TestProvider;
+
+  beforeEach(() => {
+    provider = new TestProvider();
+    vi.mocked(httpRequest).mockReset();
+  });
+
+  function mockSuccess(data: unknown): void {
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data,
+    });
+  }
+
+  it('keeps the usage the service reported', async () => {
+    mockSuccess({
+      choices: [{ message: { content: '{"textAreas":[]}' } }],
+      usage: {
+        prompt_tokens: 1200,
+        completion_tokens: 340,
+        total_tokens: 1540,
+      },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    const response = await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+    expect(response.usage).toEqual({
+      promptTokens: 1200,
+      completionTokens: 340,
+      totalTokens: 1540,
+    });
+  });
+
+  it('still returns the parsed text areas alongside the usage', async () => {
+    mockSuccess({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              textAreas: [
+                {
+                  x: 0.1,
+                  y: 0.2,
+                  width: 0.3,
+                  height: 0.1,
+                  originalText: 'こんにちは',
+                  translatedText: '你好',
+                },
+              ],
+            }),
+          },
+        },
+      ],
+      usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    const response = await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+    expect(response.textAreas).toHaveLength(1);
+    expect(response.textAreas[0]?.translatedText).toBe('你好');
+    expect(response.usage?.totalTokens).toBe(15);
+  });
+
+  it('adds up the parts when the service reports no total', async () => {
+    mockSuccess({
+      choices: [{ message: { content: '{"textAreas":[]}' } }],
+      usage: { prompt_tokens: 100, completion_tokens: 20 },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    const response = await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+    expect(response.usage?.totalTokens).toBe(120);
+  });
+
+  it('reports no usage when the service reports none', async () => {
+    // Recording a zero would make a request that cost real money look like a
+    // free one, so the absence of a number has to stay an absence.
+    mockSuccess({
+      choices: [{ message: { content: '{"textAreas":[]}' } }],
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    const response = await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+    expect(response.usage).toBeUndefined();
+  });
+
+  it('reports no usage when the numbers are not numbers', async () => {
+    mockSuccess({
+      choices: [{ message: { content: '{"textAreas":[]}' } }],
+      usage: { prompt_tokens: 'many', completion_tokens: null },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    const response = await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+    expect(response.usage).toBeUndefined();
+  });
+});
+
+/**
+ * A 200 the model answered on is a request the service has already billed.
+ *
+ * The worker flattens errors to a string before the content script sees
+ * them, so the caller cannot record these; the provider is the last place
+ * that still knows the request was paid for.
+ */
+describe('OpenAICompatibleProvider billing on an unreadable answer', () => {
+  let provider: TestProvider;
+
+  beforeEach(() => {
+    provider = new TestProvider();
+    vi.mocked(httpRequest).mockReset();
+    useUsageStore.getState().clearAll();
+  });
+
+  function summary(): ReturnType<typeof summarizeUsageForMonth> {
+    return summarizeUsageForMonth(useUsageStore.getState().records);
+  }
+
+  it('records a billed call when the answer cannot be parsed', async () => {
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data: {
+        choices: [{ message: { content: 'I cannot help with that.' } }],
+        usage: { prompt_tokens: 900, completion_tokens: 100 },
+      },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).rejects.toThrow();
+
+    expect(summary().billableCalls).toBe(1);
+    expect(summary().tokens).toBe(1000);
+  });
+
+  it('records a billed call when the model returns no content', async () => {
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data: {
+        choices: [{ message: { content: '' } }],
+        usage: { prompt_tokens: 500, completion_tokens: 0 },
+      },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).rejects.toThrow();
+
+    expect(summary().billableCalls).toBe(1);
+    expect(summary().tokens).toBe(500);
+  });
+
+  it('records the call with zero tokens when the service reports none', async () => {
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data: { choices: [{ message: { content: 'not json at all' } }] },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).rejects.toThrow();
+
+    // The count is what the user reads as their bill; the tokens stay at
+    // zero rather than being invented.
+    expect(summary().billableCalls).toBe(1);
+    expect(summary().tokens).toBe(0);
+  });
+
+  it('records a billed call when the body cannot be read at all', async () => {
+    // A gateway that answers 200 with an HTML error page leaves no body to
+    // read. The model still ran and the service still billed for it, so
+    // this 2xx must not be the one that escapes the count.
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).rejects.toThrow();
+
+    expect(summary().billableCalls).toBe(1);
+    expect(summary().tokens).toBe(0);
+  });
+
+  it('does not record a 2xx that carries an error instead of an answer', async () => {
+    // A 2xx with an `error` field is the service reporting a refusal under
+    // a success status: the model did not run, so nothing was billed. It is
+    // the one 2xx that is not a bill — and the rule now says so out loud,
+    // so the next reader does not have to guess.
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data: { error: { message: 'insufficient balance' } },
+    });
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).rejects.toThrow();
+
+    expect(summary().billableCalls).toBe(0);
+  });
+
+  it('does not record a request the provider rejected', async () => {
+    mockFailure(401, 'Invalid API key');
+
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).rejects.toThrow();
+
+    // 401 was rejected before the model ran; nothing was billed.
+    expect(summary().billableCalls).toBe(0);
   });
 });

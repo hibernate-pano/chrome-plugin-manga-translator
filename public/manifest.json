@@ -42,7 +42,7 @@
         "default": "Ctrl+Shift+X",
         "mac": "Command+Shift+X"
       },
-      "description": "忽略缓存重新翻译当前页面"
+      "description": "忽略缓存重翻"
     },
     "clear-overlays": {
       "suggested_key": {

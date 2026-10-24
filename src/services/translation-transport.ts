@@ -34,6 +34,12 @@ interface TranslationTransportResponse {
   success: boolean;
   error?: string;
   textAreas?: TextArea[];
+  /**
+   * Bubbles the model found and translated but gave no box for.
+   *
+   * There is nowhere to draw them, so the caller has to say so.
+   */
+  unplacedCount?: number;
   pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
   cached?: boolean;
   diagnostics?: {
@@ -150,6 +156,7 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
       success: response.success,
       error: response.error,
       textAreas: response.textAreas,
+      unplacedCount: response.unplacedCount,
       pipeline: response.pipeline,
       cached: response.cached,
       diagnostics: response.job.diagnostics ?? undefined,

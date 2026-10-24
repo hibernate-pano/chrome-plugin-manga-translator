@@ -51,6 +51,29 @@ interface Entry {
 const PREVIEW_MAX_CHARS = 20;
 
 /**
+ * 滚动到某处时该用什么动画。
+ *
+ * 系统里开了"减少动态效果"的用户，被一段平滑滚动带着跑会晕 ——
+ * 尤其是漫画页这种又长又窄的内容。浏览器把这个设置交给了网页，
+ * 扩展自己的样式表管不到别人的页面（面板活在 shadow root 里），
+ * 所以这里问一次浏览器就够了。
+ *
+ * 三个滚动调用点共用这一个判断，别把 `matchMedia` 的表达式抄三遍：
+ * 抄一遍就有一处会漏。
+ */
+export function scrollBehavior(): ScrollBehavior {
+  if (
+    typeof window === 'undefined' ||
+    typeof window.matchMedia !== 'function'
+  ) {
+    return 'smooth';
+  }
+  return window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    ? 'auto'
+    : 'smooth';
+}
+
+/**
  * Where to cut the first bubble between the head and the body.
  *
  * A fixed cut at 20 characters lands wherever it lands: often in the middle
@@ -427,14 +450,14 @@ export class ReadingPanel {
     if (this.collapsed) {
       this.setCollapsed(false);
     }
-    entryNode.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    entryNode.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     entryNode.classList.add('flash');
     setTimeout(() => entryNode.classList.remove('flash'), this.highlightMs);
     // The badge the user clicked sits on the image, but a manga page is
     // usually taller than the screen. Bringing the image's top into view
     // takes the reader to where that page starts, and puts the badge back
     // in its natural corner.
-    entry?.image.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    entry?.image.scrollIntoView({ behavior: scrollBehavior(), block: 'start' });
   }
 
   /**
@@ -498,7 +521,7 @@ export class ReadingPanel {
   }
 
   private focusImage(entry: Entry): void {
-    entry.image.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    entry.image.scrollIntoView({ behavior: scrollBehavior(), block: 'center' });
     this.flashHighlight(entry.image);
     this.flashEntry(entry.node);
   }
@@ -545,9 +568,23 @@ export class ReadingPanel {
     const bodyTexts =
       split.rest.length > 0 ? [split.rest, ...texts.slice(1)] : texts.slice(1);
 
+    // The source text travels with the translation (`TextArea.originalText`
+    // is already populated by the model). The panel used to drop it, so the
+    // one surface that is *for reading* was the one surface where the
+    // original could not be read — a bilingual reader had nowhere to look.
+    const originals = entry.textAreas
+      .map(area => (area.originalText ?? '').trim())
+      .filter(text => text.length > 0);
+
     nodeSet(
       entry.node,
-      this.buildEntryInner(entry.index, preview, bodyTexts, texts.length > 0)
+      this.buildEntryInner(
+        entry.index,
+        preview,
+        bodyTexts,
+        texts.length > 0,
+        originals
+      )
     );
   }
 
@@ -555,7 +592,8 @@ export class ReadingPanel {
     index: number,
     preview: string,
     bodyTexts: string[],
-    hasText: boolean
+    hasText: boolean,
+    originals: string[] = []
   ): DocumentFragment {
     const frag = document.createDocumentFragment();
 
@@ -594,6 +632,45 @@ export class ReadingPanel {
       frag.appendChild(empty);
     }
 
+    // The original text, collapsed by default so it does not compete with
+    // the translation for attention, but always one click away.
+    if (originals.length > 0) {
+      const details = document.createElement('details');
+      details.className = 'entry-original';
+
+      const summary = document.createElement('summary');
+      summary.className = 'entry-original-summary';
+      summary.textContent = '原文';
+      // The summary sits inside the entry, and the entry scrolls its image
+      // into view when clicked. Expanding the original text therefore
+      // scrolled the manga page away from the panel the reader was reading
+      // — the one control that only reveals text was the one control that
+      // moved the page. The disclosure still toggles (the browser's own
+      // <summary> behaviour); only the bubble-up is stopped.
+      //
+      // The keyboard path needs the same guard: the entry also handles
+      // Enter/Space on keydown, and a summary focused by keyboard is
+      // exactly where that fires.
+      summary.addEventListener('click', event => {
+        event.stopPropagation();
+      });
+      summary.addEventListener('keydown', event => {
+        event.stopPropagation();
+      });
+
+      const list = document.createElement('ul');
+      list.className = 'entry-original-list';
+      originals.forEach(text => {
+        const li = document.createElement('li');
+        li.textContent = text;
+        list.appendChild(li);
+      });
+
+      details.appendChild(summary);
+      details.appendChild(list);
+      frag.appendChild(details);
+    }
+
     return frag;
   }
 
@@ -621,7 +698,7 @@ export class ReadingPanel {
     color: #e2e8f0;
     background: rgba(15, 23, 42, 0.94);
     backdrop-filter: blur(8px);
-    border: 1px solid rgba(148, 163, 184, 0.25);
+    border: 1px solid rgba(148, 163, 184, 0.6);
     border-radius: 12px;
     box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
     display: flex;
@@ -740,7 +817,12 @@ export class ReadingPanel {
     font-weight: 700;
   }
   .entry-preview {
-    font-size: 12px;
+    /* The translated line is the content of the panel; it was set at the
+       same 12px as the notes around it, and in a 320px column a long
+       sentence broke into unreadable stubs. 13px is the smallest step
+       that gives the text room without reflowing every entry into three
+       lines. */
+    font-size: 13px;
     color: #cbd5e1;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -757,7 +839,10 @@ export class ReadingPanel {
     padding: 0;
   }
   .entry-body li {
-    font-size: 12px;
+    /* The translation itself. It was smaller than the secondary notes
+       around it, which is backwards: this is the thing the reader came
+       for. */
+    font-size: 13px;
     color: #e2e8f0;
     line-height: 1.6;
     padding: 2px 0;
@@ -769,6 +854,42 @@ export class ReadingPanel {
     /* Same 3.22:1 -> 5.97:1 fix as #empty. */
     color: #94a3b8;
     font-style: italic;
+  }
+  /* The source text, one click away. The summary is a real <summary>, so it
+     gets the browser's own expand behaviour and keyboard handling for free —
+     it only needs the list marker removed and the panel's own focus colour. */
+  .entry-original {
+    margin-top: 6px;
+    padding-left: 28px;
+  }
+  .entry-original-summary {
+    cursor: pointer;
+    list-style: none;
+    font-size: 11px;
+    color: #94a3b8;
+    transition: color 0.15s;
+  }
+  .entry-original-summary::-webkit-details-marker {
+    display: none;
+  }
+  .entry-original-summary:hover {
+    color: #cbd5e1;
+  }
+  .entry-original-summary:focus-visible {
+    outline: 2px solid #22d3ee;
+    outline-offset: 2px;
+    border-radius: 2px;
+  }
+  .entry-original-list {
+    list-style: none;
+    margin: 4px 0 0;
+    padding: 0;
+  }
+  .entry-original-list li {
+    font-size: 11px;
+    color: #94a3b8;
+    line-height: 1.6;
+    padding: 1px 0;
   }
 </style>
 `;

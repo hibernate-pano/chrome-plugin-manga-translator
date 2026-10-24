@@ -18,10 +18,40 @@ import {
   getMangaTranslationPrompt,
   parseVisionResponse,
 } from './base';
+import type { TokenUsageInfo } from './base';
+import { recordBilledRequest } from './usage-recording';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 
 const DEFAULT_MODEL = 'llava';
 const DEFAULT_BASE_URL = 'http://localhost:11434';
+
+/**
+ * The token counts Ollama reports.
+ *
+ * A local model costs nothing, but the counts are still worth keeping: they
+ * are the only signal the user has for how much their machine was doing, and
+ * the usage panel counts the calls whatever the provider charges for them.
+ *
+ * Older Ollama builds report no counts at all. That is reported as no usage
+ * rather than as zero — the caller decides what an absent number means.
+ */
+function normalizeOllamaUsage(
+  data: OllamaGenerateResponse
+): TokenUsageInfo | null {
+  if (data.prompt_eval_count === undefined && data.eval_count === undefined) {
+    return null;
+  }
+  const promptTokens = Number(data.prompt_eval_count ?? 0);
+  const completionTokens = Number(data.eval_count ?? 0);
+  if (!Number.isFinite(promptTokens) || !Number.isFinite(completionTokens)) {
+    return null;
+  }
+  return {
+    promptTokens,
+    completionTokens,
+    totalTokens: promptTokens + completionTokens,
+  };
+}
 
 /**
  * Timeout for a generation request.
@@ -51,6 +81,10 @@ interface OllamaGenerateResponse {
   response: string;
   done: boolean;
   error?: string;
+  /** Tokens spent on the prompt. Ollama reports these on every generation. */
+  prompt_eval_count?: number;
+  /** Tokens produced by the model. */
+  eval_count?: number;
 }
 
 interface OllamaTagsResponse {
@@ -140,14 +174,35 @@ export class OllamaProvider implements VisionProvider {
     const data = (await response.json()) as OllamaGenerateResponse;
 
     if (data.error) {
+      // A 2xx that carries an error is a refusal, not a model answer — the
+      // model did not run, so nothing was billed. The rule lives in
+      // `usage-recording.ts`; this is the branch that obeys it.
       throw new Error(`Ollama error: ${data.error}`);
     }
 
     if (!data.response) {
+      // The model ran and answered with nothing we can use. A local model
+      // does not bill anybody, but the request still happened, and the
+      // usage panel is the number the user reads as "how much work did
+      // this page cost me". Not counting it here — while the cloud
+      // provider counts its own unreadable answers — made the two provider
+      // families disagree about what a request is.
+      recordBilledRequest(this.type, null);
       throw new Error('Ollama returned empty response');
     }
 
-    return parseVisionResponse(data.response);
+    let parsed: VisionResponse;
+    try {
+      parsed = parseVisionResponse(data.response);
+    } catch (error) {
+      // The answer arrived and could not be read: truncated JSON, plain
+      // text, a model that ignored the format. The request happened.
+      recordBilledRequest(this.type, normalizeOllamaUsage(data));
+      throw error;
+    }
+
+    const usage = normalizeOllamaUsage(data);
+    return usage ? { ...parsed, usage } : parsed;
   }
 
   async validateConfig(): Promise<ValidationResult> {

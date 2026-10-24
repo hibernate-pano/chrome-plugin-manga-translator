@@ -275,11 +275,21 @@ function checkContentScriptSize() {
  * Type-only imports are erased at compile time and are not edges in the
  * bundle graph, so they are not followed. That distinction matters: a
  * `import type { ProviderSettings }` is documentation, not a dependency.
+ *
+ * `src/utils/crypto.ts` is in the list for a related reason. It holds no
+ * key, but it holds the *salt* and the XOR routine that turn a stored `obf:`
+ * value back into plaintext, so a content script that could reach it could
+ * un-obfuscate the key it reads out of storage. The salt check further down
+ * only looks at web-accessible files, and the content script is not one — so
+ * without this entry the build gate and the test gate would cover different
+ * module sets, and "just run `pnpm build`" would quietly let the
+ * obfuscation code into the bundle.
  */
 const CREDENTIAL_MODULES = [
   'src/shared/env-credentials.generated.ts',
   'src/shared/env-credentials.ts',
   'src/shared/preloaded-config.ts',
+  'src/utils/crypto.ts',
 ];
 
 /**

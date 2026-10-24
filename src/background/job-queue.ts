@@ -227,6 +227,43 @@ export class BackgroundJobQueue {
     return promise;
   }
 
+  /**
+   * Drop every job that has not started yet.
+   *
+   * The master switch was turned off while the queue still held work. Each
+   * of those jobs would have become a real, billed request, so they are
+   * dropped rather than started.
+   *
+   * Running jobs are left alone: their request is already on the wire and
+   * cannot be recalled. The caller re-checks the switch immediately before
+   * every request, so a job that has not started yet never spends anything
+   * either.
+   *
+   * The dropped jobs' promises are rejected, so whoever is waiting on them
+   * learns why instead of hanging until the worker is evicted.
+   *
+   * @returns how many jobs were dropped.
+   */
+  cancelAll(reason = 'Translation cancelled'): number {
+    if (this.pending.length === 0) {
+      return 0;
+    }
+
+    const dropped = this.pending.splice(0, this.pending.length);
+    for (const job of dropped) {
+      this.updateJob(job.job.jobId, { state: 'cancelled' });
+      // Clear this job's own dedup entry, exactly as a completion would:
+      // a cancelled job is no longer live, and leaving the key mapped would
+      // make the next request for the same image collapse onto a promise
+      // that has already been rejected.
+      if (job.dedupEntry) {
+        this.releaseDedupEntry(job.job.pageKey, job.dedupEntry);
+      }
+      job.reject(new Error(reason));
+    }
+    return dropped.length;
+  }
+
   private getCurrentLimit(): number {
     let currentLimit = this.maxConcurrent;
     const nextJob = this.pending[0];
@@ -240,11 +277,22 @@ export class BackgroundJobQueue {
         const runningJobs = Array.from(this.jobs.values()).filter(
           j => j.state === 'running'
         );
-        // 如果运行中的任务全部是低优先级预载任务，且至少有一个这样的任务在运行
+        /*
+         * 运行中的任务全是「读者没在看的」时，借一个通道给急的那个。
+         *
+         * 「读者没在看的」= 页面下面还没滚到的图（`next-up`）、预热缓存的
+         * 请求、之前失败后重排的请求 —— 也就是除了「用户正盯着的那张」和
+         * 「用户点名要重试的那几张」以外的一切。
+         *
+         * 以前这个判断只认 `warm-cache` 和 `deferred-failure`，而没有任何
+         * 地方会产出这两个标记，于是这条规则一次也没有生效过：读者正在看的
+         * 那张图，仍然要等页面底下的图翻完才轮到。
+         */
         const allRunningAreLowPriority =
           runningJobs.length > 0 &&
           runningJobs.every(
             j =>
+              j.priorityClass === 'next-up' ||
               j.priorityClass === 'warm-cache' ||
               j.priorityClass === 'deferred-failure'
           );
@@ -316,11 +364,14 @@ export class BackgroundJobQueue {
     while (this.pending.length > 0) {
       const currentLimit = this.getCurrentLimit();
       if (this.activeCount >= currentLimit) {
-        // Retry after the current limit update is applied
-        this.drainTimeout = setTimeout(() => {
-          this.drainTimeout = null;
-          this.drain();
-        }, 0);
+        // At capacity: stop, and wait for something to make room.
+        //
+        // This used to re-arm `setTimeout(drain, 0)`, which turned a full
+        // queue into a ~250 Hz spin for as long as the chapter lasted — the
+        // worker burned CPU doing nothing while the user waited for a
+        // translation. Nothing changes the capacity from here: a job that
+        // finishes calls `drain()` in its `finally`, and
+        // `updateMaxConcurrent` calls it too.
         return;
       }
 

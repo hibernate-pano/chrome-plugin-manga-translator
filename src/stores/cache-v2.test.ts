@@ -42,6 +42,10 @@ interface ChromeHarness {
    * snapshot.
    */
   clearListeners: () => void;
+  /** Hold every storage read until `resumeReads`. */
+  pauseReads: () => void;
+  /** Let the held reads answer. */
+  resumeReads: () => void;
 }
 
 /**
@@ -56,6 +60,8 @@ const harness: ChromeHarness = vi.hoisted(() => {
   const queued: Array<() => void> = [];
   let writes = 0;
   let deliveryPaused = false;
+  let readsPaused = false;
+  const blockedReads: Array<() => void> = [];
 
   const deliver = (fn: () => void) => {
     if (deliveryPaused) {
@@ -79,6 +85,13 @@ const harness: ChromeHarness = vi.hoisted(() => {
     storage: {
       local: {
         get: async (keys: string | string[]) => {
+          if (readsPaused) {
+            // Hold the read, so a test can look at the store while the
+            // stored snapshot is still on its way.
+            await new Promise<void>(resolve => {
+              blockedReads.push(resolve);
+            });
+          }
           const list = Array.isArray(keys) ? keys : [keys];
           const out: Record<string, unknown> = {};
           for (const key of list) {
@@ -158,6 +171,16 @@ const harness: ChromeHarness = vi.hoisted(() => {
     clearListeners: () => {
       listeners.length = 0;
     },
+    pauseReads: () => {
+      readsPaused = true;
+    },
+    resumeReads: () => {
+      readsPaused = false;
+      while (blockedReads.length > 0) {
+        const release = blockedReads.shift();
+        if (release) release();
+      }
+    },
   };
 });
 
@@ -186,6 +209,8 @@ type CacheStore = {
       maxEntries: number;
       oldestEntry: number | null;
       newestEntry: number | null;
+      atCapacity: boolean;
+      evictedCount: number;
     };
   };
 };
@@ -276,9 +301,43 @@ describe('translation cache store', () => {
 
     const stats = state.getStats();
     expect(stats.entryCount).toBe(2);
-    expect(stats.maxEntries).toBe(100);
+    expect(stats.maxEntries).toBe(400);
     expect(stats.oldestEntry).toBeTypeOf('number');
     expect(stats.newestEntry).toBeTypeOf('number');
+  });
+
+  it('keeps a reading session worth of pages, not two chapters', async () => {
+    const store = await loadTab();
+    const state = store.getState();
+    for (let index = 0; index < 120; index += 1) {
+      state.set(
+        `hash-${index}`,
+        makeResult(String(index)),
+        'openai-compatible'
+      );
+    }
+
+    // 120 pages is three chapters. With the old cap of 100 the first twenty
+    // were evicted, and scrolling back to them billed the user again.
+    expect(state.has('hash-0')).toBe(true);
+    expect(state.getStats().entryCount).toBe(120);
+    expect(state.getStats().atCapacity).toBe(false);
+  });
+
+  it('tells the caller when the cache is at its cap', async () => {
+    const store = await loadTab();
+    const state = store.getState();
+    state.setMaxEntries(2);
+    state.set('hash-1', makeResult('1'), 'openai-compatible');
+    state.set('hash-2', makeResult('2'), 'openai-compatible');
+    expect(state.getStats().atCapacity).toBe(true);
+    expect(state.getStats().evictedCount).toBe(0);
+
+    state.set('hash-3', makeResult('3'), 'openai-compatible');
+    // One entry was dropped to make room: the popup can now say that older
+    // translations will have to be paid for again if the user goes back.
+    expect(state.getStats().evictedCount).toBe(1);
+    expect(state.has('hash-1')).toBe(false);
   });
 
   it('cleanup keeps the newest entries within maxEntries', async () => {
@@ -421,6 +480,47 @@ describe('multi-tab cache consistency', () => {
     expect(Object.keys(storedEntries())).toEqual([]);
   });
 
+  it('records one deletion per entry, so a stale tab cannot undo a clear', async () => {
+    // 「清空缓存」 writes a tombstone for every entry. The tombstone map used
+    // to be capped at 200 while the cache holds 400, so half the deletions
+    // were dropped: the counter said 0, the storage still answered "empty",
+    // and the next context that wrote back its pre-clear snapshot resurrected
+    // the other half. The user cleared a cache that quietly refilled.
+    const tabA = await loadTab();
+    for (let i = 0; i < 400; i++) {
+      tabA
+        .getState()
+        .set(`old-${i}`, makeResult(`text ${i}`), 'openai-compatible');
+    }
+    await settle();
+
+    const staleEntries = storedEntries();
+    expect(Object.keys(staleEntries)).toHaveLength(400);
+
+    tabA.getState().clear();
+    await settle();
+
+    const cleared = harness.data[CACHE_KEY] as {
+      state: {
+        entries: Record<string, unknown>;
+        removed: Record<string, unknown>;
+      };
+    };
+    expect(Object.keys(cleared.state.entries)).toHaveLength(0);
+    expect(Object.keys(cleared.state.removed)).toHaveLength(400);
+
+    // A context that missed the clear writes its own snapshot back: the
+    // entries are still there, and only the tombstones can tell them apart
+    // from live ones.
+    cleared.state.entries = staleEntries;
+
+    const tabB = await loadTab();
+    tabB.getState().set('fresh', makeResult('new'), 'openai-compatible');
+    await settle();
+
+    expect(Object.keys(storedEntries())).toEqual(['fresh']);
+  });
+
   it('rehydrates a stored snapshot into a freshly opened tab', async () => {
     const tabA = await loadTab();
     tabA.getState().set('hash-X', makeResult('from A'), 'openai-compatible');
@@ -428,6 +528,37 @@ describe('multi-tab cache consistency', () => {
 
     const tabB = await loadTab();
     expect(tabB.getState().has('hash-X')).toBe(true);
+  });
+
+  it('does not answer a lookup before the stored cache has arrived', async () => {
+    const tabA = await loadTab();
+    tabA.getState().set('hash-X', makeResult('from A'), 'openai-compatible');
+    await settle();
+
+    // A fresh tab whose `chrome.storage.local` read has not answered yet.
+    harness.pauseReads();
+    vi.resetModules();
+    const mod = await import('./cache-v2');
+
+    // This is the bug the barrier exists for: the content script reaches the
+    // cache a few milliseconds after loading, the stored snapshot has not
+    // arrived, and every image looks like a miss — the page is sent to the
+    // provider again and paid for twice.
+    expect(mod.useTranslationCacheStore.getState().has('hash-X')).toBe(false);
+
+    let hydrated = false;
+    const hydration = mod.ensureCacheHydrated().then(() => {
+      hydrated = true;
+    });
+    await Promise.resolve();
+    // The barrier must still be waiting on the storage read.
+    expect(hydrated).toBe(false);
+
+    harness.resumeReads();
+    await hydration;
+
+    expect(hydrated).toBe(true);
+    expect(mod.useTranslationCacheStore.getState().has('hash-X')).toBe(true);
   });
 
   it('keeps both entries when one tab writes two images at once', async () => {

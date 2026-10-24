@@ -114,6 +114,23 @@ describe('refineTextBox', () => {
     expect((refined.y + refined.height) * 120).toBeGreaterThanOrEqual(64);
   });
 
+  it('does not snap a box onto a different bubble', () => {
+    // The model put the box just to the left of the separate block of text
+    // on the right, clipping its left edge. Snapping onto that block would
+    // put the translation over a bubble the model never mentioned — and the
+    // opaque panel would hide that bubble's original text without replacing
+    // it. This is the case the overlap guard exists for; it used to be
+    // unreachable, because it compared the union (which always contains the
+    // model's box) with the model's box.
+    const modelBox = box(142 / 200, 30 / 120, 10 / 200, 12 / 120);
+
+    const refined = refineTextBox(bitmap, modelBox);
+
+    // 框必须留在模型给的位置上。
+    expect(refined.x).toBeCloseTo(modelBox.x, 5);
+    expect(refined.width).toBeCloseTo(modelBox.width, 5);
+  });
+
   it('does not treat the speech bubble outline as text', () => {
     // The bubble spans x 20..120 and y 15..80. The text inside it spans
     // x 30..100 and y 30..64. A refiner that counted the outline as a

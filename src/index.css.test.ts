@@ -31,6 +31,34 @@ function variableColor(name: string): [number, number, number] {
   return hslToRgb(h, s, l);
 }
 
+/**
+ * The body of a `@media` block.
+ *
+ * `cssBlock` cannot be used for this: it splits the file on `}` and returns
+ * the first rule whose selector list contains the one asked for, and the
+ * file has an earlier `*` rule (`* { @apply border-border }`).
+ */
+function mediaBlock(query: string): string {
+  const start = css.indexOf(`@media ${query}`);
+  if (start === -1) {
+    return '';
+  }
+  const open = css.indexOf('{', start);
+  let depth = 0;
+  for (let index = open; index < css.length; index += 1) {
+    const character = css[index];
+    if (character === '{') {
+      depth += 1;
+    } else if (character === '}') {
+      depth -= 1;
+      if (depth === 0) {
+        return css.slice(open + 1, index);
+      }
+    }
+  }
+  return '';
+}
+
 describe('全局主题变量', () => {
   it('声明了 color-scheme: dark', () => {
     // Without it the computed value stays "normal" and the native controls
@@ -43,15 +71,58 @@ describe('全局主题变量', () => {
     // The palette used to live on a `.dark` class that React adds after the
     // first paint, so the pages flashed white before the theme settled.
     expect(cssDeclaration(cssBlock(css, ':root'), '--background')).toBe(
-      '0 0% 3.9%'
+      '222.2 47.4% 3.9%'
     );
     expect(cssDeclaration(cssBlock(css, ':root'), '--foreground')).toBe(
       '0 0% 98%'
     );
   });
 
+  it('页面底色就是 popup 与设置页用的 slate-950', () => {
+    // The page is painted `bg-slate-950`; the switch thumb and the slider
+    // thumb are painted `--background`. With the old neutral grey the thumb
+    // was a different colour from the surface it sits on.
+    expect(cssDeclaration(cssBlock(css, ':root'), '--card')).toBe(
+      '222.2 47.4% 3.9%'
+    );
+    expect(cssDeclaration(cssBlock(css, ':root'), '--popover')).toBe(
+      '222.2 47.4% 3.9%'
+    );
+  });
+
   it('没有浅色调色板可以再把页面刷成一半白一半黑', () => {
     expect(cssBlock(css, '.light')).toBe('');
+  });
+});
+
+describe('强调色', () => {
+  it('--primary 是 cyan-400，和焦点环同一个颜色', () => {
+    // `--primary` was pure white, so the switch track and the slider fill
+    // were white in a cyan product, and the switch thumb measured 1.02:1
+    // against the page.
+    expect(cssDeclaration(cssBlock(css, ':root'), '--primary')).toBe(
+      '187.9 85.7% 53.3%'
+    );
+    expect(variableColor('--primary')).toEqual([34, 211, 238]);
+    expect(variableColor('--primary')).toEqual(variableColor('--focus-ring'));
+  });
+
+  it('开关手柄在轨道上至少 3:1', () => {
+    // The thumb is painted `--background`, the checked track `--primary`.
+    // WCAG 1.4.11: a control boundary has to be visible against what it
+    // sits on.
+    expect(
+      contrastRatio(variableColor('--background'), variableColor('--primary'))
+    ).toBeGreaterThanOrEqual(3);
+  });
+
+  it('--primary-foreground 在强调色上可读', () => {
+    expect(
+      contrastRatio(
+        variableColor('--primary-foreground'),
+        variableColor('--primary')
+      )
+    ).toBeGreaterThanOrEqual(4.5);
   });
 });
 
@@ -81,11 +152,43 @@ describe('焦点指示器', () => {
     );
   });
 
+  it('summary 也有同样的焦点环', () => {
+    // The popup's two collapsible panels are `<details><summary>`. Without
+    // `summary` in the list they fell back to the browser's blue outline,
+    // and "one focus colour for the whole extension" was not true.
+    const block = cssBlock(css, 'summary:focus-visible');
+    expect(cssDeclaration(block, 'outline')).toBe(
+      '2px solid hsl(var(--focus-ring))'
+    );
+  });
+
   it('焦点环在页面底色上至少 3:1', () => {
     // WCAG 1.4.11: a focus indicator has to be visible against what it
     // sits on.
     const focus = variableColor('--focus-ring');
     const background = variableColor('--background');
     expect(contrastRatio(focus, background)).toBeGreaterThanOrEqual(3);
+  });
+});
+
+describe('减少动态效果', () => {
+  const body = mediaBlock('(prefers-reduced-motion: reduce)');
+
+  it('有一条 prefers-reduced-motion 规则', () => {
+    expect(body).not.toBe('');
+  });
+
+  it('关掉动画与过渡', () => {
+    const block = cssBlock(body, '*');
+    expect(cssDeclaration(block, 'animation-duration')).toBe(
+      '0.01ms !important'
+    );
+    expect(cssDeclaration(block, 'animation-iteration-count')).toBe(
+      '1 !important'
+    );
+    expect(cssDeclaration(block, 'transition-duration')).toBe(
+      '0.01ms !important'
+    );
+    expect(cssDeclaration(block, 'scroll-behavior')).toBe('auto !important');
   });
 });

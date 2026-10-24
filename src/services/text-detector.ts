@@ -70,7 +70,12 @@ let workerLanguages: string[] = [];
  * Get or create a Tesseract worker with specified languages
  */
 async function getWorker(languages: string[]): Promise<Worker> {
-  const langKey = languages.sort().join('+');
+  // 排序的是副本，不是调用方的那份数组。
+  //
+  // `opts.languages` 是 `DEFAULT_OPTIONS.languages` 的同一个对象（展开是
+  // 浅拷贝），所以就地排序会把模块级的默认值改掉 —— 第一次调用之后，
+  // 全局默认的语言顺序就变了。
+  const langKey = [...languages].sort().join('+');
 
   // Reuse existing worker if languages match
   if (worker && workerLanguages.join('+') === langKey) {

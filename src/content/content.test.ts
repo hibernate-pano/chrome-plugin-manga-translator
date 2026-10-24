@@ -27,10 +27,15 @@ const providerValidateMock = vi.fn();
  * the renderer for the whole page, and a test has to be able to look at the
  * callbacks the script registered on it.
  */
+const overlayCountMock = vi.fn(() => 0);
+
 const rendererMock = {
   render: renderMock,
   removeAll: removeAllMock,
   remove: vi.fn(),
+  // The content script calls this when the artwork under a translation
+  // changes: the overlay describes different pixels and has to go.
+  removeTranslation: vi.fn(),
   dispose: vi.fn(),
   updateStyleFromConfig: vi.fn(),
   repositionAll: vi.fn(),
@@ -38,18 +43,31 @@ const rendererMock = {
   // and the anchor badges in step with a translation the user deleted from
   // the image itself.
   setRemovalListener: vi.fn(),
+  // The content script registers the callback that turns one translated page
+  // into a PNG the user can keep.
+  setExportHandler: vi.fn(),
   // The bubbles are sorted into reading order, and vertical manga reads
   // right to left.
   getStyle: () => ({ verticalText: false }),
+  // How many images currently carry a translation. The popup needs it to
+  // know that 「清除本页译文」 would be a no-op on a fresh page.
+  getOverlayCount: overlayCountMock,
 };
 
-vi.mock('@/services/translator', () => ({
-  TranslatorService: class {},
-  createTranslatorFromConfig: () => ({
-    initialize: async () => undefined,
-    translateImage: translateImageMock,
-  }),
-}));
+vi.mock('@/services/translator', async importOriginal => {
+  const actual = await importOriginal<typeof import('@/services/translator')>();
+  return {
+    TranslatorService: class {},
+    createTranslatorFromConfig: () => ({
+      initialize: async () => undefined,
+      translateImage: translateImageMock,
+    }),
+    // The real tiling rule: the content script uses it to tell the user how
+    // many requests one long strip costs, and a fake one would make the
+    // disclosure untestable.
+    computeTiles: actual.computeTiles,
+  };
+});
 
 vi.mock('@/services/renderer', () => ({
   OverlayRenderer: class {},
@@ -70,12 +88,18 @@ import {
   translatePage,
   clearAll,
   cancelTranslation,
+  cleanup,
   setState,
   autoTranslateMode,
+  handleRouteChange,
   isFatalTranslationError,
 } from './content';
 import { useAppConfigStore } from '@/stores/config-v2';
-import type { ContentState } from '@/shared/runtime-contracts';
+import type { ContentResponse, ContentState } from '@/shared/runtime-contracts';
+import {
+  MASTER_SWITCH_OFF_MESSAGE,
+  PROVIDER_NOT_READY_MESSAGE,
+} from '@/shared/runtime-contracts';
 import { buildContentConfigSnapshot } from '@/shared/content-config';
 
 // ================================================================
@@ -116,13 +140,13 @@ async function writeConfig(state: Record<string, unknown>): Promise<void> {
  * `top` places the image at a distinct vertical position, which is what
  * lets a test map an anchor badge back to the image it belongs to.
  */
-function makeComicImage(src: string, top = 0): HTMLImageElement {
+function makeComicImage(src: string, top = 0, height = 1200): HTMLImageElement {
   const img = document.createElement('img');
   img.src = src;
   Object.defineProperty(img, 'naturalWidth', { value: 800 });
-  Object.defineProperty(img, 'naturalHeight', { value: 1200 });
+  Object.defineProperty(img, 'naturalHeight', { value: height });
   Object.defineProperty(img, 'width', { value: 800 });
-  Object.defineProperty(img, 'height', { value: 1200 });
+  Object.defineProperty(img, 'height', { value: height });
   // jsdom never loads the bytes, so `complete` stays false for an <img>
   // with a src. The filter rejects incomplete images.
   Object.defineProperty(img, 'complete', { value: true });
@@ -131,9 +155,9 @@ function makeComicImage(src: string, top = 0): HTMLImageElement {
       left: 0,
       top,
       right: 800,
-      bottom: top + 1200,
+      bottom: top + height,
       width: 800,
-      height: 1200,
+      height,
       x: 0,
       y: top,
       toJSON: () => ({}),
@@ -425,6 +449,27 @@ describe('F1: translation success counter', () => {
     expect(state).toMatchObject({ count: 2, failedCount: 0 });
   });
 
+  it('tells the worker how urgent each image is', async () => {
+    /*
+     * worker 的队列是所有标签页共用的，它按这个标记排序。
+     *
+     * 以前每一张图都是同一个标记（'visible-now'），于是那套排序从来没生效
+     * 过：队列里排的是"谁先到"，不是"谁最急"。用户点了「重试失败项」之
+     * 后，那几张图要排在别人标签页的整页翻译后面才轮得到。
+     */
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const options = translateImageMock.mock.calls[0]?.[3];
+    expect(options?.priorityClass).toBe('visible-now');
+  });
+
   it('does not count a failed image as a success', async () => {
     await writeConfig({ enabled: true });
     translateImageMock
@@ -676,9 +721,13 @@ describe('F4: force retranslate during a running translation', () => {
     expect(translateImageMock).toHaveBeenCalledTimes(1);
 
     // The user hits "force retranslate" while the first run is still going.
+    // `confirmed: true` because the sender already asked the user — the popup
+    // confirms in the popup, the keyboard shortcut confirms in the page.
     const responses: unknown[] = [];
-    handleMessage({ type: 'FORCE_RETRANSLATE_PAGE' }, makeSender(), response =>
-      responses.push(response)
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_PAGE', confirmed: true },
+      makeSender(),
+      response => responses.push(response)
     );
     await flush(2);
 
@@ -693,6 +742,32 @@ describe('F4: force retranslate during a running translation', () => {
     // Now the second run happened.
     expect(translateImageMock.mock.calls.length).toBeGreaterThan(1);
     expect(responses[0]).toMatchObject({ success: true });
+  });
+
+  it('asks before it re-requests the whole page', async () => {
+    // The keyboard shortcut used to go straight through: one keypress
+    // re-requested every image on the page and the only feedback was
+    // 「翻译完成 成功 12」. The popup confirms in the popup; the shortcut has
+    // no popup to confirm in, so the page asks.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('你好'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const responses: unknown[] = [];
+    handleMessage({ type: 'FORCE_RETRANSLATE_PAGE' }, makeSender(), response =>
+      responses.push(response)
+    );
+    await flush(2);
+
+    expect(responses[0]).toMatchObject({
+      success: true,
+      pendingConfirmation: true,
+    });
+    // Nothing was requested.
+    expect(translateImageMock).not.toHaveBeenCalled();
   });
 });
 
@@ -811,6 +886,324 @@ describe('F6: failure reasons are surfaced', () => {
     expect(isFatalTranslationError('rate limit exceeded')).toBe(true);
     expect(isFatalTranslationError('网络连接失败，请检查网络')).toBe(false);
     expect(isFatalTranslationError('解析失败')).toBe(false);
+  });
+
+  it('stops the run when the worker refuses the job', () => {
+    // A provider that is not set up fails identically for every image left
+    // on the page, so the rest of the run must not start. Without this the
+    // reader watches twenty images fail one by one against a setting they
+    // can fix in the same place.
+    expect(isFatalTranslationError(PROVIDER_NOT_READY_MESSAGE)).toBe(true);
+    expect(isFatalTranslationError(MASTER_SWITCH_OFF_MESSAGE)).toBe(true);
+    // The refusal is matched inside a longer message: the transport appends
+    // its own note to what the worker wrote.
+    expect(
+      isFatalTranslationError(`${PROVIDER_NOT_READY_MESSAGE}（重试 2 次后）`)
+    ).toBe(true);
+  });
+
+  it('shows the worker its own sentence when it refuses the job', async () => {
+    // The worker never asked the provider, so nothing was sent and nothing
+    // was billed. Flattening that into the generic path gave the reader
+    // 「发生未知错误：当前服务商还没有配置好…」 — the right words, framed as
+    // a fault with no way out, for a setting they can fix themselves.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: PROVIDER_NOT_READY_MESSAGE,
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeComicImage('https://cdn.example.com/c.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.status).toBe('error');
+    if (state.status !== 'error') {
+      throw new Error('expected the error state');
+    }
+    // The worker's sentence, with no "unknown error" prefix in front of it.
+    expect(state.message).toBe(PROVIDER_NOT_READY_MESSAGE);
+    expect(state.suggestion).toContain('设置页');
+    expect(state.action?.type).toBe('open-settings');
+    // And the rest of the page was not churned through.
+    expect(translateImageMock.mock.calls.length).toBeLessThan(3);
+  });
+});
+
+// ================================================================
+// Round 11 — an answer taken too early: the run outlives its own
+// cancellation
+//
+// `clearAll` and `handleRouteChange` both cancel the in-flight run, but the
+// run's image requests resolve asynchronously, after the cancel returned. The
+// unwinding run used to find `translationCancelled` reset back to `false`,
+// decide it had finished normally, and render its results into a page the user
+// had just cleared (or navigated away from).
+// ================================================================
+describe('R11: a superseded run does not resurrect its own results', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('does not redraw a cleared page when a late answer lands', async () => {
+    // The user hits 「清除译文」 mid-run. The one image already on the wire
+    // answers after the clear. Old behaviour: that answer was drawn back over
+    // the artwork the user just asked to be clean, and the run announced
+    // 「翻译完成」 instead of staying cleared.
+    await writeConfig({ enabled: true });
+
+    const gate: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gate.release = resolve;
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const run = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    clearAll();
+
+    gate.release?.();
+    await run;
+    await flush(4);
+
+    // Nothing drawn after the clear: the late answer is discarded.
+    expect(renderMock).not.toHaveBeenCalled();
+    const state = lastState();
+    expect(state.status).not.toBe('complete');
+  });
+
+  it('does not report the previous chapter as complete after a route change', async () => {
+    // An SPA chapter switch mid-run. The old chapter's images resolve after
+    // the switch; the run used to stamp 「翻译完成」 with the previous
+    // chapter's counts onto the new, empty chapter.
+    await writeConfig({ enabled: true });
+
+    const gate: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gate.release = resolve;
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const run = translatePage();
+    await flush(2);
+
+    handleRouteChange();
+
+    gate.release?.();
+    await run;
+    await flush(4);
+
+    const state = lastState();
+    expect(state.status).not.toBe('complete');
+    expect(renderMock).not.toHaveBeenCalled();
+  });
+
+  it('picks up a mid-run settings change instead of failing the rest of the page', async () => {
+    // The worker pushes CONFIG_UPDATED whenever the user edits anything in
+    // Settings, and that handler nulls the translator so the next image builds
+    // a fresh one. Mid-run, the images that had not started used to find the
+    // translator null and fail with 「Services not initialized」 — reported as
+    // unknown errors, and offered back as "retry these N failed images" even
+    // though nothing about them had failed.
+    await writeConfig({ enabled: true });
+    const stored = await chrome.storage.local.get([CONFIG_KEY]);
+
+    // Three images, parallelLimit 2: two start and hang, the third waits for
+    // a slot. That third image is the one that reaches `processSingleImage`
+    // after the translator was nulled — the case the fix is for.
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeComicImage('https://cdn.example.com/c.webp');
+
+    // The first two calls hang on gates; the third returns on its own, so
+    // the run cannot deadlock waiting for a release nobody will make.
+    const gates: Array<() => void> = [];
+    let calls = 0;
+    translateImageMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls <= 2) {
+        await new Promise<void>(resolve => {
+          gates.push(resolve);
+        });
+      }
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    const run = translatePage();
+    await flush(2);
+    // Two on the wire, the third not started yet.
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+
+    // A settings change lands while the two requests are on the wire. The
+    // handler nulls the translator so the next image rebuilds it.
+    handleMessage(
+      {
+        type: 'CONFIG_UPDATED',
+        config: buildContentConfigSnapshot(stored[CONFIG_KEY]),
+      },
+      makeSender(),
+      () => undefined
+    );
+
+    // Release the two in-flight requests; the third now starts against a
+    // nulled translator and must rebuild rather than fail.
+    gates.forEach(gate => gate());
+    await run;
+    await flush(6);
+
+    const state = lastState();
+    if (state.status !== 'complete') {
+      throw new Error(`expected complete, got ${state.status}`);
+    }
+    expect(state.failedCount).toBe(0);
+    expect(state.count).toBe(3);
+    // The third image really did reach the provider (not silently dropped).
+    expect(translateImageMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ================================================================
+// The numbers the popup shows before it spends the user's money
+//
+// The popup's job here is to quote what the *next* click will cost. Every
+// number it shows has to be the one the page will actually act on.
+//
+// This suite has to run before the F10 suite below: that one calls
+// `cleanup()`, which throws the HUD away, and the HUD is what carries the
+// "will this page keep translating on its own" answer to the reader.
+// ================================================================
+describe('the facts the popup quotes before it charges the user', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('tells the HUD whether the page will keep translating on its own', async () => {
+    // The HUD used to promise every reader that scrolling to the pending
+    // images would translate them. That is only true when the page is
+    // armed for auto-continue, so the page has to say which case it is in
+    // — and it has to say it every time the run completes.
+    const mod = await import('./content');
+    const { FloatingHud } = await import('./floating-hud');
+    const update = vi.spyOn(FloatingHud.prototype, 'update');
+
+    try {
+      mod.setState({ status: 'complete', count: 0 });
+
+      const complete = update.mock.calls
+        .map(call => call[0])
+        .filter(state => state.status === 'complete');
+      expect(complete.length).toBeGreaterThan(0);
+      expect(complete[complete.length - 1]).toMatchObject({
+        autoContinueArmed: mod.autoTranslateMode.enabled,
+      });
+    } finally {
+      update.mockRestore();
+    }
+  });
+
+  it('reports how many images a retry would really re-request', async () => {
+    // The popup used to quote `failedCount` — the failures of the last run.
+    // The number that will actually be billed is the retry list: the images
+    // that failed, plus the ones a cut-short retry never reached, minus the
+    // ones that have since left the page.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '模型输出了无法解析的内容',
+    });
+    const img = makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.status).toBe('complete');
+    expect(state).toMatchObject({ failedCount: 1 });
+    expect(state.retryTargetCount).toBe(1);
+
+    // The image leaves the page: a retry cannot reach it any more, so the
+    // number the popup shows has to fall with it.
+    const mod = await import('./content');
+    img.remove();
+    mod.setState(mod.currentState);
+
+    expect(lastState().retryTargetCount).toBe(0);
+  });
+
+  it('the HUD counts the failures the user still has to act on', async () => {
+    // The HUD said "失败 0" after an automatic round came back clean, while
+    // the popup one click away offered to retry the image that had failed in
+    // the earlier round. Two surfaces, one fact, two numbers.
+    await writeConfig({ enabled: true });
+    translateImageMock
+      .mockResolvedValueOnce({
+        success: false,
+        textAreas: [],
+        error: 'temporary failure',
+      })
+      .mockResolvedValue({
+        success: true,
+        textAreas: makeTextAreas('好了'),
+      });
+    makeComicImage('https://cdn.example.com/fails.webp');
+
+    await translatePage();
+    expect(lastState()).toMatchObject({ failedCount: 1 });
+
+    const { FloatingHud } = await import('./floating-hud');
+    const update = vi.spyOn(FloatingHud.prototype, 'update');
+    try {
+      await translatePage(false, 'follow-up');
+
+      const complete = update.mock.calls
+        .map(call => call[0])
+        .filter(state => state.status === 'complete');
+      expect(complete.length).toBeGreaterThan(0);
+      expect(complete[complete.length - 1]).toMatchObject({ failedCount: 1 });
+    } finally {
+      update.mockRestore();
+    }
+  });
+
+  it('says the reading panel state as a yes or a no', async () => {
+    // The report used to leave the answer out on a page that had no panel,
+    // and the popup kept the previous page's answer — so it offered "hide
+    // the reading panel" for a panel that was never there. The answer has
+    // to be a yes or a no, never "I don't know".
+    const mod = await import('./content');
+    mod.setState({ status: 'idle' });
+
+    const response = await new Promise<ContentResponse>(resolve => {
+      void mod.handleMessage({ type: 'GET_STATE' }, makeSender(), resolve);
+    });
+
+    const state = response.state;
+    expect(typeof state?.readingPanelVisible).toBe('boolean');
   });
 });
 
@@ -1383,6 +1776,44 @@ describe('single-image translation', () => {
     expect(translateImageMock.mock.calls[0]?.[0]).toBe(target);
   });
 
+  it('一条长条图会被拆成多片，页面上先说清楚要发几次请求', async () => {
+    // 右键翻一张 800×5000 的条漫：图片数是 1，请求数是好几片。HUD 上的
+    // 「第 1 张 / 1」关于图片是真的，关于账单一句话都没说 —— 而账是按
+    // 请求算的。翻译要跑几十秒，这句话得在钱花出去之前就在屏幕上。
+    const target = makeComicImage('https://cdn.example.com/long.webp', 0, 5000);
+
+    await new Promise<void>(resolve => {
+      handleMessage(
+        { type: 'TRANSLATE_SINGLE_IMAGE', imageUrl: target.src },
+        makeSender(),
+        () => resolve()
+      );
+    });
+    await flush();
+
+    const published = vi
+      .mocked(chrome.runtime.sendMessage)
+      .mock.calls.map(
+        call =>
+          call[0] as unknown as {
+            type?: string;
+            state?: { costNote?: string };
+          }
+      )
+      .filter(message => message?.type === 'STATE_UPDATE')
+      .map(message => message.state);
+
+    const noted = published.find(state => state?.costNote);
+    expect(noted?.costNote).toContain('拆成');
+    expect(noted?.costNote).toContain('会产生费用');
+    // The note must not promise a fixed number of requests. A slice that
+    // comes back with no text is asked a second time, and a strip whose
+    // slices all fail falls back to one more full-image request — so
+    // "10 requests" would be a promise the extension cannot keep.
+    expect(noted?.costNote).toContain('可能高于');
+    expect(noted?.costNote).not.toMatch(/\d+\s*次调用费用/);
+  });
+
   it('matches an image whose URL carries a different query string', async () => {
     // A CDN that serves the same file under a versioned URL is common, and
     // the context menu reports the URL the browser resolved, not the one in
@@ -1728,6 +2159,76 @@ describe('FORCE_RETRANSLATE_FAILED only retries the failed images', () => {
 });
 
 // ================================================================
+// CLEAR_ALL must forget the failed images too
+//
+// The three per-image sets (processed keys, failed keys, failed elements)
+// are read as one. `clearAll` used to clear two of them and leave
+// `failedImages` populated, so the very list the "重新翻译失败的 N 张"
+// button bills for still held the images the user had just cleared — the
+// next retry would spend the user's money on images the page no longer
+// shows.
+//
+// The count the popup confirms the cost with comes straight from
+// `failedImages`, so "0" here is what the user would see before agreeing
+// to pay.
+// ================================================================
+describe('CLEAR_ALL forgets the failed images', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    removeAllMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+    await writeConfig({ enabled: true });
+  });
+
+  it('reports no failed images after the page is cleared', async () => {
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: 'temporary failure',
+    });
+
+    makeComicImage('https://cdn.example.com/bad.webp', 0);
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // The image is on the failure list…
+    const beforeClear = vi.fn();
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_FAILED' },
+      makeSender(),
+      beforeClear
+    );
+    expect(beforeClear).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, count: 1 })
+    );
+    await flush(4);
+    translateImageMock.mockClear();
+
+    // …and clearing the page has to take it off that list.
+    handleMessage({ type: 'CLEAR_ALL' }, makeSender(), vi.fn());
+
+    const afterClear = vi.fn();
+    handleMessage(
+      { type: 'FORCE_RETRANSLATE_FAILED' },
+      makeSender(),
+      afterClear
+    );
+    expect(afterClear).toHaveBeenCalledWith(
+      expect.objectContaining({ success: true, count: 0 })
+    );
+
+    // And nothing was billed for it.
+    await flush(4);
+    expect(translateImageMock).not.toHaveBeenCalled();
+  });
+});
+
+// ================================================================
 // V3 产品评审：界面看不到真实状态
 //
 // 这一组用例锁住内容脚本和弹窗之间的契约：
@@ -1756,6 +2257,38 @@ function makeSmallImage(src: string): HTMLImageElement {
       bottom: 50,
       width: 50,
       height: 50,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    }),
+  });
+  document.body.appendChild(img);
+  return img;
+}
+
+/**
+ * 一张还没加载出来的漫画图。
+ *
+ * 字节没到的时候，浏览器不知道它有多大——`naturalWidth` 和布局宽度都
+ * 是 0。以前这种图被算成"尺寸不合格"，于是懒加载的一章只报了已加载
+ * 的那两三张。
+ */
+function makeLazyImage(src: string): HTMLImageElement {
+  const img = document.createElement('img');
+  img.src = src;
+  Object.defineProperty(img, 'naturalWidth', { value: 0 });
+  Object.defineProperty(img, 'naturalHeight', { value: 0 });
+  Object.defineProperty(img, 'width', { value: 0 });
+  Object.defineProperty(img, 'height', { value: 0 });
+  Object.defineProperty(img, 'complete', { value: false });
+  Object.defineProperty(img, 'getBoundingClientRect', {
+    value: () => ({
+      left: 0,
+      top: 0,
+      right: 0,
+      bottom: 0,
+      width: 0,
+      height: 0,
       x: 0,
       y: 0,
       toJSON: () => ({}),
@@ -1796,7 +2329,48 @@ describe('COUNT_IMAGES: 纯只读的图片计数', () => {
     handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
 
     // 只有两张漫画图会被翻译，那张 50x50 的图标不算。
-    expect(sendResponse).toHaveBeenCalledWith({ success: true, count: 2 });
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      count: 2,
+      pending: 0,
+      total: 2,
+    });
+  });
+
+  it('counts the images that have not loaded yet as pending', async () => {
+    // 懒加载的漫画页：浏览器先摆出两张，其余四十张还在路上。以前的
+    // 计数把这些"还没到"的图算成"尺寸不合格"，于是弹窗报出来的永远是
+    // 两三张——一个系统性偏低的数字，比没有数字更糟。
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeLazyImage('https://cdn.example.com/b.webp');
+    makeLazyImage('https://cdn.example.com/c.webp');
+
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      count: 1,
+      pending: 2,
+      total: 1,
+    });
+  });
+
+  it('counts the images it already translated as part of the full price', async () => {
+    // "忽略缓存重翻"会把已经翻过的图再翻一遍，所以整页的价钱是"已翻过
+    // 的 + 待翻的"，不是只有待翻的那些。
+    const image = makeComicImage('https://cdn.example.com/a.webp');
+    image.classList.add('manga-translator-processed');
+
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      count: 0,
+      pending: 0,
+      total: 1,
+    });
   });
 
   it('does not change any state and does not spend anything', async () => {
@@ -2191,5 +2765,497 @@ describe('删除一条译文，三个视图要一起变', () => {
     expect(anchorsHost.shadowRoot?.querySelectorAll('.badge').length ?? 0).toBe(
       0
     );
+  });
+});
+
+// ================================================================
+// The reading-panel toggle
+//
+// The panel is created lazily, and the first press used to create it and
+// immediately hide it: the user pressed the button and the page showed
+// nothing at all, while the popup claimed it was hiding the panel.
+// ================================================================
+
+describe('TOGGLE_READING_PANEL: 第一次按下必须有反应', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The panel is module state: it survives from one test to the next.
+    // Tear it down so this test really does see "no panel yet".
+    cleanup();
+    await writeConfig({ enabled: true });
+  });
+
+  it('shows the panel it just created instead of hiding it again', async () => {
+    const sendResponse = vi.fn();
+    expect(
+      handleMessage(
+        { type: 'TOGGLE_READING_PANEL' },
+        makeSender(),
+        sendResponse
+      )
+    ).toBe(true);
+
+    await vi.waitFor(() => {
+      expect(sendResponse).toHaveBeenCalled();
+    });
+
+    // 面板现在是可见的，页面也把这件事上报了——弹窗的按钮文字靠它。
+    expect(lastState().readingPanelVisible).toBe(true);
+  });
+
+  it('hides the panel on the second press', async () => {
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'TOGGLE_READING_PANEL' }, makeSender(), sendResponse);
+    await vi.waitFor(() => {
+      expect(sendResponse).toHaveBeenCalled();
+    });
+    expect(lastState().readingPanelVisible).toBe(true);
+
+    sendResponse.mockClear();
+    handleMessage({ type: 'TOGGLE_READING_PANEL' }, makeSender(), sendResponse);
+    await vi.waitFor(() => {
+      expect(sendResponse).toHaveBeenCalled();
+    });
+    expect(lastState().readingPanelVisible).toBe(false);
+  });
+});
+
+// ================================================================
+// A page that was never translated has no reading panel
+//
+// The report used to leave the answer out ("undefined") when there was no
+// panel at all. The popup then kept whatever the previous page had told
+// it, so a fresh page could offer a 「隐藏译文阅读面板」 button for a panel
+// that never existed.
+//
+// This suite runs last because it tears the content script down to get
+// back to "no panel yet" — the same trick the toggle suite above uses.
+// ================================================================
+describe('a page that was never translated', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    cleanup();
+    await writeConfig({ enabled: true });
+  });
+
+  it('says the reading panel is not showing', async () => {
+    const mod = await import('./content');
+    mod.setState({ status: 'idle' });
+
+    const response = await new Promise<{ state?: ContentState }>(resolve => {
+      void mod.handleMessage({ type: 'GET_STATE' }, makeSender(), resolve);
+    });
+
+    // undefined, not false: 「这一页没有面板」和「有面板但没显示」是两件事。
+    // 报成 false 的话，弹窗会以为可以显示一个面板——按下去就造出一个空面板
+    // 盖在漫画右边，里面什么都没有。
+    expect(response.state?.readingPanelVisible).toBeUndefined();
+  });
+});
+
+// ================================================================
+// Round 6 — the observer only spends money the user asked for
+//
+// The auto-continue observer is the one part of the extension that acts
+// without a click. It used to re-pick every image that was not translated
+// *successfully*, which includes the ones that failed:
+//
+//   - `scanImages()` excludes an image only when it carries the processed
+//     marker or is in `processedImages`, and a failed image has neither;
+//   - every non-retry run cleared the failure list at the start;
+//   - so the next observer round found the failed image again and asked the
+//     model about it once more.
+//
+// Twenty follow-up rounds, twenty extra requests, and the user had pressed
+// nothing. The failure is also visible to the user as a button —
+// 「重新翻译失败的 N 张」 — which the observer was quietly emptying.
+//
+// The rule now: the observer may only pick up an image it has never asked
+// about. Whether a failed image is worth another request is the user's
+// decision.
+// ================================================================
+describe('round 6: the observer never spends money the user did not ask for', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    // The per-image records are module-level, so they survive between
+    // tests. Without this the second test in this suite sees every image as
+    // "already asked about" and finds nothing to do.
+    clearAll();
+  });
+
+  it('does not ask about a failed image again on the next observer round', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: 'temporary failure',
+    });
+    makeComicImage('https://cdn.example.com/fails.webp');
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // The observer's round. The image failed, so it is on the user's retry
+    // list — but the observer has no business asking about it again.
+    await translatePage(false, 'follow-up');
+
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the failure list the user is meant to act on', async () => {
+    await writeConfig({ enabled: true });
+    // The second attempt succeeds — so an observer round that re-asked
+    // about the image would empty the failure list and take the popup's
+    // 「重新翻译失败的 N 张」 button with it.
+    translateImageMock
+      .mockResolvedValueOnce({
+        success: false,
+        textAreas: [],
+        error: 'temporary failure',
+      })
+      .mockResolvedValue({
+        success: true,
+        textAreas: makeTextAreas('好了'),
+      });
+    makeComicImage('https://cdn.example.com/fails.webp');
+
+    await translatePage();
+    expect(lastState().retryTargetCount).toBe(1);
+
+    // An automatic round must not empty the list: the popup's
+    // 「重新翻译失败的 N 张」 button is built from it, and the user has not
+    // dismissed it.
+    await translatePage(false, 'follow-up');
+
+    expect(lastState().retryTargetCount).toBe(1);
+  });
+
+  it('does not ask again about an image the page swapped the source of', async () => {
+    // 页面把缩略图换成大图，是响应式站点的常规做法。地址变了，"问过了"这
+    // 条记录就跟着变了——观察器于是又问了一次，同一张图，两次请求。
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: 'temporary failure',
+    });
+    const img = makeComicImage('https://cdn.example.com/thumb.webp');
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // The page swaps the source under the same element.
+    img.src = 'https://cdn.example.com/full.webp';
+
+    await translatePage(false, 'follow-up');
+
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('still retries the failed image when the user asks for the page again', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock
+      .mockResolvedValueOnce({
+        success: false,
+        textAreas: [],
+        error: 'temporary failure',
+      })
+      .mockResolvedValue({
+        success: true,
+        textAreas: makeTextAreas('好了'),
+      });
+    makeComicImage('https://cdn.example.com/fails.webp');
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // The user asked for the page again. That is the user spending their
+    // own money on purpose, so the failed image gets its turn back.
+    await translatePage();
+
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not let a run that died early hand the rest of the page to the observer', async () => {
+    await writeConfig({ enabled: true });
+    // A bad key fails the same way for every image, so the run stops on the
+    // first one and the rest of the page is never asked about.
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '401 unauthorized',
+    });
+    makeComicImage('https://cdn.example.com/a.webp', 0);
+    makeComicImage('https://cdn.example.com/b.webp', 1300);
+    makeComicImage('https://cdn.example.com/c.webp', 2600);
+
+    await translatePage();
+    const callsAfterTheRun = translateImageMock.mock.calls.length;
+    expect(callsAfterTheRun).toBeGreaterThan(0);
+
+    // The observer's round. The images the aborted run never reached are not
+    // "new images that loaded later" — they are the rest of a run the user
+    // already stopped.
+    await translatePage(false, 'follow-up');
+
+    expect(translateImageMock).toHaveBeenCalledTimes(callsAfterTheRun);
+  });
+
+  it('says what a page translation is about to cost, on the page', async () => {
+    // The popup writes the cost under the button. The keyboard shortcut and
+    // the context menu have no popup to write it in — the money starts
+    // moving the moment they are used. So the page says it, while the run
+    // is still cancellable.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp', 0);
+    // A long strip: one image, several billed calls.
+    makeComicImage('https://cdn.example.com/long.webp', 1300, 5000);
+
+    await translatePage();
+
+    const published = vi
+      .mocked(chrome.runtime.sendMessage)
+      .mock.calls.map(
+        call =>
+          call[0] as unknown as {
+            type?: string;
+            state?: { status?: string; costNote?: string };
+          }
+      )
+      .filter(message => message?.type === 'STATE_UPDATE')
+      .map(message => message.state);
+
+    const translating = published.filter(
+      state => state?.status === 'translating'
+    );
+    expect(translating.length).toBeGreaterThan(0);
+    // The note has to survive the progress updates, not just the first
+    // frame: the run updates the state once per image.
+    for (const state of translating) {
+      expect(state?.costNote).toContain('会产生费用');
+    }
+    expect(translating[translating.length - 1]?.costNote).toContain('长条');
+  });
+});
+
+// ================================================================
+// Round 11 follow-ups.
+//
+// Three defects, one shape: the page kept a promise it could not keep, or
+// kept a translation that no longer described what was on screen.
+//
+// Each test here fails without its fix — the fix is the point, not the
+// coverage.
+// ================================================================
+describe('round 11: what the page promises has to be true', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    rendererMock.removeTranslation.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  it('translates an image that appeared while the page was being translated', async () => {
+    // The chapter keeps loading while the first page is still being
+    // translated. That image is owed a translation — and the run that was
+    // already in flight is the only thing that could have scheduled it.
+    await writeConfig({ enabled: true, autoContinueEnabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+
+    // The first run is the one the user asked for: it arms the page, so
+    // images that appear later follow on their own.
+    makeComicImage('https://cdn.example.com/a.webp');
+    await translatePage();
+    await flush(4);
+
+    // The second run hangs on its image, so the next page of the chapter
+    // really does appear *during* a run.
+    const gates: Array<() => void> = [];
+    translateImageMock.mockImplementationOnce(async () => {
+      await new Promise<void>(resolve => {
+        gates.push(resolve);
+      });
+      return { success: true, textAreas: makeTextAreas('好了') };
+    });
+    makeComicImage('https://cdn.example.com/b.webp', 1300);
+    const run = translatePage();
+    await flush(2);
+    expect(gates.length).toBe(1);
+
+    // The next page arrives, and the observer's debounce fires while the
+    // run is still going — the one moment a follow-up cannot happen.
+    makeComicImage('https://cdn.example.com/c.webp', 2600);
+    await new Promise(resolve => setTimeout(resolve, 900));
+
+    gates.forEach(gate => gate());
+    await run;
+
+    // The run is over. Something has to pick the late image up, or it sits
+    // there untranslated on a page that says it will carry on by itself.
+    await new Promise(resolve => setTimeout(resolve, 900));
+    await flush(4);
+
+    // a, b and c — the late one is not left behind.
+    expect(translateImageMock).toHaveBeenCalledTimes(3);
+  });
+
+  it('stops claiming it will carry on by itself once the budget is spent', async () => {
+    await writeConfig({ enabled: true, autoContinueEnabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+    await flush(4);
+    expect(lastState().autoContinueArmed).toBe(true);
+
+    // Twenty automatic rounds later the budget is gone.
+    for (let round = 0; round < 20; round += 1) {
+      await translatePage(false, 'follow-up');
+    }
+    await flush(2);
+
+    // The page does not translate new images any more, so it must not say
+    // it will. The reader is told why, instead of being sent to check a
+    // switch that was already on.
+    const state = lastState();
+    expect(state.autoContinueArmed).toBe(false);
+    expect(state.autoContinueBudgetExhausted).toBe(true);
+  });
+
+  it('starts over when the user asks for the page again', async () => {
+    // The budget running out is not a dead end: asking again is the user
+    // saying they want this page translated.
+    await writeConfig({ enabled: true, autoContinueEnabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+    for (let round = 0; round < 20; round += 1) {
+      await translatePage(false, 'follow-up');
+    }
+    await flush(2);
+    expect(lastState().autoContinueArmed).toBe(false);
+
+    await translatePage();
+    await flush(2);
+
+    expect(lastState().autoContinueArmed).toBe(true);
+    expect(lastState().autoContinueBudgetExhausted).toBe(false);
+  });
+
+  it('takes the translation away when the page swaps the artwork', async () => {
+    // 页面把缩略图换成大图，是懒加载站点的常规做法。换完之后，屏幕上已经是
+    // 另一张画面，而旧译文还盖在上面——它描述的是别的像素。
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+    const img = makeComicImage('https://cdn.example.com/thumb.webp');
+
+    await translatePage();
+    expect(renderMock).toHaveBeenCalledTimes(1);
+
+    img.src = 'https://cdn.example.com/full.webp';
+    img.dispatchEvent(new Event('load'));
+    await flush(2);
+
+    // The stale translation goes.
+    expect(rendererMock.removeTranslation).toHaveBeenCalledWith(img);
+
+    // And the new picture is a candidate again: the popup has to be able to
+    // count it and price it. Before the swap it counted as "already
+    // translated"; now it counts as a picture waiting to be translated.
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      count: 1,
+      pending: 0,
+      total: 1,
+    });
+  });
+
+  it('translates the new artwork when the user asks for the page again', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+    const img = makeComicImage('https://cdn.example.com/thumb.webp');
+
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    img.src = 'https://cdn.example.com/full.webp';
+    img.dispatchEvent(new Event('load'));
+    await flush(2);
+
+    // The observer does not spend the user's money on this by itself: it is
+    // the same page at another resolution, not a new page of the chapter.
+    await translatePage(false, 'follow-up');
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // The user asked: the new picture is translated, and the reader pays for
+    // that one request knowingly.
+    await translatePage();
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps the translation when only the version in the address changes', async () => {
+    // CDN 换一个版本号，画面还是同一张。译文不该被撤掉——撤了读者就得重新
+    // 点一次，而图上其实一直有译文。
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('好了'),
+    });
+    const img = makeComicImage('https://cdn.example.com/page.webp?v=1');
+
+    await translatePage();
+    expect(renderMock).toHaveBeenCalledTimes(1);
+
+    img.src = 'https://cdn.example.com/page.webp?v=2';
+    img.dispatchEvent(new Event('load'));
+    await flush(2);
+
+    expect(rendererMock.removeTranslation).not.toHaveBeenCalled();
+    // And it is not a picture waiting to be translated any more.
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      count: 0,
+      pending: 0,
+      total: 1,
+    });
   });
 });

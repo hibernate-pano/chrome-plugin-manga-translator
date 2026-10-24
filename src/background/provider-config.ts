@@ -1,5 +1,6 @@
 import type { ProviderType } from '@/providers/base';
 import { readProviderType } from '@/shared/content-config';
+import { isLocalProvider } from '@/shared/local-providers';
 
 /**
  * The provider a translation will actually use, with its settings.
@@ -43,4 +44,24 @@ export function resolveActiveProvider(
     baseUrl: readString(settings['baseUrl']),
     model: readString(settings['model']),
   };
+}
+
+/**
+ * Can this provider actually run a translation right now?
+ *
+ * A local provider needs an endpoint and nothing else; a cloud one needs
+ * the key as well. The check exists because the provider can change while a
+ * job waits: the reader may point the extension at a provider they have not
+ * finished setting up, and the job then has to stop with a sentence that
+ * says so, rather than fail with an authentication error that has nothing
+ * to do with the image the reader asked about.
+ */
+export function isProviderUsable(active: ActiveProviderConfig): boolean {
+  if (!active.baseUrl) {
+    return false;
+  }
+  if (isLocalProvider(active.provider)) {
+    return true;
+  }
+  return Boolean(active.apiKey);
 }

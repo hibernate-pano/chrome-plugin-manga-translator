@@ -108,6 +108,71 @@ describe('TranslatorService pipeline selection', () => {
     expect(translateImage.mock.calls[0]?.[0].imageKey).toContain('::t0');
   });
 
+  it('carries the priority class to every request of the image', async () => {
+    // 队列按这个标记排序，所以它必须一路传到 worker 发出的那一条请求上
+    // ——中间任何一段丢掉它，排序就还是"谁先到"。
+    processImageMock.mockImplementation(async (_image, options) => {
+      const crop = options?.cropRegion;
+      return {
+        base64: crop ? `tile-${crop.top}` : 'full-image',
+        mimeType: 'image/jpeg',
+        originalWidth: 800,
+        originalHeight: 4000,
+        width: 800,
+        height: crop ? crop.height : 4000,
+        wasCompressed: false,
+        hash: crop ? `hash-${crop.top}` : 'hash-full',
+        cropY: crop?.top ?? 0,
+        cropHeight: crop?.height ?? 4000,
+      };
+    });
+
+    const translateImage = vi.fn(
+      async (
+        _request: Parameters<TranslationTransport['translateImage']>[0]
+      ) => ({
+        success: true,
+        textAreas: [
+          {
+            x: 0.1,
+            y: 0.1,
+            width: 0.2,
+            height: 0.1,
+            originalText: '原文',
+            translatedText: '译文',
+          },
+        ],
+        cached: false,
+      })
+    );
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage },
+    });
+
+    await translator.translateImage(
+      {
+        naturalWidth: 800,
+        naturalHeight: 4000,
+        src: 'https://example.com/long-strip.jpg',
+      } as HTMLImageElement,
+      false,
+      undefined,
+      { priorityClass: 'manual-retry' }
+    );
+
+    expect(translateImage).toHaveBeenCalled();
+    for (const call of translateImage.mock.calls) {
+      expect(call[0].priorityClass).toBe('manual-retry');
+    }
+  });
+
   it('does not pay for a full-image request when tiles honestly find no text', async () => {
     // A pure-art stretch of a webtoon is a valid answer, not a pipeline
     // failure. Treating it as a failure fell through to the full-image path
@@ -941,6 +1006,13 @@ describe('TranslatorService hybrid region mapping', () => {
     );
 
     expect(result.success).toBe(true);
+    // The strip is not a comic page, so the request has to say so: the
+    // provider picks a prompt from it, and the full-image prompt tells the
+    // model to merge a bubble's lines into one item — on a stack of
+    // unrelated crops that merges two different bubbles.
+    expect(translateImage).toHaveBeenCalledWith(
+      expect.objectContaining({ isHybridRegions: true })
+    );
     const entries = result.readingResult?.entries ?? [];
     expect(entries).toHaveLength(2);
 
@@ -956,6 +1028,111 @@ describe('TranslatorService hybrid region mapping', () => {
     // The region whose crop failed has no translation at all.
     const missing = entries.find(entry => entry.sourceRegion.y === 200);
     expect(missing).toBeUndefined();
+  });
+
+  it('keeps two bubbles inside one region as two boxes', async () => {
+    // OCR merges overlapping regions, so one region can hold two bubbles —
+    // and the model answers with two boxes for it. The old code joined their
+    // texts and drew ONE overlay covering the whole region: the two
+    // translations were crammed into a single box that also covered the
+    // space between the bubbles.
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 600,
+      originalHeight: 900,
+      width: 600,
+      height: 900,
+      wasCompressed: false,
+      hash: 'hash',
+    });
+
+    detectTextRegionsMock.mockResolvedValue({
+      regions: [
+        { x: 100, y: 200, width: 200, height: 100, text: 'a', confidence: 0.9 },
+      ],
+      imageWidth: 600,
+      imageHeight: 900,
+      processingTime: 1,
+    });
+
+    cropRegionsMock.mockResolvedValue(['crop0']);
+
+    // One crop, 200×100, stacked at the top of a 200×100 strip.
+    combineCroppedRegionsMock.mockResolvedValue({
+      base64: 'combined',
+      width: 200,
+      height: 100,
+      segments: [
+        { index: 0, sourceIndex: 0, top: 0, height: 100, left: 0, width: 200 },
+      ],
+    });
+
+    // Two boxes inside the crop: the upper half and the lower half.
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      cached: false,
+      textAreas: [
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.8,
+          height: 0.35,
+          originalText: 'upper',
+          translatedText: 'UPPER',
+        },
+        {
+          x: 0.1,
+          y: 0.55,
+          width: 0.8,
+          height: 0.35,
+          originalText: 'lower',
+          translatedText: 'LOWER',
+        },
+      ],
+    }));
+
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    const result = await translator.translateImage(
+      {
+        naturalWidth: 600,
+        naturalHeight: 900,
+        src: 'https://example.com/hybrid.jpg',
+      } as HTMLImageElement,
+      false
+    );
+
+    expect(result.success).toBe(true);
+    expect(result.textAreas).toHaveLength(2);
+
+    const [upper, lower] = result.textAreas;
+    expect(upper?.translatedText).toBe('UPPER');
+    expect(lower?.translatedText).toBe('LOWER');
+
+    // The boxes are the model's own boxes, mapped back onto the region: the
+    // region starts at x = 100, y = 200 and is 200×100 in the original
+    // image, so the upper box starts a tenth of the region down and the
+    // lower one just past its halfway point.
+    expect(upper?.x).toBeCloseTo((100 + 0.1 * 200) / 600, 5);
+    expect(upper?.y).toBeCloseTo((200 + 0.1 * 100) / 900, 5);
+    expect(upper?.width).toBeCloseTo((0.8 * 200) / 600, 5);
+    expect(upper?.height).toBeCloseTo((0.35 * 100) / 900, 5);
+
+    expect(lower?.y).toBeCloseTo((200 + 0.55 * 100) / 900, 5);
+    expect(lower?.y).toBeGreaterThan(upper?.y ?? 0);
+
+    // Neither box is the whole region: that was the old, wrong behaviour.
+    expect(upper?.height).toBeLessThan((200 + 100) / 900);
   });
 });
 
@@ -1007,5 +1184,399 @@ describe('TranslatorService error status propagation', () => {
     const friendly = parseTranslationError(new Error(result.error ?? ''));
     expect(friendly.code).toBe('AUTH_ERROR');
     expect(friendly.message).toBe('API 密钥无效，请检查配置');
+  });
+});
+
+// ================================================================
+// A strip that honestly has no text is still an answer
+//
+// The tiled pipeline asks the model about every slice of a long webtoon.
+// A slice that is pure artwork comes back with nothing — that is the model
+// answering correctly, not a failure.
+//
+// The cache only took strips that produced text, so a text-free strip was
+// never remembered: every visit to that page paid for every slice again,
+// and every slice that came back empty was asked twice (the quality gate
+// re-asks a slice with no text). The full-image path keeps its "no text is
+// not cached" rule on purpose — one request is cheap, and a page the model
+// mis-read stays retryable. A strip is N requests.
+// ================================================================
+describe('a strip with no text is cached like any other answer', () => {
+  beforeEach(() => {
+    processImageMock.mockReset();
+    useTranslationCacheStore.getState().clear();
+  });
+
+  function makeStripTranslator(
+    translateImage: ReturnType<typeof vi.fn>
+  ): TranslatorService {
+    return new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: true,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as unknown as TranslationTransport,
+    });
+  }
+
+  const strip = {
+    naturalWidth: 800,
+    naturalHeight: 4000,
+    src: 'https://example.com/art-strip.jpg',
+  } as HTMLImageElement;
+
+  it('does not ask the provider about the same strip twice', async () => {
+    processImageMock.mockImplementation(async (_image, options) => {
+      const crop = options?.cropRegion;
+      return {
+        base64: crop ? `tile-${crop.top}` : 'full-image',
+        mimeType: 'image/jpeg',
+        originalWidth: 800,
+        originalHeight: 4000,
+        width: 800,
+        height: crop ? crop.height : 4000,
+        wasCompressed: false,
+        hash: crop ? `hash-${crop.top}` : 'hash-full',
+        cropY: crop?.top ?? 0,
+        cropHeight: crop?.height ?? 4000,
+      };
+    });
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      textAreas: [],
+      cached: false,
+    }));
+    const translator = makeStripTranslator(translateImage);
+
+    const first = await translator.translateImage(strip, false);
+    expect(first.success).toBe(true);
+    expect(first.textAreas).toHaveLength(0);
+    const callsAfterTheFirstRun = translateImage.mock.calls.length;
+    expect(callsAfterTheFirstRun).toBeGreaterThan(0);
+
+    // The same page, the same strip, the same day: the answer is already
+    // known. Asking again is money for the same words.
+    const second = await translator.translateImage(strip, false);
+
+    expect(translateImage).toHaveBeenCalledTimes(callsAfterTheFirstRun);
+    expect(second.success).toBe(true);
+    expect(second.textAreas).toHaveLength(0);
+    expect(second.cached).toBe(true);
+  });
+});
+
+describe('a page with no text is cached like any other answer', () => {
+  beforeEach(() => {
+    processImageMock.mockReset();
+    detectTextRegionsMock.mockReset();
+    useTranslationCacheStore.getState().clear();
+  });
+
+  const page = {
+    naturalWidth: 800,
+    naturalHeight: 600,
+    src: 'https://example.com/blank-page.jpg',
+  } as HTMLImageElement;
+
+  it('does not ask the provider about the same page twice', async () => {
+    // The listing promises "same image, no repeat request". A page the model
+    // and the OCR both read as empty used to break that promise: the answer
+    // was never remembered, so every visit billed another request.
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'blank-page-hash',
+    });
+    // No OCR region either: the fallback finds nothing and steps aside.
+    detectTextRegionsMock.mockResolvedValue({ regions: [] });
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      textAreas: [],
+      cached: false,
+    }));
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: true,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as unknown as TranslationTransport,
+    });
+
+    const first = await translator.translateImage(page, false);
+    expect(first.success).toBe(true);
+    expect(first.textAreas).toHaveLength(0);
+    const callsAfterTheFirstRun = translateImage.mock.calls.length;
+    expect(callsAfterTheFirstRun).toBeGreaterThan(0);
+
+    const second = await translator.translateImage(page, false);
+
+    expect(translateImage).toHaveBeenCalledTimes(callsAfterTheFirstRun);
+    expect(second.success).toBe(true);
+    expect(second.textAreas).toHaveLength(0);
+    expect(second.cached).toBe(true);
+  });
+
+  it('still re-asks when the model found boxes but translated nothing', async () => {
+    // The other kind of "empty" is a fake success: the model pointed at
+    // speech bubbles and left every one of them blank. That deserves a
+    // second try, so it must not be remembered.
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'fake-success-hash',
+    });
+    detectTextRegionsMock.mockResolvedValue({ regions: [] });
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      textAreas: [
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.1,
+          originalText: '原文',
+          translatedText: '   ',
+        },
+      ],
+      cached: false,
+    }));
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: true,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as unknown as TranslationTransport,
+    });
+
+    await translator.translateImage(page, false);
+    const callsAfterTheFirstRun = translateImage.mock.calls.length;
+
+    await translator.translateImage(page, false);
+
+    expect(translateImage.mock.calls.length).toBeGreaterThan(
+      callsAfterTheFirstRun
+    );
+  });
+});
+
+// ================================================================
+// A fallback that could not run is not the same answer as
+// "this image has no text".
+//
+// The full-image path asks the model, gets nothing, and then asks
+// Tesseract to look instead. When Tesseract itself fails — the language
+// pack downloads from cdn.jsdelivr.net, which is not reachable
+// everywhere — the old code swallowed the error and returned
+// `success: true` with zero areas. That image counted as translated, the
+// HUD said 译文已直接覆盖在原图上 over an untouched page, and the empty
+// answer was written to the cache, so opening the page again never asked
+// a second time. The reader paid and got nothing, permanently.
+// ================================================================
+describe('an OCR fallback that failed is a failed image, not an empty answer', () => {
+  beforeEach(() => {
+    processImageMock.mockReset();
+    detectTextRegionsMock.mockReset();
+    useContentConfigStore.setState({ translationPipeline: 'full-image-vlm' });
+    useTranslationCacheStore.getState().clear();
+  });
+
+  afterEach(() => {
+    useContentConfigStore.setState({ translationPipeline: 'full-image-vlm' });
+  });
+
+  const page = {
+    naturalWidth: 800,
+    naturalHeight: 600,
+    src: 'https://example.com/no-text.jpg',
+  } as HTMLImageElement;
+
+  function makeTranslator(transport: TranslationTransport): TranslatorService {
+    return new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: true,
+      translationStylePreset: 'natural-zh',
+      transport,
+    });
+  }
+
+  function mockProcessing(): void {
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'no-text-hash',
+    });
+  }
+
+  it('reports the failure instead of a successful empty translation', async () => {
+    mockProcessing();
+    // The model saw nothing, and the fallback could not run.
+    detectTextRegionsMock.mockRejectedValue(
+      new Error('Failed to load language pack from cdn.jsdelivr.net')
+    );
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      cached: false,
+      textAreas: [],
+    }));
+
+    const result = await makeTranslator({
+      translateImage,
+    } as TranslationTransport).translateImage(page, false);
+
+    expect(detectTextRegionsMock).toHaveBeenCalled();
+    expect(result.success).toBe(false);
+  });
+
+  it('does not cache that empty answer', async () => {
+    mockProcessing();
+    detectTextRegionsMock.mockRejectedValue(new Error('language pack failed'));
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      cached: false,
+      textAreas: [],
+    }));
+
+    await makeTranslator({
+      translateImage,
+    } as TranslationTransport).translateImage(page, false);
+
+    // No cached entry means the next visit asks again, which is the whole
+    // point: the reader did not get an answer, so we must not pretend we
+    // already have one.
+    expect(useTranslationCacheStore.getState().cache.size).toBe(0);
+  });
+
+  it('still treats "OCR ran and found nothing" as an answer', async () => {
+    mockProcessing();
+    detectTextRegionsMock.mockResolvedValue({
+      regions: [],
+      imageWidth: 800,
+      imageHeight: 600,
+      processingTime: 1,
+    });
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      cached: false,
+      textAreas: [],
+    }));
+
+    const result = await makeTranslator({
+      translateImage,
+    } as TranslationTransport).translateImage(page, false);
+
+    // Detection completed and reported no text. That is a real answer and
+    // stays a success — the image simply has nothing to translate.
+    expect(result.success).toBe(true);
+    expect(result.textAreas).toHaveLength(0);
+  });
+});
+
+/**
+ * 找到了、也给了译文，却没有地方可以画。
+ *
+ * 模型给了一个框，但没给全（或者根本没给），于是这条译文没有位置。
+ * 页面上的气泡比模型找到的少 —— 差的这几个还留着原文，而这一轮被记成
+ * 成功。读者只看到「翻译完成」，只当自己看漏了。
+ *
+ * 这个数字以前没人告诉读者：解析层数出了"画不上去的条目"，worker 把它
+ * 带回来了，翻译器把它算进"没翻出来"，页面把它说给读者。
+ */
+describe('a translation the model could not place', () => {
+  beforeEach(() => {
+    processImageMock.mockReset();
+    detectTextRegionsMock.mockReset();
+    useTranslationCacheStore.getState().clear();
+    useContentConfigStore.setState({ translationPipeline: 'full-image-vlm' });
+  });
+
+  afterEach(() => {
+    useContentConfigStore.setState({ translationPipeline: 'full-image-vlm' });
+  });
+
+  const page = {
+    naturalWidth: 800,
+    naturalHeight: 600,
+    src: 'https://example.com/page.jpg',
+  } as HTMLImageElement;
+
+  it('is counted as not translated, and the page says so', async () => {
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'unplaced-hash',
+    });
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      cached: false,
+      textAreas: [
+        {
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          originalText: 'こんにちは',
+          translatedText: '你好',
+        },
+      ],
+      // The model found two more bubbles and gave no box for either.
+      unplacedCount: 2,
+    }));
+
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    const result = await translator.translateImage(page, false);
+
+    expect(result.success).toBe(true);
+    // 画上去的一句不算少，画不上去的两句要算进去。
+    expect(result.missingCount).toBe(2);
   });
 });

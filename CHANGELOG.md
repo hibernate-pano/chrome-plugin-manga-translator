@@ -7,6 +7,850 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **The HUD can get out of the way.** It is pinned to the bottom-left —
+  the reading panel owns the right side and reaches the bottom of the
+  screen — but on a reader that aligns its content to the left, that corner
+  is the artwork, and the card sat on the picture for the whole run. It now
+  folds down to a small pill with one click: the progress is still there,
+  and the page is visible again.
+- **A translation the model gave no box for is now counted, and the page
+  says so.** The model finds a bubble, translates it, and then gives no
+  coordinates for it — there is nowhere to draw that translation, so the
+  page shows fewer bubbles than the model found, and the difference is
+  still in the source language. The parser counted those, the worker
+  carried the count back, and then nobody read it: the page said
+  「翻译完成」 and the reader was left to assume they had missed a bubble
+  themselves. The number now travels the whole way and lands in the
+  sentence the reader actually reads — 「有 N 处文字没有翻出来（仍是原文）」.
+- **The strip of crops is described as what it is.** When the page falls
+  back to translating a stack of cropped text regions, the image it sends
+  is not a comic page — it is a vertical pile of unrelated blocks. The
+  prompt it got, however, was the page's own: 「merge the lines of one
+  bubble into ONE item」. On a pile of unrelated blocks that instruction
+  merges two different bubbles into one box, and the translation lands on
+  one of them while the other keeps its Japanese. The strip now has its
+  own prompt (one item per block, never across a block boundary), the
+  blocks are separated by a visible rule so the model can see where one
+  ends, and the answer is matched to a block by how much they overlap.
+- **An answer with no box is dropped instead of being drawn in the
+  corner.** A missing coordinate used to be read as zero, so a translation
+  the model described but did not locate was drawn as a column of single
+  characters at the smallest font size in the top-left corner of the
+  artwork — over the picture, while the real bubble kept its Japanese, and
+  the run was still recorded as a success. There is no such thing as a box
+  at the origin: an answer without a usable box is dropped and counted as
+  a bubble that did not come through.
+
+- **The exported PNG breaks its lines the way the page breaks them.** The
+  page hands the translation to the browser, which keeps a Latin word in one
+  piece and never starts a line with a full stop; the export used a
+  per-character estimate, so 「brown」 was cut in half across two lines and
+  the PNG did not match the screen. The export now folds the text with the
+  same rules the browser uses — a word stays whole, a Chinese character can
+  break anywhere, a closing mark never opens a line — and the vertical
+  layout got the same treatment, so a slanted Latin run stays in one column
+  instead of being spread over several.
+- **The export is a scaled copy of the screen, not a second layout.** The
+  export re-ran the layout against the image's *pixel* size, so the font
+  sizes it picked came from a different set of candidates than the page's
+  and the bubbles came out a little bigger or smaller than the ones the
+  reader was looking at. The export now lays the bubbles out at the size
+  the page used and scales the result, so the PNG is the screen's layout,
+  multiplied.
+- **The export measured the text at one weight and drew it at another.**
+  The page draws the translation at weight 500; the export measured at the
+  default weight and drew at 500, so the lines were broken for a narrower
+  font than the one they were painted with — a word could stick out of its
+  bubble, and the PNG had a different number of lines from the screen. The
+  weight now lives in one place, and the page, the measurement and the
+  export all use it.
+- **A Latin word in a vertical translation no longer bursts its bubble.**
+  The browser rotates a Latin run 90° in vertical text, and the run takes
+  the width it would have on one line. The export drew it upright, one
+  letter per line-box, so the column was several times taller than the
+  fold had planned for: the text was cut off, and the reader saw less in
+  the PNG than on the page. The export now rotates the run the way the
+  browser does and gives it the same width.
+- **The refiner no longer walks onto the neighbouring bubble.** The guard
+  that was supposed to catch it compared the *union* of the model's box and
+  the ink with the model's box — and a union always contains the model box,
+  so the ratio was always 1 and the guard could never fire. A box that
+  landed next to a bubble could therefore grow over that bubble's original
+  text, hiding it without putting a translation in its place. The guard now
+  compares the ink with the model's box, and fires when the two are not
+  about the same text.
+- **Two bubbles that overlap on the page do not overlap in the export.** The
+  page pushes overlapping bubbles apart; the export drew each one where it
+  landed and let them cover each other, so the reader got two layers of
+  text where the screen showed one. The export now resolves the collisions
+  the same way, and the text is clipped to its bubble, exactly as the
+  page's `overflow: hidden` clips it.
+- **Two bubbles in the same place now get out of each other's way.** The
+  collision resolver compared the centres of the two bubbles and moved both
+  of them the same way when the centres were equal — which is what happens
+  when the model reports the same bubble twice. They stayed stacked, and
+  the resolver was doing nothing at all in the one case where it was most
+  needed. The tie is now broken by position, so the two separate.
+- **The usage history stops growing for no reason.** Every extension
+  context counted its own calls, and each context wrote its own running
+  total under its own id — but the id changed every time a context
+  started, and the worker is torn down after half a minute of idle. The
+  list grew by one entry per process start, month after month, and every
+  single call rewrote all of them. The worker is now the only context that
+  records usage (the page reports its cache hits to it), so there is one
+  running total per month, and the months nobody reads any more are
+  dropped.
+- **The queue sorts by how urgent a job is.** The worker had a whole
+  scheduling system — five priority classes, an insertion index, a rule
+  that lends an extra slot to an urgent job — and every single job was
+  filed under the same class, so none of it could ever change the order.
+  The page now labels what it sends: the images the reader is looking at
+  are 「visible now」, the ones further down the page are 「next up」, and
+  the images the reader explicitly asked to retry are the most urgent of
+  all. The queue's own machinery is unchanged; it finally has something to
+  sort.
+- **The content script stopped carrying the provider layer.** It asked one
+  question — 「does this provider need an API key?」 — and the answer lived
+  in `providers/base.ts`, next to the prompt builders and the response
+  parsers. Importing it dragged all of that into the script that is
+  injected into every page the user opens. The question now lives next to
+  the list of local providers, where the money wording already lived, and
+  the content script no longer imports the provider layer at all. The
+  bundle is 8.5 KB smaller.
+
+- **A provider that returned a 5xx is no longer reported as a network
+  problem.** Every 5xx was classified as 「网络连接失败，请检查网络」, so the
+  reader was sent to check a router that was working. It is the provider
+  that failed, and the only thing the reader can do is wait or switch — the
+  message now says that. The same applies to a 520 or a 529, not just the
+  four codes that used to be listed.
+- **A failed image download no longer tells the reader to check their
+  network either.** Images come from third-party sites, where the usual
+  reasons for a failure are a hotlink block, a login wall, an oversized
+  file, or an internal address the guard refused. The wrapper's text
+  ("Failed to fetch image…") matched the generic `fetch` keyword and came
+  out as a network error. It now has its own sentence, which names the
+  likely causes.
+- **A job the extension cannot run is refused before it is queued.** A
+  cloud provider with no API key was queued, sent anyway, answered 401, and
+  the classifier said 「API 密钥无效」 — to a reader who has no key at all.
+  The job is now refused up front with the extension's own sentence and a
+  link to the settings, and nothing is sent. A local provider still runs
+  without a key, as the onboarding promises.
+- **The completion card has an edge on a dark page.** The HUD's border was
+  white at 14% over a translucent black card: 1.35:1 against a black page,
+  where WCAG asks for 3:1. The reading panel, the export dialog and the
+  re-translate confirmation had the same problem in their own colours; all
+  four card edges now meet 3:1.
+- **The export dialog says something a reader can act on.** It was the only
+  error surface in the product that did not go through the shared
+  classifier, so a blocked image showed 「合成失败：Failed to fetch image:
+  403」 — an internal phrase, in English, with no next step. It now uses the
+  same sentences as everywhere else, and it only offers 「重试」 for failures
+  that can get better: a URL the guard refused or an oversized image will
+  fail the same way a thousand times.
+- **A page with no translations does not ask you to confirm a destructive
+  action.** 「清除本页译文」 was always live, and always opened a
+  「无法撤销」 warning — on a page that had never been translated, where
+  clicking it removes nothing. The page now reports how many images it has
+  covered, and the button says 「本页没有译文可清除」 instead of
+  threatening.
+- **The cache switch says what turning it off costs.** It read 「减少重复
+  图片的重复请求」 and nothing more, so a reader saving quota by turning it
+  off had no way to know that every visit would now be a fresh, billed
+  request. The resolution control next to it already said exactly that.
+- **The health check stops for the right reason.** The note said the
+  automatic probe was paused 「避免反复发请求产生费用」. The probe is
+  explicitly non-billable (`allowBillableProbe: false`); it was paused to
+  stop hammering an address that is not answering.
+- **The onboarding says 「最后一步」, because that is where the settings
+  page is.** It promised the *next* step would take the reader to the
+  settings page, and the next step is a screen that says 「还差一步」.
+- **The store listing and the review notes say the same thing about the
+  export.** The listing claimed the export 「不会把图片发给任何新目的地」
+  without mentioning that it fetches the original from its host once more;
+  the review notes had already been corrected to say so.
+- **A screen reader hears the result.** Every state change was a silent
+  repaint: a reader who pressed the shortcut — or the popup's button and
+  then tabbed away — got no announcement that a run had started, finished,
+  or failed. The HUD and the popup now have a polite status region that
+  announces the start and the conclusion, and deliberately not each
+  intermediate progress tick.
+- **The exported text sits where the screen shows it.** The page centres the
+  translation inside its bubble (`align-items/justify-content: center` plus
+  `text-align: center`), and the export drew it from the top-left corner —
+  so a translation shorter than the original bubble (the usual case, since
+  the bubble is floored at the *original* text's width) was centred on screen
+  and glued to the corner in the PNG. Vertical text was worse: the columns
+  were stacked against the right edge instead of being centred as a group.
+  The export now centres both the same way the page does, and the minimum
+  bubble sizes (48px, 28px, 12px, 10px) scale with the image, so a 2× or 4×
+  export is a proportional copy rather than a smaller one.
+- **The exported PNG is the page the reader was looking at.** 「保存译文」
+  promised the translation as it appears on the page, but the page lays its
+  bubbles out against the image's *displayed* width while the export canvas
+  is the image's *pixel* width. Font size, padding and corner radius are
+  absolute pixel settings, so on a retina screen (2×) the exported text was
+  half the size it should be and on a long strip (5×) a fifth — different
+  line breaks, different truncation, a picture that no longer matched the
+  page it came from. The export now scales those four numbers by the ratio
+  between the two widths, so the file is a proportional copy of the screen.
+- **「清除缓存」 cannot quietly refill itself.** The cache holds 400 entries
+  and records a tombstone for every deletion so that a tab which missed the
+  clear cannot write its stale snapshot back. The tombstone map was capped
+  at 200, so after a clear half the deletions were dropped — the counter
+  said 0, the storage answered "empty", and the next context to write
+  resurrected the other half. Every deleted entry now gets a tombstone.
+- **The in-page confirmation no longer quotes a floor as if it were the
+  total.** Pressing the shortcut on a webtoon page with 4 loaded images and
+  36 still in the wings said 「对本页全部 4 张图片」. With auto-continue
+  armed, those 36 are translated and billed the moment their bytes land: the
+  dialog now prices them too, and says which of the two things is true —
+  they will be translated automatically, or auto-continue is off and they
+  will not. The popup's dialog had the same hole and now shares the sentence.
+- **A local model is no longer told that it costs money.** Every surface
+  said 「会产生费用」 — the popup's cost line, the page's progress note, the
+  retry button, the auto-translate warning, the settings page. Ollama and
+  LM Studio run on the reader's own machine: no bill appears and no picture
+  leaves. The onboarding had always told those readers the truth, so the
+  product contradicted itself on the one sentence it spends to earn trust
+  about money. Every one of those sentences now takes the provider into
+  account.
+- **The note about what a request costs names the third way there is.**
+  Two of the three were named — a long strip is cut into tiles, and a page
+  the model cannot read is asked again through the OCR. The third was not:
+  a request that times out or fails is retried, and the retry is a request
+  the provider has usually already billed.
+- **The retry button in the page says how many images it will re-request,
+  and asks before it spends.** The popup's version of the same action said
+  「重新翻译失败的 N 张」 and asked for a confirmation; the in-page one said
+  「重新翻译失败项」 and did not. One click, on the surface a reader clicks
+  in a hurry, and the money was already moving. The count was on the card
+  all along — it just was not on the button.
+- **The page does not ask about an image twice when the page changes its
+  address.** A responsive webtoon replaces a thumbnail with the full-size
+  panel, and an `<img>` that carries only a `srcset` has no `src` at all.
+  Both change the address the extension keys the image on, so the observer —
+  whose whole job is to ask about images it has never asked about — asked
+  again about a picture it had already paid for. The image is now also
+  tracked by the element, which does not change while it is on the page.
+- **The caching promise says what it actually promises.** The store listing
+  said 「相同图片不重复请求」, the settings page said 「重复打开同一页不会
+  再次调用模型」, and a failed translation was in neither case: a failure is
+  not cached, so the next visit asks again. All three now say the same
+  thing — the *successful* translations are remembered.
+- **The settings page no longer promises a backend that is not there.** The
+  first line told every reader they could 「直接使用构建时预置的后端」. The
+  build that goes to the store has none — the onboarding already knew
+  that, and said so.
+- **One action has one name.** 「忽略缓存重翻」 was called 「强制重翻」 in
+  the popup, 「忽略缓存重新翻译当前页面」 in the shortcut list, and
+  「忽略缓存重翻」 in the store listing, all within one screen. The
+  manifest and the code now carry the same description, and a test keeps
+  them from drifting apart.
+- **The fields on the settings page have a visible edge.** The border was
+  `white/20` over a near-black background — 1.7:1, where WCAG asks for 3:1.
+  The popup's select had been fixed for exactly this reason; the settings
+  page had ten controls that had not, including the field the API key is
+  pasted into.
+- **A page that has already been translated says what to do next.** The
+  summary said 「本页 N 张图片已经翻译过了」 and stopped there; the action
+  that does something about it sits further down the popup. It now says so.
+- **A 408 on the 「测试配置」 probe is counted.** The rule says an abandoned
+  request was billed; the probe did not follow it. A network error still is
+  not counted, and the rule now says why: the client cannot tell a
+  connection that died before the request was sent from one that died after
+  the provider had run the model.
+- **A page with no text is cached like any other answer.** The full-image
+  path refused to cache a result with no text in it — one request is cheap,
+  and a page the model mis-read stays retryable. That rule is right for a
+  strip (N requests) and wrong for a page (one request): a page the model
+  and the OCR both read as empty was asked about again on every visit, so
+  the store's promise 「相同图片不重复请求」 did not hold for it. The two
+  kinds of "empty" are now told apart — a model that pointed at boxes and
+  translated nothing is still a fake success and is still re-asked; a model
+  that said "there is no text here" is an answer and is remembered.
+- **「清除本页译文」 no longer hands the page back to the observer.** The
+  button is for removing the overlays, not for asking the model about the
+  page again. Clearing it also released the record of which images had been
+  asked about, so the next image that loaded brought the whole page back
+  with it — twenty requests the user had never asked for. The overlays go;
+  the "asked about" marks stay.
+- **The note about what a request costs now names both ways one image
+  becomes several requests.** It only mentioned the long-strip split. The
+  other one is the OCR fallback: when the model comes back with no text at
+  all, the extension asks again through the OCR, in batches of ten regions.
+  A user reading only the strip sentence still underestimated the bill.
+- **The popup and the page count the failures the user still has to act
+  on.** The popup's summary quoted the last run's failure counter, which
+  goes back to zero as soon as a run succeeds — while the button right
+  below it offered to re-request three images that had failed earlier. The
+  HUD said 「失败 0」 in the same situation. All three now quote the size of
+  the retry list: the number of images a retry would really re-request.
+- **The HUD's cancel button says what it cancels.** It said 「取消」 next to
+  a progress bar, which reads like "undo the translation"; the popup has
+  always said 「取消当前翻译」. One action, one wording.
+- **The store review notes no longer say the PNG export adds no request.**
+  The export re-fetches the image through the same guarded channel the
+  translation used, so it does send one more GET — to the same host, with
+  the same rules, and to no new destination. The note now says exactly
+  that instead of a claim that was not true.
+- **The auto-continue observer no longer re-requests images that already
+  failed.** A failed image is not marked as processed and is not in the
+  processed-image registry, so every observer round picked it up again and
+  asked the model about it once more — up to twenty rounds, none of which
+  the user had asked for. The page now keeps a separate record of the
+  images it has *asked about*: the observer may only pick up an image it has
+  never asked about. Whether a failed image is worth another request is the
+  user's decision, and the popup already offers it
+  (「重新翻译失败的 N 张」).
+- **An automatic round no longer empties the user's failure list.** Every
+  run that was not a "retry the failed ones" cleared the list at the start,
+  so the observer threw away the very list the popup's retry button is built
+  from. The list now belongs to the user: only a request from the user
+  clears it.
+- **Cancelling a run no longer hands the rest of the page to the observer.**
+  The images a cancelled (or fatally aborted) run never reached were never
+  asked about, so the observer treated them as newly loaded images and
+  translated them — after the user had said stop. They are now recorded as
+  asked-about; one more click on 「翻译当前页」 gives them a fresh chance.
+- **The cost note for a long strip no longer promises a number it cannot
+  keep.** A strip is split into tiles and each tile is a separate billed
+  call, but a tile that comes back with no text is asked a second time, a
+  tile that fails is retried, and a strip whose tiles all fail falls back to
+  one more full-image request — up to twice the number of tiles. The note
+  now says the request count may be higher than the tile count, the same
+  wording the popup uses.
+- **A strip that honestly has no text is cached like any other answer.**
+  The full-image path deliberately refuses to cache a zero-text result — one
+  request is cheap and a page the model mis-read stays retryable. A strip is
+  N requests, and not caching it meant every visit to the same page paid
+  for every tile again. A strip whose tiles all answered "there is no text
+  here" is now remembered.
+- **The page says what a page translation costs, for the two ways into it
+  that have no popup.** The popup writes the cost under the button; the
+  keyboard shortcut and the context menu have nowhere to write it, and the
+  money starts moving the moment they are used. The page now says it on the
+  page, while the run is still cancellable — including the part that is not
+  obvious, that a long strip is one image and several billed calls.
+- **Changing the resolution says that it invalidates the cache.** The cache
+  key is the hash of the *processed* image, and the processed image depends
+  on the resolution — so switching resolution orphans every cached
+  translation and the next page is paid for at full price again. The
+  setting now says so.
+- **The usage panel explains what its numbers mean.** 「翻译记录」 counts
+  every translation, 「API 调用」 counts the ones that were actually sent;
+  cache hits are in the first and not in the second. The panel now says
+  that, and says that calls to a local provider (Ollama / LM Studio) are
+  counted but not charged.
+- **The model can no longer write its own HTTP status.** The worker flattens
+  every error to its message, so the status travels inside the text as a
+  `[HTTP nnn]` marker — and the marker was found with a plain substring
+  search. One error message contains text nobody here wrote: when the
+  model's answer cannot be parsed, its first 200 characters go into the
+  message. A model that answered `[HTTP 408] request timed out` made the
+  extension read a timeout out of its own output: the call was recorded a
+  second time, and the user was told the request had timed out when the
+  model had simply answered badly. The marker is now anchored to the start
+  of the message — the real one is always a prefix.
+- **The rule for what counts as a bill is written down.** A 4xx is a
+  refusal and is not counted. A 2xx carrying an *error* is a refusal under
+  a success status and is not counted. A 2xx carrying a *model answer* is
+  counted, even when the answer cannot be read. A 408 is counted by the
+  layer that can tell an abandoned request from a refusal. The rule now
+  lives next to the code that applies it, so the next reader does not have
+  to re-derive it from the shape of a response.
+- **The 「测试配置」 button's probe is counted.** The probe is a real
+  one-token chat completion and the provider bills it, so it is a request
+  the user's statement shows and the counter did not.
+- **The popup's cost line no longer disappears.** When the page's image
+  count could not be read, the line was empty — and the 「翻译当前页面」
+  button was lit anyway, with nothing on screen saying that pressing it
+  costs money. Not knowing how many images there are is a fact about the
+  scan, not about the bill.
+- **Right-clicking one long strip now says how many requests it sends.** A
+  webtoon chapter is one image and several tiles, and each tile is a
+  separate billed call; the page said 「第 1 张 / 1」 and nothing about the
+  bill. The page now counts the tiles first and puts it on screen under the
+  progress bar, while the money is still being spent and the user can
+  still cancel.
+- **The popup and the page say the same thing.** The skip reason was
+  worded one way in the popup and another in the HUD, and the HUD's cache
+  line left out the "no cost" half that the popup had. One reason, one
+  string, one place.
+- **The 「清除本页译文」 dialog no longer over-promises.** It said a
+  re-translate would hit the cache and cost nothing. That is true for the
+  images that succeeded and false for the ones that failed, for a different
+  provider or model, and for an evicted entry. It now says which case it
+  covers.
+- **The store review notes no longer name an action that does not exist.**
+  They told the reviewer that the force-retranslate confirmation appears
+  from the context menu — that menu has exactly two items, and neither is
+  it. The checklist's claim that a re-translate makes no requests now says
+  which images are exempt.
+- **The Gemini preset no longer quotes a third party's pricing.** 「免费额度
+  友好」 is a claim the extension cannot verify and that changes; the note
+  now says the thing that is true.
+- **A 200 whose body cannot be read is no longer a free request.** The
+  provider parsed the response and threw the token usage away when the
+  parse failed, but a 200 with *no body at all* — an HTML error page
+  served under a 200, a truncated response, a proxy that swallowed it —
+  took a branch that recorded nothing. The model ran, the service billed
+  it, and 「本月 N 次 API 调用」 said zero. That branch is recorded now, with
+  zero tokens, which keeps the count honest without inventing a number.
+- **The local model records its requests too.** Only the OpenAI-compatible
+  provider decided what "a request happened" meant, so the usage panel and
+  the local provider disagreed about it: a local model that answered with
+  prose instead of JSON, or with nothing, was a request the extension made
+  and the panel never mentioned. Both provider families now go through one
+  function, `recordBilledRequest`, so the definition is written down once.
+- **The status dot in the settings page no longer costs money.** The page
+  polls the provider every fifteen minutes, and the poll's probe falls back
+  to a real chat completion when the gateway does not expose `/models` —
+  which is most self-hosted setups, and a billed request. The poll now
+  stops at the 404, which has already proved the host is reachable and the
+  key was not rejected. Only the 「测试配置」 button, whose label says a
+  request is sent, asks for the full check.
+- **The diagnostics bundle no longer carries a private gateway's
+  address.** The bundle promises 「不含 API Key、接口地址」, and the key
+  really was filtered — but a URL was not, so a self-hosted endpoint's
+  intranet hostname went into a bug report the user was about to paste
+  into a public issue. The filter now treats a URL as private, so the
+  promise is enforced by the filter rather than by the caller.
+- **The popup and the page now say the same thing about money.** The skip
+  reason was worded one way in the popup and another in the in-page HUD,
+  and the HUD's retry line left out the note about long images. The user
+  reads the popup before pressing the button and the HUD after; they were
+  being told two different stories about the same set of images. Every
+  sentence about cost now lives in one place, `src/shared/cost-wording.ts`.
+- **The in-page re-translate prompt no longer hides the expensive half.**
+  The popup's dialog said 「已经翻译成功的图片也会重新计费」; the dialog the
+  keyboard shortcut raises said only that the request would cost something.
+  The half that was missing is the half that bills the pages the user
+  already paid for.
+- **The popup's cost line now says what a long image actually costs.**
+  The number is still the image count, and it is still what the store
+  review notes promise — but a long strip is cut into tiles, and each tile
+  is a separate billed request. The line says so.
+- **A timing assertion was measuring the machine, not the cache.** The
+  cache-hit benchmark ran 100 lookups once and demanded 50ms; on a loaded
+  CI runner it took 80ms and failed, with nothing about the cache having
+  changed. It now warms up and takes the fastest of five rounds — noise
+  can only make a round slower — and the assertion no longer measures
+  `expect()` calls.
+- **An extension update no longer wipes the user's configuration.** The service
+  worker and the store wrote two different shapes to the same storage key: the
+  store wrote `{ state, version }` and the worker wrote a flat object. Zustand
+  rehydrates from `state`, so the flat object read back as `undefined`, the
+  defaults were merged over the user's settings and written straight back to
+  disk. One update was enough to lose the API key, the endpoint, the model and
+  the auto-translate allowlist. Every write now goes through
+  `src/background/config-writer.ts`, which always writes the envelope the store
+  reads, and the version migration in the worker no longer rewrites the config
+  at all.
+- **Moving the configuration out of `chrome.storage.sync` no longer breaks it.**
+  The migration copied the old value across verbatim. That value could be the
+  flat shape the store cannot read, in which case the settings were destroyed
+  by the next write — the move itself was the thing that lost them. Anything
+  that lands in local storage is now the envelope the store reads, with the
+  version it was written with, so the store's own migration knows where to
+  start.
+- **The credential guard actually guards.** `sender.id === chrome.runtime.id`
+  is true for this extension's *own* content scripts too, so it could not tell
+  an extension page from a script injected into somebody else's page — and
+  that difference is the whole gate. `getConfig`, `setConfig` and the
+  translation job now require a sender with no tab, which only the extension's
+  own pages have.
+- **"Clear this page" no longer re-bills the images you just dismissed.**
+  Three sets record what has already happened to an image on a page, and the
+  reset cleared two of them. The leftover failures were exactly the list the
+  force-retranslate button bills for.
+- **The cost counter was never counting.** The provider parsed the response
+  and threw the token usage away, so the usage store never received a record
+  and 「本月 N 次 API 调用」 said zero for the rest of the user's life no matter
+  how much they were billed. The usage is captured now, and a call is counted
+  even when the service reports no token counts — the extension knows it made
+  the request, and that number is what the user reads as their bill.
+- **Ignoring the cache and re-translating the page always asks first.** The
+  popup's button had a confirmation; the keyboard shortcut did not, so one
+  keypress re-requested the whole page and billed it. The page asks now, and
+  says how many images it is about to re-request.
+- **The settings page no longer promises a rule the code does not follow.**
+  Auto-continue is on by default, and it keeps translating images that load
+  later even on sites outside the allowlist. The copy now states the rule as
+  it actually is: the switch on, auto-continue on, and either the site is
+  listed or you translated this page by hand.
+- **The popup no longer sends you to resize images that simply have not
+  loaded.** A chapter of a webtoon has two or three images on screen and forty
+  still to come; the count now tells the two apart, and the sentence about the
+  200×200 minimum only appears when size really is the reason.
+- **Two bubbles in one region no longer share one box.** In the region
+  pipeline the detected regions are merged when they overlap, and the model can
+  answer with several boxes for one region. Their translations were joined into
+  a single string and drawn over the whole region — two bubbles crammed into
+  one box, with the space between them covered as well. Every box is now
+  mapped back onto the original image and drawn on its own.
+- **The export dialog closes when you click outside it.** The backdrop check
+  compared the click's target with the host element, but the target of a click
+  on the backdrop *is* the backdrop, so the condition could never be true.
+  Tabbing out of the dialog is now impossible too, and Escape closes it.
+- **The overlay controls can be reached by the keyboard, and they have
+  names.** The pin and close buttons were mouse-only and announced as
+  "button"; they now carry an accessible name that follows the state, show a
+  focus ring, and are reachable on touch screens.
+- **The default style preset no longer carries Korean grammar into every
+  language.** The rule asked for Korean politeness levels in the output no
+  matter which target language was chosen; it now asks for the target
+  language's own register.
+- **A box the model put in the wrong place can be found again.** The refiner
+  used to drop any box that did not overlap the region it came from, which
+  silently lost real text.
+- **Choosing a target language now changes the output.** The style presets and
+  the prompt were Chinese-only, so a user who picked English was still asking
+  the model for Chinese — with Chinese idiom rules. The prompt now names the
+  chosen language and the presets carry per-language rules.
+- **The switches and the slider handle are 24-pixel targets.** The switch was
+  20 pixels tall and the slider handle 16; both now meet the minimum target
+  size, the slider without changing how the handle looks.
+- **The provider badges in the Settings page no longer break into a column of
+  single characters.** Chinese breaks between any two characters, so a badge
+  one pixel too narrow stopped being a label and became "当 前 使 用 中" — a
+  column of characters down the card. The badges stay on one line now, and
+  the row they sit in moves to its own line when the window is narrow.
+- **The onboarding no longer describes an icon that is not there.** It told
+  the user to look for a bubble reading 「您好」; the icon read 「你好」, and
+  at the size Chrome draws it in the toolbar neither was legible. The copy
+  now describes the icon that ships.
+- **The store recorder stops blaming the extension for its own mistakes.**
+  `Target.createTarget({ url })` creates the tab and leaves it on
+  `about:blank` — it does not navigate — so the content script was never
+  injected and the failure read as "the content script never answered",
+  which sounds like a broken extension. The tab is created blank and
+  navigated explicitly now, the readiness probe races its message against a
+  timer instead of hanging past the deadline, and the trigger is fired
+  rather than awaited: the content script answers `TRANSLATE_PAGE` when the
+  whole translation is over, so awaiting it stalled the recording for the
+  entire translation before the first frame was taken.
+- **The onboarding no longer contradicts itself about data.** The first-run
+  disclosure said 「扩展本身不收集、不上传、不存储任何数据」 in the same box
+  that said the comic images are uploaded to the provider and the API key is
+  kept on the machine — three sentences, one of which has to be wrong. It is
+  about the *developer* now, which is what it was always meant to be.
+- **The diagnostics note no longer claims the extension uploads nothing.**
+  「扩展不收集、不上传任何数据」 sat next to a button whose whole job is to
+  put data on the clipboard. It now says what actually happens: nothing goes
+  anywhere on its own, and the bundle lands on your clipboard only when you
+  press the button.
+- **The review notes no longer promise the content script gets almost
+  nothing.** It gets the endpoint, the model and the key flag — and the
+  settings a translation needs (target language, style, resolution,
+  concurrency). The notes now say that, instead of implying the content
+  script carries three fields and nothing else.
+- **The review notes now describe the smoke-test page correctly.** There is
+  no Chinese bubble in it, the first panel has three bubbles rather than
+  two, and only the cross-origin panel needs the network — the rest is
+  generated inline.
+- **The README's status table is no longer behind the code.** v2.0.4 is the
+  released version, v2.0.2 was missing entirely, and three rows were still
+  labelled 「current」 after they had shipped.
+- **The listing no longer says the reading panel shows 「日文原文」.** What it
+  shows is the text the model actually read, which may be Japanese, Korean
+  or English.
+- **The release smoke test no longer dies on a network hiccup.** Reading
+  `chrome.storage.sync` goes to Chrome's sync backend, and on a machine whose
+  browser cannot reach the network that read never resolves — the gate used to
+  stop there, reporting nothing about the six checks after it. The read has
+  its own deadline now, and a check that could not be run says so instead of
+  quietly counting as a pass.
+- **The popup's price line is two lines of different weight again.** Adding
+  the "one image can become several requests" note turned the top of the
+  popup into six lines of 12px grey, with the number the reader actually
+  wants (「2 张、会花钱」) buried at the top of it. "How many images are on
+  this page" and "how the billing works" are two different kinds of fact, and
+  they are now printed as two: the price in 12px, the caveat in 11px at a
+  measured 6.8:1 against the card. Neither is hidden. On a page with no
+  translatable images the caveat is dropped entirely — no images means no
+  requests, and the note would be noise.
+- **The page's progress card no longer throws away the keyboard.** The card
+  is one HTML blob, so every progress update replaced it — and the focused
+  button with it. A reader who pressed Tab to reach 「取消当前翻译」 lost the
+  button every time the counter moved, and the retry button was worse: its
+  second click *is* the confirmation, so a keyboard user could arm it and
+  then have nothing left to press. The focused button is now put back after
+  the card is redrawn.
+- **The onboarding wizard gives the keyboard back.** Remembering what had
+  focus before the wizard opened and moving the focus inside it were one
+  effect, so every step change overwrote the remembered element with the
+  wizard's own button — and by the time the wizard closed, the remembered
+  element was gone and the keyboard was dropped on the page. The two jobs are
+  separate now, the same way the popup's confirmation dialog has always done
+  it.
+- **The store listing uses the same name for the same action.** The shortcut
+  line still said 「+X 忽略缓存重译」 while the manifest, the code and the
+  review notes said 「重翻」.
+- **The store listing no longer tells a local user their auto-translation
+  costs money.** It said 「（会产生费用）」 flatly; on Ollama and LM Studio
+  nothing is billed. It now says which of the two it is talking about.
+- **The store listing's FAQ no longer sends manual users to check the
+  allowlist.** Manual translation works on any ordinary page — the
+  allowlist only governs automatic translation — so the old answer pointed
+  the wrong users at the wrong setting.
+- **The demo video is now within the store's limit, and shows the result.**
+  It was 45.8 seconds — the Chrome Web Store rejects a listing video longer
+  than 30 seconds, at upload, after the listing was written and the review
+  queued. It was also 45 seconds of "translating": a cold recording starts
+  translating two full-page manga drawings, which takes minutes. The capture
+  script now translates the page once for real, waits for it, and records the
+  cached second pass — so the video contains the translation landing on the
+  page — and it reads the finished file's duration back and fails if it is
+  over the limit.
+- **A queued job now runs against the provider you have configured when it
+  actually starts.** The worker resolved the provider once, when the job was
+  queued, and used that answer for every job in the queue. A chapter sits in
+  the queue for minutes, and the usual reason for switching provider in the
+  middle of one is to stop paying — to move from a cloud endpoint to one
+  that runs on your own machine. The jobs that were still waiting kept
+  calling the endpoint you had just left, so the extension billed you for a
+  provider you no longer used. The other direction mattered too: a key that
+  had expired and been replaced was not the key the job used, so the job
+  failed against a key that no longer existed. The provider is now resolved
+  again at the moment the job runs, and if the provider you have selected is
+  not set up yet, the job stops with a sentence that says so instead of
+  failing with an authentication error that has nothing to do with your image.
+- **The roadmap's content-script size is the real one.** It said ~127 KB; the
+  bundle is ~165 KB — the export dialog and the confirm dialog are code that
+  every page loads. The 200 KB budget caught nothing because 165 is under it;
+  what had gone stale was the number written down as "current size", which is
+  the figure a reader weighs the budget against.
+- **The worker's refusals reach the reader as the worker's own sentence.**
+  When the worker refuses a job — the switch is off, or the provider is not
+  set up — it flattens the answer to a string and the page runs that string
+  through its error classifier. The classifier has no category for "the
+  extension itself is not ready", so it answered 「发生未知错误」: the right
+  advice, framed as an unexplained fault, for a setting the reader can fix.
+  The two refusals now live in the shared protocol, the page recognises them
+  and renders them with 「打开设置」, and the first one stops the whole run —
+  a provider that is not configured fails identically for every image left,
+  and the old path reported twenty of them.
+- **The capture script will no longer write assets that show a failure.** It
+  used to record whatever was on the screen, and if the model could not be
+  reached the "recording" was a page full of 「请求超时」 — a store video of
+  an error, uploaded as a demo. The script now checks that the warm-up
+  actually translated something, checks again after the recording that the
+  page really carries overlays, and stops without touching the existing
+  files if either check fails. The good assets it already produced are safe
+  from the next bad run.
+- **The `--forward` mode actually forwards now.** It patched the provider
+  settings in the saved configuration, but the worker reads the top-level
+  copy of those settings first, so the patch landed in a field nobody read
+  and the extension kept calling the unreachable endpoint. Both copies are
+  patched now, and the script prints the provider and the address it settled
+  on.
+- **The capture script says out loud whether the worker can reach the
+  provider.** It probes the endpoint from inside the extension's own service
+  worker and prints how long that took, and it forwards the worker's console
+  output and network traffic into the log. When the extension's worker has
+  no route to the internet — a machine whose proxy intercepts Chrome's
+  traffic — that line is the difference between "the script is broken" and
+  "this machine cannot get there", which is the whole diagnosis.
+- **The store demo video is gone.** The file that was committed recorded a
+  failed run, and a video of an error is worse than no video: the store's
+  video is optional, and a missing one costs nothing. The capture script
+  can still produce one on a machine that can reach the model.
+- **「清除本页译文」 no longer puts the old translations back.** The button
+  cancels the run that is in flight, but the run was still unwinding: its
+  in-flight requests had not resolved yet, and when they did it drew the
+  translations it had already produced back on top of the just-cleared
+  artwork and then announced 「翻译完成」. The page was blank for a second,
+  then not. The run now knows it was cancelled.
+- **A chapter change no longer reports the previous chapter's result.** A
+  single-page reader swaps its URL without a page load, and the run that was
+  translating the old chapter was still going when the new one appeared. It
+  finished, and it reported 「翻译完成：成功 8 张」 — for a page that had
+  none of those images. The run is now told it was superseded.
+- **An image that appears while the page is being translated is no longer
+  left behind.** The observer waits 800 ms before it acts, and a vision
+  request takes ten to thirty seconds, so an image that loads during a run
+  schedules its follow-up into the one moment a follow-up cannot happen:
+  the page is translating, so the follow-up is dropped — and nothing
+  rescheduled it afterwards. The image then sat there untranslated, on a
+  page whose popup said 「滚动到它们出现后会自动继续翻译」. A run that
+  finishes now hands the page back to the observer.
+- **Changing the settings mid-run no longer fails the rest of the page.**
+  The worker pushes a fresh configuration whenever something changes, and
+  the page nulls its translator so the next image uses the new provider.
+  The images already queued in that run then found no translator and threw
+  「Services not initialized」 — a failure with nothing to do with the
+  reader's images. The next image rebuilds what it needs.
+- **The page stops promising it will carry on by itself once the automatic
+  rounds are used up.** Automatic continuation has a budget: twenty rounds
+  per page, so a page that keeps loading images cannot spend forever. When
+  the budget ran out, the observer stopped — but the HUD still said
+  「滚动到它们出现后会自动继续翻译」 and the popup still said 「这一页会
+  自动翻译新加载的图片」. The reader scrolled, waited, and nothing
+  happened. The page now says it has stopped, says that nothing more will
+  be charged, and says that one press of the translate button starts it
+  again.
+- **A translation that no longer describes the picture is taken away.** A
+  page that swaps an image's address after it was translated — a lazy-load
+  site replacing a thumbnail with the full-size page, a reader opening the
+  large version — left the old translation on top of the new picture. It
+  described different pixels, and it covered the artwork. The translation
+  is removed when the artwork under it changes, and the new picture goes
+  back into the list of images the popup can price.
+- **One request is counted once.** The usage panel's number is what the
+  reader checks their bill against, and it counted a single request twice:
+  the worker merges two callers that ask for the same image into one job —
+  they get the same answer and the provider is asked once — but the count
+  was taken at the caller's side, and there were two callers. The count now
+  happens where the request is made, in the worker, which is the only layer
+  that knows how many times the provider was actually asked. The
+  translator's own line is for cache hits, which are requests that never
+  happened.
+
+### Security
+
+- **A redirect can no longer turn the image proxy into a reader of internal
+  services.** The address policy checked the URL the extension asked for, but
+  the browser follows redirects before any extension code runs — so a public
+  host could answer with a 302 pointing at `169.254.169.254` or
+  `127.0.0.1`, and the extension would fetch it and hand the bytes back to the
+  content script. The final URL is now checked with the same policy, and a
+  response that ended up somewhere internal is dropped unread. The store
+  review notes and the privacy policy say exactly this, including the part a
+  guard cannot do: the request itself has already happened by the time the
+  response arrives, because nothing a service worker can call lets it refuse
+  the hop and still read the target.
+
+### Added
+
+- **The store assets can be regenerated on a machine whose Chrome cannot reach
+  the network.** `scripts/capture-store-assets.mjs` loaded the demo page over
+  `http://127.0.0.1`, and on a machine where the system intercepts traffic
+  Chrome's request to loopback connects and then sends nothing — no bytes, no
+  error, no timeout. The recorder now loads the page over `file://`, which
+  does not touch the network stack, and grants the temporary profile the
+  file access the content script needs to be injected there. `--serve` keeps
+  the old HTTP path for debugging, and `--forward` puts a local relay in
+  front of the model endpoint for machines that cannot reach it at all.
+- **A new extension icon.** The old one put two lines of kanji, a lightning
+  bolt and a globe into a 128-pixel square. At 128 that reads; at 16 — the
+  size Chrome actually draws in the toolbar, and the one place the
+  onboarding tells the user to look for the extension — it collapsed into an
+  illegible smudge. The icon is redrawn as a solid speech bubble with a
+  globe, carrying a single character from 32 pixels up. The character is
+  drawn as paths, not as text, so the icon does not depend on a font being
+  installed, and `scripts/make-icons.mjs` regenerates the whole set.
+- **A translated page can be saved as a picture.** The overlay's export button
+  composes the original image and the translations into one PNG and downloads
+  it. The user paid for the tokens; the result is theirs to keep.
+- **The popup has a 「开始设置」 button.** A new user's first screen was a
+  button that could not work yet, with no way to find the settings. The popup
+  now says what is missing and where to fix it.
+- **The onboarding can be read again.** The settings page has 「重新查看引导」,
+  and when there is no usable provider the last step offers to go and fill in
+  the API key instead of completing a setup that cannot work.
+- **The HUD tells you how much longer the page will take.** A twenty-page
+  chapter takes minutes; "第 7 张 / 20" alone leaves you deciding whether to
+  wait or to give up.
+- **Quality and concurrency are settings, not constants.** The image
+  resolution cap (1024 / 1536 / 2048) and the number of images translated at
+  once (1 / 3 / 5) are in the Settings page, each with the cost trade-off
+  written next to it. The same lever used to live in code where nobody could
+  reach it.
+- **One-click provider presets.** MiniMax, SiliconFlow, OpenRouter, Gemini and
+  OpenAI, each with a documented vision-capable model. A new user's first
+  obstacle was not the API key — it was that "base URL" and "model" are two
+  things you have to know before the extension does anything, and a wrong
+  model name fails with an error that says nothing useful.
+- **The reading panel shows the original text.** Every entry can expand to
+  reveal the source text the model read, so a translation you don't trust has
+  something to check it against.
+- **A support bundle you control.** Settings can copy a diagnostics block —
+  version, provider, model, usage counters — built locally. It carries no API
+  key, no endpoint and nothing about the pages you read. The extension
+  collects nothing, so without this a bug report is just "it didn't work".
+- **Every user-facing string in the extension was audited for contrast** and
+  the ones that failed WCAG AA were corrected; the API-key reveal button got a
+  24×24 hit target, and the extension now honours `prefers-reduced-motion`.
+- **The listing's promo image exists, and can be re-made anywhere.**
+  `store/listing/promo-1280x800.png` was the one asset the listing still
+  marked 「需新制作」 while the screenshots beside it were done.
+  `scripts/build-promo-image.mjs` composites it from those screenshots with
+  headless Chrome — no model, no API key, no network — so the headline and
+  the claims on it can be kept current even on a machine that cannot re-take
+  the screenshots.
+- **The public build is smoke-tested, not just scanned.** `check-public-build`
+  could prove the key was not in the bundle; it could not prove that the
+  artifact then behaves as an unconfigured extension rather than as one that
+  happens to have a working provider. `pnpm smoke:public` drives the
+  credential-free build in a clean Chrome profile and checks that it loads,
+  that nothing in it holds an API key, that `chrome.storage.sync` stays empty,
+  that the popup asks for a provider, that the options page renders, and that
+  the content script is alive. It requests no model, so it costs nothing and
+  works offline.
+- **The popup has a store screenshot, and it costs nothing to take.** The
+  listing said 「建议 3~5 张」 while only two existed, and the third one that
+  was missing was the one that shows what the product is: the popup counting
+  the page's images before the button that spends money. `capture-store-assets
+  .mjs --popup` takes it without translating a single page — the popup counts
+  the images itself, so it needs no provider and bills nothing.
+- **The settings page has a store screenshot too.** Four screenshots now,
+  inside the listing's own 「建议 3~5 张」. This one is taken from the
+  *public* build, so the API-key field is empty — what a store user sees
+  on arrival is what the listing shows them, and no dot-notation of the
+  author's key ends up in a store image.
+- **One CDP client, two scripts.** The store-asset capture and the
+  credential-free smoke test both drive Chrome over the DevTools Protocol,
+  and Chrome 137 and later refuse `--load-extension`, so both have to load
+  the unpacked extension over CDP. The client lives in `scripts/lib/cdp.mjs`
+  now, including the per-command timeout: a copy without it hangs the same
+  way the original did.
+
+- **A run where every image failed no longer says 「翻译完成」.** The card
+  that sits on top of the page led with 翻译完成 and put 成功 0 on the second
+  line, so the sentence a reader actually reads said the job was done when
+  none of their pages had been translated. The title now follows the counts:
+  all failed is 「翻译失败」, partly failed is 「部分完成」. The popup has
+  always split these cases; the card did not.
+- **An OCR fallback that could not run is a failed image, not an empty
+  answer.** When the model came back with no text, the extension asked
+  Tesseract to look instead. If Tesseract itself failed — its language pack
+  downloads from `cdn.jsdelivr.net`, which is not reachable everywhere — the
+  error was swallowed and the image returned an empty *success*. It counted
+  as translated, the card said 译文已直接覆盖在原图上 over an untouched page,
+  and the empty answer was written to the cache, so opening that page again
+  never asked a second time. The fallback now propagates its failure; a
+  detection that ran and genuinely found nothing is still an answer, and is
+  still cached as one.
+- **Skipping the wizard no longer removes the only pointer to the settings
+  page.** Esc, the × and 「稍后再设置」 all mark onboarding as completed, and
+  the popup's setup banner was keyed on that flag alone — one stray Escape
+  and a user with no provider at all lost the button that leads anywhere.
+  "Read the wizard" and "configured a backend" are different facts; the
+  banner now needs both.
+- **The first screen no longer tells a local-model user that their images
+  leave the machine.** The welcome step stated 「图片会离开这台机器」 and
+  「这会产生费用」 unconditionally, with the exception — "if you want the
+  images to stay on this machine, use a local provider" — buried as a fourth
+  bullet. The reader sees this screen *before* choosing a backend, so it now
+  says both cases side by side, and both are true whichever they pick.
+- **The wizard's last step now takes the reader where it says it will.**
+  It promised the form was 「下面」, and the provider section is the sixth
+  group on the settings page — five screens of unrelated settings below the
+  top. Closing the wizard with nothing configured now scrolls to it.
+
+### Changed
+
+- **Publishing to the Chrome Web Store is a command, not a dashboard dance.**
+  The upload, the publish request and the rollout percentage are explicit
+  arguments, and the package is unpacked and scanned for credentials before it
+  is sent. Every promise in the listing, the review notes and the privacy
+  policy is checked against the code by `scripts/check-store-claims.mjs`, so
+  the store cannot be told something the extension does not do.
+
 ## [2.0.4] - 2026-10-21
 
 Security and correctness release. The credential boundary that v2.0.4's

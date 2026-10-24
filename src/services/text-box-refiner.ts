@@ -120,12 +120,14 @@ const MAX_SEARCH_MARGIN = 80;
 const MAX_GROUP_DISTANCE = 40;
 
 /**
- * How much of the model's box the refined box has to keep.
+ * How much the model's box and the found ink have to contain each other.
  *
  * The refiner may legitimately grow the box (the model clipped the second
  * line) and legitimately shrink it (the model padded with empty space). It
- * must not wander off to a different piece of text. A refined box that
- * keeps at least this much of the model's box is still about the same text.
+ * must not wander off to a different piece of text. The ink it found is the
+ * evidence for the refinement, so when the two barely contain each other the
+ * refinement is about a different bubble — and a panel over the wrong bubble
+ * hides the neighbour's original text without replacing it.
  */
 const MIN_OVERLAP_RATIO = 0.35;
 
@@ -592,6 +594,18 @@ function refineAgainstGlyphs(
     };
   }
 
+  /*
+   * 找到的墨迹本身。
+   *
+   * 这是"精修"的依据：模型给的框是猜测，这些墨迹才是页面上真的字。
+   */
+  const inkBox: NormalizedBox = {
+    x: extent.minX / imageWidth,
+    y: extent.minY / imageHeight,
+    width: (extent.maxX - extent.minX) / imageWidth,
+    height: (extent.maxY - extent.minY) / imageHeight,
+  };
+
   // The refined box is the union of the model's box and the ink, never
   // smaller than the model asked for.
   //
@@ -613,11 +627,25 @@ function refineAgainstGlyphs(
       imageHeight,
   };
 
-  // The refinement has to stay about the same text. A box that barely
-  // overlaps the model's box has wandered off to a different bubble.
+  /*
+   * 精修必须还是同一段文字。
+   *
+   * 拿"并集"去比是没用的：并集一定包含模型给的框，重叠比恒等于 1，这道
+   * 闸门永远不会响（所以它以前是一段死代码）。真正会走偏的是**墨迹**——
+   * 找到的字如果和模型给的框几乎不搭，精修就跑到隔壁那个气泡上去了。
+   *
+   * 跑偏的后果很具体：不透明的译文面板盖住了邻居的原文，而译文还留在原处，
+   * 读者既读不到邻居那句日文，也拿不到它的翻译。
+   *
+   * 比的是"包含度"：两个框里小的那个有多大比例落在大的里面。模型框比墨迹
+   * 矮（模型少框了一行）时包含度是 1，墨迹比模型框小（模型多框了空白）时
+   * 也是 1——这两种都是精修该干的事。只有两者几乎不搭时，包含度才会掉下来。
+   */
   const modelArea = modelBox.width * modelBox.height;
-  if (modelArea > 0) {
-    const overlap = intersectionArea(refined, modelBox) / modelArea;
+  const inkArea = inkBox.width * inkBox.height;
+  const smaller = Math.min(modelArea, inkArea);
+  if (smaller > 0) {
+    const overlap = intersectionArea(inkBox, modelBox) / smaller;
     if (overlap < MIN_OVERLAP_RATIO) {
       return modelBox;
     }

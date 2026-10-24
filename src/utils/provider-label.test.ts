@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
-import { detectServiceName, getProviderLabel } from './provider-label';
+import {
+  detectServiceName,
+  getDiagnosticsServiceLabel,
+  getProviderLabel,
+} from './provider-label';
 
 describe('detectServiceName', () => {
   it('recognises the services the extension ships with', () => {
@@ -89,5 +93,53 @@ describe('getProviderLabel', () => {
     expect(
       getProviderLabel({ provider: 'openai-compatible', baseUrl: '' })
     ).toBe('OpenAI-compatible');
+  });
+});
+
+/**
+ * The diagnostics bundle is pasted into public issue trackers, so it may not
+ * name a self-hosted gateway the way the settings page does.
+ */
+describe('getDiagnosticsServiceLabel', () => {
+  it('keeps the name of a service the user recognises', () => {
+    expect(
+      getDiagnosticsServiceLabel({
+        provider: 'openai-compatible',
+        baseUrl: 'https://api.minimaxi.com/v1',
+      })
+    ).toBe('MiniMax');
+    expect(
+      getDiagnosticsServiceLabel({
+        provider: 'openai-compatible',
+        baseUrl: 'https://api.siliconflow.cn/v1',
+      })
+    ).toBe('SiliconFlow');
+  });
+
+  it('describes a self-hosted gateway instead of naming its host', () => {
+    // 设置页可以写主机名：用户要知道自己把图片发到了哪台机器。诊断包
+    // 不行 —— 它会被贴到公开 issue 里，而 `llm.internal.corp` 说的是
+    // 报告人自己的公司网络。
+    expect(
+      getDiagnosticsServiceLabel({
+        provider: 'openai-compatible',
+        baseUrl: 'https://llm.internal.corp/v1',
+      })
+    ).toBe('OpenAI 兼容（自建端点）');
+  });
+
+  it('names the local providers after themselves', () => {
+    expect(
+      getDiagnosticsServiceLabel({
+        provider: 'ollama',
+        baseUrl: 'http://localhost:11434',
+      })
+    ).toBe('Ollama');
+    expect(
+      getDiagnosticsServiceLabel({
+        provider: 'lm-studio',
+        baseUrl: 'http://localhost:1234/v1',
+      })
+    ).toBe('LM Studio');
   });
 });

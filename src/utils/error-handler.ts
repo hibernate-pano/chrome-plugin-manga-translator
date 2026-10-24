@@ -31,10 +31,19 @@ export interface HttpStatusError extends Error {
  * it back to the content script, so the `status` property cannot survive on
  * its own — the status also has to travel inside the message.
  *
- * The marker is not anchored: a message may pick up a prefix on the way
- * (a provider name, a job id), and the status still has to be found.
+ * The marker is **anchored to the start of the message**, and that is not a
+ * detail. The one message that carries text nobody here wrote is the parse
+ * failure: `parseVisionResponse` puts the model's own first 200 characters
+ * into it. A model that answers with `[HTTP 408] request timed out` would
+ * otherwise make the extension read a status out of its own output and
+ * conclude the provider abandoned the request — billing the user for a call
+ * that never ran, and telling them their key is wrong when it is not.
+ *
+ * The real marker is always a prefix: `formatHttpStatusMessage` puts it
+ * first, and nothing prepends anything to a provider's message on the way
+ * back. A marker that is not at the front is not ours.
  */
-const HTTP_STATUS_MARKER = /\[HTTP (\d{3})\]/;
+const HTTP_STATUS_MARKER = /^\[HTTP (\d{3})\]/;
 
 /**
  * Prefix an error message with its HTTP status.
@@ -111,6 +120,14 @@ export enum TranslationErrorCode {
   OLLAMA_NOT_RUNNING = 'OLLAMA_NOT_RUNNING', // Ollama 服务未启动
   OLLAMA_ORIGIN_NOT_ALLOWED = 'OLLAMA_ORIGIN_NOT_ALLOWED', // Ollama 未放行扩展来源
   MODEL_NOT_FOUND = 'MODEL_NOT_FOUND', // 模型不存在
+
+  // 服务商端故障（HTTP 5xx）。和 NETWORK_ERROR 分开：对用户来说这是两句
+  // 完全不同的指导 —— "检查你的网络"他无能为力，而"等一会儿再试"是可以做的。
+  SERVER_ERROR = 'SERVER_ERROR', // 服务商暂时不可用
+
+  // 取图失败。图片来自第三方站点，被防盗链、登录墙或尺寸限制挡下来是常态；
+  // 把它说成"网络连接失败，请检查网络"是在让用户排查一个不存在的故障。
+  IMAGE_FETCH_ERROR = 'IMAGE_FETCH_ERROR', // 图片取不回来
 
   // 参数错误
   PARAM_ERROR = 'PARAM_ERROR', // 请求参数超出限制
@@ -205,6 +222,18 @@ const ERROR_MESSAGES: Record<
   [TranslationErrorCode.NETWORK_ERROR]: {
     message: '网络连接失败，请检查网络',
     suggestion: '请检查您的网络连接是否正常',
+    retryable: true,
+  },
+  [TranslationErrorCode.SERVER_ERROR]: {
+    message: '服务商暂时不可用',
+    suggestion:
+      '这不是你的网络问题：服务商那边返回了 5xx。等一两分钟再试；如果一直这样，换一个服务商或模型。',
+    retryable: true,
+  },
+  [TranslationErrorCode.IMAGE_FETCH_ERROR]: {
+    message: '这张图片没能取回来',
+    suggestion:
+      '图片所在的站点拒绝了下载（可能需要登录，或者开了防盗链），也可能这张图太大。换一页或换一张图再试。',
     retryable: true,
   },
   [TranslationErrorCode.TIMEOUT_ERROR]: {
@@ -397,12 +426,11 @@ export class TranslationErrorHandler {
         return TranslationErrorCode.CONTENT_BLOCKED;
       case 408:
         return TranslationErrorCode.TIMEOUT_ERROR;
-      case 500:
-      case 502:
-      case 503:
-      case 504:
-        return TranslationErrorCode.NETWORK_ERROR;
       default:
+        // 任何 5xx 都是服务商那边的故障，不是读者的网络故障。
+        if (statusCode >= 500 && statusCode <= 599) {
+          return TranslationErrorCode.SERVER_ERROR;
+        }
         return null;
     }
   }
@@ -411,6 +439,24 @@ export class TranslationErrorHandler {
    * 根据错误消息关键词获取错误码
    */
   private static getCodeFromMessage(message: string): TranslationErrorCode {
+    /*
+     * 取图失败要排在"网络错误"之前。
+     *
+     * 图片是第三方站点提供的，失败原因大多是防盗链、登录墙、尺寸限制或者
+     * 内网地址被护栏拦下 —— 原始错误文本里带着 "failed to fetch"（包装层写
+     * 的），于是它被下面那条 fetch 关键词规则认成了"网络连接失败，请检查
+     * 网络"。用户照这句话去查自己家的网，永远查不出问题。
+     */
+    if (
+      message.includes('failed to fetch image') ||
+      message.includes('图片获取失败') ||
+      message.includes('blocked image url') ||
+      message.includes('image too large') ||
+      message.includes('response is not an image')
+    ) {
+      return TranslationErrorCode.IMAGE_FETCH_ERROR;
+    }
+
     // API 密钥相关
     if (
       message.includes('api key') ||

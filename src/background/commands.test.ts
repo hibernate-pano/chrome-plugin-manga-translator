@@ -6,6 +6,10 @@
  * 快捷键，用户按了没反应，扩展看起来就是坏的。这类问题只有从 Chromium
  * 源码的加速键表反推才能提前发现，所以本文件把那份占用清单固化下来。
  */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
 import { describe, expect, it } from 'vitest';
 
 import {
@@ -161,5 +165,37 @@ describe('右键菜单 id', () => {
       type: 'TRANSLATE_SINGLE_IMAGE',
       imageUrl: 'https://cdn.example/ch1/p01.jpg',
     });
+  });
+});
+
+/**
+ * The manifest and the code must say the same thing.
+ *
+ * `public/manifest.json` is a static file, so the descriptions it carries
+ * are a second copy of `COMMAND_DESCRIPTIONS`. The popup shows the code's
+ * copy in its shortcut list, and Chrome shows the manifest's copy in
+ * `chrome://extensions/shortcuts` — when they drift, the product names the
+ * same action two ways in two places the reader can see at once.
+ */
+describe('manifest 与代码里的命令说明', () => {
+  it('每条命令的描述都一样', () => {
+    const manifest = JSON.parse(
+      readFileSync(
+        join(
+          dirname(fileURLToPath(import.meta.url)),
+          '..',
+          '..',
+          'public',
+          'manifest.json'
+        ),
+        'utf8'
+      )
+    ) as { commands?: Record<string, { description?: string }> };
+
+    for (const id of COMMAND_IDS) {
+      expect(manifest.commands?.[id]?.description).toBe(
+        COMMAND_DESCRIPTIONS[id]
+      );
+    }
   });
 });

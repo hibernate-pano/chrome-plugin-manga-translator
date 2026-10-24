@@ -3,7 +3,7 @@
  *
  * 重构后的 content script，采用清晰的状态机架构：
  * - ContentState 类型驱动所有 UI 和行为
- * - 支持整页翻译、强制重翻、取消、清除
+ * - 支持整页翻译、忽略缓存重翻、取消、清除
  * - 通过 FloatingHud 展示页面内状态
  * - 通过消息协议与 Background/Popup 同步状态
  *
@@ -15,6 +15,7 @@
 
 import {
   TranslatorService,
+  computeTiles,
   createTranslatorFromConfig,
 } from '@/services/translator';
 import {
@@ -30,6 +31,7 @@ import {
 } from '@/utils/error-handler';
 import {
   getViewportFirstImages,
+  isInViewport,
   processInParallel,
   type ParallelProcessingOptions,
 } from '@/utils/image-priority';
@@ -37,10 +39,13 @@ import { sortTextAreasByReadingOrder } from '@/services/reading-order';
 import { refineTextAreasForImage } from '@/services/text-box-refiner.service';
 import { useContentConfigStore } from '@/stores/content-config';
 import { hostMatchesAllowlist } from '@/shared/app-config';
+import type { JobPriorityClass } from '@/shared/runtime-contracts';
+import { describeFee } from '@/shared/cost-wording';
 import { fetchContentConfig } from '@/shared/config-client';
 import type { ContentConfigSnapshot } from '@/shared/content-config';
 import type {
   BackgroundToContentMsg,
+  ContentResponse,
   ContentState,
   ContentStateReport,
   ContentToPopupMsg,
@@ -48,7 +53,13 @@ import type {
   ProviderPreflightRequest,
   ProviderPreflightResponse,
 } from '@/shared/runtime-contracts';
+import {
+  MASTER_SWITCH_OFF_MESSAGE,
+  findWorkerRefusal,
+} from '@/shared/runtime-contracts';
 import { isTranslatableImage } from './image-filter';
+import { getForceRetranslateConfirm } from './force-retranslate-confirm';
+import { getImageExportDialog } from './image-export-dialog';
 import { FloatingHud } from './floating-hud';
 import { ReadingPanel } from './reading-panel';
 import { ReadingAnchors } from './reading-anchors';
@@ -201,6 +212,13 @@ let skippedCount = 0;
  */
 let skippedDuplicateCount = 0;
 /**
+ * 还没加载完、但很可能是漫画页的图片数。
+ *
+ * 弹窗要靠它区分两种"没有可翻译的图片"：图太小，和图还没来。前者让用户
+ * 去调尺寸，后者让用户去滚动页面——给错方向比不给更糟。
+ */
+let pendingCount = 0;
+/**
  * Set once the user cancels a run. `cancelTranslation()` nulls the abort
  * controller, so the run's own `abortController?.signal.aborted` check
  * short-circuits to `undefined` and the run used to finish as "complete".
@@ -237,7 +255,36 @@ let activeRunPromise: Promise<void> | null = null;
  */
 let translationRunGeneration = 0;
 const processedImages: Set<string> = new Set();
-const failedImageKeys: Set<string> = new Set();
+/**
+ * 每张"已经问过模型"的图。
+ *
+ * `processedImages` 只记成功的那几张。失败的那张既没有标记，也不在这个
+ * 集合里——它会重新回到候选池，于是观察器每一轮都把它捡回来重新请求一次。
+ * 用户没有点过任何按钮，账单却一直在涨；最多能涨二十轮。
+ *
+ * 所以这里记的是"问过了"，不是"问成了"：只要为一张图发过一次请求，它就
+ * 不该再被观察器自动捡起。要不要再花钱重试是用户的决定——页面把失败的图
+ * 报出来，弹窗给一个「重新翻译失败的 N 张」的按钮。
+ */
+const attemptedImageKeys: Set<string> = new Set();
+/**
+ * The same record, keyed on the element instead of on its address.
+ *
+ * The key is the image's URL — but a page is allowed to change it. A
+ * responsive webtoon replaces a thumbnail with the full-size panel, a zoom
+ * swaps the source, and an <img> that only carries a `srcset` has no `src`
+ * at all (its address is a layout position, which moves as the page
+ * reflows). Every one of those changes the key of an image the extension
+ * has already asked about, and the observer — whose whole job is to ask
+ * about images it has never asked about — would ask again. Money, for the
+ * same picture.
+ *
+ * The element is the stable identity: it does not change while the image is
+ * on the page. Both are kept, and an image counts as "asked about" when
+ * either says so — the element catches a changed URL, the URL catches an
+ * element the page rebuilt from scratch.
+ */
+const attemptedImages: Set<HTMLImageElement> = new Set();
 /**
  * The images that failed, so a retry can un-mark them.
  *
@@ -246,15 +293,78 @@ const failedImageKeys: Set<string> = new Set();
  *
  * A Set rather than a WeakSet on purpose: the retry has to *iterate* the
  * failed images to strip their class, and a WeakSet is not iterable. The set
- * is cleared at the start of every run and on clear, so it cannot outlive
- * the page's images by more than one run.
+ * is cleared when the user asks for the page again and on clear, so it
+ * cannot outlive the page's images by more than one run.
  */
 const failedImages: Set<HTMLImageElement> = new Set();
+/**
+ * 译完的时候，这张图是哪个地址。
+ *
+ * 页面可以在翻译之后把地址换掉——懒加载站点把缩略图换成大图是常规做法，
+ * 阅读器点一下"看大图"也是。换掉之后，屏幕上已经是另一张画面，而旧译文
+ * 还盖在上面：它描述的是别的像素，读起来是错的。
+ *
+ * 记下地址，才知道画面是什么时候换的。
+ */
+const translatedImageKeys: Map<HTMLImageElement, string> = new Map();
+/**
+ * 已经挂上"画面变了"监听的图片。
+ *
+ * 一张图只挂一次：挂两次会让同一次换图被处理两遍。
+ */
+const artworkWatchers: Set<HTMLImageElement> = new Set();
+/**
+ * Forget every per-image record this page holds.
+ *
+ * Three sets describe "what has already happened to an image on this page":
+ * the processed keys, the attempted keys, and the failed elements. They are
+ * always read and written together — `retranslateFailedImages` walks
+ * `failedImages`, `isTranslatableImage` consults `processedImages`, and the
+ * observer consults `attemptedImageKeys` — so a reset that leaves one of
+ * them behind makes the page disagree with itself.
+ *
+ * That is not a cosmetic mismatch: the leftover `failedImages` entries are
+ * exactly the list `FORCE_RETRANSLATE_FAILED` bills for, so a "clear this
+ * page" that forgot to clear them would re-translate (and re-charge) the
+ * images the user had just dismissed. The three reset sites (clear, route
+ * change, teardown) therefore all come through this one function.
+ *
+ * `keepAttempted` is for the "clear this page" site. Clearing the overlays
+ * is not a request to translate the page again, and on an auto-translated
+ * host the observer is still armed: if the marks went with the overlays,
+ * the next image that loaded would bring the whole page back — twenty
+ * requests the user never asked for. The marks stay until the page really
+ * changes (a route change) or the user asks for the page again.
+ */
+function resetPerImageState(options: { keepAttempted?: boolean } = {}): void {
+  processedImages.clear();
+  if (!options.keepAttempted) {
+    attemptedImageKeys.clear();
+    attemptedImages.clear();
+  }
+  failedImages.clear();
+  // 译文没了，"这张图是在哪个地址上翻的"也就没意义了：覆盖层已经被撤掉，
+  // 留着它只会让下一次换图去撤一层早就不存在的译文。
+  translatedImageKeys.clear();
+}
 const autoTranslateScheduler = createDebouncedAutoTranslate(() => {
   void maybeAutoTranslateNewImages();
 });
 
 // ==================== 状态更新 ====================
+
+/**
+ * The images a "retry the failed ones" would actually re-request.
+ *
+ * The popup used to quote `failedCount`, which is the number of failures in
+ * the last run. A run that dies halfway puts the images it never got to back
+ * into `failedImages` without raising that counter — so the popup said "1
+ * failed" while the next click billed twenty images. The list the retry
+ * walks is the truth, so that is what gets reported.
+ */
+function retryTargets(): HTMLImageElement[] {
+  return Array.from(failedImages).filter(img => img.isConnected);
+}
 
 /**
  * 页面当前的事实。
@@ -267,8 +377,21 @@ function currentReport(): ContentStateReport {
     candidateCount,
     skippedCount,
     skippedDuplicateCount,
-    autoContinueArmed: isAutoTranslateEnabled,
-    readingPanelVisible: readingPanel?.isVisible() ?? false,
+    pendingCount,
+    autoContinueArmed: isAutoContinueArmed(),
+    autoContinueBudgetExhausted:
+      isAutoTranslateEnabled && autoTranslateRunsRemaining <= 0,
+    retryTargetCount: retryTargets().length,
+    // 这一页现在盖着几片译文。「清除本页译文」在没有译文时是空动作，
+    // 弹窗靠这个数字决定要不要拦下那一下。
+    overlayCount: renderer?.getOverlayCount() ?? 0,
+    // `false` means "there is a panel and it is not showing". `undefined`
+    // means "this page has no panel at all" — the panel is only created by a
+    // translation run, so on a page that was never translated there is
+    // nothing for the popup to toggle. The popup used to be told "hidden"
+    // and offered a 「显示译文阅读面板」 button; pressing it created an empty
+    // panel that covered the right edge of the artwork with nothing in it.
+    readingPanelVisible: readingPanel ? readingPanel.isVisible() : undefined,
   };
 }
 
@@ -298,15 +421,58 @@ function setState(state: ContentState): void {
           currentImageIndex: reported.currentImageIndex,
           phase: reported.phase,
           etaSeconds: reported.etaSeconds,
+          costNote: reported.costNote,
         });
         break;
       case 'complete':
         hud.update({
           status: 'complete',
           translatedCount: reported.count,
-          failedCount: reported.failedCount ?? 0,
+          /*
+           * What is still untranslated, not what the last run happened to
+           * fail.
+           *
+           * Three images failed in one run; a later automatic run
+           * succeeded on two more and reset the counter. The HUD said
+           * "失败 0" — while the popup, one click away, offered to retry
+           * three images. The HUD counts what the retry would re-request,
+           * so the two never contradict each other.
+           */
+          failedCount: reported.retryTargetCount ?? reported.failedCount ?? 0,
           cachedCount: reported.cachedCount ?? 0,
+          // 这一页有几处找到了却没翻出来。卡片要说得出来，否则它写着
+          // 「翻译完成」，而画面上还有几处原文。
+          missingCount: reported.missingCount ?? 0,
+          // The HUD's wording about money depends on which provider this
+          // page is using: a local provider does not charge the reader.
+          provider: useContentConfigStore.getState().provider,
           skippedCount: reported.skippedCount ?? 0,
+          // The HUD tells a reader why a run came out empty. It can only
+          // tell "the pages have not loaded yet" apart from "they are too
+          // small" if it knows the pending count, so it has to be passed.
+          pendingCount: reported.pendingCount ?? 0,
+          skippedDuplicateCount: reported.skippedDuplicateCount ?? 0,
+          /*
+           * And it has to know whether scrolling is enough.
+           *
+           * The HUD used to promise "scroll to them and they will be
+           * translated" to every reader, whether or not the page was armed
+           * for auto-continue. On a page that is not armed the images sit
+           * there until the reader presses the button again — and the HUD
+           * had told them otherwise. The flag is the page's own truth.
+           */
+          autoContinueArmed: reported.autoContinueArmed ?? false,
+          /*
+           * And it has to know *why* it is not armed.
+           *
+           * "Not armed" and "the budget ran out" call for different things
+           * from the reader: the first needs a click on the button, the
+           * second needs the same click but with the reason said out loud —
+           * otherwise a reader who waited for a continuation that never came
+           * has no way to tell a broken promise from a stopped run.
+           */
+          autoContinueBudgetExhausted:
+            reported.autoContinueBudgetExhausted ?? false,
           lastError: reported.lastError,
         });
         break;
@@ -322,6 +488,21 @@ function setState(state: ContentState): void {
   }
 
   // 发送状态给 background -> popup
+  sendToBackground({ type: 'STATE_UPDATE', state: reported });
+}
+
+/**
+ * 把当前状态重新报一遍，但不重画 HUD。
+ *
+ * HUD 上的卡片记录的是"刚跑完的那一轮"（成功 N 张）。页面上的画面变了以后，
+ * 那个数字已经不准了；把它改掉，读者会看到一张自相矛盾的卡片，而把它留着，
+ * 一张早就自动收起的卡片又会被重新弹出来——两个都不是好事。
+ *
+ * 弹窗那边必须重新报：它上面写的是"本页有几张图"，那是此刻的事实。
+ */
+function publishState(): void {
+  const reported: ContentState = { ...currentState, ...currentReport() };
+  currentState = reported;
   sendToBackground({ type: 'STATE_UPDATE', state: reported });
 }
 
@@ -396,6 +577,24 @@ async function ensureServicesInitialized(): Promise<void> {
   renderer.setRemovalListener(image => {
     readingPanel?.remove(image);
     readingAnchors?.remove(image);
+  });
+
+  // 图上的「⬇ 保存」按钮：把这一页的译文合成成 PNG 交给用户。
+  //
+  // 渲染器只负责画按钮——它不知道怎么把一张图变成一个文件；合成和下载是
+  // 内容脚本的事。
+  const activeRenderer = renderer;
+  activeRenderer.setExportHandler((image, textAreas, trigger) => {
+    const entry = readingPanel
+      ?.getEntriesInOrder()
+      .find(item => item.image === image);
+    getImageExportDialog().open({
+      image,
+      textAreas,
+      style: activeRenderer.getStyle(),
+      index: entry?.index ?? 1,
+      trigger,
+    });
   });
 
   // 首次翻译前创建沉浸式阅读面板与图上编号锚点。
@@ -479,6 +678,13 @@ interface ImageScanResult {
   skippedDuplicate: number;
   /** 被 isTranslatableImage 过滤掉的（尺寸/位置/类型） */
   skippedFilter: number;
+  /**
+   * 通过了过滤、但字节还没到的图片（懒加载的漫画页）。
+   *
+   * 它们现在还不会被翻译，但迟早会——这就是"这一页到底有几张图"以前
+   * 少算的那一大截。页面只加载了前 4 张的时候，真实数量是 40 张。
+   */
+  pending: number;
 }
 
 // Lazy-load sites (Korean webtoons, etc.) swap src and only the image's
@@ -489,10 +695,29 @@ interface ImageScanResult {
 // bytes land.
 const pendingLoadImages = new WeakSet<HTMLImageElement>();
 
+/**
+ * Ignore the cache and translate the whole page again.
+ *
+ * Serialised against the run that may still be in flight: the previous run
+ * holds the mutex, and `clearAll` only aborts it — the abort is observed
+ * asynchronously. Starting the new run immediately would hit the mutex and
+ * silently do nothing, leaving the user with an empty page and no new
+ * translation.
+ */
+async function forceRetranslatePage(): Promise<void> {
+  const previous = activeRunPromise;
+  if (previous) {
+    await previous.catch(() => undefined);
+  }
+  clearAll();
+  await translatePage(true);
+}
+
 function scanImages(): ImageScanResult {
   const allImages = Array.from(document.querySelectorAll('img'));
   let skippedFilter = 0;
   let skippedDuplicate = 0;
+  let pending = 0;
   const translatable: HTMLImageElement[] = [];
 
   for (const img of allImages) {
@@ -508,13 +733,25 @@ function scanImages(): ImageScanResult {
       skippedDuplicate++;
       continue;
     }
-    if (!isTranslatableImage(img)) {
-      skippedFilter++;
-      continue;
-    }
     if (!img.complete) {
-      // Image passes the filter but bytes haven't arrived yet. Arm a
-      // one-shot `load` listener so we re-scan the moment it does.
+      // 字节还没到。这张图有多大还不知道，所以尺寸这一关没法判，但位置和
+      // 类型可以判——它很可能是一张还没加载出来的漫画页。
+      //
+      // 这以前被算成"尺寸不合格"，于是懒加载的一章只报了 2 张，而真实
+      // 数量是 40 张：一个系统性偏低的数字比没有数字更糟。
+      if (
+        !isTranslatableImage(img, {
+          allowIncomplete: true,
+          allowUnknownSize: true,
+        })
+      ) {
+        skippedFilter++;
+        continue;
+      }
+      pending++;
+      // Arm a one-shot `load` listener so we re-scan the moment the bytes
+      // land. The rescan is what picks the image up — and it only spends
+      // money if auto-translate is armed.
       if (!pendingLoadImages.has(img)) {
         pendingLoadImages.add(img);
         img.addEventListener(
@@ -527,6 +764,10 @@ function scanImages(): ImageScanResult {
       }
       continue;
     }
+    if (!isTranslatableImage(img)) {
+      skippedFilter++;
+      continue;
+    }
     translatable.push(img);
   }
 
@@ -535,18 +776,176 @@ function scanImages(): ImageScanResult {
     total: allImages.length,
     skippedFilter,
     skippedDuplicate,
+    pending,
   };
+}
+
+/**
+ * Record what the last scan found.
+ *
+ * These are facts about the page, not about a run: they stay true whether or
+ * not a translation is going on. Recording them here — rather than only in
+ * the translation flow — means the popup gets an honest answer after a
+ * read-only count too, instead of "0 images are still loading" until the
+ * user has translated something.
+ */
+function recordScan(result: ImageScanResult): void {
+  skippedCount = result.skippedFilter;
+  skippedDuplicateCount = result.skippedDuplicate;
+  pendingCount = result.pending;
+  candidateCount = result.translatable.length;
 }
 
 function findTranslatableImages(): HTMLImageElement[] {
   return scanImages().translatable;
 }
 
+/**
+ * 这一轮翻译会花多少钱，一句话。
+ *
+ * 弹窗在按钮旁边就写着"会产生费用"，但从快捷键和右键菜单进来的翻译没有弹窗
+ * 可说话——钱立刻就开始花了。于是这句话出现在页面上，在翻译还在跑、用户
+ * 还能取消的时候。
+ *
+ * 长条图是这里唯一不显然的部分：一张图会被拆成好几片，每片一次请求。
+ */
+function describeRunCost(images: HTMLImageElement[]): string | undefined {
+  if (images.length === 0) {
+    return undefined;
+  }
+  let tiled = 0;
+  for (const img of images) {
+    if (computeTiles(img.naturalWidth, img.naturalHeight).length > 1) {
+      tiled += 1;
+    }
+  }
+  const provider = useContentConfigStore.getState().provider;
+  const fee = describeFee(provider);
+  const base = `翻译这 ${images.length} 张图${fee}（缓存命中不计费）`;
+  return tiled > 0
+    ? `${base}；其中 ${tiled} 张长条会拆成多片分别请求，实际请求次数更多`
+    : base;
+}
+
+/**
+ * 这一页里"还没问过模型"的图。
+ *
+ * 观察器只捡这些。
+ *
+ * 失败过的图已经被报给用户了（弹窗上有「重新翻译失败的 N 张」），要不要
+ * 再花钱重试是用户的决定。观察器把它们捡回来，等于用户没点任何按钮，账单
+ * 却每一轮都在涨——这是这个扩展里最贵的一个洞。
+ *
+ * 成功过的图根本不会出现在这里：`scanImages()` 已经把它们算作"已经处理
+ * 过"排除掉了。
+ */
+function findUnattemptedImages(): HTMLImageElement[] {
+  return findTranslatableImages().filter(img => !hasAskedAbout(img));
+}
+
+/**
+ * Has this image already been sent to the model?
+ *
+ * Either record answers it: the element (the picture on this page) or its
+ * address (the same picture, even if the page rebuilt the element).
+ */
+function hasAskedAbout(img: HTMLImageElement): boolean {
+  return attemptedImages.has(img) || attemptedImageKeys.has(getImageKey(img));
+}
+
 function getImageKey(img: HTMLImageElement): string {
+  /*
+   * `currentSrc` is the address the browser actually fetched, and it is the
+   * one that survives a `srcset` picture: an <img> that carries only a
+   * `srcset` has an empty `src`, and the fallback below (a layout position)
+   * changes every time the page reflows.
+   */
   return (
+    img.currentSrc ||
     img.src ||
     `img-${img.offsetLeft}-${img.offsetTop}-${img.width}-${img.height}`
   );
+}
+
+/**
+ * 去掉地址里的查询串和锚点。
+ *
+ * 同一个文件换个版本号（`page.webp?v=2`）还是同一张画面。把它当成"画面换了"
+ * 会白白撤掉一层还没坏的译文，再让用户重新点一次。
+ */
+function stripUrlQuery(value: string): string {
+  try {
+    const parsed = new URL(value, document.baseURI);
+    parsed.search = '';
+    parsed.hash = '';
+    return parsed.href;
+  } catch {
+    return value.split('?')[0]?.split('#')[0] ?? value;
+  }
+}
+
+/**
+ * 记住这张图是在哪个地址上翻的，并盯住它的下一次换图。
+ *
+ * 听的是 `load` 事件而不是 `src` 属性：属性可以先改、字节后到，只有
+ * `load` 才意味着"屏幕上现在这张画面已经到位"。
+ */
+function rememberTranslatedArtwork(img: HTMLImageElement): void {
+  translatedImageKeys.set(img, getImageKey(img));
+
+  if (artworkWatchers.has(img)) {
+    return;
+  }
+  artworkWatchers.add(img);
+  img.addEventListener('load', () => {
+    const recorded = translatedImageKeys.get(img);
+    if (recorded === undefined) {
+      return;
+    }
+    const current = getImageKey(img);
+    if (
+      current === recorded ||
+      stripUrlQuery(current) === stripUrlQuery(recorded)
+    ) {
+      /*
+       * 还是同一张画面（只是地址里的版本号变了）：译文留着。
+       *
+       * 但"翻过了"这条记录要跟着换成新地址 —— 否则这张图会重新变成候选，
+       * 弹窗把它算进待翻的张数里，读者还以为有一张没翻。
+       */
+      if (current !== recorded) {
+        processedImages.delete(recorded);
+        processedImages.add(current);
+        attemptedImageKeys.add(current);
+      }
+      translatedImageKeys.set(img, current);
+      return;
+    }
+    handleArtworkChange(img, recorded);
+  });
+}
+
+/**
+ * 画面换了，旧译文就作废。
+ *
+ * 三件事，顺序不能乱：
+ *
+ * 1. 撤掉旧译文。它描述的是别的像素，盖在新画面上就是错的。
+ * 2. 把"这张图翻过了"的标记撤掉。新画面是一张还没被翻过的图，它要回到候
+ *    选池里——弹窗会把它算进"本页有几张图"，价格也跟着算对。
+ * 3. 保留"问过了"那条记录。观察器不替用户重花这一次钱：这是同一页漫画换
+ *    了个分辨率，不是新的一页。要重翻，用户自己点一次「翻译当前页面」。
+ */
+function handleArtworkChange(img: HTMLImageElement, previousKey: string): void {
+  translatedImageKeys.delete(img);
+  renderer?.removeTranslation(img);
+  img.classList.remove(PROCESSED_CLASS);
+  processedImages.delete(previousKey);
+
+  // 这一页现在有几张图变了，重扫一次再上报：弹窗上"已经翻过了"这句话已经
+  // 不成立了，而"本页有 1 张可翻译图片"才是现在的实话。
+  recordScan(scanImages());
+  publishState();
 }
 
 /**
@@ -562,14 +961,67 @@ interface ImageProcessResult {
   success: boolean;
   /** The translation came from the local cache (no API call, no cost). */
   cached: boolean;
+  /**
+   * How many spots on this image were left untranslated.
+   *
+   * The model found a bubble and gave no translation for it, or a tile never
+   * answered. The image is still a success — most of it is translated — but
+   * the reader has to be told, because a page that says 「翻译完成」 while
+   * four bubbles are still in the source language is a page that lies.
+   */
+  missing: number;
+}
+
+/**
+ * 这一张图该排多急。
+ *
+ * worker 的队列是所有标签页共用的，它按这个标记排序：
+ *
+ * - 用户点了「重试失败项」：用户正盯着这几张等，最急；
+ * - 图在当前视口里：用户正在读它；
+ * - 其余的：页面下面的图，先排队。
+ *
+ * 以前每一张图都是同一个标记，于是这套排序从来没生效过——队列里排的是
+ * "谁先到"，不是"谁最急"。用户点了重试之后，那几张图要排在别人标签页的
+ * 整页翻译后面才轮得到。
+ */
+function priorityClassForImage(
+  image: HTMLImageElement,
+  isManualRetry: boolean
+): JobPriorityClass {
+  if (isManualRetry) {
+    return 'manual-retry';
+  }
+  return isInViewport(image) ? 'visible-now' : 'next-up';
 }
 
 async function processSingleImage(
   img: HTMLImageElement,
   forceRefresh: boolean = false,
-  onCacheHit?: (hit: boolean) => void
+  onCacheHit?: (hit: boolean) => void,
+  priorityClass: JobPriorityClass = 'visible-now'
 ): Promise<ImageProcessResult> {
+  // The worker pushes a fresh snapshot whenever the user changes anything in
+  // Settings, and that handler nulls the translator so the next image picks
+  // up the new provider / language / style. If a change lands while a run is
+  // in flight, the images that had not started yet used to find `translator`
+  // null and fail with 「发生未知错误：Services not initialized」 — and the
+  // popup's 「重新翻译失败的 N 张」 then offered to re-bill images that never
+  // failed at all, they were only unlucky enough to be queued behind a
+  // settings change.
+  //
+  // Re-initialise instead of throwing: the config the snapshot carried is the
+  // config the user just asked for, so building a fresh translator here is
+  // exactly the right move, not an error. (Images already mid-request hold
+  // the old provider object and finish on it; only the not-yet-started ones
+  // take the new one. That is the point of nulling rather than swapping in
+  // place.)
   if (!translator || !renderer) {
+    await ensureServicesInitialized();
+  }
+  if (!translator || !renderer) {
+    // Still missing after the attempt — the provider probe or config refresh
+    // failed. This is a genuine "cannot start", not a mid-run settings edit.
     throw new Error('Services not initialized');
   }
 
@@ -595,11 +1047,25 @@ async function processSingleImage(
   // when the run stopped were exactly the ones the user still needed.
   img.classList.add(PROCESSED_CLASS);
 
+  /*
+   * From here on this image counts as "asked about".
+   *
+   * The mark goes on before the request, not after it: the request can
+   * fail, time out, or be cancelled by the user, but the money may already
+   * be gone. The observer only picks up images it has never asked about, so
+   * without this mark a failed image would be re-requested on every
+   * follow-up round — up to twenty rounds the user never asked for.
+   */
+  attemptedImageKeys.add(getImageKey(img));
+  attemptedImages.add(img);
+
   // The result is needed after the try block, so it is declared here rather
   // than inside it.
   let result: Awaited<ReturnType<TranslatorService['translateImage']>>;
   try {
-    result = await translator.translateImage(img, forceRefresh);
+    result = await translator.translateImage(img, forceRefresh, undefined, {
+      priorityClass,
+    });
 
     if (onCacheHit) {
       onCacheHit(Boolean(result.cached));
@@ -623,7 +1089,14 @@ async function processSingleImage(
   }
 
   if (result.textAreas.length === 0) {
-    return { success: true, cached: Boolean(result.cached) };
+    // 没有文字也要记：这张图已经翻过了（页面上不会再有别的翻译），而画面
+    // 换了之后它要重新回到候选池里去。
+    rememberTranslatedArtwork(img);
+    return {
+      success: true,
+      cached: Boolean(result.cached),
+      missing: result.missingCount ?? 0,
+    };
   }
 
   // 气泡按阅读顺序排一遍。
@@ -651,6 +1124,10 @@ async function processSingleImage(
   // so a finished translation looks like nothing happened.
   renderer.render(img, refinedAreas, true);
 
+  // 记住这张图是在哪个地址上翻的。页面之后把地址换掉（缩略图换大图、
+  // 点开看大图）时，旧译文要作废——它描述的是别的像素。
+  rememberTranslatedArtwork(img);
+
   // 同步到阅读面板 + 图上编号锚点。
   //
   // 面板按图片在 DOM 中的位置插入并编号，插在中间会把后面的编号顶掉一位。
@@ -661,7 +1138,11 @@ async function processSingleImage(
     readingAnchors?.syncIndices(readingPanel?.getIndexByImage() ?? new Map());
   }
 
-  return { success: true, cached: Boolean(result.cached) };
+  return {
+    success: true,
+    cached: Boolean(result.cached),
+    missing: result.missingCount ?? 0,
+  };
 }
 
 /**
@@ -677,6 +1158,21 @@ async function processSingleImage(
  */
 async function syncAutoTranslateMode(): Promise<void> {
   applyAutoTranslateMode(await refreshContentConfig());
+}
+
+/**
+ * 这一页现在还会不会自动翻译新出现的图片。
+ *
+ * 配置上的三个条件（主开关、自动续翻、白名单或用户翻过这一页）之外，还有
+ * 一个预算条件：自动续翻的次数用完了就不再翻了。
+ *
+ * 预算这一条以前是看不见的。次数用完时观察器被停掉，但上报给弹窗的
+ * `autoContinueArmed` 仍然是 true —— 于是 HUD 写着「滚动到它们出现后会自动
+ * 继续翻译」，弹窗写着「这一页会自动翻译新加载的图片」，而实际上再也不会
+ * 有下一张图被翻译。读者滚动、等待，什么也不会发生。
+ */
+function isAutoContinueArmed(): boolean {
+  return isAutoTranslateEnabled && autoTranslateRunsRemaining > 0;
 }
 
 /**
@@ -705,7 +1201,16 @@ function applyAutoTranslateMode(config: ContentConfigSnapshot | null): void {
     config.autoContinueEnabled &&
     (allowlisted || pageTranslationRequested);
 
-  if (isAutoTranslateEnabled) {
+  /*
+   * The observer is armed by the *effective* state, not by the configuration
+   * alone.
+   *
+   * It used to be armed by `isAutoTranslateEnabled`, which stayed true after
+   * the follow-up budget ran out — so every configuration refresh re-armed an
+   * observer that could never fire (the budget check refuses every run), and
+   * the page kept claiming it would carry on by itself.
+   */
+  if (isAutoContinueArmed()) {
     startAutoTranslateObserver();
   } else {
     stopAutoTranslateObserver();
@@ -747,10 +1252,10 @@ function isTranslationActive(): boolean {
 }
 
 async function maybeAutoTranslateNewImages(): Promise<void> {
-  const pendingImages = findTranslatableImages();
+  const pendingImages = findUnattemptedImages();
   if (
     shouldAutoTranslateFollowUp({
-      enabled: isAutoTranslateEnabled,
+      enabled: isAutoContinueArmed(),
       status: currentState.status,
       hasPendingImages: pendingImages.length > 0,
       runsRemaining: autoTranslateRunsRemaining,
@@ -853,9 +1358,47 @@ async function isMasterSwitchEnabled(): Promise<boolean> {
  * A wrong API key or a throttled provider fails identically for every image
  * on the page. Running the rest of the queue burns the user's money to
  * collect the same error 19 more times.
+ *
+ * The worker's own refusals belong here too. A provider that is not set up
+ * fails the same way for every image left: the remaining twenty would each
+ * ask the worker something it has already said it cannot do, and each would
+ * be reported to the reader as another failed image.
  */
 function isFatalTranslationError(message: string): boolean {
+  if (findWorkerRefusal(message)) {
+    return true;
+  }
   return FATAL_ERROR_PATTERNS.some(pattern => pattern.test(message));
+}
+
+/**
+ * The card to show when the worker refused the job.
+ *
+ * The refusal is not a provider error. Nothing was sent, nothing was billed,
+ * and nothing about this image is wrong — the extension itself is not ready.
+ * Flattening it into the generic error path loses all three of those facts:
+ * the reader gets 「发生未知错误」 for a setting they can fix themselves, and
+ * the sentence the worker actually wrote — which names the fix — is left
+ * behind as a suffix nobody reads.
+ *
+ * Returns null for anything that is not a refusal, so the caller falls
+ * through to the normal error translation.
+ */
+function describeWorkerRefusal(
+  error: unknown
+): { message: string; suggestion: string; action: ErrorAction } | null {
+  const message = error instanceof Error ? error.message : String(error ?? '');
+  const refusal = findWorkerRefusal(message);
+  if (!refusal) {
+    return null;
+  }
+  return {
+    // The worker's own sentence, not a copy of it: one wording in two
+    // files is a wording that drifts.
+    message: refusal.message,
+    suggestion: refusal.suggestion,
+    action: { type: 'open-settings', label: '打开设置' },
+  };
 }
 
 /**
@@ -931,6 +1474,14 @@ async function runTranslation(
   generation: number,
   retryImages?: HTMLImageElement[]
 ): Promise<void> {
+  /*
+   * The fatal error of this run (auth, rate limit — the remaining images
+   * would fail identically and cost the user money). Hoisted out of the
+   * `try` so the `finally` block can read it: a run that died on a bad key
+   * must not schedule a follow-up, because the follow-up would fail the
+   * same way and spend budget to do it.
+   */
+  let fatalError: Error | null = null;
   try {
     // 纵深防御：主开关关闭时不做任何事。
     //
@@ -943,7 +1494,7 @@ async function runTranslation(
     if (!(await isMasterSwitchEnabled())) {
       setState({
         status: 'error',
-        message: '扩展已关闭，请先在弹窗中开启「启用扩展」',
+        message: MASTER_SWITCH_OFF_MESSAGE,
         suggestion: '开启后即可翻译当前页面',
         action: { type: 'open-settings', label: '打开设置' },
       });
@@ -1014,12 +1565,22 @@ async function runTranslation(
       // 两种"跳过"是两回事，必须分开报：
       // - skippedCount：尺寸/位置不合格，永远不会被翻译；
       // - skippedDuplicateCount：已经翻译过，这一次不用再花钱。
-      skippedCount = scan.skippedFilter;
-      skippedDuplicateCount = scan.skippedDuplicate;
+      recordScan(scan);
       // 本页的候选数量。翻译结束后它依然有效，弹窗靠它说清"这一页一共
       // 几张"，而不是只给一个没有分母的"完成 8 张"。
-      candidateCount = scan.translatable.length;
-      images = getViewportFirstImages(scan.translatable);
+      const candidates = getViewportFirstImages(scan.translatable);
+      /*
+       * 观察器这一轮只翻"还没问过"的图。
+       *
+       * 失败过的图不会消失：它们既没有标记，也不在 `processedImages` 里，
+       * 所以 `scanImages()` 仍然会把它们算成候选——这是对的，用户随时可以
+       * 点「重新翻译失败的 N 张」再试一次。但观察器不能自己去试：那是没人
+       * 授权的二次扣费。
+       */
+      images =
+        origin === 'follow-up'
+          ? candidates.filter(img => !hasAskedAbout(img))
+          : candidates;
       if (import.meta.env.DEV) {
         console.warn(
           '[ContentScript] 页面 img 总数:',
@@ -1035,6 +1596,20 @@ async function runTranslation(
     }
 
     setState({ status: 'scanning' });
+
+    /*
+     * What this run is about to cost.
+     *
+     * The popup discloses the cost before the button is pressed. The other
+     * two ways into a page translation — the keyboard shortcut and the
+     * context menu — have no popup to say it in, and the money starts
+     * moving immediately. So the page says it, on the page, while the run
+     * is in flight and the user can still cancel.
+     *
+     * The tile count is the part that is not obvious: a long strip is one
+     * image and several billed calls.
+     */
+    const costNote = describeRunCost(images);
 
     if (images.length === 0) {
       if (import.meta.env.DEV) {
@@ -1077,6 +1652,14 @@ async function runTranslation(
     let successCount = 0;
     failedCount = 0;
     cachedCount = 0;
+    /**
+     * How many spots on this page were found but not translated.
+     *
+     * A page can be "done" and still have untranslated bubbles in it. The
+     * number travels with the state so the HUD and the popup can say so
+     * instead of claiming a clean success.
+     */
+    let missingCount = 0;
     if (retryImages) {
       // The retry owns the failure list: the images it is about to run are
       // taken out of it now, and the ones that fail again are put back by
@@ -1084,23 +1667,38 @@ async function runTranslation(
       // after the run.
       for (const img of retryImages) {
         failedImages.delete(img);
-        failedImageKeys.delete(getImageKey(img));
+        // The retry is the user saying "spend on these again", so these
+        // images get their turn back.
+        attemptedImageKeys.delete(getImageKey(img));
+        attemptedImages.delete(img);
       }
-    } else {
-      failedImageKeys.clear();
+    } else if (origin === 'user') {
       failedImages.clear();
+      /*
+       * A user-initiated run gives every image a fresh chance.
+       *
+       * The observer may only pick up images it has never asked about, so
+       * the "asked" marks have to go when the user asks for the page again.
+       * The images that translated fine are not affected: they are excluded
+       * by their own mark (`PROCESSED_CLASS`), not by this one.
+       */
+      attemptedImageKeys.clear();
+      attemptedImages.clear();
     }
+    /*
+     * A follow-up run leaves the failure list alone.
+     *
+     * That list is the user's list of images to retry — the popup's
+     * 「重新翻译失败的 N 张」 button is built from it. An automatic
+     * follow-up that erased it would silently throw away the user's
+     * outstanding work and make the button disappear.
+     */
     /**
      * The reason the first image failed. The upstream translator folds every
      * provider error into one message, so this string is the only place the
      * root cause ("API key invalid", "rate limited") ever surfaces.
      */
     let firstErrorMessage: string | undefined;
-    /**
-     * A fatal error (auth, rate limit) aborts the run. The remaining images
-     * would fail identically and cost the user money.
-     */
-    let fatalError: Error | null = null;
 
     setState({
       status: 'translating',
@@ -1108,6 +1706,7 @@ async function runTranslation(
       total,
       currentImageIndex: 0,
       phase: 'translating',
+      costNote,
     });
 
     const options: ParallelProcessingOptions = {
@@ -1123,6 +1722,7 @@ async function runTranslation(
             currentImageIndex: index,
             phase: 'translating',
             etaSeconds: computeEtaSeconds(),
+            costNote,
           });
         }
       },
@@ -1136,6 +1736,7 @@ async function runTranslation(
             currentImageIndex,
             phase: 'translating',
             etaSeconds: computeEtaSeconds(),
+            costNote,
           });
         }
       },
@@ -1160,7 +1761,6 @@ async function runTranslation(
         failedCount++;
         const img = images[index];
         if (img) {
-          failedImageKeys.add(getImageKey(img));
           failedImages.add(img);
         }
         if (!firstErrorMessage) {
@@ -1183,11 +1783,24 @@ async function runTranslation(
         if (abortController?.signal.aborted) {
           throw new Error('Translation cancelled');
         }
-        const result = await processSingleImage(img, forceRefresh, hit => {
-          if (hit) cachedCount++;
-        });
+        const result = await processSingleImage(
+          img,
+          forceRefresh,
+          hit => {
+            if (hit) cachedCount++;
+          },
+          priorityClassForImage(img, Boolean(retryImages))
+        );
         if (result.success) {
           successCount++;
+          /*
+           * 这一张图上没翻出来的地方，要记下来。
+           *
+           * 模型找到了气泡却没给出译文（或者有一片根本没有回答）—— 那一
+           * 处还是原文，而这一轮会被记成"成功"。整轮跑完时，HUD 写着
+           * 「翻译完成」，读者却看到几处日文，只当自己看漏了。
+           */
+          missingCount += result.missing;
         }
         processedImages.add(getImageKey(img));
       },
@@ -1202,8 +1815,37 @@ async function runTranslation(
         const key = getImageKey(img);
         if (!processedImages.has(key) && !failedImages.has(img)) {
           failedImages.add(img);
-          failedImageKeys.add(key);
         }
+      }
+    }
+
+    /*
+     * The images this run never reached.
+     *
+     * A run that was cancelled, or that died on a fatal error (a bad key, a
+     * throttled account), must not leave the rest of the page to the
+     * observer: the observer would pick them up and translate them, and the
+     * user had just said "stop". They are marked as asked-about so the
+     * observer leaves them alone.
+     *
+     * They are not lost. The next user-initiated run clears the marks, so
+     * one more click on 「翻译当前页」 gives them a fresh chance.
+     *
+     * The generation check keeps a superseded run from writing into the
+     * state of the run that took over from it: a route change and a clear
+     * both reset the per-image records, and a late block from the old run
+     * would put marks back into the new page's records.
+     */
+    if (
+      translationRunGeneration === generation &&
+      (translationCancelled || fatalError || abortController?.signal.aborted)
+    ) {
+      for (const img of images) {
+        const key = getImageKey(img);
+        if (!attemptedImageKeys.has(key)) {
+          attemptedImageKeys.add(key);
+        }
+        attemptedImages.add(img);
       }
     }
 
@@ -1227,6 +1869,14 @@ async function runTranslation(
           suggestion: EXTENSION_DISABLED_SUGGESTION,
           action: { type: 'open-settings', label: '打开设置' },
         });
+        return;
+      }
+      const refusal = describeWorkerRefusal(fatalError);
+      if (refusal) {
+        // The worker refused the job: nothing was sent and nothing was
+        // billed, so the card has to say that, not "unknown error".
+        console.error('[ContentScript] 翻译中止:', refusal.message);
+        setState({ status: 'error', ...refusal });
         return;
       }
       const friendly = parseTranslationError(fatalError);
@@ -1264,6 +1914,8 @@ async function runTranslation(
       count: successCount,
       failedCount,
       cachedCount,
+      // 跑完了，但有几处找到了却没翻出来 —— 说出来，别让「完成」把它盖住。
+      missingCount,
       lastError: firstErrorMessage,
     });
   } catch (error) {
@@ -1285,8 +1937,38 @@ async function runTranslation(
     // cleared, or replaced by a route change) must not release the mutex of
     // the run that took over from it.
     if (translationRunGeneration === generation) {
+      // Read the abort state before the controller goes — after the
+      // assignment below it would short-circuit to `undefined` and the
+      // "stop means stop" check would always pass.
+      const wasAborted = abortController?.signal.aborted === true;
       translationRunInFlight = false;
       abortController = null;
+
+      /*
+       * Images that loaded *during* this run still owe a follow-up.
+       *
+       * The observer's debounce is 800ms and a vision request takes ten to
+       * thirty seconds, so an image that appears mid-run schedules its
+       * follow-up into the one moment when a follow-up cannot happen:
+       * `shouldAutoTranslateFollowUp` refuses while the page is translating,
+       * and nothing reschedules afterwards. The image then sits there
+       * un-translated forever on a page the reader believes is
+       * auto-translating — the popup's 「滚动到它们出现后会自动继续翻译」
+       * is a promise the run just broke.
+       *
+       * Rescheduling after the mutex goes is what closes that window. A
+       * cancelled or fatally failed run does not reschedule: "stop" means
+       * stop, and a provider that failed every image here will fail the
+       * follow-up too, spending budget to do it.
+       */
+      if (
+        !translationCancelled &&
+        !fatalError &&
+        !wasAborted &&
+        isAutoContinueArmed()
+      ) {
+        autoTranslateScheduler.schedule();
+      }
     }
   }
 }
@@ -1335,10 +2017,18 @@ function clearAll(): void {
   //
   // The generation is bumped so the run that is still unwinding does not
   // release a mutex that a newer run has already claimed.
+  //
+  // `translationCancelled` is deliberately NOT reset here. `cancelTranslation`
+  // above set it, and the run that is still unwinding — its in-flight image
+  // requests have not resolved yet — reads it to decide whether to render a
+  // late overlay and whether to report "complete". Resetting it to `false`
+  // here made that old run believe it had finished normally, so it drew the
+  // cleared page's translations back on top of the just-cleared artwork and
+  // then announced 「翻译完成」. The next run zeroes the flag itself (in
+  // `runTranslation`), so leaving it true costs nothing — every read of it
+  // lives inside a run that has already re-armed it.
   translationRunGeneration += 1;
   translationRunInFlight = false;
-  translationCancelled = false;
-  abortReason = null;
 
   if (renderer) {
     renderer.removeAll();
@@ -1348,17 +2038,20 @@ function clearAll(): void {
   readingPanel?.reset();
   readingAnchors?.reset();
 
-  processedImages.clear();
-  failedImageKeys.clear();
+  // The overlays go, the page's "asked about" marks stay.
+  //
+  // Clearing is not a request to translate the page again. On an
+  // auto-translated host the observer is still armed, and if the marks went
+  // with the overlays, the next image that loaded would bring the whole
+  // page back — twenty requests the user never asked for.
+  resetPerImageState({ keepAttempted: true });
   document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach(img => {
     img.classList.remove(PROCESSED_CLASS);
   });
 
   // Clearing drops the processed-image record, so every image on the page now
-  // looks new. Leaving auto-translate armed would immediately re-translate the
-  // whole page the user just cleared — a surprising bill. Auto-translate on
-  // an allowlisted host re-arms on the next navigation; elsewhere it re-arms
-  // when the user translates again.
+  // looks new. Auto-translate on an allowlisted host re-arms on the next
+  // navigation; elsewhere it re-arms when the user translates again.
   pageTranslationRequested = false;
   void syncAutoTranslateMode();
 
@@ -1471,7 +2164,7 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
   if (!(await isMasterSwitchEnabled())) {
     setState({
       status: 'error',
-      message: '扩展已关闭，请先在弹窗中开启「启用扩展」',
+      message: MASTER_SWITCH_OFF_MESSAGE,
       suggestion: '开启后即可翻译当前页面',
       action: { type: 'open-settings', label: '打开设置' },
     });
@@ -1490,12 +2183,33 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
 
   await ensureServicesInitialized();
 
+  /*
+   * 一张长条图是很多次请求。
+   *
+   * 右键「翻译这张图片」听起来是"翻一张"，但条漫的一"张"常常是整章，
+   * 高度好几千像素；翻译管线会把它切成若干片，每片各发一次请求，也就是
+   * 各记一次费。HUD 上写的是「第 1 张 / 1」——关于图片是真的，关于账单
+   * 一句话都没说。用户点一下右键，账单上多出十行，而界面上只出现一个
+   * "1"。
+   *
+   * 所以这里先算清楚片数，写进进度条下面那一行。翻译要跑几十秒，这一行
+   * 在钱花出去之前就在屏幕上了，用户还来得及取消。
+   */
+  const tiles = computeTiles(img.naturalWidth, img.naturalHeight);
+  const costNote =
+    tiles.length > 1
+      ? `这张图是长条，会拆成 ${tiles.length} 片分别请求（实际请求次数可能高于 ${tiles.length} 次，${describeFee(
+          useContentConfigStore.getState().provider
+        )}）`
+      : undefined;
+
   setState({
     status: 'translating',
     current: 0,
     total: 1,
     currentImageIndex: 1,
     phase: 'translating',
+    costNote,
   });
 
   try {
@@ -1508,6 +2222,12 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
       cachedCount: result.cached ? 1 : 0,
     });
   } catch (error) {
+    const refusal = describeWorkerRefusal(error);
+    if (refusal) {
+      console.error('[ContentScript] 单图翻译被拒:', refusal.message);
+      setState({ status: 'error', ...refusal });
+      return;
+    }
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 单图翻译失败:', friendly.message);
     setState({
@@ -1525,22 +2245,31 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
  * The panel is created lazily on the first translation, so the shortcut has
  * to be able to create it on demand — otherwise pressing it before the first
  * translation would do nothing, which is exactly when a user would try it.
+ *
+ * A panel that has just been created starts out visible, so the toggle has to
+ * treat "there was no panel" as "show it" rather than as "hide it": on a page
+ * that was never translated, the first press used to create the panel and
+ * immediately hide it, and the user saw nothing at all while the popup said
+ * the panel was being hidden.
  */
-async function toggleReadingPanel(): Promise<void> {
+async function toggleReadingPanel(): Promise<boolean | undefined> {
   try {
-    if (!readingPanel || !readingPanel.isAttached()) {
+    const hadPanel = Boolean(readingPanel && readingPanel.isAttached());
+    if (!hadPanel) {
       await ensureServicesInitialized();
     }
     if (!readingPanel) {
-      return;
+      return undefined;
     }
-    readingPanel.setVisible(!readingPanel.isVisible());
+    readingPanel.setVisible(hadPanel ? !readingPanel.isVisible() : true);
     // 重新上报一次状态：弹窗要知道阅读面板现在是开着还是关着，否则它显示的
     // 按钮状态和页面上的实际情况对不上。
     setState(currentState);
+    return readingPanel.isVisible();
   } catch (error) {
     const friendly = parseTranslationError(error);
     console.error('[ContentScript] 切换阅读面板失败:', friendly.message);
+    return undefined;
   }
 }
 
@@ -1557,12 +2286,7 @@ function sendToBackground(msg: ContentToPopupMsg): void {
 function handleMessage(
   request: PopupToContentMsg | BackgroundToContentMsg,
   _sender: chrome.runtime.MessageSender,
-  sendResponse: (response: {
-    success: boolean;
-    error?: string;
-    state?: ContentState;
-    count?: number;
-  }) => void
+  sendResponse: (response: ContentResponse) => void
 ): boolean {
   if (import.meta.env.DEV) {
     console.warn('[ContentScript] 收到消息:', request.type);
@@ -1593,8 +2317,21 @@ function handleMessage(
       // 不发任何请求、不改任何状态、不写缓存——它只是把 `scanImages()`
       // 数出来的候选数量报回去，所以用户在看价格之前不会因为"看一眼"而
       // 多花一分钱。
-      const count = scanImages().translatable.length;
-      sendResponse({ success: true, count });
+      //
+      // 三个数字各有各的用处：
+      // - count：已经加载好、现在就能翻的图片；
+      // - pending：通过了过滤但字节还没到的图片（懒加载的漫画页），它们
+      //   迟早会滚进来并被自动翻译；
+      // - total：这一页一共会向模型请求多少次——已经翻过的也算，因为
+      //   "忽略缓存重翻"会把它们全部再翻一遍。
+      const scan = scanImages();
+      recordScan(scan);
+      sendResponse({
+        success: true,
+        count: scan.translatable.length,
+        pending: scan.pending,
+        total: scan.translatable.length + scan.skippedDuplicate,
+      });
       break;
     }
 
@@ -1612,23 +2349,46 @@ function handleMessage(
         .catch(err => sendResponse({ success: false, error: String(err) }));
       return true;
 
-    case 'FORCE_RETRANSLATE_PAGE':
-      // Serialise: the previous run still holds the mutex, and `clearAll`
-      // only aborts it — the abort is observed asynchronously. Starting the
-      // new run immediately would hit the mutex and silently do nothing,
-      // leaving the user with an empty page and no new translation.
-      void (async () => {
-        // Wait for the in-flight run to unwind so it releases the mutex.
-        const previous = activeRunPromise;
-        if (previous) {
-          await previous.catch(() => undefined);
-        }
-        clearAll();
-        await translatePage(true);
-      })()
+    case 'FORCE_RETRANSLATE_PAGE': {
+      /*
+       * Forcing a re-translate is the only action here that bypasses the
+       * cache and re-requests every image on the page, so it has to be
+       * confirmed somewhere the user can see.
+       *
+       * The popup confirms in the popup (it has the image count and the
+       * "a run is in progress" note). The keyboard shortcut and the context
+       * menu have no popup to confirm in — the shortcut is even advertised
+       * in the popup's permanent shortcut list — so the page asks instead.
+       * Without this, one keypress re-requested a whole page and the only
+       * feedback was 「翻译完成 成功 12」.
+       */
+      if (!request.confirmed) {
+        const scan = scanImages();
+        getForceRetranslateConfirm().open({
+          // The images already on the page: the ones that are ready now plus
+          // the ones that were translated before (this action ignores the
+          // cache, so they are billed again).
+          imageCount: scan.translatable.length + scan.skippedDuplicate,
+          // ...and the ones that have not loaded yet. They are not translated
+          // by this run, but with auto-continue armed they will be translated
+          // and billed as soon as their bytes land. Leaving them out of the
+          // sentence made it quote a floor as if it were the total.
+          pending: scan.pending,
+          autoContinueArmed: isAutoContinueArmed(),
+          provider: useContentConfigStore.getState().provider,
+          onConfirm: () => {
+            void forceRetranslatePage();
+          },
+          onCancel: () => undefined,
+        });
+        sendResponse({ success: true, pendingConfirmation: true });
+        return true;
+      }
+      void forceRetranslatePage()
         .then(() => sendResponse({ success: true }))
         .catch(err => sendResponse({ success: false, error: String(err) }));
       return true;
+    }
 
     case 'CANCEL_TRANSLATION':
       cancelTranslation();
@@ -1641,8 +2401,11 @@ function handleMessage(
       break;
 
     case 'TOGGLE_READING_PANEL':
+      // 回传面板现在是不是显示着：弹窗的按钮文字听页面的，不自己猜。
       toggleReadingPanel()
-        .then(() => sendResponse({ success: true }))
+        .then(readingPanelVisible =>
+          sendResponse({ success: true, readingPanelVisible })
+        )
         .catch(err => sendResponse({ success: false, error: String(err) }));
       return true;
 
@@ -1736,7 +2499,7 @@ function handleHudCancel(): void {
  * user what it is about to pay for.
  */
 function retranslateFailedImages(): number {
-  const targets = Array.from(failedImages).filter(img => img.isConnected);
+  const targets = retryTargets();
 
   if (targets.length === 0) {
     return 0;
@@ -1870,11 +2633,15 @@ let routeWatchTimer: ReturnType<typeof setInterval> | null = null;
  */
 function handleRouteChange(): void {
   // A running translation is about the old DOM; abort it.
+  //
+  // `translationCancelled` is left set (not reset to `false`) for the same
+  // reason as in `clearAll`: the old run is still unwinding, and it reads the
+  // flag to decide whether to report a result. Resetting it here made the
+  // previous chapter's run announce 「翻译完成」 with the old chapter's counts
+  // on top of the new, empty chapter. The next run re-arms the flag itself.
   cancelTranslation();
   translationRunGeneration += 1;
   translationRunInFlight = false;
-  translationCancelled = false;
-  abortReason = null;
 
   if (renderer) {
     renderer.removeAll();
@@ -1884,9 +2651,7 @@ function handleRouteChange(): void {
   readingPanel?.reset();
   readingAnchors?.reset();
 
-  processedImages.clear();
-  failedImageKeys.clear();
-  failedImages.clear();
+  resetPerImageState();
   document.querySelectorAll(`.${PROCESSED_CLASS}`).forEach(img => {
     img.classList.remove(PROCESSED_CLASS);
   });
@@ -2022,9 +2787,7 @@ function cleanup(): void {
     anchorRepositionHandler = null;
   }
   stopAutoTranslateObserver();
-  processedImages.clear();
-  failedImageKeys.clear();
-  failedImages.clear();
+  resetPerImageState();
   // A cleanup that throws leaves the page half-torn-down, and it runs on
   // unload where the error would be invisible. Every removal is guarded:
   // the extension context may already be gone.

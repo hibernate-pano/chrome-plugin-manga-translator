@@ -11,6 +11,14 @@
  *   1. this module — protocol and address checks, plus a byte budget;
  *   2. the caller in `background.ts` — sender authorisation, so the request
  *      path is limited to images the tab is actually displaying.
+ *
+ * What this cannot do is stop a redirect. A host we are willing to fetch can
+ * answer with a 302 pointing at an internal address, and the browser follows
+ * it before any extension code runs. The address policy is therefore applied
+ * twice: to the URL we ask for, and to the URL the response finally came
+ * from. The second check is what keeps the redirect from being a read — the
+ * bytes of a response that ended up somewhere internal are dropped unread.
+ * The request itself still happens, and the docs say so.
  */
 
 /** Refuse absurd payloads before they reach the message channel. */
@@ -156,7 +164,8 @@ export function isSafeImageUrl(url: string): boolean {
 
 /**
  * Fetch an image with the guards applied: validated URL, no credential
- * forwarding, timeout, byte cap, and an image content type.
+ * forwarding, timeout, byte cap, an image content type, and a second look
+ * at the address the response actually came from.
  */
 export async function fetchImageBytes(
   imageUrl: string
@@ -176,6 +185,26 @@ export async function fetchImageBytes(
       credentials: 'omit',
       redirect: 'follow',
     });
+    /*
+     * The redirect chain was walked before this line ran.
+     *
+     * `isSafeImageUrl` above checked the URL we *asked for*. A host can
+     * answer with a 302 pointing at an internal address, and the browser
+     * follows it before the extension sees anything: no API a service
+     * worker has lets it refuse the hop and still read the target, so the
+     * request itself has already happened by now.
+     *
+     * What is still ours to give back is the body. Handing it back is what
+     * would turn a blind request into a read, so a response that ended up
+     * somewhere the address policy refuses is dropped here — unread.
+     */
+    const finalUrl = response.url;
+    if (finalUrl && !isSafeImageUrl(finalUrl)) {
+      return {
+        success: false,
+        error: 'Blocked image URL after redirect',
+      };
+    }
     if (!response.ok) {
       return {
         success: false,

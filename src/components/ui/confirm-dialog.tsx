@@ -3,7 +3,7 @@ import { useEffect, useRef } from 'react';
 import { cn } from '@/lib/utils';
 
 /**
- * 轻量级确认对话框，用于危险操作（强制重翻、彻底重置等）的二次确认。
+ * 轻量级确认对话框，用于危险操作（忽略缓存重翻、彻底重置等）的二次确认。
  *
  * 故意不用 Radix Dialog / framer-motion —— popup 体积敏感，
  * 纯 React + CSS transition 足够，且自带深色主题样式（与 PopupApp 一致）。
@@ -45,21 +45,46 @@ export function ConfirmDialog({
    * the focus back when the dialog closes.
    */
   const previouslyFocused = useRef<HTMLElement | null>(null);
+  /**
+   * The latest `onCancel`.
+   *
+   * Every call site passes a fresh inline arrow, so `onCancel` in a
+   * dependency array re-ran the focus effect on *every* parent render: the
+   * effect then recorded the dialog's own cancel button as "the element that
+   * had focus before", and on close that button was already unmounted — the
+   * focus fell to `<body>` and the keyboard user was lost. The handler reads
+   * this ref instead, so the effect only depends on `open`.
+   */
+  const onCancelRef = useRef(onCancel);
+  /**
+   * Whether the dialog was open the last time the focus effect ran. The
+   * element the focus goes back to is recorded on the false -> true
+   * transition only, never on a re-render.
+   */
+  const wasOpen = useRef(false);
+
+  useEffect(() => {
+    onCancelRef.current = onCancel;
+  });
 
   // 打开时聚焦"取消"（安全默认），Escape 关闭，Tab 锁在对话框内
   useEffect(() => {
+    const justOpened = open && !wasOpen.current;
+    wasOpen.current = open;
     if (!open) {
       return;
     }
-    previouslyFocused.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+    if (justOpened) {
+      previouslyFocused.current =
+        document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+    }
     cancelRef.current?.focus();
 
     const handleKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onCancel();
+        onCancelRef.current();
         return;
       }
       if (e.key !== 'Tab') {
@@ -86,14 +111,22 @@ export function ConfirmDialog({
       ) {
         e.preventDefault();
         last.focus();
-      } else if (!e.shiftKey && active === last) {
+      } else if (
+        !e.shiftKey &&
+        (active === last || !dialogRef.current?.contains(active))
+      ) {
+        // The same guard the backwards branch has: the focus may be
+        // outside the dialog entirely (the reader clicked the page behind
+        // the overlay, or the browser moved it). Tabbing forward from
+        // there has to come back in, or the walk out of the dialog is
+        // still possible — only from the other direction.
         e.preventDefault();
         first.focus();
       }
     };
     window.addEventListener('keydown', handleKey);
     return () => window.removeEventListener('keydown', handleKey);
-  }, [open, onCancel]);
+  }, [open]);
 
   // 关闭后把焦点还给触发按钮。
   //
@@ -104,9 +137,9 @@ export function ConfirmDialog({
       return;
     }
     const target = previouslyFocused.current;
+    previouslyFocused.current = null;
     if (target && target.isConnected) {
       target.focus();
-      previouslyFocused.current = null;
     }
   }, [open]);
 
@@ -127,7 +160,7 @@ export function ConfirmDialog({
         aria-labelledby='confirm-dialog-title'
         aria-describedby='confirm-dialog-desc'
         onClick={e => e.stopPropagation()}
-        className='w-full max-w-sm rounded-2xl border border-white/10 bg-slate-900 p-5 shadow-2xl'
+        className='w-full max-w-sm rounded-2xl border border-white/25 bg-slate-900 p-5 shadow-2xl'
       >
         <h2
           id='confirm-dialog-title'
@@ -149,7 +182,7 @@ export function ConfirmDialog({
             ref={cancelRef}
             type='button'
             onClick={onCancel}
-            className='rounded-lg border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-200 transition hover:bg-white/[0.07] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
+            className='rounded-lg border border-white/20 bg-slate-950 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
           >
             {cancelLabel}
           </button>

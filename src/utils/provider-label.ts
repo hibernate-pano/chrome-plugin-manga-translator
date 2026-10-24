@@ -70,6 +70,41 @@ export function detectServiceName(baseUrl: string): string | null {
 }
 
 /**
+ * The name a diagnostics bundle may carry for an endpoint we do not know.
+ *
+ * In the UI a self-hosted gateway is named by its host — that is the only
+ * way the user can tell which machine their images are going to. But the
+ * diagnostics bundle is meant to be pasted into a public issue tracker, and
+ * a hostname identifies the reporter's infrastructure: `llm.internal.corp`
+ * says more about the person filing the issue than they meant to. The
+ * bundle therefore names the *shape* of the endpoint instead of the
+ * endpoint itself.
+ */
+export const SELF_HOSTED_SERVICE_LABEL = 'OpenAI 兼容（自建端点）';
+
+/**
+ * The service name as it is allowed to appear in a diagnostics bundle.
+ *
+ * Same rules as `getProviderLabel`, with one difference: an endpoint that is
+ * not a service we recognise is described rather than named. A recognised
+ * service (MiniMax, OpenAI, SiliconFlow …) is safe — the user needs it to
+ * get help, and the name says nothing about the reporter.
+ */
+export function getDiagnosticsServiceLabel(args: {
+  provider: ProviderType;
+  baseUrl: string;
+}): string {
+  const { provider, baseUrl } = args;
+  if (provider === 'ollama') {
+    return 'Ollama';
+  }
+  if (provider === 'lm-studio') {
+    return 'LM Studio';
+  }
+  return detectServiceName(baseUrl) ?? SELF_HOSTED_SERVICE_LABEL;
+}
+
+/**
  * The label to show the user for the provider they are about to spend money
  * with.
  *

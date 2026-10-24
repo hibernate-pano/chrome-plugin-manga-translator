@@ -37,9 +37,18 @@
 | 长条条漫（webtoon）切片处理 | `src/services/translator.ts:translateImageTiled`; `src/services/translator.ts:computeTiles`; `src/services/translator.ts:translateTile` | listing: 长条条漫（webtoon）会切片处理; release: for the tiled pipeline |
 | 视觉模型零文字时用内置 Tesseract OCR 兜底（Ollama 除外） | `src/services/translator.ts:translateWithHybridPipeline`; `src/services/translator.ts:this.config.provider !== 'ollama'`; `src/services/translator.ts:translateRegionsWithHybrid` | listing: 内置 Tesseract OCR 可继续工作（使用 Ollama 时不启用该兜底） |
 | OCR 语言包从 jsdelivr 公开 CDN 下载 | `src/services/text-detector.ts:jsdelivr`; `src/services/text-detector.ts:workerPath`; `src/services/text-detector.ts:corePath` | listing: OCR 语言包在首次使用 OCR 兜底时从 jsdelivr 公开 CDN 下载; privacy: the official `@tesseract.js-data` package on jsdelivr |
-| 翻译缓存：相同图片不重复请求 | `src/services/translator.ts:buildCacheKey`; `src/stores/cache-v2.ts:CACHE_STORAGE_KEY` | listing: 翻译缓存：相同图片不重复请求; review: 启用缓存 |
+| 翻译缓存：翻译成功的图片不重复请求 | `src/services/translator.ts:buildCacheKey`; `src/stores/cache-v2.ts:CACHE_STORAGE_KEY` | listing: 翻译缓存：翻译成功的图片不重复请求; review: 启用缓存 |
+| 画质与并发可在设置页调整 | `src/components/Options/OptionsApp.tsx:setMaxImageSize`; `src/components/Options/OptionsApp.tsx:setParallelLimit`; `src/stores/config-v2.ts:maxImageSize` | listing: 画质与并发可调 |
+| 目标语言可选，所选语言真正传给模型 | `src/utils/translation-style.ts:STYLE_LOCALIZATION`; `src/utils/translation-style.ts:getTargetLanguageName`; `src/providers/base.ts:getMangaTranslationPrompt` | listing: 目标语言可选 |
+| 服务商一键预设（填好地址与模型，Key 仍由用户填写） | `src/shared/provider-presets.ts:PROVIDER_PRESETS`; `src/shared/provider-presets.ts:findMatchingPreset`; `src/components/Options/OptionsApp.tsx:PROVIDER_PRESETS` | listing: 服务商一键预设 |
+| 译文阅读面板可展开查看识别到的原文 | `src/content/reading-panel.ts:renderEntryContent`; `src/content/reading-panel.ts:entry-original` | listing: 译文可对照原文 |
+| 译文可存为图片（合成 PNG 下载到本地） | `src/services/image-exporter.ts:exportTranslatedImage`; `src/content/image-export-dialog.ts:ImageExportDialog`; `src/content/content.ts:setExportHandler`; `src/services/renderer.ts:createExportButton` | listing: 译文可存为图片 |
+| 忽略缓存重翻会先确认，并写明会重新请求多少张图 | `src/content/force-retranslate-confirm.ts:ForceRetranslateConfirm`; `src/content/content.ts:FORCE_RETRANSLATE_PAGE`; `src/shared/runtime-contracts.ts:pendingConfirmation` | review: 都会先弹出一个确认框，写明本次会重新请求多少张图片 |
+| 弹窗里有「开始设置」入口 | `src/components/Popup/PopupApp.tsx:开始设置`; `src/components/Options/OptionsApp.tsx:OnboardingApp` | listing: 在弹窗中点「开始设置」; review: 在弹窗中点「开始设置」 |
+| 设置页可以重新打开引导 | `src/components/Options/OptionsApp.tsx:重新查看引导`; `src/components/Onboarding/OnboardingApp.tsx:forceOpen` | review: 设置页也可以随时用「重新查看引导」打开 |
+| 诊断信息在本地生成，可复制但不含 Key、地址与页面 | `src/shared/diagnostics.ts:buildDiagnosticsBundle`; `src/shared/diagnostics.ts:looksLikeSecret`; `src/components/Options/OptionsApp.tsx:handleCopyDiagnostics` | listing: 报障用的诊断信息在本地生成 |
 | 右键菜单「翻译当前页面」与「翻译这张图片」 | `src/background/background.ts:CONTEXT_MENU_TRANSLATE_PAGE`; `src/background/background.ts:CONTEXT_MENU_TRANSLATE_IMAGE`; `src/background/background.ts:翻译这张图片` | listing: 「翻译当前页面」/「翻译这张图片」; review: 「翻译当前页面」或「翻译这张图片」 |
-| 键盘快捷键翻译 / 重译 / 清覆盖层 / 开关阅读面板 | `src/background/commands.ts:COMMAND_SHORTCUTS`; `src/background/commands.ts:resolveCommandAction`; `public/manifest.json:translate-page`; `public/manifest.json:clear-overlays` | listing: Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重译、+E 清除覆盖层、+S 开关译文阅读面板; review: Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重新翻译 |
+| 键盘快捷键翻译 / 忽略缓存重翻 / 清覆盖层 / 开关阅读面板 | `src/background/commands.ts:COMMAND_SHORTCUTS`; `src/background/commands.ts:resolveCommandAction`; `public/manifest.json:translate-page`; `public/manifest.json:clear-overlays` | listing: Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重翻、+E 清除覆盖层、+S 开关译文阅读面板; review: Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重翻 |
 | 译文阅读面板按阅读顺序列出全部译文并可跳转 | `src/content/reading-panel.ts:ReadingPanel`; `src/content/reading-anchors.ts:ReadingAnchors` | listing: 译文阅读面板：页面右侧列出本页所有译文; readme: Reading mode side panel |
 | 弹窗写明当前页面是否正在自动翻译，并可一键停掉 | `src/components/Popup/popup-state.ts:describeAutoTranslate`; `src/components/Popup/PopupApp.tsx:handleStopAutoTranslate`; `src/content/content.ts:autoContinueArmed` | listing: 自动翻译状态一目了然; readme: The popup says so in as many words |
 | 默认端点是 MiniMax（api.minimaxi.com，模型 MiniMax-M3） | `src/shared/app-config.ts:https://api.minimaxi.com/v1`; `src/shared/app-config.ts:MiniMax-M3`; `src/shared/app-config.ts:DEFAULT_OPENAI_COMPATIBLE_CONFIG` | listing: 安装后的默认端点为 MiniMax（https://api.minimaxi.com/v1，模型 MiniMax-M3）; privacy: the endpoint the extension ships with by default |
@@ -47,13 +56,14 @@
 | LM Studio 默认 http://localhost:1234/v1 | `src/shared/app-config.ts:http://localhost:1234/v1`; `src/shared/app-config.ts:DEFAULT_LM_STUDIO_CONFIG` | listing: LM Studio（本地，默认 http://localhost:1234/v1） |
 | 使用本地服务商时图片完全不离开本机 | `src/shared/app-config.ts:http://localhost:11434`; `src/shared/app-config.ts:http://localhost:1234/v1` | listing: 若希望图片完全不离开本机，请使用本地服务商（Ollama 或 LM Studio）; privacy: the images never leave your machine at all |
 | API Key 只存在本机 chrome.storage.local，不随 Google 账号同步 | `src/stores/config-v2.ts:chromeStorage`; `src/stores/config-v2.ts:chrome.storage.local`; `src/utils/crypto.ts:obfuscateAllApiKeys` | listing: API Key 仅保存在本机 chrome.storage.local，不随 Google 账号同步; privacy: Stored locally in your browser using Chrome's `storage.local` API (not synced across devices via your Google account); readme: API keys entered in Settings live in `chrome.storage.local` only |
-| 明文密钥不进 content script，网页里运行的脚本拿不到它 | `src/shared/app-config.ts:apiKey: ''`; `src/shared/env-credentials.ts:ENV_CREDENTIALS`; `scripts/check-release-consistency.mjs:checkCredentialBoundary`; `scripts/check-release-consistency.mjs:checkNoCredentialsInContentScript` | privacy: The plaintext key is held only by the extension's service worker; review: 明文密钥不进入 content script 的导入闭包 |
+| 明文密钥不进 content script，网页里运行的脚本拿不到它 | `src/shared/app-config.ts:apiKey: ''`; `src/shared/env-credentials.ts:ENV_CREDENTIALS`; `scripts/check-release-consistency.mjs:checkCredentialBoundary`; `scripts/check-release-consistency.mjs:checkNoCredentialsInContentScript` | privacy: The plaintext key is held only by the extension's service worker; review: 明文密钥不进入 content script 的导入闭包; review: 内容脚本拿不到明文密钥 |
 | 密钥是 XOR 混淆，不是加密 | `src/utils/crypto.ts:obfuscateApiKey`; `src/utils/crypto.ts:SALT` | privacy: obfuscation, not encryption; review: 这是混淆而非加密; readme: obfuscated, not encrypted |
 | 开发者不收集、不接收、不存储任何用户数据 | `src/stores/config-v2.ts:chrome.storage.local`; `src/stores/cache-v2.ts:chrome.storage.local`; `src/stores/usage-store.ts:chrome.storage.local` | listing: 开发者不收集、不接收、不存储任何用户数据; privacy: The extension developer does not collect, receive, or store any user data; review: 本扩展的开发者不收集、不接收、不存储任何用户数据 |
 | 没有统计、遥测、崩溃上报与广告 SDK | `src/stores/usage-store.ts:chrome.storage.local`; `src/stores/usage-store.ts:按天聚合` | listing: 没有统计、没有遥测、没有崩溃上报，没有广告 SDK; privacy: no analytics, no tracking scripts, no telemetry, and no crash reporting; review: 无统计、无遥测、无崩溃上报、无广告 SDK |
 | 出站请求只有三类 | `src/utils/http-client.ts:httpRequest`; `src/background/image-fetch-guard.ts:fetch`; `src/services/text-detector.ts:jsdelivr` | privacy: The extension makes outbound requests to exactly three kinds of destination; review: 出站请求仅三类 |
 | 页面图片由浏览器直连该页自己的图床 GET，不带 Cookie | `src/background/image-fetch-guard.ts:credentials: 'omit'` | listing: 页面图片由浏览器直接向该页自己的图床发起 GET 请求（不携带你的 Cookie），不是开发者架设的代理; privacy: sent with `credentials: 'omit'`; review: 使用 credentials: 'omit' |
 | 取图只允许 http/https 并拒绝内网地址 | `src/background/image-fetch-guard.ts:parsed.protocol !== 'http:'`; `src/background/image-fetch-guard.ts:metadata.google.internal` | review: 协议只允许 http/https; privacy: `metadata.google.internal` and private/loopback IPv4 and IPv6 literals are refused |
+| 重定向后的最终地址要过同一道校验，不合格就丢弃响应 | `src/background/image-fetch-guard.ts:isSafeImageUrl(finalUrl)`; `src/background/image-fetch-guard.ts:Blocked image URL after redirect` | review: 重定向后的最终地址同样要过上面这道校验; privacy: The same check is applied to the URL the response finally came from |
 | 图片取不到时由后台直接取图 | `src/background/image-fetch-guard.ts:fetch`; `src/background/image-fetch-guard.ts:isSafeImageUrl` | listing: 扩展会尝试由后台直接取图; release: fetches comic images from arbitrary image CDNs |
 | 自动翻译白名单默认为空，不启用即不自动翻译 | `src/shared/app-config.ts:autoTranslateHosts: []`; `src/shared/app-config.ts:hostMatchesAllowlist` | listing: 自动翻译白名单（默认为空）; privacy: The auto-translate list is empty by default; readme: Per-site automation, off by default |
 | 「测试配置」按钮做真实连通性验证 | `src/components/Options/OptionsApp.tsx:testConnection`; `src/providers/openai-compatible-base.ts:testConnection` | listing: 点击「测试配置」确认连通; review: 点击「测试配置」确认连通性验证生效 |
@@ -63,7 +73,7 @@
 | CSP 只允许自身脚本与本地 WASM | `public/manifest.json:wasm-unsafe-eval`; `public/manifest.json:object-src 'self'` | review: 'wasm-unsafe-eval' 仅用于实例化随扩展打包的 Tesseract OCR WebAssembly 核心; release: script-src 'self' 'wasm-unsafe-eval' |
 | 申请 <all_urls> 主机权限 | `public/manifest.json:<all_urls>`; `src/background/background.ts:SUPPORTED_PAGE_URL_PATTERNS` | review: host_permissions: <all_urls>; release: `<all_urls>` host permission |
 | storage 权限保存配置、偏好、缓存与用量统计 | `src/stores/cache-v2.ts:CACHE_STORAGE_KEY`; `src/stores/usage-store.ts:chrome.storage.local`; `src/stores/config-v2.ts:APP_CONFIG_STORAGE_KEY` | review: 在浏览器本地保存服务商配置、界面偏好、翻译缓存与用量统计; release: Save provider settings, UI preferences, the local translation |
-| alarms 唤醒 worker 重读配置；并发数没有设置界面，恒为 3 | `src/background/background.ts:KEEPALIVE_ALARM`; `src/background/background.ts:syncQueueLimit`; `src/shared/app-config.ts:parallelLimit: 3`; `src/stores/config-v2.ts:setParallelLimit` | review: 存储中的值恒为默认值 3; release: the concurrency limit has no settings UI |
+| alarms 唤醒 worker 重读配置；并发数可在设置页调整，默认 3 | `src/background/background.ts:KEEPALIVE_ALARM`; `src/background/background.ts:syncQueueLimit`; `src/shared/app-config.ts:parallelLimit: 3`; `src/stores/config-v2.ts:setParallelLimit`; `src/components/Options/OptionsApp.tsx:setParallelLimit` | review: 并发数可以在设置页的「画质与并发」中调整（默认 3）; release: the concurrency limit is configurable in Settings |
 | alarms 不阻止 Chrome 回收 worker，长任务靠消息通道维持 | `src/background/background.ts:KEEPALIVE_ALARM`; `src/background/background.ts:startKeepalive` | review: 该定时器不阻止 Chrome 回收 worker; release: does **not** keep the worker alive |
 | contextMenus 提供两个菜单入口 | `src/background/background.ts:chrome.contextMenus.create`; `src/background/commands.ts:CONTEXT_MENU_TRANSLATE_IMAGE` | review: contextMenus —— 在页面右键菜单中提供两个入口; release: Add two page context menu items |
 | v0.3.5 起配置从 storage.sync 迁到 storage.local 并删除旧副本 | `src/background/background.ts:migrateConfigFromSyncToLocal` | privacy: v0.3.5 moved all configuration to `chrome.storage.local` |
@@ -88,3 +98,9 @@
   没有登记，脚本不会报错——需要人工把新承诺补进本表。
 - **表里没有登记的文档**：`docs/architecture-notes.md`、`CHANGELOG.md`、
   `docs/index.md` 不在检查范围内。
+- **限制类承诺**：脚本能守住"锚点还在"和"那句话还在文档里"，守不住"那句话现在
+  还成立"。第六轮审查（`docs/audit-round-6.md`）在审核备注、隐私政策、引导页与
+  设置页里找到的全是这一类——**能力类的承诺一条没错，错的全是对限制的描述**：
+  「页面无法把扩展指向内网服务」「扩展本身不收集、不上传、不存储任何数据」「内容
+  脚本只拿到三个字段」。这类漂移只能靠人读发现，所以审查时要专门查限制，不要只
+  查功能。

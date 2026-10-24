@@ -24,8 +24,16 @@ pnpm format                 # Prettier write all files
 pnpm format:check           # Check formatting
 pnpm type-check             # TypeScript type check only
 
+# Store listing assets
+pnpm store:promo            # Composite store/listing/promo-1280x800.png (no network)
+pnpm store:capture          # Screenshots + demo.mp4 (needs a reachable provider)
+pnpm store:popup            # The popup screenshot (no provider, no money)
+pnpm store:options          # The settings-page screenshot (no provider, no money)
+node scripts/make-icons.mjs # Redraw public/icons/*.png from the vector source
+
 # Store
 pnpm package:public         # Credential-free ZIP in release/
+pnpm smoke:public           # Drive the credential-free build in a clean Chrome
 node scripts/publish-to-store.mjs --dry-run   # Verify without uploading
 pnpm release:publish        # Package, upload and publish in one command
 ```
@@ -239,6 +247,19 @@ The dialogue has to be burned into the pixels of the demo pages. The
 extension sends the image to the vision model, so lettering drawn in HTML is
 invisible to it, and the demo would show the original Japanese with the
 translation floating next to it.
+
+### The extension icon
+
+`public/icons/` holds the manifest's icons at 16/32/48/64/128/256.
+`scripts/make-icons.mjs` redraws all six from one vector source; run it
+after changing that source rather than editing the PNGs.
+
+The 16-pixel version is the one that matters most: Chrome draws the toolbar
+icon at sixteen CSS pixels, and anything lettered collapses into a smudge
+there. So the small sizes carry the silhouette only — a solid speech bubble
+with a globe — and the character appears from 32 pixels up. The character is
+drawn as paths, not as text, so the icon does not depend on a font being
+installed on whoever regenerates it.
 
 ### Publishing to the store
 

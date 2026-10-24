@@ -7,6 +7,8 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { summarizeUsageForMonth, useUsageStore } from '@/stores/usage-store';
+
 import { OpenAIProvider } from './openai';
 
 const VALID_KEY = 'sk-abcdefghijklmnopqrstuvwxyz0123456789';
@@ -118,6 +120,48 @@ describe('OpenAI-compatible connection test', () => {
     ).testConnection?.();
     expect(result?.valid).toBe(false);
     expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('counts the billed probe the button sends', async () => {
+    // 「测试配置」在网关不提供 /models 时会真的发一次 chat completion，
+    // 而服务商要为它计费。用户的账上多了一次，扩展的计数就得跟上 ——
+    // 否则他正好在盯着那个数字的时候发现它对不上。
+    useUsageStore.getState().clearAll();
+    const spy = vi.fn(async (url: string) =>
+      String(url).endsWith('/models')
+        ? mockFetchResponse(404)
+        : mockFetchResponse(200, { choices: [] })
+    );
+    vi.stubGlobal('fetch', spy);
+
+    await (await providerWith({})).testConnection?.();
+
+    expect(
+      summarizeUsageForMonth(useUsageStore.getState().records).billableCalls
+    ).toBe(1);
+  });
+
+  it('does not spend a request when the health poll forbids a billed probe', async () => {
+    // The settings page polls the provider every fifteen minutes to draw a
+    // status dot. For a gateway without /models, that poll used to fall
+    // back to a real chat completion — a request the provider bills, run
+    // every fifteen minutes, to keep a dot green. The poll asks for the
+    // cheap answer; only the 「测试配置」 button pays for the full one.
+    const spy = vi.fn(async (url: string) =>
+      String(url).endsWith('/models')
+        ? mockFetchResponse(404)
+        : mockFetchResponse(200, { choices: [] })
+    );
+    vi.stubGlobal('fetch', spy);
+
+    const result = await (
+      await providerWith({})
+    ).testConnection?.({ allowBillableProbe: false });
+
+    expect(result?.valid).toBe(true);
+    expect(result?.message).toContain('未做会计费的完整测试');
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(String(spy.mock.calls[0]?.[0])).toContain('/models');
   });
 
   it('sends the key as a bearer token', async () => {

@@ -30,14 +30,40 @@ describe('P4 perf: cache hit path', () => {
       );
     }
 
-    const start = performance.now();
-    for (let i = 0; i < 100; i++) {
-      const result = cache.get(`hash-${i}`);
-      expect(result?.cached).toBe(true);
+    /*
+     * 这个断言量的是缓存，还是量这台机器？
+     *
+     * 一轮 100 次查找跑出 80ms，单次 0.8ms —— 一个 Map 查找不可能这么慢，
+     * 慢的是这个测试文件和另外 76 个测试文件一起抢 CPU。计时断言在负载
+     * 下量的是机器，不是代码，于是它随机变红，而它变红的时候没有任何
+     * 人改了缓存。
+     *
+     * 所以：先热身（第一次调用要编译），再取多轮里最快的一轮。噪声只会
+     * 让一轮变慢，不会让它变快，最小值是负载下唯一稳定的量。断言也从
+     * 计时区间里拿出去 —— expect() 的开销不是查找的开销。
+     */
+    const run = (): number => {
+      const start = performance.now();
+      for (let i = 0; i < 100; i++) {
+        cache.get(`hash-${i}`);
+      }
+      return performance.now() - start;
+    };
+
+    run(); // 热身：把 JIT 和缓存的首次访问成本排除在外
+
+    let best = Number.POSITIVE_INFINITY;
+    for (let i = 0; i < 5; i++) {
+      best = Math.min(best, run());
     }
-    const elapsed = performance.now() - start;
-    // 100 lookups in well under 50ms
-    expect(elapsed).toBeLessThan(50);
+
+    // 100 次命中查找在 10ms 以内 —— 缓存命中这条路不是瓶颈。
+    expect(best).toBeLessThan(10);
+
+    // 命中本身还是要验的，只是别让它占用计时区间。
+    for (let i = 0; i < 100; i++) {
+      expect(cache.get(`hash-${i}`)?.cached).toBe(true);
+    }
   });
 
   it('hot path: get() returns cached: true flag', () => {

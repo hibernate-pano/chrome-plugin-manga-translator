@@ -1,6 +1,6 @@
 # Privacy Policy for Manga Translator (漫画翻译助手)
 
-**Last updated: 2026-10-05**
+**Last updated: 2026-10-22**
 
 ## Summary
 
@@ -64,8 +64,10 @@ pages. It is never placed in the content script — the code that runs inside
 every page you visit — because a key there would be a key in every page. The
 build enforces this in two ways: it fails if the content script's import graph
 can reach the module that holds the key, and it fails if the built content
-script contains a key at all. The content script receives only the endpoint,
-the model name, and whether a key is configured.
+script contains a key at all. The content script never receives the key itself:
+it gets the endpoint, the model name, and whether a key is configured, along
+with the settings a translation needs (target language, style, resolution,
+concurrency) — preferences, not credentials.
 
 > Note: Prior to v0.3.5, configuration was stored in `chrome.storage.sync`, which meant obfuscated API keys were synced across devices via the user's Google account. v0.3.5 moved all configuration to `chrome.storage.local` and performs a one-time automatic migration on startup; the old `storage.sync` copy is deleted after migration.
 
@@ -139,8 +141,14 @@ to third-party hosts you did not explicitly configure, which is why they are
 called out here. On the second path the scheme is restricted to `http`/`https`,
 and `localhost`, `*.localhost`, `metadata.google.internal` and private/loopback
 IPv4 and IPv6 literals are refused, so a page cannot aim the extension at an
-internal service by address. A domain that resolves to a private address is not
-caught by these checks — resolving it happens in the browser, after this
+internal service by address. The same check is applied to the URL the response
+finally came from: a host can answer with a redirect to an internal address,
+and the browser follows that redirect before the extension sees it, so the
+request to the internal address has already happened by then. What the extension
+can still do is refuse to hand the body back — a response that ended up
+somewhere the address policy rejects is dropped unread, so its contents never
+reach the page or the provider. A domain that resolves to a private address is
+not caught by these checks — resolving it happens in the browser, after this
 validation — so the sender check in the worker remains the primary control on
 who may request a fetch.
 

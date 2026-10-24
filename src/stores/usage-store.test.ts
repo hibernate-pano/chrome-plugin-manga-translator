@@ -63,6 +63,19 @@ async function readStoredSnapshot(): Promise<{
 const originalTz = process.env['TZ'];
 
 /**
+ * The records that are actual calls.
+ *
+ * The list also holds the accumulator entries — the running totals that keep
+ * the monthly bill exact once the detail list starts dropping records — and
+ * they are not calls themselves.
+ */
+function detailRecords(
+  records: TranslationUsageRecord[]
+): TranslationUsageRecord[] {
+  return records.filter(record => record.accumulator === undefined);
+}
+
+/**
  * Pin the timezone for the duration of a test.
  *
  * `process.env.TZ` is read by Node on every date operation, so setting it at
@@ -194,8 +207,27 @@ describe('usage store', () => {
     }
 
     const { records, monthlyTokens } = useUsageStore.getState();
-    expect(records).toHaveLength(500);
-    expect(monthlyTokens).toBe(500 * 2);
+    expect(detailRecords(records)).toHaveLength(500);
+    expect(monthlyTokens).toBe(505 * 2);
+  });
+
+  it('counts every call of the month, not only the ones the list kept', () => {
+    for (let index = 0; index < 620; index += 1) {
+      useUsageStore.getState().addRecord({
+        provider: 'openai-compatible',
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        cached: false,
+      });
+    }
+
+    const { records } = useUsageStore.getState();
+    // The list is capped...
+    expect(detailRecords(records)).toHaveLength(500);
+    // ...but the bill is not.
+    const summary = summarizeUsageForMonth(records);
+    expect(summary.billableCalls).toBe(620);
+    expect(summary.translations).toBe(620);
+    expect(summary.tokens).toBe(620 * 2);
   });
 
   it('stamps records with the local date, not the UTC date', () => {
@@ -321,13 +353,81 @@ describe('usage store', () => {
     expect(summary.cacheHitRate).toBeCloseTo(1 / 3);
   });
 
+  it('keeps one running total for the month, not one per call', () => {
+    /*
+     * 累加器以前是"每个上下文一份"：worker 空闲半分钟就被回收、页面每次
+     * 打开都是新的上下文，于是每次调用都可能在列表里多留一条，而且这
+     * 一条永远不会被清掉（明细有 500 条的上限，累加器没有）。列表越长，
+     * 每写一次要重写的东西就越多。
+     *
+     * 现在只有 worker 记账，一个月一份。
+     */
+    for (let index = 0; index < 50; index += 1) {
+      useUsageStore.getState().addRecord({
+        provider: 'openai-compatible',
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        cached: false,
+      });
+    }
+
+    const accumulators = useUsageStore
+      .getState()
+      .records.filter(item => item.accumulator !== undefined);
+    expect(accumulators).toHaveLength(1);
+    // 合计还是对的。
+    const summary = summarizeUsageForMonth(useUsageStore.getState().records);
+    expect(summary.billableCalls).toBe(50);
+  });
+
+  it('drops the running totals of the months nobody reads any more', () => {
+    // 两个月的合计：上个月的要留着（三十天的曲线还画得到），更早的
+    // 没人会看，却永远留在列表里。
+    // 三个月前：无论今天是哪一天，它都在"上个月"之前，不会有人再看它。
+    const now = new Date();
+    const staleMonth = formatLocalMonth(
+      new Date(now.getFullYear(), now.getMonth() - 3, 15)
+    );
+    const stale: TranslationUsageRecord = {
+      id: `acc-${staleMonth}`,
+      timestamp: Date.parse(`${staleMonth}-15T12:00:00.000Z`),
+      date: staleMonth,
+      provider: 'openai-compatible',
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      cached: false,
+      accumulator: {
+        byDay: {
+          [`${staleMonth}-15`]: {
+            date: `${staleMonth}-15`,
+            totalTokens: 10,
+            promptTokens: 5,
+            completionTokens: 5,
+            translationCount: 1,
+            cachedCount: 0,
+            providers: { 'openai-compatible': 1 },
+          },
+        },
+        clearedAt: 0,
+      },
+    };
+
+    useUsageStore.setState({ records: [stale] });
+    useUsageStore.getState().addRecord({
+      provider: 'openai-compatible',
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      cached: false,
+    });
+
+    const records = useUsageStore.getState().records;
+    expect(records.some(item => item.id === `acc-${staleMonth}`)).toBe(false);
+  });
+
   it('clearAll empties history and monthly totals', () => {
     useUsageStore.getState().addRecord({
       provider: 'openai-compatible',
       usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
       cached: false,
     });
-    expect(useUsageStore.getState().records).toHaveLength(1);
+    expect(detailRecords(useUsageStore.getState().records)).toHaveLength(1);
 
     useUsageStore.getState().clearAll();
     const { records, monthlyTokens } = useUsageStore.getState();
@@ -504,5 +604,184 @@ describe('usage store across tabs', () => {
     const stored = await readStoredSnapshot();
     expect(stored.records.map(item => item.id)).not.toContain('stale-tab-1');
     expect(stored.clearedAt).toBeGreaterThan(0);
+  });
+
+  it('adds up the calls another tab counted', () => {
+    useUsageStore.getState().addRecord({
+      provider: 'openai-compatible',
+      usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+      cached: false,
+    });
+
+    // Another tab's accumulator: three calls, one of them a cache hit.
+    const today = formatLocalDate();
+    const foreignAccumulator: TranslationUsageRecord = {
+      id: 'acc-foreign-tab-1',
+      timestamp: Date.now(),
+      date: formatLocalMonth(),
+      provider: 'openai-compatible',
+      usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+      cached: false,
+      accumulator: {
+        byDay: {
+          [today]: {
+            date: today,
+            totalTokens: 30,
+            promptTokens: 10,
+            completionTokens: 20,
+            translationCount: 3,
+            cachedCount: 1,
+            providers: { 'openai-compatible': 2 },
+          },
+        },
+        clearedAt: useUsageStore.getState().clearedAt,
+      },
+    };
+
+    for (const handler of changeHandlers) {
+      handler(
+        {
+          [USAGE_KEY]: {
+            newValue: {
+              state: { records: [foreignAccumulator], clearedAt: 0 },
+              version: 1,
+            },
+          },
+        },
+        'local'
+      );
+    }
+
+    const summary = summarizeUsageForMonth(useUsageStore.getState().records);
+    // This tab's one billable call plus the other tab's two billable ones.
+    expect(summary.billableCalls).toBe(3);
+    expect(summary.translations).toBe(4);
+    expect(summary.tokens).toBe(40);
+  });
+
+  it('takes over a history that was recorded before the accumulator existed', async () => {
+    const today = formatLocalDate();
+    await chrome.storage.local.set({
+      [USAGE_KEY]: {
+        state: {
+          records: [
+            {
+              id: 'legacy-1',
+              timestamp: Date.now() - 60_000,
+              date: today,
+              provider: 'openai-compatible',
+              usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+              cached: false,
+            },
+            {
+              id: 'legacy-2',
+              timestamp: Date.now() - 30_000,
+              date: today,
+              provider: 'openai-compatible',
+              usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+              cached: true,
+            },
+          ],
+          clearedAt: 0,
+        },
+        version: 1,
+      },
+    });
+
+    await useUsageStore.persist.rehydrate();
+
+    const records = useUsageStore.getState().records;
+    const summary = summarizeUsageForMonth(records);
+    expect(summary.translations).toBe(2);
+    expect(summary.billableCalls).toBe(1);
+    expect(summary.tokens).toBe(10);
+  });
+
+  it('keeps the pre-accumulator history in the bill after the list drops it', async () => {
+    const today = formatLocalDate();
+    await chrome.storage.local.set({
+      [USAGE_KEY]: {
+        state: {
+          records: [
+            {
+              id: 'legacy-1',
+              timestamp: Date.now() - 60_000,
+              date: today,
+              provider: 'openai-compatible',
+              usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+              cached: false,
+            },
+          ],
+          clearedAt: 0,
+        },
+        version: 1,
+      },
+    });
+
+    await useUsageStore.persist.rehydrate();
+
+    // Enough new calls to push the legacy record out of the detail list.
+    for (let index = 0; index < 520; index += 1) {
+      useUsageStore.getState().addRecord({
+        provider: 'openai-compatible',
+        usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+        cached: false,
+      });
+    }
+
+    const records = useUsageStore.getState().records;
+    expect(detailRecords(records).some(item => item.id === 'legacy-1')).toBe(
+      false
+    );
+
+    const summary = summarizeUsageForMonth(records);
+    expect(summary.billableCalls).toBe(521);
+    expect(summary.tokens).toBe(10 + 520 * 2);
+  });
+
+  it('reports the same bill from a second context', async () => {
+    for (let index = 0; index < 3; index += 1) {
+      useUsageStore.getState().addRecord({
+        provider: 'openai-compatible',
+        usage: { promptTokens: 2, completionTokens: 2, totalTokens: 4 },
+        cached: false,
+      });
+    }
+    await flushStorage();
+
+    // The popup is another context: its in-memory state starts empty and it
+    // only knows what the shared storage tells it. The accumulator has to
+    // survive that trip, or the popup shows a different number from the tab.
+    useUsageStore.setState({ records: [] });
+    await flushStorage();
+    await useUsageStore.persist.rehydrate();
+
+    const records = useUsageStore.getState().records;
+    // The accumulator itself has to come back, not only the detail records:
+    // the detail list is the part that is allowed to forget.
+    expect(records.some(item => item.accumulator !== undefined)).toBe(true);
+    const summary = summarizeUsageForMonth(records);
+    expect(summary.billableCalls).toBe(3);
+    expect(summary.tokens).toBe(12);
+  });
+
+  it('forgets the accumulated calls when the history is cleared', () => {
+    useUsageStore.getState().addRecord({
+      provider: 'openai-compatible',
+      usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+      cached: false,
+    });
+
+    useUsageStore.getState().clearAll();
+
+    useUsageStore.getState().addRecord({
+      provider: 'openai-compatible',
+      usage: { promptTokens: 1, completionTokens: 1, totalTokens: 2 },
+      cached: false,
+    });
+
+    const summary = summarizeUsageForMonth(useUsageStore.getState().records);
+    expect(summary.billableCalls).toBe(1);
+    expect(summary.tokens).toBe(2);
   });
 });

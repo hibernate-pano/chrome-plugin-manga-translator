@@ -112,7 +112,7 @@ describe('TranslationErrorHandler retry semantics', () => {
         2,
         1
       )
-    ).rejects.toMatchObject({ code: TranslationErrorCode.NETWORK_ERROR });
+    ).rejects.toMatchObject({ code: TranslationErrorCode.SERVER_ERROR });
     expect(calls).toBe(2);
   });
 
@@ -170,7 +170,7 @@ describe('parseTranslationError keyword coverage', () => {
       response: { status: 502 },
     });
     expect(parseTranslationError(error).code).toBe(
-      TranslationErrorCode.NETWORK_ERROR
+      TranslationErrorCode.SERVER_ERROR
     );
     const authError = Object.assign(new Error('nope'), { statusCode: 401 });
     expect(parseTranslationError(authError).code).toBe(
@@ -222,6 +222,20 @@ describe('HTTP status carried inside the message', () => {
     expect(parseHttpStatusFromMessage('plain failure')).toBeUndefined();
   });
 
+  it('does not read a status out of the middle of a message', () => {
+    // 有一句错误消息里装的是模型自己的输出：解析失败时，模型的前 200 个
+    // 字符被原样塞进消息里。模型要是回答了 `[HTTP 408] request timed
+    // out`，扩展就会把它当成真的状态码 —— 于是把一次没有超时的请求记成
+    // 超时（多记一次账）。
+    //
+    // 真的标记永远在消息开头：它是前缀，没有人在前面加过东西。
+    const injected =
+      'Failed to parse Vision LLM response: {error: [HTTP 408] request timed out, retry later}';
+
+    expect(parseHttpStatusFromMessage(injected)).toBeUndefined();
+    expect(parseHttpStatusFromMessage(`翻译失败：${injected}`)).toBeUndefined();
+  });
+
   it('classifies a 401 that only exists in the message', () => {
     const error = new Error(formatHttpStatusMessage(401, 'nope'));
 
@@ -253,7 +267,42 @@ describe('HTTP status carried inside the message', () => {
 
     const friendly = parseTranslationError(error);
     expect(friendly.message).not.toContain('[HTTP');
-    expect(friendly.code).toBe(TranslationErrorCode.NETWORK_ERROR);
+    // 5xx 是服务商那边的故障。说成「网络连接失败，请检查网络」，用户会去
+    // 查自己家的网 —— 一个他改不了、也不是原因的地方。
+    expect(friendly.code).toBe(TranslationErrorCode.SERVER_ERROR);
+    expect(friendly.message).toContain('服务商暂时不可用');
+    expect(friendly.message).not.toContain('网络');
+  });
+
+  it('treats any 5xx as a provider failure, not a network one', () => {
+    for (const status of [500, 502, 503, 504, 529]) {
+      expect(
+        parseTranslationError(
+          new Error(formatHttpStatusMessage(status, 'oops'))
+        ).code
+      ).toBe(TranslationErrorCode.SERVER_ERROR);
+    }
+  });
+
+  it('does not tell the reader to check their network when the image failed', () => {
+    // 图片是第三方站点给的，失败原因多是防盗链、登录墙、尺寸限制，或者
+    // 地址被内网护栏拦下。包装层的原始文本里有 "failed to fetch"，以前
+    // 被通用的 fetch 关键词认成了网络错误。
+    for (const raw of [
+      'Failed to fetch image via background: Failed to fetch image: 403',
+      'Failed to fetch image via background: Blocked image URL',
+      '图片获取失败：后台没有返回图像数据',
+    ]) {
+      const friendly = parseTranslationError(new Error(raw));
+      expect(friendly.code).toBe(TranslationErrorCode.IMAGE_FETCH_ERROR);
+      expect(friendly.message).not.toContain('检查网络');
+    }
+  });
+
+  it('still recognizes a real network failure', () => {
+    expect(parseTranslationError(new Error('Failed to fetch')).code).toBe(
+      TranslationErrorCode.NETWORK_ERROR
+    );
   });
 
   it('maps 408 to a timeout', () => {

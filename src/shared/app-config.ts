@@ -6,6 +6,38 @@ import { ENV_CONFIG } from './env-config';
 
 export const APP_CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
+/**
+ * The version of the persisted configuration shape.
+ *
+ * Zustand's `persist` middleware writes `{ state, version }` under
+ * `APP_CONFIG_STORAGE_KEY` and refuses to rehydrate a value whose `version`
+ * it does not recognise. The worker writes the same key, so it has to write
+ * the same version — two writers, one key, and a version that lives in one
+ * place. `src/background/config-writer.ts` is the worker's half of that
+ * contract.
+ */
+export const APP_CONFIG_VERSION = 4;
+
+/**
+ * The version a flat (pre-envelope) configuration snapshot belongs to.
+ *
+ * Before the envelope existed the worker wrote the configuration as a flat
+ * object, and the store read the same key. Some users still have that flat
+ * value on disk, so both writers have to be able to recognise one and wrap
+ * it — and they have to agree on which version it is.
+ *
+ * `onboardingCompleted` arrived with v3 and is the field that dates a
+ * snapshot: the legacy provider names in `providers` are gone by then, so
+ * its presence means the flat object is already in the modern shape and only
+ * the last step is left to run. Reading it as version 0 would replay the
+ * whole legacy migration over a modern configuration — and the step that
+ * adds `onboardingCompleted` is the one that would never run, so the user
+ * who had already been through the wizard was shown it again.
+ */
+export function detectFlatConfigVersion(flat: Record<string, unknown>): number {
+  return 'onboardingCompleted' in flat ? 3 : 0;
+}
+
 export interface ProviderSettings {
   apiKey: string;
   baseUrl: string;

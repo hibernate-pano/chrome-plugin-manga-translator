@@ -57,7 +57,22 @@ const Slider = React.forwardRef<
             // 只在确实有名字时才写这个属性：传一个 undefined 会把 Radix
             // 自己的默认值（"Minimum" / "Maximum"）也一并抹掉。
             {...(ariaLabel ? { 'aria-label': ariaLabel } : {})}
-            className='block h-4 w-4 rounded-full border border-primary/50 bg-background shadow transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
+            // The thumb's own body is near-black, so against the *empty*
+            // part of the track it is the border that tells the user where
+            // the handle is. At `primary/50` that border measured 2.37:1
+            // against the track — under the 3:1 a control boundary needs.
+            //
+            // The visible dot stays 16px, but the clickable area is grown to
+            // 24×24 with a pseudo-element: WCAG 2.5.8 wants a 24px target,
+            // and a 16px dot is a genuinely hard thing to grab on a
+            // touchscreen. The pseudo-element is invisible and carries no
+            // content — it only enlarges the hit area.
+            //
+            // The focus ring is 2px wide (WCAG 2.2 SC 2.4.13 wants at
+            // least 2 CSS pixels) and it is offset against the page so it
+            // does not disappear into the track it sits on. It was the only
+            // 1px ring in the extension.
+            className='block h-4 w-4 rounded-full border border-primary bg-background shadow transition-colors before:absolute before:-inset-[4px] before:content-[""] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50'
           />
         );
       })}

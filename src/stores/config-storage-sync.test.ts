@@ -12,6 +12,9 @@
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { APP_CONFIG_VERSION } from '@/shared/app-config';
+import { obfuscateAllApiKeys } from '@/utils/crypto';
+
 const CONFIG_KEY = 'manga-translator-config-v2';
 
 interface Harness {
@@ -62,8 +65,14 @@ function installChromeMock(): Harness {
           writes += 1;
           const changes: Record<string, unknown> = {};
           for (const [key, value] of Object.entries(items)) {
-            changes[key] = { oldValue: data[key], newValue: value };
-            data[key] = value;
+            // Chrome serialises what it stores, so the value that comes back
+            // through `onChanged` is a *copy*, not the object that was
+            // handed over. The mock has to do the same: handing the store
+            // back its own object graph makes every in-place rewrite
+            // invisible, and bugs that only exist in the browser pass here.
+            const stored = structuredClone(value);
+            changes[key] = { oldValue: data[key], newValue: stored };
+            data[key] = stored;
           }
           // Chrome delivers onChanged asynchronously, and the writing context
           // receives it as well.
@@ -236,6 +245,37 @@ describe('config store <-> chrome.storage sync', () => {
     ).toBe('sk-newer-edit-1234567890');
   });
 
+  it('drops the echo of our own older write instead of rolling back a fresh key', async () => {
+    // 真实的顺序：store 先写下了一份快照（带着旧 Key），用户在这条写入的
+    // onChanged 通知送达之前改掉了 Key，而旧写入的通知反而最后才到。
+    //
+    // 值比较抓不住这种情况——旧快照确实和当前状态不同。唯一的证据是
+    // 「这条是我们自己写的」。以前这条证据是死的：记住的那份快照被就地
+    // 混淆成了 obf:，而回声是解混淆之后才拿来比的，两者永远不相等，
+    // 于是旧值被当成别的上下文写来的值采用了，用户的 Key 被悄悄回滚。
+    harness.pauseDelivery();
+    const { useAppConfigStore } = await loadStore();
+
+    useAppConfigStore.getState().updateProviderSettings('openai-compatible', {
+      apiKey: 'sk-old-value',
+    });
+    await settle(50);
+
+    useAppConfigStore.getState().updateProviderSettings('openai-compatible', {
+      apiKey: 'sk-new-value',
+    });
+    await settle(50);
+
+    // Chrome 的存储写入是异步的，通知的到达顺序可能和写入顺序相反：
+    // 旧写入的通知最后到。
+    harness.resumeDelivery({ newestFirst: true });
+    await settle(250);
+
+    expect(
+      useAppConfigStore.getState().providers['openai-compatible'].apiKey
+    ).toBe('sk-new-value');
+  });
+
   it('applies a genuine external write from the background worker', async () => {
     const { useAppConfigStore } = await loadStore();
     const { obfuscateAllApiKeys } = await import('@/utils/crypto');
@@ -295,6 +335,81 @@ describe('config store <-> chrome.storage sync', () => {
     expect(typeof state['resetToDefaults']).toBe('function');
   });
 
+  it('recovers a config left on disk in the flat shape', async () => {
+    // The worker used to write a *flat* object to the same key zustand
+    // reads. Zustand rehydrates from `state`, so a flat object read back as
+    // "nothing stored": the defaults were merged over the user's settings
+    // and written straight back. The API key, endpoint, model and
+    // auto-translate allowlist were gone for good.
+    //
+    // Users who hit that still have the flat value on disk, so the store has
+    // to be able to read it — and to heal it into the current shape.
+    const provider = {
+      apiKey: 'sk-flat-user-key',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'gpt-4o',
+    };
+    const flat: Record<string, unknown> = {
+      enabled: true,
+      provider: 'openai-compatible',
+      targetLanguage: 'ko',
+      autoTranslateHosts: ['manga.example'],
+      openaiCompatible: { ...provider },
+      providers: { 'openai-compatible': { ...provider } },
+    };
+    obfuscateAllApiKeys(flat);
+    // Written before the store module loads, so this is the hydration path.
+    harness.store[CONFIG_KEY] = flat;
+
+    const { useAppConfigStore } = await loadStore();
+    const state = useAppConfigStore.getState();
+
+    expect(state.enabled).toBe(true);
+    expect(state.targetLanguage).toBe('ko');
+    expect(state.autoTranslateHosts).toEqual(['manga.example']);
+    // The key is deobfuscated on the way in, and it is the user's key.
+    expect(state.providers['openai-compatible'].apiKey).toBe(
+      'sk-flat-user-key'
+    );
+    expect(state.openaiCompatible.baseUrl).toBe('https://api.example.com/v1');
+
+    // The file heals into the shape the store reads.
+    const stored = harness.store[CONFIG_KEY] as {
+      state?: Record<string, unknown>;
+      version?: number;
+    };
+    expect(stored.version).toBe(4);
+    expect(stored.state?.['targetLanguage']).toBe('ko');
+  });
+
+  it('does not re-run the first-run wizard on a recovered flat config', async () => {
+    // The flat object on disk is a snapshot of the config the worker read,
+    // so it carries the fields of that version. Treating it as "version 0"
+    // replays the whole legacy migration over a modern config, and the
+    // v2→v3 step — the one that adds `onboardingCompleted` — never runs:
+    // the user who had already been through the wizard is asked to do it
+    // again, and the wizard is the screen that turns the extension on.
+    const provider = {
+      apiKey: 'sk-flat-user-key',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'gpt-4o',
+    };
+    const flat: Record<string, unknown> = {
+      enabled: true,
+      provider: 'openai-compatible',
+      targetLanguage: 'zh-CN',
+      onboardingCompleted: true,
+      openaiCompatible: { ...provider },
+      providers: { 'openai-compatible': { ...provider } },
+    };
+    obfuscateAllApiKeys(flat);
+    harness.store[CONFIG_KEY] = flat;
+
+    const { useAppConfigStore } = await loadStore();
+
+    expect(useAppConfigStore.getState().onboardingCompleted).toBe(true);
+  });
+
   it('ignores writes to other storage areas and other keys', async () => {
     const { useAppConfigStore } = await loadStore();
 
@@ -335,5 +450,55 @@ describe('config store <-> chrome.storage sync', () => {
     expect(typeof state.openaiCompatible.apiKey).toBe('string');
     expect(typeof state.openaiCompatible.baseUrl).toBe('string');
     expect(typeof state.ollama.model).toBe('string');
+  });
+
+  it('writes the envelope version the shared constant names', async () => {
+    // The store used to hard-code `version: 4` while the shared constant
+    // said `APP_CONFIG_VERSION = 4`. The two agreed by luck. The worker
+    // stamps the constant into the same key, and zustand refuses to
+    // rehydrate a version it does not recognise — so the next bump would
+    // have split the two writers, and the user's stored configuration would
+    // have been replaced by defaults.
+    const { useAppConfigStore } = await loadStore();
+
+    useAppConfigStore.getState().setEnabled(true);
+    await settle();
+
+    const stored = harness.store[CONFIG_KEY] as { version?: number };
+    expect(stored.version).toBe(APP_CONFIG_VERSION);
+  });
+
+  it('rehydrates what the worker wrote, because both writers use one version', async () => {
+    // The worker writes `{ state, version: APP_CONFIG_VERSION }`. If the
+    // store's own version ever drifts from the constant, zustand treats the
+    // worker's envelope as a version it cannot read, migrates it as a
+    // legacy shape and the user's settings are replaced by defaults.
+    const provider = {
+      apiKey: 'sk-worker-written-key',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'gpt-4o',
+    };
+    const state: Record<string, unknown> = {
+      enabled: true,
+      provider: 'openai-compatible',
+      targetLanguage: 'ja',
+      providers: { 'openai-compatible': provider },
+      openaiCompatible: provider,
+    };
+    obfuscateAllApiKeys(state);
+
+    await harness.setConfigSnapshot({
+      state,
+      version: APP_CONFIG_VERSION,
+    });
+    await settle();
+
+    const { useAppConfigStore } = await loadStore();
+
+    expect(useAppConfigStore.getState().targetLanguage).toBe('ja');
+    expect(useAppConfigStore.getState().enabled).toBe(true);
+    expect(
+      useAppConfigStore.getState().providers['openai-compatible'].apiKey
+    ).toBe('sk-worker-written-key');
   });
 });

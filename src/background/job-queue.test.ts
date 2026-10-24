@@ -68,6 +68,65 @@ describe('BackgroundJobQueue', () => {
     expect(order).toEqual(['blocker', 'visible', 'warm']);
   });
 
+  it('borrows a slot for the image the reader is looking at', async () => {
+    /*
+     * 一个通道被「页面底下那张图」占着的时候，读者正盯着的那张图不该排在
+     * 它后面 —— 借一个通道出来，它现在就能翻。
+     *
+     * 以前这条规则只认 `warm-cache` 和 `deferred-failure` 两个标记，而没有
+     * 任何地方会产出它们，于是这个借通道的判断一次也没有成立过。
+     */
+    const queue = new BackgroundJobQueue(1);
+    const running: string[] = [];
+    let releaseLow: (() => void) | undefined;
+    let releaseHigh: (() => void) | undefined;
+
+    const low = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'low',
+        pageKey: 'low',
+        priorityClass: 'next-up',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        running.push('low');
+        await new Promise<void>(resolve => {
+          releaseLow = resolve;
+        });
+        return 'low';
+      },
+    });
+
+    const high = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'high',
+        pageKey: 'high',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        running.push('high');
+        await new Promise<void>(resolve => {
+          releaseHigh = resolve;
+        });
+        return 'high';
+      },
+    });
+
+    // 两个任务都已经在跑了：底下那张还没翻完，眼前这张已经开始了。
+    expect(running).toEqual(['low', 'high']);
+
+    if (releaseLow) {
+      releaseLow();
+    }
+    if (releaseHigh) {
+      releaseHigh();
+    }
+    await Promise.all([low, high]);
+  });
+
   it('updates job state as work progresses', async () => {
     const queue = new BackgroundJobQueue(1);
     const statesDuringRun: Array<string | undefined> = [];
@@ -588,5 +647,115 @@ describe('BackgroundJobQueue', () => {
     // Must collapse onto the live original rather than pay for a third call.
     expect(await original).toBe('original');
     expect(await duplicate).toBe('original');
+  });
+
+  it('does not spin on a timer while the queue is at capacity', async () => {
+    // The old drain() re-armed `setTimeout(drain, 0)` whenever the queue was
+    // full, which turned a chapter-long queue into a ~250 Hz spin: the
+    // worker burned CPU doing nothing while the user waited. Nothing
+    // changes the capacity from inside the loop — a job finishing calls
+    // drain() in its finally, and updateMaxConcurrent calls it too — so the
+    // queue should have no timer pending at all while it waits.
+    vi.useFakeTimers();
+
+    const queue = new BackgroundJobQueue(1, 0);
+    let release: (() => void) | undefined;
+
+    const first = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'first',
+        pageKey: 'first',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          release = r;
+        });
+        return 'first';
+      },
+    });
+
+    const second = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'second',
+        pageKey: 'second',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'second',
+    });
+
+    expect(vi.getTimerCount()).toBe(0);
+
+    release?.();
+    expect(await first).toBe('first');
+    expect(await second).toBe('second');
+  });
+
+  it('drops queued jobs when the queue is cleared, and leaves the running one alone', async () => {
+    // The master switch was turned off while the queue still held work.
+    // Every queued job would have become a real, billed request, so it is
+    // dropped rather than started. The running job is already on the wire
+    // and cannot be recalled, so it is left to finish.
+    const queue = new BackgroundJobQueue(1);
+    let release: (() => void) | undefined;
+
+    const first = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'first',
+        pageKey: 'first',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          release = r;
+        });
+        return 'first';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const second = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'second',
+        pageKey: 'second',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'second',
+    });
+
+    expect(queue.cancelAll('扩展已关闭')).toBe(1);
+    // The caller waiting on the dropped job learns why instead of hanging.
+    await expect(second).rejects.toThrow('扩展已关闭');
+    expect(queue.getJob('second')?.state).toBe('cancelled');
+    // Nothing left to drop.
+    expect(queue.cancelAll('扩展已关闭')).toBe(0);
+
+    // The running job is untouched.
+    release?.();
+    expect(await first).toBe('first');
+
+    // And the dropped job's dedup entry was released, so a later request
+    // for the same image starts a real job instead of collapsing onto a
+    // promise that has already been rejected.
+    const third = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'third',
+        pageKey: 'second',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'third',
+    });
+    expect(await third).toBe('third');
   });
 });

@@ -64,6 +64,7 @@ function makeWorkdir() {
   mkdirSync(join(workdir, 'scripts'), { recursive: true });
   mkdirSync(join(workdir, 'src', 'content'), { recursive: true });
   mkdirSync(join(workdir, 'src', 'shared'), { recursive: true });
+  mkdirSync(join(workdir, 'src', 'utils'), { recursive: true });
   copyFileSync(
     scriptPath,
     join(workdir, 'scripts', 'check-release-consistency.mjs')
@@ -152,6 +153,19 @@ function writeSourceTree(workdir) {
     [
       "import { DEFAULT_CONFIG } from '@/shared/app-config';",
       'export const base = DEFAULT_CONFIG.baseUrl;',
+    ].join('\n')
+  );
+  // The key-obfuscation module: it holds no key, but it holds the salt and
+  // the XOR routine that turn a stored "obf:" value back into plaintext. It
+  // sits in the tree, unreferenced, so the "content script reaches nothing"
+  // case below is a real one rather than an empty tree.
+  writeFileSync(
+    join(workdir, 'src', 'utils', 'crypto.ts'),
+    [
+      "const SALT = 'manga-translator-salt';",
+      'export function deobfuscate(key: string): string {',
+      '  return key.split("").map((c, i) => c).join("") + SALT.length;',
+      '}',
     ].join('\n')
   );
 }
@@ -388,6 +402,31 @@ describe('release consistency guard: the credential boundary', () => {
       const result = runGuard(workdir);
       expect(result.code).not.toBe(0);
       expect(result.output).toContain('can reach the credential module');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the content script reaches the key-obfuscation module', () => {
+    const workdir = makeWorkdir();
+    try {
+      // The salt check only looks at web-accessible files, and the content
+      // script is not one — so without the obfuscation module in the
+      // boundary list, "just run `pnpm build`" would let the salt and the
+      // XOR routine into the bundle that is injected into every page. A
+      // content script that can de-obfuscate can read the user's key.
+      writeFileSync(
+        join(workdir, 'src', 'content', 'content.ts'),
+        [
+          "import { deobfuscate } from '@/utils/crypto';",
+          'export const key = deobfuscate("obf:whatever");',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('can reach the credential module');
+      expect(result.output).toContain('utils/crypto.ts');
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }

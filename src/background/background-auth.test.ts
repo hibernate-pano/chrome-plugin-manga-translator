@@ -9,15 +9,21 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { obfuscateAllApiKeys } from '@/utils/crypto';
+import { APP_CONFIG_STORAGE_KEY } from '@/shared/app-config';
+import { PROVIDER_NOT_READY_MESSAGE } from '@/shared/runtime-contracts';
+
 type Listener = (...args: unknown[]) => unknown;
 
 interface ResponseFields {
   success?: boolean;
   error?: string;
   config?: unknown;
+  received?: boolean;
 }
 
 interface SenderFields {
+  id?: string;
   tab?: { id: number; url?: string };
   url?: string;
 }
@@ -38,6 +44,7 @@ interface ChromeHarness {
     sender: SenderFields
   ) => Promise<ResponseFields>;
   localStore: Record<string, unknown>;
+  syncStore: Record<string, unknown>;
 }
 
 const EXTENSION_ID = 'test-extension-id';
@@ -50,6 +57,7 @@ function installChromeMock(): ChromeHarness {
   const onInstalled: Listener[] = [];
   const storageChanged: Listener[] = [];
   const localStore: Record<string, unknown> = {};
+  const syncStore: Record<string, unknown> = {};
   const tabsQuerySpy = vi.fn(async () => []);
   const sendMessageSpy = vi.fn(async () => undefined);
   const contextMenusCreateSpy = vi.fn();
@@ -96,6 +104,23 @@ function installChromeMock(): ChromeHarness {
         },
         remove: async () => undefined,
       },
+      sync: {
+        get: async (keys: string | string[]) => {
+          const list = Array.isArray(keys) ? keys : [keys];
+          const out: Record<string, unknown> = {};
+          for (const key of list) {
+            if (key in syncStore) out[key] = syncStore[key];
+          }
+          return out;
+        },
+        set: async (items: Record<string, unknown>) => {
+          Object.assign(syncStore, items);
+        },
+        remove: async (keys: string | string[]) => {
+          const list = Array.isArray(keys) ? keys : [keys];
+          for (const key of list) delete syncStore[key];
+        },
+      },
       onChanged: {
         addListener: (l: Listener) => storageChanged.push(l),
         removeListener: () => undefined,
@@ -139,13 +164,24 @@ function installChromeMock(): ChromeHarness {
     contextMenusCreateSpy,
     contextMenusRemoveAllSpy,
     localStore,
+    syncStore,
     sendToMessage: (request, sender) =>
       new Promise<ResponseFields>(resolve => {
         expect(onMessage.length).toBeGreaterThan(0);
         for (const listener of onMessage) {
-          // Default to an extension-origin sender; a test that spreads its own
-          // `id` overrides it, which is how the anonymous-sender case is reached.
-          listener(request, { id: EXTENSION_ID, ...sender }, resolve);
+          // Default to an extension-page sender: our own id, and a document
+          // on our own origin. A test that spreads its own `id` or `url`
+          // overrides it, which is how the content-script and the
+          // anonymous-sender cases are reached.
+          listener(
+            request,
+            {
+              id: EXTENSION_ID,
+              url: `chrome-extension://${EXTENSION_ID}/popup.html`,
+              ...sender,
+            },
+            resolve
+          );
         }
       }),
   };
@@ -199,7 +235,11 @@ describe('service worker message authorisation', () => {
   it('will not hand a deobfuscated API key to a content script', async () => {
     // The content script runs inside arbitrary web pages. Reading the
     // deobfuscated key there would put a credential in a page-adjacent
-    // context, so getConfig is restricted to extension origins.
+    // context, so getConfig is restricted to extension pages.
+    //
+    // The sender here is a *real* content script: this extension's own id,
+    // and a tab. `sender.id === chrome.runtime.id` is true for it, so an
+    // origin check alone would wave it through.
     Object.assign(harness.localStore, {
       'manga-translator-config-v2': {
         state: {
@@ -210,38 +250,128 @@ describe('service worker message authorisation', () => {
     });
     await loadWorker();
 
-    const tabSender = { tab: { id: 7 }, url: 'https://evil.example/reader' };
-    const response = await new Promise<ResponseFields>(resolve => {
-      harness.onMessage[0]?.({ action: 'getConfig' }, tabSender, resolve);
-    });
+    const response = await harness.sendToMessage(
+      { action: 'getConfig' },
+      { id: EXTENSION_ID, tab: { id: 42 }, url: 'https://evil.example/reader' }
+    );
 
     expect(response['success']).toBe(false);
     expect(String(response['error'])).toContain('requires extension origin');
+    // The key is not in the response in any form.
+    expect(JSON.stringify(response)).not.toContain('secret');
   });
 
   it('will not let a content script rewrite the configuration', async () => {
     await loadWorker();
 
-    const tabSender = { tab: { id: 7 }, url: 'https://evil.example/reader' };
-    const response = await new Promise<ResponseFields>(resolve => {
-      harness.onMessage[0]?.(
-        { action: 'setConfig', config: { enabled: true } },
-        tabSender,
-        resolve
-      );
-    });
+    const response = await harness.sendToMessage(
+      { action: 'setConfig', config: { enabled: true } },
+      { id: EXTENSION_ID, tab: { id: 42 }, url: 'https://evil.example/reader' }
+    );
 
     expect(response['success']).toBe(false);
     expect(String(response['error'])).toContain('requires extension origin');
+    // Nothing was written.
+    expect(harness.localStore['manga-translator-config-v2']).toBeUndefined();
   });
 
   it('serves getConfig to an extension page', async () => {
     await loadWorker();
 
+    // An extension page has no tab: the popup and the settings page are the
+    // only senders allowed to read the deobfuscated configuration.
     const response = await harness.sendToMessage({ action: 'getConfig' }, {});
 
     expect(response['success']).toBe(true);
     expect(response['config']).toBeDefined();
+  });
+
+  it('treats a sender on our own origin as an extension page, tab or not', async () => {
+    // The credential gate is a statement about where the message came from,
+    // not about whether the sender happens to carry a tab. An extension page
+    // that also carries a tab context is still an extension page: refusing
+    // it would lock the user out of their own settings the day anything
+    // started sending the worker a message with a tab in it.
+    Object.assign(harness.localStore, {
+      'manga-translator-config-v2': {
+        state: {
+          provider: 'openai-compatible',
+          openaiCompatible: { apiKey: 'obf:secret', baseUrl: '', model: '' },
+        },
+      },
+    });
+    await loadWorker();
+
+    const response = await harness.sendToMessage(
+      { action: 'getConfig' },
+      {
+        id: EXTENSION_ID,
+        tab: { id: 9 },
+        url: `chrome-extension://${EXTENSION_ID}/options.html`,
+      }
+    );
+
+    expect(response['success']).toBe(true);
+    expect(response['config']).toBeDefined();
+  });
+
+  it('refuses a sender that is not on our own origin, tab or not', async () => {
+    // The mirror. A sender that names our extension but whose document is a
+    // web page is not one of our pages, so it does not get the credential —
+    // and the old test ("no tab means extension page") would have handed it
+    // over.
+    Object.assign(harness.localStore, {
+      'manga-translator-config-v2': {
+        state: {
+          provider: 'openai-compatible',
+          openaiCompatible: { apiKey: 'obf:secret', baseUrl: '', model: '' },
+        },
+      },
+    });
+    await loadWorker();
+
+    const response = await harness.sendToMessage(
+      { action: 'getConfig' },
+      { id: EXTENSION_ID, url: 'https://evil.example/reader' }
+    );
+
+    expect(response['success']).toBe(false);
+    expect(String(response['error'])).toContain('requires extension origin');
+    // The key is not in the response in any form.
+    expect(JSON.stringify(response)).not.toContain('secret');
+  });
+
+  it('lets an extension page write the configuration', async () => {
+    // The mirror of the two refusals above: the settings page owns the
+    // configuration, and its write has to land in the shape the store reads.
+    await loadWorker();
+
+    const response = await harness.sendToMessage(
+      {
+        action: 'setConfig',
+        config: {
+          enabled: true,
+          targetLanguage: 'ja',
+          openaiCompatible: {
+            apiKey: 'sk-user-secret',
+            baseUrl: 'https://api.example.com/v1',
+            model: 'gpt-4o',
+          },
+        },
+      },
+      {}
+    );
+
+    expect(response['success']).toBe(true);
+
+    const stored = harness.localStore['manga-translator-config-v2'] as {
+      state?: Record<string, unknown>;
+      version?: number;
+    };
+    expect(stored.version).toBe(4);
+    expect(stored.state?.['targetLanguage']).toBe('ja');
+    // The key is on disk obfuscated, never in the clear.
+    expect(JSON.stringify(stored)).not.toContain('sk-user-secret');
   });
 });
 
@@ -282,6 +412,7 @@ describe('service worker image proxy', () => {
     expect(response['success']).toBe(false);
     expect(fetchSpy).not.toHaveBeenCalled();
     fetchSpy.mockRestore();
+    vi.doUnmock('@/shared/preloaded-config');
   });
 
   it('refuses to fetch a cloud metadata endpoint', async () => {
@@ -503,6 +634,112 @@ describe('service worker config normalisation', () => {
     expect(config['enabled']).toBe(true);
     expect(config['provider']).toBe('lm-studio');
     expect(config['targetLanguage']).toBe('en');
+  });
+});
+
+describe('service worker config persistence', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(() => {
+    harness = installChromeMock();
+  });
+
+  it('keeps the persisted configuration intact across an extension update', async () => {
+    // The bug: on update the worker wrote a *flat* object to the very key
+    // zustand reads. Zustand rehydrates from `state`, so a flat object read
+    // back as "nothing stored" — the defaults were merged over the user's
+    // settings and written straight back to disk. The API key, endpoint,
+    // model and auto-translate allowlist were gone after one update.
+    const provider = {
+      apiKey: 'sk-user-secret',
+      baseUrl: 'https://api.example.com/v1',
+      model: 'gpt-4o',
+    };
+    const state: Record<string, unknown> = {
+      enabled: true,
+      provider: 'openai-compatible',
+      targetLanguage: 'ko',
+      autoTranslateHosts: ['manga.example'],
+      openaiCompatible: { ...provider },
+      providers: { 'openai-compatible': { ...provider } },
+    };
+    obfuscateAllApiKeys(state);
+
+    harness.localStore['manga-translator-config-v2'] = { state, version: 4 };
+
+    await loadWorker();
+
+    for (const listener of harness.onInstalled) {
+      listener({ reason: 'update' });
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const stored = harness.localStore['manga-translator-config-v2'] as {
+      state?: Record<string, unknown>;
+      version?: number;
+    };
+    // The envelope is still an envelope — a flat write would have taken
+    // `state` and `version` away.
+    expect(stored.version).toBe(4);
+    expect(stored.state).toBeDefined();
+
+    // And the user's settings are still readable through the worker.
+    const response = await harness.sendToMessage({ action: 'getConfig' }, {});
+    const config = response['config'] as Record<string, unknown>;
+    expect(config['targetLanguage']).toBe('ko');
+    expect(config['autoTranslateHosts']).toEqual(['manga.example']);
+    const openai = config['openaiCompatible'] as Record<string, string>;
+    expect(openai['apiKey']).toBe('sk-user-secret');
+    expect(openai['baseUrl']).toBe('https://api.example.com/v1');
+    expect(openai['model']).toBe('gpt-4o');
+  });
+
+  it('still moves a legacy sync config into local storage on update', async () => {
+    // The one thing the update path is still allowed to do: v0.3.5 moved the
+    // config out of chrome.storage.sync so the API key stops following the
+    // user across devices.
+    harness.syncStore['manga-translator-config-v2'] = {
+      state: { enabled: true },
+      version: 4,
+    };
+
+    await loadWorker();
+
+    for (const listener of harness.onInstalled) {
+      listener({ reason: 'update' });
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    expect(harness.localStore['manga-translator-config-v2']).toEqual({
+      state: { enabled: true },
+      version: 4,
+    });
+    expect(harness.syncStore['manga-translator-config-v2']).toBeUndefined();
+  });
+
+  it('never copies an unreadable sync value into the local config key', async () => {
+    // The one key holds exactly one shape: the envelope the store reads. A
+    // synced value that is not a configuration object at all — a string, a
+    // number, an array, something an older version wrote by mistake — used
+    // to be copied through verbatim, and the store then read it as "nothing
+    // stored", merged the defaults over it and wrote those back.
+    harness.syncStore['manga-translator-config-v2'] = 'not-a-config';
+
+    await loadWorker();
+
+    for (const listener of harness.onInstalled) {
+      listener({ reason: 'update' });
+    }
+    await new Promise(resolve => setTimeout(resolve, 0));
+
+    const stored = harness.localStore['manga-translator-config-v2'];
+    expect(typeof stored).toBe('object');
+    expect(stored).not.toBe('not-a-config');
+    const envelope = stored as { state?: unknown; version?: number };
+    expect(envelope.state).toBeDefined();
+    expect(typeof envelope.version).toBe('number');
+    // The unusable copy is not left behind in sync either.
+    expect(harness.syncStore['manga-translator-config-v2']).toBeUndefined();
   });
 });
 
@@ -832,5 +1069,170 @@ describe('context menu', () => {
     await new Promise(resolve => setTimeout(resolve, 0));
 
     expect(harness.sendMessageSpy).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 一个"本地服务商也过不去"的护栏是最常见的回归。
+ *
+ * 作业排进队列之前会先问一次 `isProviderUsable`（见 enqueueTranslationJob）：
+ * 云端服务商没密钥时直接用扩展自己的句子拒绝，而不是发出去、拿到 401、
+ * 再告诉读者「API 密钥无效」—— 他手里根本没有密钥可"无效"。这道检查
+ * 必须放本地服务商过去：Ollama / LM Studio 本来就不需要密钥，引导页上
+ * 写着这句话。
+ */
+describe('a translation job the extension checks before queuing', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(() => {
+    harness = installChromeMock();
+  });
+
+  function jobRequest(): Record<string, unknown> {
+    return {
+      type: 'JOB_TRANSLATE_IMAGE',
+      jobId: 'job-1',
+      pageKey: 'page-1',
+      scope: 'page',
+      priorityClass: 'visible-now',
+      imageBase64: 'AAAA',
+      mimeType: 'image/png',
+      imageUrl: 'https://cdn.example/ch1/p01.jpg',
+      sourcePageUrl: 'https://manga.example/ch1',
+      targetLanguage: 'zh-CN',
+      translationStylePreset: 'natural-zh',
+    };
+  }
+
+  it('is refused, with the settings sentence, when a cloud key is missing', async () => {
+    /*
+     * 这个环境里空密钥会被构建时的预置配置补上（个人构建的 .env），所以
+     * 要测"真的没有密钥"，得先把构建时预置的密钥换成空的。商店版构建没有
+     * 预置密钥，走的正是这条拒绝的路。
+     */
+    vi.doMock('@/shared/env-credentials', () => ({
+      ENV_CREDENTIALS: {
+        minimax: { apiKey: '' },
+        opencode: { apiKey: '' },
+        ollama: { apiKey: '' },
+      },
+    }));
+
+    harness.localStore[APP_CONFIG_STORAGE_KEY] = {
+      state: {
+        enabled: true,
+        provider: 'openai-compatible',
+        openaiCompatible: {
+          apiKey: '',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'gpt-4o',
+        },
+      },
+      version: 4,
+    };
+    await loadWorker();
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('no network in this test'));
+
+    const response = await harness.sendToMessage(jobRequest(), {
+      id: EXTENSION_ID,
+      tab: { id: 42, url: 'https://manga.example/ch1' },
+    });
+
+    expect(response['success']).toBe(false);
+    expect(response['error']).toBe(PROVIDER_NOT_READY_MESSAGE);
+    // Nothing was sent, so nothing was billed.
+    expect(fetchSpy).not.toHaveBeenCalled();
+    fetchSpy.mockRestore();
+    vi.doUnmock('@/shared/env-credentials');
+  });
+
+  it('lets a local provider through without a key', async () => {
+    // Ollama / LM Studio 本来就不需要密钥 —— 引导页上写着这句话。
+    harness.localStore[APP_CONFIG_STORAGE_KEY] = {
+      state: {
+        enabled: true,
+        provider: 'ollama',
+        ollama: {
+          apiKey: '',
+          baseUrl: 'http://localhost:11434',
+          model: 'llava',
+        },
+      },
+      version: 4,
+    };
+    await loadWorker();
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockRejectedValue(new Error('no network in this test'));
+
+    const response = await harness.sendToMessage(jobRequest(), {
+      id: EXTENSION_ID,
+      tab: { id: 42, url: 'https://manga.example/ch1' },
+    });
+
+    // 作业排进去了（失败的原因会是这台机器上没有 Ollama，而不是"没配密钥"）。
+    expect(String(response['error'] ?? '')).not.toBe(
+      PROVIDER_NOT_READY_MESSAGE
+    );
+    fetchSpy.mockRestore();
+  });
+});
+
+/**
+ * 用量由谁记。
+ *
+ * 每个月的合计只能有一份，否则谁也加不出总数。页面原来自己记一份缓存
+ * 命中、worker 再记一份计费调用，两个数字分散在两个地方；而且每个上下文
+ * 都攒下自己的一份（worker 空闲半分钟就被回收，页面每次打开都是新的
+ * 上下文），列表就永远长下去。
+ *
+ * 现在只有 worker 记。页面把"这是一次缓存命中"报过来，worker 写进这个
+ * 月的合计里。
+ */
+describe('the worker records the usage', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(async () => {
+    harness = installChromeMock();
+    await loadWorker();
+  });
+
+  it('counts the cache hit the page reports', async () => {
+    const { summarizeUsageForMonth, useUsageStore } =
+      await import('@/stores/usage-store');
+    useUsageStore.getState().clearAll();
+
+    const response = await harness.sendToMessage(
+      { type: 'RECORD_CACHE_HIT', provider: 'openai-compatible' },
+      {
+        id: EXTENSION_ID,
+        tab: { id: 42, url: 'https://manga.example/ch1' },
+      }
+    );
+
+    expect(response['received']).toBe(true);
+
+    // 一次缓存命中，零次计费调用。
+    const summary = summarizeUsageForMonth(useUsageStore.getState().records);
+    expect(summary.translations).toBe(1);
+    expect(summary.billableCalls).toBe(0);
+    expect(summary.cacheHitRate).toBe(100);
+  });
+
+  it('ignores a report that names no provider', async () => {
+    const { useUsageStore } = await import('@/stores/usage-store');
+    useUsageStore.getState().clearAll();
+
+    await harness.sendToMessage(
+      { type: 'RECORD_CACHE_HIT' },
+      { id: EXTENSION_ID, tab: { id: 42, url: 'https://manga.example/ch1' } }
+    );
+
+    // 说不清是哪个服务商的，就不记 —— 免得账上多出一行来路不明的。
+    expect(useUsageStore.getState().records).toHaveLength(0);
   });
 });

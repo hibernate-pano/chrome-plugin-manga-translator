@@ -34,17 +34,28 @@ import { isSupportedPageUrl } from '@/shared/app-config';
 import { normalizeRuntimeAppConfig } from '@/shared/preloaded-config';
 import { buildContentConfigSnapshot } from '@/shared/content-config';
 import { getErrorMessage } from '@/utils/error-message';
-import { obfuscateAllApiKeys, deobfuscateAllApiKeys } from '@/utils/crypto';
+import { deobfuscateAllApiKeys } from '@/utils/crypto';
+import { useUsageStore } from '@/stores/usage-store';
 
 import { translateImageViaProviderDirect } from './provider-direct-client';
 import {
   resolveActiveProvider,
+  isProviderUsable,
   type ActiveProviderConfig,
 } from './provider-config';
 import { createProvider } from '@/providers';
 import { BackgroundJobQueue, createJobStatus } from './job-queue';
 import { fetchImageBytes } from './image-fetch-guard';
-import { deriveRequestedPath } from '@/shared/runtime-contracts';
+import {
+  isConfigEnvelope,
+  toConfigEnvelope,
+  writeConfigEnvelope,
+} from './config-writer';
+import {
+  deriveRequestedPath,
+  MASTER_SWITCH_OFF_MESSAGE,
+  PROVIDER_NOT_READY_MESSAGE,
+} from '@/shared/runtime-contracts';
 import {
   CONTEXT_MENU_TRANSLATE_IMAGE,
   CONTEXT_MENU_TRANSLATE_PAGE,
@@ -79,13 +90,46 @@ interface MessageResponse {
   [key: string]: unknown;
 }
 
-const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
-
 // 默认并发度使用 DEFAULT_CONFIG.parallelLimit
 const translationJobQueue = new BackgroundJobQueue(
   DEFAULT_CONFIG.parallelLimit,
   500
 );
+
+// The worker's refusals come from the shared protocol, not from local
+// copies. The worker says them and the page reads them back, so one file
+// cannot change the wording behind the other's back — which is how a refusal
+// used to reach the reader as 「发生未知错误」.
+
+/**
+ * Is this message from one of our own extension pages?
+ *
+ * This is a credential gate: `getConfig` answers with the *deobfuscated* API
+ * key and `setConfig` can rewrite the provider's endpoint, which is how the
+ * key ends up at the right host. So the question has to be about where the
+ * message came from, and it has to be answerable from the sender alone.
+ *
+ * It used to be answered indirectly — "an extension page is a sender with no
+ * tab" — which is a fact about the tab, not about the origin. It happened to
+ * hold, because only our own content script carries a tab. But the day
+ * anything else starts sending the worker a message with a tab in it, that
+ * reasoning silently stops applying, and it is a credential gate: it must be
+ * stated as the proposition it is, so a reader can check it.
+ *
+ * So: the sender's own document is served by this extension. A content
+ * script's `sender.url` is the web page it was injected into, which is never
+ * on this origin, and a web page cannot message us at all (the manifest
+ * declares no `externally_connectable`).
+ */
+function isExtensionPageSender(sender: chrome.runtime.MessageSender): boolean {
+  const url = sender.url;
+  if (typeof url !== 'string' || url.length === 0) {
+    // No URL to judge by. The only other signal an extension page has is
+    // that it is not running in somebody's tab.
+    return !sender.tab?.id;
+  }
+  return url.startsWith(chrome.runtime.getURL(''));
+}
 
 // ==================== Service worker keepalive ====================
 
@@ -145,8 +189,20 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
   }
   if (isTranslationEnabled(configChange.newValue)) {
     startKeepalive();
-  } else {
-    stopKeepalive();
+    return;
+  }
+
+  stopKeepalive();
+
+  // The switch went off. The queue may still be holding jobs that would
+  // each become a real, billed request, so they are dropped rather than
+  // started. (Running jobs are already on the wire and cannot be recalled —
+  // that is the one half of "off" no switch can undo.)
+  const dropped = translationJobQueue.cancelAll(MASTER_SWITCH_OFF_MESSAGE);
+  if (dropped > 0) {
+    console.warn(
+      `[Background] 扩展已关闭，已取消 ${dropped} 个排队中的翻译任务`
+    );
   }
 });
 
@@ -382,20 +438,63 @@ async function initializeDefaultSettings(): Promise<void> {
  *
  * 本函数做一次性迁移：若 local 里没有配置但 sync 里有，就把 sync 的搬过来，
  * 然后删掉 sync 里的副本。幂等 —— 已迁移过的用户再跑也是 no-op。
+ *
+ * 搬进来的东西一律先变成 store 读得懂的信封（`{ state, version }`）。
+ * 这一步以前是省略的：sync 里的旧值有可能就是扁平对象，而扁平对象在
+ * zustand 眼里等于"什么都没存"—— 默认值会被合并到用户的设置上再写回去，
+ * 用户的 API key、端点、模型和白名单就没了。搬家的动作本身不能毁掉它要
+ * 搬的东西。
  */
 async function migrateConfigFromSyncToLocal(): Promise<void> {
   try {
-    const local = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
-    if (local[CONFIG_STORAGE_KEY]) {
-      return; // local 已有配置，无需迁移
+    const local = await chrome.storage.local.get([APP_CONFIG_STORAGE_KEY]);
+    const stored = local[APP_CONFIG_STORAGE_KEY];
+
+    if (stored !== undefined && stored !== null) {
+      // local 已有配置，不再从 sync 搬。但它可能还是 envelope 之前的扁平
+      // 对象——就地纠正，让这个键永远只存一种形状。
+      if (!isConfigEnvelope(stored)) {
+        const envelope = toConfigEnvelope(stored);
+        if (envelope) {
+          // Written through the one writer, so this key holds exactly one
+          // shape. The version is the one the value came off disk with, so
+          // the store's own migration still runs on it.
+          await writeConfigEnvelope(envelope.state, envelope.version);
+          console.warn(
+            '[Background] 已把本地配置从旧格式转换为新格式（防止设置被默认值覆盖）'
+          );
+        }
+      }
+      return;
     }
-    const synced = await chrome.storage.sync.get([CONFIG_STORAGE_KEY]);
-    const syncedConfig = synced[CONFIG_STORAGE_KEY];
+
+    const synced = await chrome.storage.sync.get([APP_CONFIG_STORAGE_KEY]);
+    const syncedConfig = synced[APP_CONFIG_STORAGE_KEY];
     if (!syncedConfig) {
       return; // sync 里也没有，没东西可迁
     }
-    await chrome.storage.local.set({ [CONFIG_STORAGE_KEY]: syncedConfig });
-    await chrome.storage.sync.remove([CONFIG_STORAGE_KEY]);
+
+    const envelope = toConfigEnvelope(syncedConfig);
+    if (!envelope) {
+      // The synced value is not a configuration at all — a string, a number,
+      // an array, or something an older version wrote by mistake.
+      //
+      // It cannot be read back by the store (zustand takes `state` from the
+      // envelope, so a non-envelope value reads as "nothing stored" and the
+      // defaults get merged over it and written back), and it is about to be
+      // deleted anyway. Writing it through verbatim would put a shape nobody
+      // can read into the one key that is supposed to hold exactly one
+      // shape. So the honest thing is to fall back to the defaults.
+      await initializeDefaultSettings();
+      await chrome.storage.sync.remove([APP_CONFIG_STORAGE_KEY]);
+      console.warn(
+        '[Background] chrome.storage.sync 里的配置不是可读的配置对象，已改用默认配置'
+      );
+      return;
+    }
+
+    await writeConfigEnvelope(envelope.state, envelope.version);
+    await chrome.storage.sync.remove([APP_CONFIG_STORAGE_KEY]);
     console.warn(
       '[Background] 已将配置从 chrome.storage.sync 迁移到 chrome.storage.local（API key 不再跨设备同步）'
     );
@@ -405,36 +504,38 @@ async function migrateConfigFromSyncToLocal(): Promise<void> {
 }
 
 async function migrateSettings(): Promise<void> {
+  // Only the sync→local move belongs here.
+  //
+  // This used to end with `setConfig(normalizeStoredConfigSnapshot(...))`,
+  // which wrote a *flat* object to the same key zustand reads. Zustand then
+  // rehydrated from `state` → `undefined`, merged the defaults over the
+  // user's settings and wrote the defaults back: the API key, endpoint,
+  // model and auto-translate allowlist were gone after one update.
+  //
+  // Version upgrades are the store's own job — its `migrate` and `merge`
+  // already handle them — so the worker has nothing to rewrite.
   await migrateConfigFromSyncToLocal();
-  const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
-  const currentConfig = result[CONFIG_STORAGE_KEY];
-  if (!currentConfig) {
-    await initializeDefaultSettings();
-    return;
-  }
-
-  await setConfig(normalizeStoredConfigSnapshot(currentConfig));
 }
 
 async function checkAndSetDefaultConfig(): Promise<void> {
-  const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
-  if (!result[CONFIG_STORAGE_KEY]) {
+  const result = await chrome.storage.local.get([APP_CONFIG_STORAGE_KEY]);
+  if (!result[APP_CONFIG_STORAGE_KEY]) {
     await initializeDefaultSettings();
   }
 }
 
 async function getConfig(): Promise<Record<string, unknown>> {
-  const result = await chrome.storage.local.get([CONFIG_STORAGE_KEY]);
-  const config = normalizeStoredConfigSnapshot(result[CONFIG_STORAGE_KEY]);
+  const result = await chrome.storage.local.get([APP_CONFIG_STORAGE_KEY]);
+  const config = normalizeStoredConfigSnapshot(result[APP_CONFIG_STORAGE_KEY]);
   deobfuscateAllApiKeys(config);
   return config;
 }
 
 async function setConfig(config: Record<string, unknown>): Promise<void> {
-  const cloned = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
-  obfuscateAllApiKeys(cloned);
-  await chrome.storage.local.set({ [CONFIG_STORAGE_KEY]: cloned });
-  syncQueueLimit(cloned);
+  // One write path, one shape: the envelope zustand reads. See
+  // src/background/config-writer.ts for why the flat shape was fatal.
+  await writeConfigEnvelope(config);
+  syncQueueLimit(config);
 }
 
 async function requestAutoTranslateForTab(tabId?: number): Promise<void> {
@@ -458,13 +559,31 @@ async function handleMessage(
   sender: chrome.runtime.MessageSender,
   sendResponse: (response: MessageResponse) => void
 ): Promise<void> {
-  // 验证消息发送者：扩展内部页面或已注入 content script 的标签页
+  // 验证消息发送者。
+  //
+  // `sender.id` 是发送这条消息的扩展的 id。**别的**扩展的 content script
+  // 也会带 `sender.tab`，所以"有没有 tab"不能用来判断消息是不是我们自己
+  // 发出来的——那样任何一个装了别的扩展的页面都能让本扩展用用户的密钥
+  // 去发请求（一次翻译任务就是一次真实的计费调用）。
+  //
+  // 需要说清楚的是：预检查本身是免费的。`validateConfig()` 只看字符串，
+  // 不发网络请求；真正会花钱的是「测试配置」按钮——那是另一个入口，
+  // 一次真实的 chat completion，在 `openai-compatible-base.ts` 里记账。
+  //
+  // 页面自己发不进来：`externally_connectable` 没有声明，网页无法直接
+  // 给我们发消息。
   const isExtensionOrigin = sender.id === chrome.runtime.id;
-  const isContentScript = !!sender.tab?.id;
-  if (!isExtensionOrigin && !isContentScript) {
+  if (!isExtensionOrigin) {
     sendResponse({ success: false, error: 'Unauthorized sender' });
     return;
   }
+
+  // 扩展页（弹窗、设置页）才被信任到能读/写配置。
+  //
+  // 判据是发送方自己的文档是不是由本扩展提供的，而不是"有没有 tab"。
+  // 见 isExtensionPageSender 的注释：这是一道凭据闸门，必须把命题本身
+  // 写出来，而不是靠一个间接信号。
+  const isExtensionPage = isExtensionPageSender(sender);
 
   try {
     // 涉及配置读写（包含 API Key 解混淆结果）的接口仅信任扩展内部页面。
@@ -475,7 +594,7 @@ async function handleMessage(
     const requestType = typeof request.type === 'string' ? request.type : null;
     const isSensitiveRequest =
       requestAction === 'getConfig' || requestAction === 'setConfig';
-    if (isSensitiveRequest && !isExtensionOrigin) {
+    if (isSensitiveRequest && !isExtensionPage) {
       sendResponse({
         success: false,
         error: `${requestAction ?? requestType ?? 'request'} requires extension origin`,
@@ -485,9 +604,14 @@ async function handleMessage(
     if (request.type && !request.action) {
       switch (request.type) {
         case 'JOB_TRANSLATE_IMAGE':
-          // Only this extension's own content scripts may ask for a
-          // translation. Another extension's content script shares the page
-          // but not the origin, and it would be spending the user's key.
+          // Only this extension's own contexts may ask for a translation.
+          // Another extension's content script shares the page but not the
+          // origin, and it would be spending the user's key.
+          //
+          // The sender here is normally this extension's own content script
+          // — it is the only thing that can trigger a run, and it carries a
+          // tab — so this guard is about *whose* message it is, not about
+          // whether it has a tab.
           if (!isExtensionOrigin) {
             sendResponse({
               success: false,
@@ -545,6 +669,32 @@ async function handleMessage(
           }
           const response = await fetchImageBytesResponse(imageUrl, sender);
           sendResponse(response);
+          return;
+        }
+        case 'RECORD_CACHE_HIT': {
+          /*
+           * 一张图是缓存命中的。
+           *
+           * 命中不发请求、不花 Token，但用户要看得到它：「缓存命中 62%」
+           * 是他判断缓存有没有在干活的那句话。
+           *
+           * 这条记录以前是页面自己写的，于是同一个月的合计散在两个地方：
+           * worker 记的计费调用在一处，页面记的命中在另一处，谁也加不出
+           * 总数。现在只有 worker 记，页面报一声，账只有一份。
+           */
+          const provider = request['provider'];
+          if (
+            provider === 'openai-compatible' ||
+            provider === 'ollama' ||
+            provider === 'lm-studio'
+          ) {
+            useUsageStore.getState().addRecord({
+              provider,
+              usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
+              cached: true,
+            });
+          }
+          sendResponse({ received: true });
           return;
         }
         case 'HUD_CANCELLED':
@@ -687,7 +837,31 @@ async function enqueueTranslationJob(
         scope: request.scope,
       }),
       textAreas: [],
-      error: '扩展已关闭，请先在弹窗中开启「启用扩展」',
+      error: MASTER_SWITCH_OFF_MESSAGE,
+    };
+  }
+
+  /*
+   * 一个注定失败的请求不要排进队列。
+   *
+   * `run` 里已经有同一道检查（配置可能在排队期间被改），但那要等一页的
+   * 排期走完才有答案。更糟的是：空密钥真的发出去，服务商回 401，分类器
+   * 会告诉用户「API 密钥无效」—— 而他根本没有密钥可"无效"，该做的是去
+   * 设置里填一个。这里提前拒绝，用的是同一条"扩展自己没准备好"的句子，
+   * 用户看到的是「去设置」而不是一个假的服务商错误。
+   */
+  if (!isProviderUsable(active)) {
+    return {
+      success: false,
+      job: createJobStatus({
+        jobId: request.jobId,
+        pageKey: request.pageKey,
+        priorityClass: request.priorityClass,
+        requestedPath,
+        scope: request.scope,
+      }),
+      textAreas: [],
+      error: PROVIDER_NOT_READY_MESSAGE,
     };
   }
 
@@ -706,17 +880,63 @@ async function enqueueTranslationJob(
     // silently returns the result it was meant to replace.
     forceRefresh: request.forceRefresh,
     run: async () => {
-      const actualCapabilityUsed = requestedPath;
+      // The master switch, checked again at the last moment before the
+      // request.
+      //
+      // The check above only covers the moment the job was queued. A chapter
+      // sits in the queue for minutes — one job per tile, a vision model
+      // that takes 10-30s each — and the user can turn the extension off
+      // while it waits. "Off" has to mean off all the way down, or the
+      // extension bills the user for a switch they turned off.
+      const configAtRunTime = await getConfig();
+      if (!isTranslationEnabled(configAtRunTime)) {
+        const cancelledJob = translationJobQueue.updateJob(request.jobId, {
+          state: 'cancelled',
+        });
+        return {
+          success: false,
+          job: cancelledJob ?? job,
+          textAreas: [],
+          error: MASTER_SWITCH_OFF_MESSAGE,
+        };
+      }
+
+      // The provider is resolved again here, and the one resolved when the
+      // job was queued is not used.
+      //
+      // The same argument as the master switch applies, one level up: a
+      // chapter sits in the queue for minutes, and the reader can open the
+      // settings page while it waits. The usual reason for switching
+      // provider mid-run is to stop paying — to move from a cloud endpoint
+      // to a local one — and a queue that keeps calling the old endpoint
+      // would bill the reader for a provider they had just left. The other
+      // direction matters too: a key that expired and was replaced must be
+      // the key the job uses, or the job fails against a key that is gone.
+      const activeAtRunTime = resolveActiveProvider(configAtRunTime);
+
+      if (!isProviderUsable(activeAtRunTime)) {
+        const failedJob = translationJobQueue.updateJob(request.jobId, {
+          state: 'failed',
+        });
+        return {
+          success: false,
+          job: failedJob ?? job,
+          textAreas: [],
+          error: PROVIDER_NOT_READY_MESSAGE,
+        };
+      }
+
+      const actualCapabilityUsed = deriveActualPath(activeAtRunTime.provider);
       translationJobQueue.updateJob(request.jobId, {
         actualCapabilityUsed,
         state: 'running',
       });
 
       const response = await translateImageViaProviderDirect({
-        provider: active.provider,
-        apiKey: active.apiKey,
-        baseUrl: active.baseUrl,
-        model: active.model,
+        provider: activeAtRunTime.provider,
+        apiKey: activeAtRunTime.apiKey,
+        baseUrl: activeAtRunTime.baseUrl,
+        model: activeAtRunTime.model,
         imageBase64: request.imageBase64,
         targetLanguage: request.targetLanguage,
         translationStylePreset: request.translationStylePreset,
@@ -766,6 +986,7 @@ async function enqueueTranslationJob(
         success: true,
         job: successJob,
         textAreas: response.textAreas ?? [],
+        unplacedCount: response.unplacedCount ?? 0,
         pipeline: response.pipeline,
         cached: response.cached,
         usage: response.usage ?? null,
@@ -889,9 +1110,9 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     return;
   }
   void chrome.storage.local
-    .get([CONFIG_STORAGE_KEY])
+    .get([APP_CONFIG_STORAGE_KEY])
     .then(result => {
-      const config = result[CONFIG_STORAGE_KEY] || DEFAULT_CONFIG;
+      const config = result[APP_CONFIG_STORAGE_KEY] || DEFAULT_CONFIG;
       // Only act unprompted on sites the user has opted in for. The manual
       // paths (popup button, context menu) are unaffected.
       if (!shouldAutoTranslatePage(config, tab?.url)) {

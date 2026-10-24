@@ -6,7 +6,8 @@
  * CORS-rejected fetch that lands in the catch block.
  */
 
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { summarizeUsageForMonth, useUsageStore } from '@/stores/usage-store';
 import { OllamaProvider } from './ollama';
 
 const baseConfig = {
@@ -128,6 +129,56 @@ describe('OllamaProvider.analyzeAndTranslate', () => {
     ];
     const body = JSON.parse(generateCall[1].body) as { images?: string[] };
     expect(body.images?.[0]).toBe('QUJD');
+  });
+
+  it('keeps the token counts Ollama reports', async () => {
+    // Without these the usage panel showed "0 calls" for every local user,
+    // even though the extension had asked the model to do the work.
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(makeTagsResponse(['llava']))
+      .mockResolvedValueOnce(
+        makeGenerateResponse({
+          response: JSON.stringify({ textAreas: [] }),
+          done: true,
+          prompt_eval_count: 820,
+          eval_count: 145,
+        })
+      );
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+    const response = await provider.analyzeAndTranslate(
+      'data:image/png;base64,QUJD',
+      'zh-CN'
+    );
+
+    expect(response.usage).toEqual({
+      promptTokens: 820,
+      completionTokens: 145,
+      totalTokens: 965,
+    });
+  });
+
+  it('reports no usage when Ollama reports none', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(makeTagsResponse(['llava']))
+      .mockResolvedValueOnce(
+        makeGenerateResponse({
+          response: JSON.stringify({ textAreas: [] }),
+          done: true,
+        })
+      );
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+    const response = await provider.analyzeAndTranslate(
+      'data:image/png;base64,QUJD',
+      'zh-CN'
+    );
+
+    expect(response.usage).toBeUndefined();
   });
 
   it('throws the model-missing message on 404', async () => {
@@ -294,5 +345,85 @@ describe('OllamaProvider.model checks', () => {
       'moondream',
     ]);
     await expect(provider.getAvailableVisionModels()).resolves.toEqual([]);
+  });
+});
+
+/**
+ * 一次没人读得懂的回答，也是一次已经发出的请求。
+ *
+ * 翻译流程只在自己拿到 usage 时才记账（见 translator.ts 的 recordUsage）；
+ * 请求失败、或者回来的东西读不懂时，错误会被拍扁成一句话传回内容脚本，
+ * 那一层没有 usage 可记。于是「模型跑了、账单扣了、面板上是 0 次」就发生
+ * 在这两种失败上 —— 云端模型记了，本地模型没记，两边对「一次请求」的
+ * 定义不一样。
+ *
+ * 这些测试钉住本地模型这一侧：请求发出去了就得算数。
+ */
+describe('OllamaProvider billing on an unreadable answer', () => {
+  beforeEach(() => {
+    useUsageStore.getState().clearAll();
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function summary(): ReturnType<typeof summarizeUsageForMonth> {
+    return summarizeUsageForMonth(useUsageStore.getState().records);
+  }
+
+  function mockGenerate(body: Record<string, unknown>): void {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(makeTagsResponse(['llava']))
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify(body), { status: 200 })
+      );
+  }
+
+  it('records a request that came back empty', async () => {
+    mockGenerate({ response: '', done: true });
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+    await expect(provider.analyzeAndTranslate('QUJD', 'zh-CN')).rejects.toThrow(
+      'empty response'
+    );
+
+    expect(summary().billableCalls).toBe(1);
+  });
+
+  it('records a request whose answer cannot be read', async () => {
+    mockGenerate({
+      response: 'The model answered in prose instead of JSON.',
+      done: true,
+      prompt_eval_count: 640,
+      eval_count: 90,
+    });
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+    await expect(
+      provider.analyzeAndTranslate('QUJD', 'zh-CN')
+    ).rejects.toThrow();
+
+    expect(summary().billableCalls).toBe(1);
+    expect(summary().tokens).toBe(730);
+  });
+
+  it('does not record a request the service rejected', async () => {
+    vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(makeTagsResponse(['llava']))
+      .mockResolvedValueOnce(new Response('not found', { status: 404 }));
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+    await expect(provider.analyzeAndTranslate('QUJD', 'zh-CN')).rejects.toThrow(
+      'ollama pull llava'
+    );
+
+    // 404 是模型没装，请求没有发出去。
+    expect(summary().billableCalls).toBe(0);
   });
 });

@@ -38,13 +38,21 @@ release notes below; the live version is whatever's at the top of
 
 ## Phase 5 — Next
 
-- Smoke-test the credential-free `pnpm build:public` artifact on a clean Chrome
-  profile. `pnpm package:public` now produces a verified, checksummed ZIP whose
-  bundle is scanned for credentials on every build; the remaining step is the
-  manual profile check against `docs/chrome-web-store-release.md`.
-- Create Chrome Web Store assets: screenshots and a 30-second demo. Listing copy,
-  permission justifications, and the smoke-test checklist are in
+- Smoke-test the parts of the release that need a provider. `pnpm smoke:public`
+  now covers the other half automatically: it drives the credential-free
+  `pnpm build:public` artifact in a clean Chrome profile and checks that it
+  loads, that nothing in it holds an API key, that `chrome.storage.sync` stays
+  empty, that the popup asks the user for a provider instead of using the
+  author's defaults, and that the content script is alive. The steps that
+  actually translate something still need a live provider and a page served
+  over HTTP — the fixture is `smoke-test-page.html` and the checklist is in
   `docs/chrome-web-store-release.md`.
+- Create the Chrome Web Store item in the dashboard and submit the package.
+  The upload, the publish request and the rollout percentage are explicit
+  arguments of `pnpm release:publish` now, and the listing copy, the
+  permission justifications and the smoke-test checklist are in
+  `docs/chrome-web-store-release.md`. What the command cannot do is create
+  the listing itself — there is no create-item endpoint.
 - Publish a release artifact and seed 5-10 users with clear install feedback.
 - Add provider-aware price estimates to the usage panel; token counts and cache
   hit rate are already visible. A hardcoded per-token rate table used to sit in
@@ -56,6 +64,43 @@ release notes below; the live version is whatever's at the top of
   model or from user-entered rates, not from a built-in constant.
 
 ## Recently closed
+
+- **A translated page can be saved as a picture.** The question below ("should
+  a translated image be exportable") is answered in the affirmative: the
+  overlay's export button composes the original image and its translations
+  into one PNG and downloads it. The renderer already drew to a canvas, so
+  the work was mostly packaging.
+- **The store assets exist.** `store/artwork/` holds the generated manga
+  pages, `store/demo/` the same pages with the Japanese dialogue burned into
+  the pixels (lettering drawn in HTML would be invisible to the vision model,
+  so the demo would show the original with the translation floating beside it),
+  and `store/listing/` the screenshot and the demo recording. Every promise in
+  the listing, the review notes and the privacy policy is checked against the
+  code by `scripts/check-store-claims.mjs`, so the store cannot be told
+  something the extension does not do. The 特色大图 that the listing still
+  marked 「需新制作」 is composited from the screenshots by
+  `scripts/build-promo-image.mjs` — no model, no API key, no network — and a
+  third screenshot, of the popup counting the page's images before the button
+  that spends money, is taken by `capture-store-assets.mjs --popup`, which
+  needs no provider either.
+- **Provider presets shipped.** The open question below ("should we ship a
+  bundled quick presets panel") is now answered in the affirmative: the
+  Settings page lists MiniMax, SiliconFlow, OpenRouter, Gemini and OpenAI,
+  each with a documented vision-capable model. The "presets rot" trade-off is
+  real, so the list is deliberately short — five entries, each one a model the
+  service documents, and no entry for a service without a confirmed vision
+  model. A preset whose model has been retired is worse than no preset.
+- **Image resolution and concurrency are settings, not constants.** Both were
+  unreachable code paths for a user; the same lever used to live in
+  `app-config.ts` where only an editor could move it. They are now in the
+  Settings page with the cost trade-off written next to each choice.
+- **The target language is honoured.** The prompt and the style presets were
+  Chinese-only, so choosing English still produced Chinese instructions. The
+  presets now carry per-language rules and the prompt names the language.
+- **A support bundle exists.** The extension collects nothing, which is the
+  privacy story — but it also left users with nowhere to go when a page would
+  not translate. Settings can copy a diagnostics block built locally, with the
+  API key, the endpoint and the page URLs all excluded.
 
 - Config storage no longer loops: the persisted-snapshot comparison matched on
   key count (19 persisted vs 42 runtime), so every write re-triggered itself and
@@ -111,8 +156,12 @@ To keep the scope honest, these are explicitly out:
   separate project.
 - **Crowd-sourced translation quality scoring.** Useful, but pulls the project
   into a content-moderation problem we don't have the resources to own.
-- **Multi-language UI.** English-only docs; UI strings stay bilingual for
-  now (Chinese for primary user base, English as we go international).
+- **Multi-language UI.** The extension's interface is Chinese only — there is
+  no `_locales/`, no `default_locale` and no `t()` call anywhere in `src/`, so
+  every string is a literal. The store listing says 中文（简体） for that
+  reason, and would be wrong to claim English. Localising the interface is a
+  separate piece of work from localising the *translations*, which already
+  honour the target language.
 
 ## Open questions
 
@@ -124,21 +173,20 @@ These are unresolved and we'd like feedback:
   model" flow that triggers `ollama pull llava` from a button? It's
   technically possible but crosses into "the extension shells out to the
   user's machine" territory.
-- Should we ship a bundled "quick presets" panel — pre-baked configs for
-  SiliconFlow, OpenRouter, Gemini Flash — so users don't have to type
-  base URLs? Tradeoff: presets rot.
 
 ## Performance budget
 
 - The content script is injected into every page, so its size is paid on page
   load, not on install. `pnpm build` fails if `dist/content.js` exceeds
   **200 KB** (enforced by `scripts/check-release-consistency.mjs`, run before
-  and after the build, and in CI). Current size is ~127 KB / ~42 KB gzipped.
-  The largest contributors are `renderer.ts`, `translator.ts`,
-  `error-handler.ts` and the content-script modules themselves — no single
-  vendor dominates, because React and ReactDOM are kept out of this bundle
+  and after the build, and in CI). Current size is ~165 KB / ~41 KB gzipped.
+  The largest contributors are `content.ts`, `renderer.ts`, `translator.ts`,
+  `reading-panel.ts` and `floating-hud.ts` — no single vendor dominates,
+  because React, ReactDOM and the icon set are all kept out of this bundle
   entirely (see `docs/architecture-notes.md`). If any one module grows past
-  ~100 KB, reconsider splitting it into a per-page lazy chunk.
+  ~100 KB, reconsider splitting it into a per-page lazy chunk — and note that
+  a lazy chunk would have to be web-accessible again, which is exactly what
+  the current single-file bundle was built to avoid.
 - HUD updates throttle to one render per ~100 ms. Don't bypass this without
   a measured reason.
 

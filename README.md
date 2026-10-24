@@ -1,5 +1,7 @@
 # Manga Translator
 
+<img src="public/icons/icon128.png" width="72" height="72" align="right" alt="">
+
 [![CI](https://github.com/hibernate-pano/chrome-plugin-manga-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/hibernate-pano/chrome-plugin-manga-translator/actions/workflows/ci.yml)
 
 A Chrome Manifest V3 extension that translates foreign-language manga in your browser.
@@ -9,6 +11,8 @@ SiliconFlow, ...) or a **local model** (Ollama, LM Studio) on demand, then overl
 translation on top of the original image. The overlay renders inside the page, on top of
 the original text bubble, so you can read without leaving your manga site. The picture
 around the bubble is left alone; the bubble itself is covered by the overlay.
+
+![A translated page: the Japanese dialogue is replaced by the English translation, drawn in the same bubbles](store/listing/screenshot-1280x800.png)
 
 > **Reading, not just translation.** v0.5.0 added an in-page reading panel that
 > lists every translated panel in reading order with numbered anchors on each
@@ -65,6 +69,19 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
 
 - **In-place overlay translation**: detected text is replaced with the translation
   while keeping the surrounding art intact.
+- **One-click provider presets**: the Settings page lists MiniMax, SiliconFlow,
+  OpenRouter, Gemini and OpenAI. One click fills in the endpoint and a
+  vision-capable model; your API key stays yours to paste. A wrong model name
+  fails on the first request, so the presets are the difference between a
+  working first run and a round trip of trial and error.
+- **Quality and concurrency you control**: image resolution (1024 / 1536 / 2048)
+  and how many images translate at once (1 / 3 / 5) are both in Settings, with
+  the cost trade-off spelled out next to each choice. The same lever used to be
+  a constant buried in the code.
+- **Your target language is actually sent to the model**: Simplified Chinese,
+  Traditional Chinese, English, Japanese or Korean — the prompt asks for that
+  language, in that language's own idiom rules. The style presets used to be
+  Chinese-only, so choosing English still produced Chinese instructions.
 - **Three ways to start**: the toolbar button, the right-click menu
   (「翻译当前页面」 for the page, 「翻译这张图片」 for one image), or a keyboard
   shortcut — `Ctrl`/`⌘`+`Shift`+`Y` translate, `+X` re-translate ignoring the
@@ -87,14 +104,22 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
 - **Reading mode side panel**: an in-page panel pinned to the right edge,
   listing every translation in reading order, with numbered anchors on each
   image. Click a panel entry to jump to the image; click an image badge to jump
-  to its panel entry. The panel can be collapsed to its header or closed
-  entirely — from its own ✕ button, from the popup, or with the keyboard
-  shortcut.
+  to its panel entry. Every entry can expand to show the source text the model
+  read, so a translation you don't trust has something to check it against. The
+  panel can be collapsed to its header or closed entirely — from its own ✕
+  button, from the popup, or with the keyboard shortcut.
+- **A support bundle you control**: Settings has a "copy diagnostics" button
+  that builds the version, provider, model and usage counters locally. It
+  carries no API key, no endpoint and nothing about the pages you read — you
+  decide whether to paste it into an issue. The extension collects nothing, so
+  without this a bug report is just "it didn't work".
 - **HUD with stages**: scanning → translating → rendering, with cache-hit and
   filtered-image counts surfaced in the completion card.
-- **Errors as repair menus**: every common failure has a fix-it button. Ollama
-  not running? Copy `ollama serve`. CORS blocked? Copy
-  `OLLAMA_ORIGINS=chrome-extension://* ollama serve`. Auth failed? Open Settings.
+- **Errors as repair menus**: the failures you can fix in place have a
+  fix-it button. Ollama not running? Copy `ollama serve`. CORS blocked? Copy
+  `OLLAMA_ORIGINS=chrome-extension://* ollama serve`. Auth failed? Open
+  Settings. The ones you cannot fix in place (the provider is down, the image
+  host refused) get a sentence that says what to do instead.
 - **Local-first**: user-entered config and obfuscated API keys live in
   `chrome.storage.local`. Nothing syncs to your Google account. No telemetry.
   No analytics. (The API key is obfuscated, not encrypted — the salt ships in
@@ -111,11 +136,14 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
 | `Ollama` | local install | stays on your machine | free, needs GPU |
 | `LM Studio` | local install | stays on your machine | free, needs GPU/CPU |
 
-For the OpenAI-compatible path, any endpoint that speaks Chat Completions works:
+For the OpenAI-compatible path, any endpoint that speaks Chat Completions works.
+The Settings page ships these as one-click presets:
 
-- OpenAI: `https://api.openai.com/v1`, model `gpt-4o` or `gpt-4o-mini`
-- SiliconFlow: `https://api.siliconflow.cn/v1`, model `Qwen/Qwen3-VL-8B-Instruct`
-- OpenRouter: `https://openrouter.ai/api/v1`, model `google/gemini-2.5-flash`
+- MiniMax: `https://api.minimaxi.com/v1`, model `MiniMax-M3`
+- SiliconFlow: `https://api.siliconflow.cn/v1`, model `Qwen/Qwen2.5-VL-72B-Instruct`
+- OpenRouter: `https://openrouter.ai/api/v1`, model `qwen/qwen2.5-vl-72b-instruct`
+- Gemini: `https://generativelanguage.googleapis.com/v1beta/openai`, model `gemini-2.5-flash`
+- OpenAI: `https://api.openai.com/v1`, model `gpt-4o-mini`
 
 For local Ollama, you'll need a vision model. `llava` is the smallest; `minicpm-v`
 or `qwen2.5vl` give better translations.
@@ -195,9 +223,11 @@ To report a security problem, please do not open a public issue — see
 
 | Version | Status | Highlights |
 |---|---|---|
-| v2.0.3 | current | Chrome Web Store field limits enforced at build time |
-| v2.0.1 | current | Release-tag CI verification |
-| v2.0.0 | current | Opt-in per-site auto-translation, config storage loop fixed, guarded image proxy, 65% smaller content script, enforced quality gates |
+| v2.0.4 | current | Public build no longer ships a private model repo; the content script is no longer web-accessible |
+| v2.0.3 | shipped | Chrome Web Store field limits enforced at build time |
+| v2.0.2 | shipped | The unused `activeTab` permission removed; packaging can no longer ship a stale ZIP |
+| v2.0.1 | shipped | Release-tag CI verification |
+| v2.0.0 | shipped | Opt-in per-site auto-translation, config storage loop fixed, guarded image proxy, 65% smaller content script, enforced quality gates |
 | v1.3.3 | shipped | Reliable long-strip tiling, safe public builds, editable providers |
 | v1.3.2 | shipped | Tiled result caching |
 | v1.3.1 | shipped | Parallel tile translation |

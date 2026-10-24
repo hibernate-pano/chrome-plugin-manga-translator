@@ -18,14 +18,23 @@ body {
      hard-coded dark, so a light palette was never a real option here. */
   :root {
     color-scheme: dark;
-    --background: 0 0% 3.9%;
+    /* The page is slate-950 (#020617) — the deepest slate Tailwind ships.
+       It used to be a neutral 3.9% grey, which is what the switch thumb
+       and the slider thumb are painted with; against the blue-tinted page
+       they now read as holes in the surface rather than as a seam. */
+    --background: 222.2 47.4% 3.9%;
     --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
+    --card: 222.2 47.4% 3.9%;
     --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
+    --popover: 222.2 47.4% 3.9%;
     --popover-foreground: 0 0% 98%;
-    --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
+    /* The accent is cyan, and the focus ring already was. `--primary` was
+       pure white, so the switch track and the slider fill were white in a
+       cyan product — and the white track left the switch thumb at 1.02:1
+       against the page. Pointing `--primary` at the same cyan-400 the
+       focus ring uses makes the accent colour one colour again. */
+    --primary: 187.9 85.7% 53.3%;
+    --primary-foreground: 222.2 47.4% 11.2%;
     --secondary: 0 0% 14.9%;
     --secondary-foreground: 0 0% 98%;
     --muted: 0 0% 14.9%;
@@ -76,14 +85,33 @@ body {
 
   /* 全局键盘聚焦反馈：键盘用户必须能看到当前焦点。
      focus-visible 只在键盘导航时触发，不影响鼠标点击体验。
-     使用 cyan 在深色 popup/options 上也清晰可见。 */
+     使用 cyan 在深色 popup/options 上也清晰可见。
+     `summary` 在这里：popup 的两个折叠面板是 <details><summary>，
+     漏掉它就会掉回浏览器默认的蓝色描边，"全局只有一个焦点色"就成了空话。 */
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,
   textarea:focus-visible,
   a:focus-visible,
+  summary:focus-visible,
   [role='button']:focus-visible {
     outline: 2px solid hsl(var(--focus-ring)); /* cyan-400 */
     outline-offset: 2px;
+  }
+}
+
+/* The user asked the system to stop moving things.
+   The extension's own pages (popup, options) are covered by this block;
+   the reading panel scrolls a *third-party* page and cannot be reached
+   from here, so it asks `prefers-reduced-motion` in JavaScript instead
+   (see `src/content/reading-panel.ts`). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

@@ -49,6 +49,13 @@ export interface TranslationResult {
   error?: string;
   /** Whether this result was retrieved from cache */
   cached?: boolean;
+  /**
+   * How many bubbles on this page were found but not translated.
+   *
+   * Kept with the cached result: a page that was only half translated stays
+   * half translated, and the next visit has to say so again.
+   */
+  missingCount?: number;
 }
 
 /**
@@ -138,6 +145,15 @@ interface TranslationCacheActions {
     maxEntries: number;
     oldestEntry: number | null;
     newestEntry: number | null;
+    /**
+     * The next write evicts an entry.
+     *
+     * This is the number the popup can show as 「缓存已满，更早的译文会被
+     * 丢掉，回看时可能重新计费」 without inventing anything.
+     */
+    atCapacity: boolean;
+    /** Entries this context has already dropped to stay under the cap. */
+    evictedCount: number;
   };
 
   /**
@@ -160,20 +176,61 @@ interface TranslationCacheActions {
 
 // ==================== Default Configuration ====================
 
-const DEFAULT_MAX_ENTRIES = 100;
+/**
+ * How many translations are kept.
+ *
+ * 100 was roughly two chapters of a webtoon, so reading a third one evicted
+ * the first: scrolling back re-sent every image to the vision model and
+ * billed for it a second time, while the popup only said 「成功翻译 N 张」.
+ * The cache is the only thing standing between the user and paying twice for
+ * the same image, so it has to hold a reading session rather than a page.
+ *
+ * 400 covers roughly ten chapters. In storage terms a cached page is a few
+ * kilobytes of text areas (no pixels), so 400 of them is a couple of
+ * megabytes against `chrome.storage.local`'s 10 MB budget — the cache is not
+ * what fills it.
+ */
+const DEFAULT_MAX_ENTRIES = 400;
+
+/**
+ * How many entries this context dropped to stay under the cap.
+ *
+ * Not persisted and not merged: it is a per-tab fact ("this session has
+ * already evicted something"), which is exactly what the popup needs to say
+ * that older translations will be paid for again if the user scrolls back.
+ */
+let evictedEntries = 0;
 
 /**
  * Upper bound for the tombstone map.
  *
- * A tombstone only has to outlive the slowest context that could still hold
- * the deleted entry; a bounded window is enough and stops the map from
- * growing forever.
+ * It has to hold **one record per entry the cache can contain**. A smaller
+ * window does not merely forget old deletions — it forgets *recent* ones:
+ * 「清空缓存」 writes a tombstone for every entry, and a cap below the entry
+ * count means half of them are dropped, so the next context that still holds
+ * its pre-clear snapshot writes those entries back and they are resurrected.
+ * The counter reads 0, the storage quietly refills, and the user believes
+ * they cleared something they did not.
+ *
+ * `DEFAULT_MAX_ENTRIES` is the floor; callers pass their live `maxEntries`
+ * so a snapshot with a larger cap is covered too.
  */
-const MAX_TOMBSTONES = 200;
+const MAX_TOMBSTONES = DEFAULT_MAX_ENTRIES;
 
 const CACHE_STORAGE_KEY = 'manga-translator-cache-v2';
 
-const CACHE_STORAGE_VERSION = 2;
+/**
+ * The version of the persisted cache shape.
+ *
+ * 3 raised the entry cap from 100 to 400. The cap is part of the persisted
+ * state, so an existing profile would otherwise keep the old 100 for ever:
+ * the migration rewrites it instead of leaving the user with a cache that
+ * still evicts after two chapters.
+ */
+const CACHE_STORAGE_VERSION = 3;
+
+/** The cap that used to be the default. */
+const LEGACY_MAX_ENTRIES = 100;
 
 // ==================== Timestamps ====================
 
@@ -353,7 +410,8 @@ function applyRemovals(
  */
 function pruneRemoved(
   entries: Record<string, CacheEntry>,
-  removed: Record<string, number>
+  removed: Record<string, number>,
+  cap: number = MAX_TOMBSTONES
 ): Record<string, number> {
   const kept: Record<string, number> = {};
   for (const [hash, timestamp] of Object.entries(removed)) {
@@ -364,7 +422,7 @@ function pruneRemoved(
     }
     kept[hash] = timestamp;
   }
-  const overflow = Object.keys(kept).length - MAX_TOMBSTONES;
+  const overflow = Object.keys(kept).length - Math.max(cap, MAX_TOMBSTONES);
   if (overflow <= 0) {
     return kept;
   }
@@ -424,7 +482,7 @@ function mergeSnapshots(
   const maxEntries = incoming.maxEntries;
   return {
     entries: capEntries(entries, maxEntries),
-    removed: pruneRemoved(entries, removed),
+    removed: pruneRemoved(entries, removed, maxEntries),
     maxEntries,
   };
 }
@@ -655,6 +713,10 @@ export const useTranslationCacheStore = create<
 
           const entries = toEntryMap(state.cache);
           entries[imageHash] = newEntry;
+          evictedEntries += Math.max(
+            0,
+            Object.keys(entries).length - state.maxEntries
+          );
 
           // A fresh write supersedes an earlier deletion of the same hash.
           const removed = { ...state.removed };
@@ -663,7 +725,7 @@ export const useTranslationCacheStore = create<
           return {
             ...state,
             cache: buildCache(entries, state.maxEntries),
-            removed: pruneRemoved(entries, removed),
+            removed: pruneRemoved(entries, removed, state.maxEntries),
           };
         });
       },
@@ -684,7 +746,7 @@ export const useTranslationCacheStore = create<
           return {
             ...state,
             cache: buildCache(entries, state.maxEntries),
-            removed: pruneRemoved(entries, removed),
+            removed: pruneRemoved(entries, removed, state.maxEntries),
           };
         });
       },
@@ -701,7 +763,7 @@ export const useTranslationCacheStore = create<
           return {
             ...state,
             cache: buildCache({}, state.maxEntries),
-            removed: pruneRemoved({}, removed),
+            removed: pruneRemoved({}, removed, state.maxEntries),
           };
         });
         // Entries this context never saw (written by another tab) still live
@@ -720,6 +782,8 @@ export const useTranslationCacheStore = create<
           maxEntries: state.maxEntries,
           oldestEntry: timestamps.length > 0 ? Math.min(...timestamps) : null,
           newestEntry: timestamps.length > 0 ? Math.max(...timestamps) : null,
+          atCapacity: state.cache.size >= state.maxEntries,
+          evictedCount: evictedEntries,
         };
       },
 
@@ -757,7 +821,12 @@ export const useTranslationCacheStore = create<
         return {
           entries: snapshot.entries,
           removed: snapshot.removed,
-          maxEntries: snapshot.maxEntries,
+          // A snapshot written by v2 carries v2's default cap. A user who
+          // explicitly chose some other number keeps it.
+          maxEntries:
+            snapshot.maxEntries === LEGACY_MAX_ENTRIES
+              ? DEFAULT_MAX_ENTRIES
+              : snapshot.maxEntries,
         };
       },
       // The persisted shape is a plain entry map, so the LRU is rebuilt
@@ -783,6 +852,37 @@ export const useTranslationCacheStore = create<
     }
   )
 );
+
+/**
+ * Resolves once the cache has been read from `chrome.storage.local`.
+ *
+ * zustand's persist middleware hydrates asynchronously, and nothing awaited
+ * it. The content script scans a page and reaches the cache lookup within
+ * milliseconds of loading, so on the automatic-translation path every image
+ * looked like a miss: the page was sent to the provider again and the user
+ * paid twice for translations that were already on disk.
+ *
+ * `rehydrate()` (rather than `onFinishHydration`) is what the promise waits
+ * on, because it also settles when the storage read fails — a broken storage
+ * must not hang the translation path forever.
+ */
+let hydrationPromise: Promise<void> | null = null;
+
+export function ensureCacheHydrated(): Promise<void> {
+  if (hydrationPromise) {
+    return hydrationPromise;
+  }
+  const persistApi = useTranslationCacheStore.persist;
+  if (persistApi.hasHydrated()) {
+    hydrationPromise = Promise.resolve();
+    return hydrationPromise;
+  }
+  hydrationPromise = Promise.resolve(persistApi.rehydrate()).then(
+    () => undefined,
+    () => undefined
+  );
+  return hydrationPromise;
+}
 
 // ==================== External Storage Change Listener ====================
 
@@ -837,7 +937,7 @@ function applyExternalSnapshot(snapshot: CacheSnapshot): void {
       mergeExternalEntries(localEntries, snapshot.entries),
       removed
     );
-    const prunedRemoved = pruneRemoved(merged, removed);
+    const prunedRemoved = pruneRemoved(merged, removed, state.maxEntries);
 
     // Nothing new arrived: do not touch the state, and therefore do not
     // write back. Writing back on every echo is what turns a merge into a

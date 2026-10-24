@@ -4,7 +4,7 @@
  * both halves of the defence: the address policy, and the refusal to act as
  * an open proxy.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi, type Mock } from 'vitest';
 
 import {
   MAX_IMAGE_BYTES,
@@ -12,6 +12,12 @@ import {
   fetchImageBytes,
   isSafeImageUrl,
 } from './image-fetch-guard';
+
+/** A mock fetch that also records whether the body was read. */
+type MockFetch = Mock & {
+  /** The body-reading call the last response exposed. */
+  bodyRead?: Mock;
+};
 
 function mockFetch(
   handler: (
@@ -21,20 +27,27 @@ function mockFetch(
     status?: number;
     headers?: Record<string, string>;
     body?: ArrayBuffer | null;
+    /** The URL the response finally came from (after redirects). */
+    url?: string;
   }
 ) {
   const spy = vi.fn(async (url: string, init?: RequestInit) => {
     const result = handler(url, init);
     const status = result.status ?? 200;
+    const bodyRead = vi.fn(async () => result.body ?? new ArrayBuffer(0));
+    (spy as MockFetch).bodyRead = bodyRead;
     return {
       ok: status >= 200 && status < 300,
       status,
+      // A response carries the URL it came from, not the one that was asked
+      // for, when a redirect happened in between.
+      url: result.url ?? url,
       headers: {
         get: (name: string) => result.headers?.[name.toLowerCase()] ?? null,
       },
-      arrayBuffer: async () => result.body ?? new ArrayBuffer(0),
+      arrayBuffer: bodyRead,
     } as unknown as Response;
-  });
+  }) as unknown as MockFetch;
   vi.stubGlobal('fetch', spy);
   return spy;
 }
@@ -198,6 +211,54 @@ describe('fetchImageBytes', () => {
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error).toContain('404');
+    }
+  });
+
+  it('drops a response that was redirected to a blocked address', async () => {
+    // The host we asked for is public, so the address policy lets the
+    // request out — and then answers with a 302 pointing at the cloud
+    // metadata service. The browser follows it before the extension sees
+    // anything, so the request has already happened; what must not happen
+    // is the body coming back to the content script.
+    const spy = mockFetch(() => ({
+      url: 'http://169.254.169.254/latest/meta-data/instance',
+      headers: { 'content-type': 'image/png' },
+      body: new ArrayBuffer(8),
+    }));
+    const result = await fetchImageBytes('https://cdn.example.com/a.png');
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain('after redirect');
+    }
+    expect(spy.bodyRead).toBeDefined();
+    expect(spy.bodyRead).not.toHaveBeenCalled();
+  });
+
+  it('drops a response that was redirected to loopback', async () => {
+    mockFetch(() => ({
+      url: 'http://127.0.0.1:8080/internal',
+      headers: { 'content-type': 'image/png' },
+      body: new ArrayBuffer(8),
+    }));
+    const result = await fetchImageBytes('https://cdn.example.com/a.png');
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      expect(result.error).toContain('after redirect');
+    }
+  });
+
+  it('keeps a response that was redirected to another public address', async () => {
+    // Redirecting between public hosts is what CDNs do; only a redirect
+    // that lands somewhere internal is a problem.
+    mockFetch(() => ({
+      url: 'https://cdn2.example.com/a.png',
+      headers: { 'content-type': 'image/png' },
+      body: new Uint8Array([1, 2, 3]).buffer,
+    }));
+    const result = await fetchImageBytes('https://cdn.example.com/a.png');
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.base64).toBe('AQID');
     }
   });
 });

@@ -1,5 +1,5 @@
-import { describe, expect, it, beforeEach, vi } from 'vitest';
-import { ReadingPanel } from './reading-panel';
+import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest';
+import { ReadingPanel, scrollBehavior } from './reading-panel';
 import type { TextArea } from '@/providers/base';
 import {
   WHITE_PAGE,
@@ -198,6 +198,48 @@ describe('ReadingPanel', () => {
     panel.destroy();
   });
 
+  /**
+   * The panel is the surface meant for *reading*. The source text travels
+   * with the translation, so a bilingual reader can read both — but the
+   * panel used to drop it, leaving the Alt-hold on the image as the only
+   * way to see the original.
+   */
+  it('offers the original text for each bubble', () => {
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好', '世界']));
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+
+    const details = shadow.querySelector('details.entry-original');
+    expect(details).not.toBeNull();
+    // Collapsed by default: the translation is what the reader came for.
+    expect(details?.hasAttribute('open')).toBe(false);
+
+    const originals = Array.from(
+      shadow.querySelectorAll('.entry-original-list li')
+    ).map(li => li.textContent);
+    expect(originals).toEqual(['原文 1', '原文 2']);
+    panel.destroy();
+  });
+
+  it('omits the original section when there is no source text', () => {
+    const panel = new ReadingPanel();
+    const img = makeImage();
+    panel.upsert(img, [
+      {
+        originalText: '',
+        translatedText: '只有译文',
+        x: 0,
+        y: 0,
+        width: 100,
+        height: 10,
+      },
+    ]);
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    expect(shadow.querySelector('details.entry-original')).toBeNull();
+    panel.destroy();
+  });
+
   it('keeps the part of a long first bubble that the teaser cannot show', () => {
     // The teaser is one line. Anything past it has to land somewhere, or
     // the panel silently drops part of a translation.
@@ -328,6 +370,91 @@ describe('ReadingPanel', () => {
     expect(preview).toBe(`${head}。`);
     expect(items[0]).toBe('后面还有更多内容');
     panel.destroy();
+  });
+});
+
+// The 原文 disclosure sits inside the entry, and the entry scrolls its image
+// into view when clicked. Expanding the original text therefore scrolled the
+// manga away from the panel the reader was reading — the one control that
+// only reveals text was the one control that moved the page.
+describe('展开原文不会把漫画滚走', () => {
+  let panel: ReadingPanel;
+  let scrollIntoView: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    scrollIntoView = vi.fn();
+    HTMLElement.prototype.scrollIntoView =
+      scrollIntoView as unknown as HTMLElement['scrollIntoView'];
+    panel = new ReadingPanel();
+  });
+
+  afterEach(() => {
+    panel.destroy();
+  });
+
+  it('点击原文不会滚动到图片', () => {
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好']));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const summary = shadow.querySelector(
+      '.entry-original-summary'
+    ) as HTMLElement;
+    expect(summary).toBeTruthy();
+
+    summary.click();
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
+  });
+
+  it('原文仍然会展开', () => {
+    // Stopping the bubble-up must not break the disclosure itself.
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好']));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const details = shadow.querySelector(
+      'details.entry-original'
+    ) as HTMLElement;
+    const summary = shadow.querySelector(
+      '.entry-original-summary'
+    ) as HTMLElement;
+    expect(details.hasAttribute('open')).toBe(false);
+
+    summary.click();
+
+    expect(details.hasAttribute('open')).toBe(true);
+  });
+
+  it('点击 entry 本身仍然会滚动到图片', () => {
+    // The guard is on the summary only — the entry's own click still
+    // navigates, or the panel would stop being a navigation surface.
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好']));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const entry = shadow.querySelector('.entry') as HTMLElement;
+
+    entry.click();
+
+    expect(scrollIntoView).toHaveBeenCalled();
+  });
+
+  it('用键盘展开原文也不会滚动', () => {
+    const img = makeImage();
+    panel.upsert(img, makeAreas(['你好']));
+
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    const summary = shadow.querySelector(
+      '.entry-original-summary'
+    ) as HTMLElement;
+
+    summary.dispatchEvent(
+      new KeyboardEvent('keydown', { key: 'Enter', bubbles: true })
+    );
+
+    expect(scrollIntoView).not.toHaveBeenCalled();
   });
 });
 
@@ -639,6 +766,141 @@ describe('阅读面板的对比度预算', () => {
     const panel = new ReadingPanel();
     try {
       expect(contrastOf(panel, '.entry-empty')).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      panel.destroy();
+    }
+  });
+});
+
+describe('滚动方式', () => {
+  /**
+   * jsdom does not implement `matchMedia` at all, so the extension has to
+   * work without it — and the test has to install it to ask the question.
+   */
+  function installMatchMedia(matches: boolean): () => void {
+    const original = Object.getOwnPropertyDescriptor(window, 'matchMedia');
+    Object.defineProperty(window, 'matchMedia', {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: query.includes('reduce') ? matches : false,
+        media: query,
+        onchange: null,
+        addListener: () => undefined,
+        removeListener: () => undefined,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+        dispatchEvent: () => false,
+      }),
+    });
+    return () => {
+      if (original) {
+        Object.defineProperty(window, 'matchMedia', original);
+      } else {
+        delete (window as unknown as { matchMedia?: unknown }).matchMedia;
+      }
+    };
+  }
+
+  it('默认是平滑滚动', () => {
+    expect(scrollBehavior()).toBe('smooth');
+  });
+
+  it('系统开了"减少动态效果"就瞬移', () => {
+    // The user asked the system to stop moving things: a smooth scroll
+    // across a whole manga page is exactly what makes people motion sick.
+    const restore = installMatchMedia(true);
+    try {
+      expect(scrollBehavior()).toBe('auto');
+    } finally {
+      restore();
+    }
+  });
+
+  it('滚动到图片时用同一个判断', () => {
+    const restore = installMatchMedia(true);
+    const calls: Array<ScrollIntoViewOptions | boolean | undefined> = [];
+    const original = HTMLElement.prototype.scrollIntoView;
+    HTMLElement.prototype.scrollIntoView = function (
+      options?: boolean | ScrollIntoViewOptions
+    ) {
+      calls.push(options);
+    };
+
+    try {
+      const panel = new ReadingPanel();
+      const img = makeImage();
+      panel.upsert(img, makeAreas(['你好']));
+      panel.focusEntryByIndex(1);
+
+      expect(calls.length).toBeGreaterThan(0);
+      for (const call of calls) {
+        expect((call as ScrollIntoViewOptions).behavior).toBe('auto');
+      }
+      panel.destroy();
+    } finally {
+      HTMLElement.prototype.scrollIntoView = original;
+      restore();
+    }
+  });
+});
+
+// The translation is the thing the reader opened the panel for.
+//
+// It was set at 12px — the same size as the notes around it and smaller
+// than the popup's body text — inside a 320px column. A translated line
+// is prose, not a label, and prose at 12px in a narrow column breaks into
+// unreadable stubs.
+describe('译文字号不能比旁边的说明还小', () => {
+  function stylesheet(panel: ReadingPanel): string {
+    const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
+    return shadow.querySelector('style')?.textContent ?? '';
+  }
+
+  function fontSize(panel: ReadingPanel, selector: string): number {
+    return Number.parseFloat(
+      cssDeclaration(cssBlock(stylesheet(panel), selector), 'font-size')
+    );
+  }
+
+  it('译文正文是 13px', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(fontSize(panel, '.entry-body li')).toBe(13);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('译文预览也是 13px', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(fontSize(panel, '.entry-preview')).toBe(13);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('译文比它周围的次要说明大', () => {
+    const panel = new ReadingPanel();
+    try {
+      // "未识别出文字" and the original-text disclosure are notes; the
+      // translation is the content.
+      expect(fontSize(panel, '.entry-body li')).toBeGreaterThan(
+        fontSize(panel, '.entry-empty')
+      );
+      expect(fontSize(panel, '.entry-body li')).toBeGreaterThan(
+        fontSize(panel, '.entry-original-summary')
+      );
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('序号徽章还是 11px——它是一个数字', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(fontSize(panel, '.entry-num')).toBe(11);
     } finally {
       panel.destroy();
     }

@@ -10,21 +10,31 @@
  * Requirements: 2.2, 2.3, 2.4
  */
 
-import {
-  type ProviderType,
-  type TextArea,
-  providerRequiresApiKey,
-} from '@/providers';
+/*
+ * 从 `@/providers/base` 取类型，从 `@/shared/local-providers` 取"这个服务商
+ * 要不要 Key"。
+ *
+ * 两件事都不能走 `@/providers` 那个桶：桶里静态地引着三个真正的服务商实
+ * 现（OpenAI 兼容、Ollama、LM Studio），而它们各自带着 HTTP 客户端、提
+ * 示词构造和用量记账。内容脚本一个都用不上——它只认识"这个服务商要不要
+ * Key"，请求是 worker 发的——但静态 import 会把这些全都拖进 content.js。
+ *
+ * content.js 是每打开一个网页都要加载一次的东西，拖进来的每一 KB 都是
+ * 每个网页都要付的。
+ */
+import type { ProviderType, TextArea } from '@/providers/base';
+import { providerRequiresApiKey } from '@/shared/local-providers';
 import {
   deriveRequestedPath,
   type JobPriorityClass,
+  type RecordCacheHitMessage,
 } from '@/shared/runtime-contracts';
 import {
+  ensureCacheHydrated,
   useTranslationCacheStore,
   type TranslationResult,
 } from '@/stores/cache-v2';
 import { useContentConfigStore } from '@/stores/content-config';
-import { useUsageStore } from '@/stores/usage-store';
 import {
   processImage,
   cropRegions,
@@ -48,7 +58,10 @@ import {
   getDefaultTranslationTransport,
   type TranslationTransport,
 } from '@/services/translation-transport';
-import { retryWithBackoff } from '@/utils/error-handler';
+import {
+  parseHttpStatusFromMessage,
+  retryWithBackoff,
+} from '@/utils/error-handler';
 import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 import { processInParallel, splitIntoBatches } from '@/utils/image-priority';
@@ -66,6 +79,40 @@ function _log(message: string, ...args: unknown[]): void {
 function _logError(message: string, ...args: unknown[]): void {
   if (isDevelopment) {
     console.error(`[Translator] ${message}`, ...args);
+  }
+}
+
+/**
+ * Clamp a ratio into 0..1.
+ *
+ * A model can return a box that reaches outside the image it was given. When
+ * that box is mapped back onto the original image, the part that hangs over
+ * the edge has to be cut off — otherwise the translation is drawn over the
+ * page's own furniture.
+ */
+function clamp01(value: number): number {
+  if (!Number.isFinite(value)) {
+    return 0;
+  }
+  return Math.max(0, Math.min(1, value));
+}
+
+/**
+ * Tell the worker that an image was served from the cache.
+ *
+ * The record is a statistic, not a bill: a lost one makes the cache-hit
+ * rate a little lower, and nothing else. So a failure here is logged and
+ * swallowed — a translation must not fail because a counter could not be
+ * written.
+ */
+async function reportCacheHit(provider: ProviderType): Promise<void> {
+  try {
+    await chrome.runtime.sendMessage({
+      type: 'RECORD_CACHE_HIT',
+      provider,
+    } satisfies RecordCacheHitMessage);
+  } catch (error) {
+    console.error('[Usage] failed to report a cache hit:', error);
   }
 }
 
@@ -123,6 +170,12 @@ interface TiledTranslationOutcome extends TranslationResult {
 
 interface TransportTextAreasResponse {
   textAreas: TextArea[];
+  /**
+   * Bubbles the model found and translated but gave no box for.
+   *
+   * There is nowhere to draw them, so the caller has to say so.
+   */
+  unplacedCount?: number;
   cached?: boolean;
   pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
   usage?: {
@@ -134,6 +187,26 @@ interface TransportTextAreasResponse {
 
 const HYBRID_PIPELINE_VERSION = 'hybrid-v1';
 const MAX_REASONABLE_REGION_COUNT = 80;
+
+/**
+ * 「这张图确实没有文字」——OCR 跑完了，一个区域都没找到。
+ *
+ * 和「兜底没跑起来」是两件事，`translateRegionsWithHybrid` 的调用方必须
+ * 分得开：
+ *
+ * - 找到零个区域 → 这是一个答案。空结果可以返回、可以写缓存、下次打开
+ *   不用再付一次钱。
+ * - 兜底抛错（语言包下载不到、识别服务挂了）→ 这不是答案。以前两者都走
+ *   「返回空、记成功、写缓存」那一条路，于是用户的页面上一个字都没有，
+ *   HUD 却说「翻译完成 / 成功 12」；更糟的是同一张图下次打开命中缓存，
+ *   再也不会重试。
+ */
+class NoTextDetectedError extends Error {
+  constructor() {
+    super('Hybrid detection found no text regions');
+    this.name = 'NoTextDetectedError';
+  }
+}
 const MAX_ALLOWED_MISSING_RATIO = 0.4;
 
 // ==================== Tiled (sliding-window) pipeline constants ====================
@@ -365,7 +438,8 @@ export class TranslatorService {
   async translateImage(
     image: HTMLImageElement,
     forceRefresh: boolean = false,
-    imageKeyOverride?: string
+    imageKeyOverride?: string,
+    options?: { priorityClass?: JobPriorityClass }
   ): Promise<TranslationResult> {
     if (isDevelopment) {
       _log('开始翻译图片');
@@ -394,17 +468,20 @@ export class TranslatorService {
 
       // 步骤3：检查缓存
       if (this.config.cacheEnabled && !forceRefresh) {
+        // 缓存是从 chrome.storage.local 异步读进来的。在读完之前查缓存，每
+        // 一张图都会得到“没命中”，于是整页重新送去翻译、重新计费 —— 而用户
+        // 什么都没做（自动翻译路径上尤其明显）。
+        await ensureCacheHydrated();
         const cached = useTranslationCacheStore.getState().get(cacheKey);
         if (cached) {
           if (isDevelopment) {
             _log('使用缓存结果, 文字区域数:', cached.textAreas.length);
           }
-          // 如果缓存命中，则使用缓存同时记录 Token 为 0（命中）
-          useUsageStore.getState().addRecord({
-            provider: this.config.provider,
-            usage: { promptTokens: 0, completionTokens: 0, totalTokens: 0 },
-            cached: true,
-          });
+          // 缓存命中：没有请求发出去，也没有 Token 花掉。
+          //
+          // 这条记录由 worker 来写：每个月的合计只有一份才是账，页面自己
+          // 写一份、worker 再写一份，两边的数字就谁也加不出总数来。
+          void reportCacheHit(this.config.provider);
           return cached;
         }
       }
@@ -414,7 +491,11 @@ export class TranslatorService {
       // of an <img>, then marked the whole image processed, leaving the rest
       // untranslated.
       if (image.naturalHeight >= TILING_MIN_HEIGHT) {
-        const result = await this.translateImageTiled(image, forceRefresh);
+        const result = await this.translateImageTiled(
+          image,
+          forceRefresh,
+          options?.priorityClass
+        );
         if (!result.success) {
           if (result.allowFullImageFallback) {
             // 所有切片都失败（例如 CORS 无法取原图）→ 回退整图压缩旧路径
@@ -439,7 +520,28 @@ export class TranslatorService {
           const tiledRealCount = (result.textAreas ?? []).filter(
             area => (area.translatedText ?? '').trim().length > 0
           ).length;
-          if (this.config.cacheEnabled && tiledRealCount > 0) {
+          /*
+           * 一条"整条都没有文字"的条漫也要写缓存。
+           *
+           * 整图路径现在也写"零文字"的缓存了：模型认认真真看过这张图、
+           * 回答说"这里没有文字"，那是一个答案，不是一次失败；把它当成失败
+           * 反复重问，是拿用户的钱去问一个已经问过的问题。（这一段注释以前
+           * 说的是"故意不写"，而代码早就改成了写 —— 一条和代码对着干的
+           * 注释，会让下一个改代码的人把旧行为"恢复"回去。）
+           *
+           * 条漫不一样：它是 N 次请求。不写缓存意味着用户下次打开同一页又要
+           * 付 N 次——而没有文字的那些片还会再被问一次，实际可能翻倍。每一
+           * 片都回答了"这块没有文字"，那是一个答案，不是一次失败；要重来的
+           * 话用户还有「忽略缓存重翻」这个出口。
+           *
+           * `success && textAreas.length === 0` 恰好就是"每一片都回答了、每
+           * 一片都没找到文字"：只要有一片失败，整条走的是失败分支，不会走到
+           * 这里。
+           */
+          const tiledCacheable =
+            result.success &&
+            (tiledRealCount > 0 || (result.textAreas ?? []).length === 0);
+          if (this.config.cacheEnabled && tiledCacheable) {
             useTranslationCacheStore
               .getState()
               .set(cacheKey, result, this.config.provider);
@@ -452,22 +554,31 @@ export class TranslatorService {
         image,
         processed,
         imageKey,
-        forceRefresh
+        forceRefresh,
+        options?.priorityClass
       );
 
-      // 步骤5：写入缓存。质量门：模型返回 success 但零文字区是"假成功"，
-      // 不写缓存，让下一次翻译有机会换路径/拿新结果，而不是永远空白。
-      const realTextCount = (result.textAreas ?? []).filter(
+      // 步骤5：写入缓存。质量门分两种"空"：
+      //
+      // - 找到了文字区，但译文是空的 → 假成功，不写缓存。下次再问一次，
+      //   换个模型或换个提示词也许能拿到。这是整图路径故意的规则。
+      // - 一个文字区都没有 → 模型（和 OCR）看了这张图，回答说"没有文字"。
+      //   这也是一个答案。用户下次打开同一页，不该再付一次钱。
+      //   （条漫路径一直按这个口径写缓存，这里是整图路径跟上它。）
+      const textAreas = result.textAreas ?? [];
+      const realTextCount = textAreas.filter(
         area => (area.translatedText ?? '').trim().length > 0
       ).length;
-      if (this.config.cacheEnabled && result.success && realTextCount > 0) {
+      const answeredNoText = textAreas.length === 0;
+      const cacheable = realTextCount > 0 || answeredNoText;
+      if (this.config.cacheEnabled && result.success && cacheable) {
         if (isDevelopment) {
           _log('存入缓存, 文字区域数:', realTextCount);
         }
         useTranslationCacheStore
           .getState()
           .set(cacheKey, result, this.config.provider);
-      } else if (isDevelopment && result.success && realTextCount === 0) {
+      } else if (isDevelopment && result.success && !cacheable) {
         _logError('翻译成功但无文字区域，跳过缓存（假成功）');
       }
 
@@ -503,6 +614,13 @@ export class TranslatorService {
       pageUrl?: string;
       priorityClass?: JobPriorityClass;
       scope?: 'viewport' | 'page' | 'chapter' | 'manual';
+      /**
+       * The image is a stack of separate crops, not one page.
+       *
+       * The worker carries this to the provider so the prompt describes the
+       * image that was actually sent.
+       */
+      isHybridRegions?: boolean;
     }
   ): Promise<TransportTextAreasResponse> {
     // BackgroundJobQueue dedups by pageKey. The dedup guard exists to stop
@@ -532,14 +650,26 @@ export class TranslatorService {
       pageKey,
       priorityClass: metadata?.priorityClass,
       scope: metadata?.scope,
+      isHybridRegions: metadata?.isHybridRegions,
     });
 
     if (!response.success) {
-      throw new Error(response.error || '翻译请求失败');
+      // The worker flattens the provider's error to a message, so the status
+      // only survives inside the text (as the `[HTTP nnn]` marker). It is
+      // read back here because the status is what tells "the provider
+      // rejected this" from "the provider was still working when we gave up"
+      // — and only the second one is money already spent.
+      const error = new Error(response.error || '翻译请求失败');
+      const status = parseHttpStatusFromMessage(response.error ?? '');
+      if (status !== undefined) {
+        (error as Error & { status?: number }).status = status;
+      }
+      throw error;
     }
 
     return {
       textAreas: (response.textAreas as TextArea[]) || [],
+      unplacedCount: response.unplacedCount,
       cached: response.cached,
       pipeline: response.pipeline,
       usage: response.usage as
@@ -550,6 +680,42 @@ export class TranslatorService {
           }
         | undefined,
     };
+  }
+
+  /**
+   * 发出一次翻译请求。
+   *
+   * 用量**不在这里记** —— 记在 worker 那边（`provider-direct-client.ts`）。
+   *
+   * 记账必须跟着"真的问了一次服务商"走，而这里是唯一能知道这一点的层：它
+   * 的队列会把两个相同的 pageKey 合并成一个 job，两个调用方拿到同一份结
+   * 果，而服务商只被问了一次。在调用方这边记，就会把一次请求算成两次 ——
+   * 把用户没花的钱算成花了。worker 那边记一次，两边就都对了。
+   *
+   * 缓存命中不经过这里，所以它自己的那条记录（`cached: true`）仍然留在
+   * 翻译器里：它不是一次请求，是一次没有发生的请求。
+   */
+  private async sendTranslationRequest(
+    imageBase64: string,
+    mimeType: string,
+    targetLanguage: string,
+    forceRefresh: boolean,
+    metadata?: {
+      imageKey?: string;
+      imageUrl?: string;
+      pageUrl?: string;
+      priorityClass?: JobPriorityClass;
+      scope?: 'viewport' | 'page' | 'chapter' | 'manual';
+      isHybridRegions?: boolean;
+    }
+  ): Promise<TransportTextAreasResponse> {
+    return this.callTranslationTransport(
+      imageBase64,
+      mimeType,
+      targetLanguage,
+      forceRefresh,
+      metadata
+    );
   }
 
   private buildCacheKey(imageHash: string): string {
@@ -609,7 +775,8 @@ export class TranslatorService {
    */
   private async translateImageTiled(
     image: HTMLImageElement,
-    forceRefresh: boolean
+    forceRefresh: boolean,
+    priorityClass?: JobPriorityClass
   ): Promise<TiledTranslationOutcome> {
     const tiles = computeTiles(image.naturalWidth, image.naturalHeight);
     if (tiles.length <= 1) {
@@ -639,7 +806,14 @@ export class TranslatorService {
     const perTileResults = await processInParallel(
       tiles,
       (tile, index) =>
-        this.translateTile(image, tile, index, imageKey, forceRefresh),
+        this.translateTile(
+          image,
+          tile,
+          index,
+          imageKey,
+          forceRefresh,
+          priorityClass
+        ),
       {
         maxConcurrent: parallelLimit,
         signal: this.abortController?.signal,
@@ -674,7 +848,10 @@ export class TranslatorService {
             tile,
             originalIndex,
             `${imageKey}::retry`,
-            forceRefresh
+            forceRefresh,
+            // 重试的那一片和第一次一样急。丢了优先级标记，它就会被当成
+            // 「读者正盯着的那张」，插到人家真正在等的图前面。
+            priorityClass
           );
         },
         {
@@ -758,6 +935,17 @@ export class TranslatorService {
       success: true,
       textAreas: clipped,
       allowFullImageFallback,
+      /*
+       * 这一条没有翻出来的地方。
+       *
+       * 没有回答的切片是"不知道那一片上有什么"；回答了却把译文留空的气泡
+       * 是"知道那儿有字，没给译文"。两种都得说出来：这一条漫画有一截还是
+       * 原文，而这一轮被记成成功。
+       */
+      missingCount:
+        stillUnanswered +
+        clipped.filter(area => (area.translatedText ?? '').trim().length === 0)
+          .length,
     };
   }
 
@@ -770,7 +958,8 @@ export class TranslatorService {
     tile: TileSpec,
     index: number,
     imageKey: string,
-    forceRefresh: boolean
+    forceRefresh: boolean,
+    priorityClass?: JobPriorityClass
   ): Promise<{ areas: TextArea[] } | null> {
     try {
       const processed = await processImage(image, {
@@ -785,19 +974,19 @@ export class TranslatorService {
         },
       });
 
-      let response = await this.callTranslationTransport(
+      let response = await this.sendTranslationRequest(
         processed.base64,
         processed.mimeType,
         this.config.targetLanguage,
         forceRefresh,
         {
           scope: 'page',
+          priorityClass,
           imageKey: `${imageKey}::t${index}`,
           pageUrl:
             typeof window !== 'undefined' ? window.location.href : undefined,
         }
       );
-      this.recordUsage(response.usage);
 
       // Quality gate: a tile that yields no text is suspicious. Retry once
       // (covers transient JSON/parse flakiness) before accepting empty.
@@ -805,19 +994,19 @@ export class TranslatorService {
         area => (area.translatedText ?? '').trim().length > 0
       );
       if (nonEmpty.length === 0 && !forceRefresh) {
-        response = await this.callTranslationTransport(
+        response = await this.sendTranslationRequest(
           processed.base64,
           processed.mimeType,
           this.config.targetLanguage,
           true,
           {
             scope: 'page',
+            priorityClass,
             imageKey: `${imageKey}::t${index}-r`,
             pageUrl:
               typeof window !== 'undefined' ? window.location.href : undefined,
           }
         );
-        this.recordUsage(response.usage);
       }
 
       const mapped = this.mapTextAreasToOriginalImage(
@@ -837,7 +1026,8 @@ export class TranslatorService {
     image: HTMLImageElement,
     processed: Awaited<ReturnType<typeof processImage>>,
     imageKey: string,
-    forceRefresh: boolean
+    forceRefresh: boolean,
+    priorityClass?: JobPriorityClass
   ): Promise<TranslationResult> {
     const appConfig = useContentConfigStore.getState();
     const hybridEnabled =
@@ -849,7 +1039,8 @@ export class TranslatorService {
       try {
         const readingResult = await this.translateRegionsWithHybrid(
           processed,
-          imageKey
+          imageKey,
+          priorityClass
         );
         return {
           success: true,
@@ -858,6 +1049,7 @@ export class TranslatorService {
             processed
           ),
           readingResult,
+          missingCount: readingResult.missingCount,
         };
       } catch (error) {
         if (isDevelopment) {
@@ -876,12 +1068,13 @@ export class TranslatorService {
 
     const fallbackResponse = await retryWithBackoff(
       () =>
-        this.callTranslationTransport(
+        this.sendTranslationRequest(
           fallbackProcessed.base64,
           fallbackProcessed.mimeType,
           this.config.targetLanguage,
           forceRefresh,
           {
+            priorityClass,
             imageKey,
             imageUrl: image.currentSrc || image.src,
             pageUrl: window.location.href,
@@ -890,8 +1083,6 @@ export class TranslatorService {
       2,
       1000
     );
-
-    this.recordUsage(fallbackResponse.usage);
 
     const mappedTextAreas = this.mapTextAreasToOriginalImage(
       fallbackResponse.textAreas,
@@ -914,7 +1105,10 @@ export class TranslatorService {
       try {
         const hybridResult = await this.translateRegionsWithHybrid(
           fallbackProcessed,
-          imageKey
+          imageKey,
+          // 兜底的那次请求和整图那次一样急。丢了优先级标记，它会被当成
+          // 「读者正盯着的那张」，插到人家真正在等的图前面。
+          priorityClass
         );
         const hybridAreas = this.readingEntriesToTextAreas(
           hybridResult.entries,
@@ -925,11 +1119,25 @@ export class TranslatorService {
             success: true,
             textAreas: hybridAreas,
             readingResult: hybridResult,
+            missingCount: hybridResult.missingCount,
           };
         }
       } catch (error) {
         if (isDevelopment) {
           _logError('Tesseract hybrid 兜底也失败:', error);
+        }
+        /*
+         * 只有「OCR 跑完了、确实没有文字」能落到下面那个空结果。
+         *
+         * 兜底自己失败（语言包下不下来、识别服务不通）时，"没有文字"是
+         * 我们**没查出来**的事，不是查出来的结论。以前这里把它吞掉，于是
+         * 一张没翻出东西的图被记成成功、写进缓存 —— 用户花了钱，页面上
+         * 什么都没有，而且下次打开同一页永远不会再问一次。
+         *
+         * 抛出去：上层把它记成失败，重试列表里能看到，缓存也不会写。
+         */
+        if (!(error instanceof NoTextDetectedError)) {
+          throw error;
         }
       }
     }
@@ -938,19 +1146,22 @@ export class TranslatorService {
       mappedTextAreas,
       imageKey,
       fallbackProcessed,
-      'full-image-fallback'
+      'full-image-fallback',
+      fallbackResponse.unplacedCount ?? 0
     );
 
     return {
       success: true,
       textAreas: mappedTextAreas,
       readingResult,
+      missingCount: readingResult.missingCount,
     };
   }
 
   private async translateRegionsWithHybrid(
     processed: Awaited<ReturnType<typeof processImage>>,
-    imageKey: string
+    imageKey: string,
+    priorityClass?: JobPriorityClass
   ): Promise<ImageReadingResult> {
     const dataUrl = base64ToDataUrl(processed.base64, processed.mimeType);
     const detection = await detectTextRegions(dataUrl, {
@@ -958,10 +1169,14 @@ export class TranslatorService {
     });
     const mergedRegions = this.prepareTextRegions(detection.regions);
 
-    if (
-      mergedRegions.length === 0 ||
-      mergedRegions.length > MAX_REASONABLE_REGION_COUNT
-    ) {
+    if (mergedRegions.length === 0) {
+      /*
+       * OCR ran and found nothing. Unlike a failure, that is an answer:
+       * the caller is allowed to return an empty result and cache it.
+       */
+      throw new NoTextDetectedError();
+    }
+    if (mergedRegions.length > MAX_REASONABLE_REGION_COUNT) {
       throw new Error('Hybrid region detection produced unusable results');
     }
 
@@ -979,7 +1194,8 @@ export class TranslatorService {
         batch,
         processed,
         imageKey,
-        order
+        order,
+        priorityClass
       );
       entries.push(...batchEntries);
       order += batch.length;
@@ -994,6 +1210,17 @@ export class TranslatorService {
       imageKey,
       entries: entries.sort((a, b) => a.order - b.order),
       pipeline: 'hybrid-regions',
+      /*
+       * 少翻出来的那几个气泡，要有人说出来。
+       *
+       * OCR 找到了 10 个气泡，模型只翻了 6 个 —— 剩下的 4 个还是原文。
+       * 这一轮以前被记成"成功"：HUD 写着「翻译完成」，弹窗写着「成功 1 张」，
+       * 而读者看到的是一半日文一半中文的页面，还以为是自己看漏了。
+       *
+       * 允许缺的比例（`MAX_ALLOWED_MISSING_RATIO`）是"别因为漏一两个就
+       * 整张作废"的容错，不是"漏了不用告诉用户"的理由。
+       */
+      missingCount: Math.max(0, mergedRegions.length - entries.length),
     };
   }
 
@@ -1021,7 +1248,8 @@ export class TranslatorService {
     regions: TextRegion[],
     processed: Awaited<ReturnType<typeof processImage>>,
     imageKey: string,
-    orderOffset: number
+    orderOffset: number,
+    priorityClass?: JobPriorityClass
   ): Promise<ReadingEntry[]> {
     const croppedImages = await cropRegions(
       imageDataUrl,
@@ -1044,23 +1272,35 @@ export class TranslatorService {
 
     const response = await retryWithBackoff(
       () =>
-        this.callTranslationTransport(
+        this.sendTranslationRequest(
           combined.base64,
           'image/jpeg',
           this.config.targetLanguage,
           false,
           {
+            priorityClass,
             imageKey,
             pageUrl: window.location.href,
+            /*
+             * 这一条路送去的不是一张漫画页，是一叠互不相关的裁剪。
+             *
+             * 以前这里发的是整图那条提示词，而它写着"把一个气泡里的多行
+             * 合并成一个条目"——在一叠裁剪上，模型会把相邻两块当成同一个
+             * 气泡，合成一个大框。译文于是整段盖在其中一块上，另一块什么
+             * 都没有，而这一轮仍然被记成成功。
+             *
+             * 拼图条那条提示词说的就是这张图：块与块之间有分隔线，块里的
+             * 文字和邻居无关，不许跨块合并。
+             */
+            isHybridRegions: true,
           }
         ),
       2,
       1000
     );
 
-    this.recordUsage(response.usage);
-
     const grouped = new Map<number, TextArea[]>();
+    const segmentBySourceIndex = new Map<number, CombinedRegionSegment>();
 
     for (const area of response.textAreas) {
       const segment = this.resolveSegmentForArea(area, combined);
@@ -1068,6 +1308,8 @@ export class TranslatorService {
       if (!segment) {
         continue;
       }
+
+      segmentBySourceIndex.set(segment.sourceIndex, segment);
 
       // Key by the segment's SOURCE index, not its position in the combined
       // image. `combineCroppedRegions` drops crops whose image fails to
@@ -1103,6 +1345,23 @@ export class TranslatorService {
         return;
       }
 
+      // 一个 region 里可能有不止一个文字框——OCR 的框会重叠合并，模型也可能
+      // 把一个气泡拆成几个框。以前这些框的译文被拼成一段，画在一个覆盖整个
+      // region 的方块上：两个气泡挤在一个框里，原文被盖住一半，译文也挤在
+      // 一起。现在每个框各自算回原图坐标，各画各的。
+      const segment = segmentBySourceIndex.get(index);
+      const areas = segment
+        ? matchedAreas.map(area =>
+            this.mapStripAreaToOriginal(
+              area,
+              segment,
+              region,
+              combined,
+              processed
+            )
+          )
+        : [];
+
       const anchorIndex = orderOffset + index + 1;
       entries.push({
         id: createReadingEntryId(imageKey, anchorIndex),
@@ -1115,6 +1374,7 @@ export class TranslatorService {
         confidence: region.confidence,
         order: orderOffset + index,
         status: 'region-vlm',
+        areas,
       });
     });
 
@@ -1143,11 +1403,49 @@ export class TranslatorService {
       return null;
     }
 
+    /*
+     * 没有框的条目不认领。
+     *
+     * 以前这里有一条退路：模型只给编号不给框时，按编号去认块。但编号是模型
+     * 自己编的 —— 拼图条上并没有画编号（`combineCroppedRegions` 只画分隔
+     * 线），模型给的编号和块的顺序对不对得上，全看它怎么数。认错了，一句
+     * 译文就画进了跟它无关的气泡。
+     *
+     * 拼图条是一张真图，位置本来就有，提示词要的就是坐标。没有框的条目一律
+     * 不画，并且已经被解析层记进"没翻出来"的数字里，用户看得见。
+     */
+    if (area.width <= 0 || area.height <= 0) {
+      return null;
+    }
+
+    /*
+     * 按"框和哪一段重叠得最多"来认领，而不是按中心点。
+     *
+     * 中心点会认错：一个跨越了两段的框（模型把相邻两个气泡合成了一个），
+     * 中心点落在哪一段，译文就整段盖在哪一段上。按重叠面积认领，译文至少
+     * 落在它覆盖得最多的那一段上；另一段没有译文，会被算成"没翻出来"，
+     * 用户看得见。
+     */
+    const boxTop = area.y * combined.height;
+    const boxBottom = (area.y + area.height) * combined.height;
+
+    let best: CombinedRegionSegment | null = null;
+    let bestOverlap = 0;
+    for (const segment of segments) {
+      const overlap =
+        Math.min(boxBottom, segment.top + segment.height) -
+        Math.max(boxTop, segment.top);
+      if (overlap > bestOverlap) {
+        bestOverlap = overlap;
+        best = segment;
+      }
+    }
+    if (best) {
+      return best;
+    }
+
     const centerY = (area.y + area.height / 2) * combined.height;
-    const byPosition = segments.find(
-      item => centerY >= item.top && centerY <= item.top + item.height
-    );
-    return byPosition ?? this.findNearestSegment(centerY, segments);
+    return this.findNearestSegment(centerY, segments);
   }
 
   private findNearestSegment(
@@ -1167,21 +1465,6 @@ export class TranslatorService {
     }
 
     return nearest;
-  }
-
-  private recordUsage(
-    usage:
-      | { promptTokens: number; completionTokens: number; totalTokens: number }
-      | undefined
-  ): void {
-    if (!usage) {
-      return;
-    }
-    useUsageStore.getState().addRecord({
-      provider: this.config.provider,
-      usage,
-      cached: false,
-    });
   }
 
   private mapTextAreasToOriginalImage(
@@ -1217,7 +1500,7 @@ export class TranslatorService {
   }
 
   private toOriginalRegion(
-    region: TextRegion,
+    region: { x: number; y: number; width: number; height: number },
     processed: Awaited<ReturnType<typeof processImage>>
   ): { x: number; y: number; width: number; height: number } {
     const xRatio = region.x / processed.width;
@@ -1238,7 +1521,8 @@ export class TranslatorService {
     textAreas: TextArea[],
     imageKey: string,
     processed: Awaited<ReturnType<typeof processImage>>,
-    pipeline: 'hybrid-regions' | 'full-image-fallback'
+    pipeline: 'hybrid-regions' | 'full-image-fallback',
+    unplacedCount: number = 0
   ): ImageReadingResult {
     const entries = [...textAreas]
       .sort((left, right) => {
@@ -1274,6 +1558,21 @@ export class TranslatorService {
       imageKey,
       entries,
       pipeline,
+      /*
+       * 找到了却没翻出来的气泡。
+       *
+       * 模型把一个气泡的 `translatedText` 留空，是"我看见了这个气泡，但
+       * 没给出译文"。页面上那个气泡还是原文，而这一轮被记成成功 —— 读者
+       * 只看到「翻译完成」，只当自己看漏了。数字要跟着结果一起上去。
+       *
+       * `unplacedCount` 是另一种"没翻出来"：模型给了译文，却没有给出框，
+       * 于是没有地方可以画。页面上的气泡比模型找到的少 —— 差的这几个也
+       * 还在原文里，同样要说出来。
+       */
+      missingCount:
+        textAreas.filter(
+          area => (area.translatedText ?? '').trim().length === 0
+        ).length + unplacedCount,
     };
   }
 
@@ -1281,14 +1580,100 @@ export class TranslatorService {
     entries: ReadingEntry[],
     processed: Awaited<ReturnType<typeof processImage>>
   ): TextArea[] {
-    return entries.map(entry => ({
-      x: entry.sourceRegion.x / processed.originalWidth,
-      y: entry.sourceRegion.y / processed.originalHeight,
-      width: entry.sourceRegion.width / processed.originalWidth,
-      height: entry.sourceRegion.height / processed.originalHeight,
-      originalText: entry.originalText,
-      translatedText: entry.translatedText,
-    }));
+    return entries.flatMap(entry => {
+      // A region that holds several text boxes keeps them apart, each with
+      // its own box on the original image.
+      if (entry.areas && entry.areas.length > 0) {
+        return entry.areas;
+      }
+
+      return [
+        {
+          x: entry.sourceRegion.x / processed.originalWidth,
+          y: entry.sourceRegion.y / processed.originalHeight,
+          width: entry.sourceRegion.width / processed.originalWidth,
+          height: entry.sourceRegion.height / processed.originalHeight,
+          originalText: entry.originalText,
+          translatedText: entry.translatedText,
+        },
+      ];
+    });
+  }
+
+  /**
+   * Map a box the model found inside the combined strip back onto the
+   * original image.
+   *
+   * The strip is a vertical stack of the cropped regions, drawn 1:1 — no
+   * scaling — so a box in the strip is the same number of pixels as in the
+   * crop it came from. The way back is therefore: strip pixels → pixels
+   * inside the crop (subtract the crop's offset in the strip) → pixels in
+   * the processed image (add the region's origin) → pixels in the original
+   * image (undo the compression and the viewport crop).
+   */
+  private mapStripAreaToOriginal(
+    area: TextArea,
+    segment: CombinedRegionSegment,
+    region: TextRegion,
+    combined: { width: number; height: number },
+    processed: Awaited<ReturnType<typeof processImage>>
+  ): TextArea {
+    const left = typeof segment.left === 'number' ? segment.left : 0;
+    const cropWidth =
+      typeof segment.width === 'number' && segment.width > 0
+        ? segment.width
+        : region.width;
+    const cropHeight =
+      typeof segment.height === 'number' && segment.height > 0
+        ? segment.height
+        : region.height;
+
+    const stripX = area.x * combined.width;
+    const stripY = area.y * combined.height;
+
+    /*
+     * 模型只给了编号、没给框的时候，这一块就是它自己的地盘。
+     *
+     * 以前这里会把 0 当成框的位置，于是译文被画成零尺寸 —— 看不见，
+     * 而那一块还留着原文。整块作为框，是诚实的答案：这一块里有多少字，
+     * 译文就盖多少。
+     */
+    if (area.width <= 0 || area.height <= 0) {
+      const original = this.toOriginalRegion(region, processed);
+      return {
+        x: original.x / processed.originalWidth,
+        y: original.y / processed.originalHeight,
+        width: original.width / processed.originalWidth,
+        height: original.height / processed.originalHeight,
+        originalText: area.originalText,
+        translatedText: area.translatedText,
+      };
+    }
+
+    // Where the box sits inside its own crop, as a fraction.
+    const relX = clamp01((stripX - left) / cropWidth);
+    const relY = clamp01((stripY - segment.top) / cropHeight);
+    const relWidth = clamp01((area.width * combined.width) / cropWidth);
+    const relHeight = clamp01((area.height * combined.height) / cropHeight);
+
+    const original = this.toOriginalRegion(
+      {
+        x: region.x + relX * cropWidth,
+        y: region.y + relY * cropHeight,
+        width: relWidth * cropWidth,
+        height: relHeight * cropHeight,
+      },
+      processed
+    );
+
+    return {
+      x: original.x / processed.originalWidth,
+      y: original.y / processed.originalHeight,
+      width: original.width / processed.originalWidth,
+      height: original.height / processed.originalHeight,
+      originalText: area.originalText,
+      translatedText: area.translatedText,
+    };
   }
 
   /**
