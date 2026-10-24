@@ -39,6 +39,8 @@ interface ChromeHarness {
   sendMessageSpy: ReturnType<typeof vi.fn>;
   contextMenusCreateSpy: ReturnType<typeof vi.fn>;
   contextMenusRemoveAllSpy: ReturnType<typeof vi.fn>;
+  alarmsCreateSpy: ReturnType<typeof vi.fn>;
+  alarmsClearSpy: ReturnType<typeof vi.fn>;
   sendToMessage: (
     request: unknown,
     sender: SenderFields
@@ -62,6 +64,8 @@ function installChromeMock(): ChromeHarness {
   const sendMessageSpy = vi.fn(async () => undefined);
   const contextMenusCreateSpy = vi.fn();
   const contextMenusRemoveAllSpy = vi.fn();
+  const alarmsCreateSpy = vi.fn();
+  const alarmsClearSpy = vi.fn();
 
   const chromeMock = {
     runtime: {
@@ -127,8 +131,8 @@ function installChromeMock(): ChromeHarness {
       },
     },
     alarms: {
-      create: vi.fn(),
-      clear: vi.fn(),
+      create: alarmsCreateSpy,
+      clear: alarmsClearSpy,
       onAlarm: { addListener: (l: Listener) => onAlarm.push(l) },
     },
     commands: {
@@ -163,6 +167,8 @@ function installChromeMock(): ChromeHarness {
     sendMessageSpy,
     contextMenusCreateSpy,
     contextMenusRemoveAllSpy,
+    alarmsCreateSpy,
+    alarmsClearSpy,
     localStore,
     syncStore,
     sendToMessage: (request, sender) =>
@@ -192,6 +198,29 @@ async function loadWorker(): Promise<void> {
   await import('./background');
   // The module kicks off a getConfig() chain at import time.
   await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+/**
+ * Poll until `predicate` holds, or fail with what was being waited for.
+ *
+ * The queue starts jobs from a timer (it spaces request starts), so a test
+ * that asserted immediately after sending would be asserting before the work
+ * had a chance to start. Polling keeps the test about the outcome rather than
+ * about how many ticks the queue happens to need.
+ */
+async function waitFor(
+  predicate: () => boolean,
+  description: string,
+  timeoutMs = 5000
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (predicate()) {
+      return;
+    }
+    await new Promise(resolve => setTimeout(resolve, 20));
+  }
+  throw new Error(`timed out waiting for: ${description}`);
 }
 
 describe('service worker message authorisation', () => {
@@ -750,65 +779,156 @@ describe('service worker keepalive and queue sync', () => {
     harness = installChromeMock();
   });
 
-  it('drives the keepalive from storage changes and clears it when disabled', async () => {
-    await loadWorker();
+  /**
+   * Fire the storage-change listeners the worker registered.
+   *
+   * The worker registers three of them (keepalive, queue limit, config
+   * broadcast) and the real Chrome fires all three for one write, so a test
+   * that fires only one would be testing a shape the browser never produces.
+   */
+  function fireConfigChange(state: Record<string, unknown>): void {
+    for (const listener of harness.storageChanged) {
+      listener(
+        {
+          'manga-translator-config-v2': {
+            newValue: { state },
+          },
+        },
+        'local'
+      );
+    }
+  }
 
-    harness.localStore['manga-translator-config-v2'] = {
-      state: { enabled: true },
+  function jobRequest(): Record<string, unknown> {
+    return {
+      type: 'JOB_TRANSLATE_IMAGE',
+      jobId: 'job-1',
+      pageKey: 'page-1',
+      scope: 'page',
+      priorityClass: 'visible-now',
+      imageBase64: 'AAAA',
+      mimeType: 'image/png',
+      imageUrl: 'https://cdn.example/ch1/p01.jpg',
+      sourcePageUrl: 'https://manga.example/ch1',
+      targetLanguage: 'zh-CN',
+      translationStylePreset: 'natural-zh',
     };
-    // Trigger the storage-change listener the worker registered.
-    for (const listener of harness.storageChanged) {
-      listener(
-        {
-          'manga-translator-config-v2': {
-            newValue: { state: { enabled: true } },
-          },
-        },
-        'local'
-      );
-    }
-    expect(harness.localStore['manga-translator-config-v2']).toBeTruthy();
+  }
 
-    for (const listener of harness.storageChanged) {
-      listener(
-        {
-          'manga-translator-config-v2': {
-            newValue: { state: { enabled: false } },
-          },
-        },
-        'local'
-      );
-    }
+  it('creates the keepalive alarm when translation is switched on and clears it when switched off', async () => {
+    await loadWorker();
+    // Import time reads the stored config, which starts empty here. Clear the
+    // record so the assertions below are about the storage listener alone.
+    harness.alarmsCreateSpy.mockClear();
+    harness.alarmsClearSpy.mockClear();
+
+    fireConfigChange({ enabled: true });
+
+    // 0.5 is Chrome's documented floor for `periodInMinutes`; anything
+    // smaller is silently clamped, so an authored value below it describes a
+    // cadence the browser will never deliver.
+    expect(harness.alarmsCreateSpy).toHaveBeenCalledWith(
+      'manga-translator-keepalive',
+      { periodInMinutes: 0.5, delayInMinutes: 0.5 }
+    );
+
+    fireConfigChange({ enabled: false });
+
+    expect(harness.alarmsClearSpy).toHaveBeenCalledWith(
+      'manga-translator-keepalive'
+    );
   });
 
-  it('syncs the queue limit from a storage change', async () => {
+  it('leaves the alarm alone for a storage write that does not touch the config', async () => {
+    // The cache and the usage ledger share `chrome.storage.local` with the
+    // config, and a translation writes to them on every image. Re-arming the
+    // alarm (or clearing it) on those writes would make the keepalive track
+    // the cache rather than the switch.
     await loadWorker();
+    harness.alarmsCreateSpy.mockClear();
+    harness.alarmsClearSpy.mockClear();
+
+    for (const listener of harness.storageChanged) {
+      listener({ 'manga-translator-cache-v2': { newValue: {} } }, 'local');
+      // The sync area is not where the config lives any more.
+      listener(
+        { 'manga-translator-config-v2': { newValue: { state: {} } } },
+        'sync'
+      );
+    }
+
+    expect(harness.alarmsCreateSpy).not.toHaveBeenCalled();
+    expect(harness.alarmsClearSpy).not.toHaveBeenCalled();
+  });
+
+  it('starts queued work when the concurrency limit is raised in settings', async () => {
+    // The queue's limit is read from `chrome.storage` and the reader can
+    // change it while a chapter is queued. `updateMaxConcurrent` drains, so
+    // raising the limit has to start waiting jobs immediately rather than at
+    // the next completion — otherwise the setting only takes effect on the
+    // next page, which is not what the settings page says.
+    //
+    // Observed at the only place that can tell the truth about concurrency:
+    // how many provider calls are in flight at once.
+    const started: string[] = [];
+    const gates: Array<() => void> = [];
+    vi.doMock('./provider-direct-client', () => ({
+      translateImageViaProviderDirect: vi.fn(
+        (job: { imageBase64: string }) =>
+          new Promise(resolve => {
+            started.push(job.imageBase64);
+            gates.push(() => resolve({ success: true, textAreas: [] }));
+          })
+      ),
+    }));
 
     harness.localStore['manga-translator-config-v2'] = {
-      state: { parallelLimit: 3 },
+      state: {
+        enabled: true,
+        parallelLimit: 1,
+        provider: 'ollama',
+        ollama: { baseUrl: 'http://localhost:11434', model: 'llava' },
+      },
     };
-    for (const listener of harness.storageChanged) {
-      listener(
-        {
-          'manga-translator-config-v2': {
-            newValue: { state: { parallelLimit: 3 } },
-          },
-        },
-        'local'
-      );
+    await loadWorker();
+
+    const send = (jobId: string, pageKey: string, image: string): void => {
+      void harness
+        .sendToMessage(
+          { ...jobRequest(), jobId, pageKey, imageBase64: image },
+          {
+            id: EXTENSION_ID,
+            tab: { id: 42, url: 'https://manga.example/ch1' },
+          }
+        )
+        .catch(() => undefined);
+    };
+
+    send('job-a', 'page-a', 'A');
+    await waitFor(() => started.length === 1, 'the first job never started');
+
+    send('job-b', 'page-b', 'B');
+    // Long enough for the queue's 500 ms spacing between request starts: if
+    // the limit were not being honoured, B would have started by now.
+    await new Promise(resolve => setTimeout(resolve, 700));
+    expect(started).toEqual(['A']);
+
+    fireConfigChange({
+      enabled: true,
+      parallelLimit: 2,
+      provider: 'ollama',
+      ollama: { baseUrl: 'http://localhost:11434', model: 'llava' },
+    });
+    await waitFor(
+      () => started.length === 2,
+      'raising the limit did not start the queued job'
+    );
+    expect(started).toEqual(['A', 'B']);
+
+    for (const release of gates) {
+      release();
     }
-    // The queue mutation happens behind the mock; the assertion is that the
-    // listener path did not throw for envelope, flat, or invalid shapes.
-    for (const listener of harness.storageChanged) {
-      listener(
-        {
-          'manga-translator-config-v2': { newValue: {} },
-        },
-        'local'
-      );
-      listener({}, 'sync');
-    }
-    expect(true).toBe(true);
+    vi.doUnmock('./provider-direct-client');
   });
 
   it('READY from an allowlisted tab requests auto-translation', async () => {

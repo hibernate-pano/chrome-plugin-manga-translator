@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The release smoke test no longer passes when the content script is
+  dead.** It drives a real Chrome against a `file://` page, which only
+  reaches the content script when the extension may load file URLs. A
+  refused message was counted as a pass on the reasoning that the browser
+  must have blocked the page — so a build whose content script never
+  answered still cleared the gate whenever that was true. The worker is now
+  asked whether file access is on: a refusal with access enabled is a
+  failure, and a refusal without it is reported as unverified rather than as
+  a pass.
+- **The keepalive and the concurrency hot-update are covered.** The test
+  that was supposed to cover both ended in `expect(true).toBe(true)`, so
+  neither had a single assertion behind it. There are now tests for the
+  alarm being created when translation is switched on and cleared when it is
+  switched off, for a cache or usage write leaving the alarm alone, and for
+  raising the concurrency limit in Settings starting the queued work
+  immediately instead of on the next page.
+- **A promise in the store listing can no longer be backed by a comment.**
+  The claims guard searched the file for the anchor's name, so deleting the
+  code and leaving a comment that mentions it kept the guard green. Anchors
+  are now checked against the code with comments removed. Two existing
+  anchors were exactly that shape and now point at what actually backs the
+  promise: the OCR language data comes from jsdelivr because `langPath` is
+  never assigned, which the new `!symbol` form states directly.
 - **A small box no longer swallows a whole block of text.** The pixel
   refiner snaps the model's box onto the ink it finds on the page. When
   the ink surrounded the model's box, the check that is supposed to keep

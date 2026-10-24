@@ -136,6 +136,145 @@ describe('store claims guard', () => {
     }
   });
 
+  it('fails when the symbol behind a promise survives only in a comment', () => {
+    // The shape this guard missed: the class is gone, and a comment still
+    // names it. A text search finds the name and calls the promise supported;
+    // the user gets a feature the listing promised and the code does not have.
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        [
+          '// OverlayRenderer used to live here; it was folded into the page.',
+          'export function somethingElse() {}',
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('lost its code support');
+      expect(result.output).toContain('OverlayRenderer');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('still finds a symbol that sits below a string literal containing a URL', () => {
+    // The scanner has to know it is inside a string, or the `//` in a URL
+    // reads as the start of a comment and everything after it on that line —
+    // including real code — disappears before the anchor is checked. Every
+    // file in this project holds URLs, so that failure mode would report
+    // anchors as missing that are plainly there. A false alarm is as damaging
+    // as a missed one: it teaches the team to ignore the guard.
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        [
+          "const ENDPOINT = 'https://api.example.com/v1'; export class OverlayRenderer { render() {} }",
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain('promise(s) verified');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not mistake a regex literal containing slashes for a comment', () => {
+    // `//` and `/*` cannot appear unescaped inside a regex literal, but the
+    // scanner has to actually get that right: `stripComments` treats `/` as
+    // the start of a comment, and a file full of URL-matching regexes must
+    // not lose the code that follows them.
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        [
+          'const PROTOCOL = /^https?:\\/\\//;',
+          'const BLOCK = /\\/\\*+/;',
+          'export class OverlayRenderer {}',
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain('promise(s) verified');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a symbol a promise rests on being absent is assigned', () => {
+    // `!symbol` anchors a promise about an absence — the OCR language data
+    // comes from jsdelivr because `langPath` is never set. If someone sets it,
+    // the request goes somewhere else and the listing says the wrong thing.
+    const workdir = makeWorkdir({
+      claims: CLAIMS_DOC.replace(
+        '`src/services/renderer.ts:OverlayRenderer`',
+        '`src/services/renderer.ts:!langPath`'
+      ),
+    });
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        'const options = { langPath: "https://example.com" };\n'
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('rests on its absence');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts an absence anchor while the symbol really is absent', () => {
+    const workdir = makeWorkdir({
+      claims: CLAIMS_DOC.replace(
+        '`src/services/renderer.ts:OverlayRenderer`',
+        '`src/services/renderer.ts:!langPath`'
+      ),
+    });
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        '// langPath is deliberately not set.\nexport class OverlayRenderer {}\n'
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain('promise(s) verified');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the symbol was renamed to something that merely contains it', () => {
+    // A rename keeps the old name as a substring often enough to matter —
+    // `OverlayRenderer` → `OverlayRendererFactory` — and a plain substring
+    // search would report the promise as still supported by a symbol that no
+    // longer exists under that name.
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        'export class OverlayRendererFactory {}\n'
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('lost its code support');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
   it('fails when the file behind a promise no longer exists', () => {
     const workdir = makeWorkdir();
     try {

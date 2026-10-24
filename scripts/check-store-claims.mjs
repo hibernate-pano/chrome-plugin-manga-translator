@@ -67,6 +67,99 @@ function normalizeWhitespace(text) {
 }
 
 /**
+ * Remove comments, keeping everything else — string literals included.
+ *
+ * An anchor is a claim that the *code* does the thing, and a name that
+ * survives only in a comment is exactly the failure this guard is supposed to
+ * catch: delete `refineTextBox`, leave the comment that mentions it, and the
+ * promise looks supported while nothing implements it. So the check runs
+ * against the code, not against the file's prose.
+ *
+ * String literals are kept because many promises are backed by a value rather
+ * than a symbol — a default endpoint, a CSS colour, a manifest key — and those
+ * live inside quotes.
+ *
+ * Regex literals need no special handling: an unescaped `//` or `/*` cannot
+ * occur inside one (it would end the literal and leave a syntax error), and
+ * the escaped forms `\/\/` and `\/\*` are not adjacent, so they never look
+ * like a comment to this scanner.
+ */
+function stripComments(source) {
+  let out = '';
+  let index = 0;
+  let state = 'code';
+  let quote = '';
+
+  while (index < source.length) {
+    const char = source[index];
+    const next = source[index + 1];
+
+    if (state === 'code') {
+      if (char === '/' && next === '/') {
+        state = 'line';
+        index += 2;
+        continue;
+      }
+      if (char === '/' && next === '*') {
+        state = 'block';
+        index += 2;
+        continue;
+      }
+      if (char === "'" || char === '"' || char === '`') {
+        state = 'string';
+        quote = char;
+        out += char;
+        index += 1;
+        continue;
+      }
+      out += char;
+      index += 1;
+      continue;
+    }
+
+    if (state === 'line') {
+      // The newline is kept so line numbers and token boundaries survive.
+      if (char === '\n') {
+        state = 'code';
+        out += char;
+      }
+      index += 1;
+      continue;
+    }
+
+    if (state === 'block') {
+      if (char === '*' && next === '/') {
+        state = 'code';
+        index += 2;
+        continue;
+      }
+      if (char === '\n') {
+        out += char;
+      }
+      index += 1;
+      continue;
+    }
+
+    // state === 'string'
+    if (char === '\\') {
+      out += char + (next ?? '');
+      index += 2;
+      continue;
+    }
+    if (char === quote) {
+      state = 'code';
+      out += char;
+      index += 1;
+      continue;
+    }
+    out += char;
+    index += 1;
+  }
+
+  return out;
+}
+
+/**
  * Does `token` appear in `source` as a standalone token?
  *
  * An identifier has to match on identifier boundaries: `thinking` must not be
@@ -87,15 +180,23 @@ function tokenPresent(source, token) {
 /**
  * Does the anchor still point at something real?
  *
- * `path:symbol` — the file must exist and the symbol must still be in it.
- * `path:123`   — the file must exist and still have that many lines.
+ * `path:symbol`  — the file must exist and the symbol must still be in its
+ *                  code (not merely in a comment).
+ * `path:!symbol` — the symbol must NOT be in its code. Some promises rest on
+ *                  an absence: the OCR language data comes from jsdelivr
+ *                  precisely because `langPath` is never assigned. An absence
+ *                  cannot be anchored any other way, and without this form
+ *                  the only anchor available for such a promise would be the
+ *                  comment explaining it — which is the defect this guard
+ *                  exists to prevent.
+ * `path:123`     — the file must exist and still have that many lines.
  */
 function checkAnchor(anchor) {
   const separator = anchor.indexOf(':');
   if (separator <= 0 || separator === anchor.length - 1) {
     return {
       ok: false,
-      reason: `anchor "${anchor}" is malformed (expected path:symbol or path:line)`,
+      reason: `anchor "${anchor}" is malformed (expected path:symbol, path:!symbol or path:line)`,
     };
   }
 
@@ -121,10 +222,29 @@ function checkAnchor(anchor) {
     return { ok: true };
   }
 
-  if (!tokenPresent(source, token)) {
+  const code = stripComments(source);
+
+  if (token.startsWith('!')) {
+    const absent = token.slice(1);
+    if (!absent) {
+      return {
+        ok: false,
+        reason: `anchor "${anchor}" has no symbol after "!"`,
+      };
+    }
+    if (tokenPresent(code, absent)) {
+      return {
+        ok: false,
+        reason: `"${absent}" is assigned in "${relativePath}", but the promise rests on its absence`,
+      };
+    }
+    return { ok: true };
+  }
+
+  if (!tokenPresent(code, token)) {
     return {
       ok: false,
-      reason: `"${token}" no longer appears in "${relativePath}"`,
+      reason: `"${token}" no longer appears in the code of "${relativePath}"`,
     };
   }
   return { ok: true };

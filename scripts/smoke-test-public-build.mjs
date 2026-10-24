@@ -38,6 +38,7 @@ import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Cdp, sleep } from './lib/cdp.mjs';
+import { judgeContentScript } from './lib/smoke-verdicts.mjs';
 import { scanTree } from './credential-scan.mjs';
 
 const repoRoot = path.resolve(
@@ -440,17 +441,20 @@ async function main() {
            .then(r => r && r.state ? 'answered' : 'silent')
            .catch(() => 'refused')`
       );
-      // A file:// page needs "allow access to file URLs"; the point of this
-      // check is that the content script is registered and answering, and a
-      // refused message on a file:// page would be the browser's policy, not
-      // the extension's. So a refusal is reported as such, not as a pass.
-      check(
-        'the content script answers on a page',
-        state === 'answered' || state === 'refused',
-        state === 'refused'
-          ? 'the browser blocked the file:// page (allow access to file URLs is off)'
-          : ''
+      // A file:// page only reaches the content script when the extension has
+      // "allow access to file URLs" turned on, so a refusal has two very
+      // different causes: the browser blocked the page, or the content script
+      // is dead. The worker knows which, so ask it — a check that could not
+      // be run has to say so rather than quietly count as a pass.
+      const fileAccessAllowed = await evaluateInWorker(
+        cdp,
+        workerSession,
+        `chrome.extension.isAllowedFileSchemeAccess()
+           .then(allowed => allowed === true)
+           .catch(() => false)`
       );
+      const verdict = judgeContentScript(state, fileAccessAllowed === true);
+      check('the content script answers on a page', verdict.ok, verdict.detail);
     }
   } finally {
     await cleanup();
