@@ -785,3 +785,95 @@ describe('usage store across tabs', () => {
     expect(summary.tokens).toBe(2);
   });
 });
+
+describe('usage store across contexts', () => {
+  beforeEach(async () => {
+    useUsageStore.getState().clearAll();
+    await flushStorage();
+  });
+
+  it('does not let a context that loaded the history earlier shrink the bill', async () => {
+    /*
+     * The settings page is another context. It loads the history first, so
+     * its own view of the month is older than the worker's.
+     */
+    vi.resetModules();
+    const other = (await import('./usage-store')).useUsageStore;
+    await other.persist.rehydrate();
+    await flushStorage();
+
+    /*
+     * The worker counts a translation: 120 tokens.
+     */
+    useUsageStore.getState().addRecord({
+      provider: 'openai-compatible',
+      usage: { promptTokens: 60, completionTokens: 60, totalTokens: 120 },
+      cached: false,
+    });
+    await flushStorage();
+
+    expect(
+      summarizeUsageForMonth(useUsageStore.getState().records).tokens
+    ).toBe(120);
+
+    /*
+     * The settings page counts a call of its own, on top of what it knows.
+     * It does not know about the worker's call: its history was loaded
+     * before that one was recorded.
+     */
+    other.getState().addRecord({
+      provider: 'openai-compatible',
+      usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+      cached: false,
+    });
+    await flushStorage();
+
+    /*
+     * Both counts have to be in the bill. The old behaviour kept whichever
+     * copy of the month's running total was newer, so the settings page's
+     * smaller view replaced the worker's — the user's bill went *down*, and
+     * the calls it dropped were gone for good.
+     */
+    const stored = await readStoredSnapshot();
+    expect(summarizeUsageForMonth(stored.records).tokens).toBe(130);
+    expect(summarizeUsageForMonth(stored.records).billableCalls).toBe(2);
+  });
+
+  it('keeps one running total for the month, not one per restart', async () => {
+    /*
+     * The worker is torn down and comes back every half minute. Each start
+     * is a new process, but it is the *same* writer: the month must not
+     * collect one running total per restart.
+     */
+    vi.stubGlobal('window', undefined);
+    try {
+      vi.resetModules();
+      const first = (await import('./usage-store')).useUsageStore;
+      first.getState().addRecord({
+        provider: 'openai-compatible',
+        usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+        cached: false,
+      });
+      await flushStorage();
+
+      vi.resetModules();
+      const second = (await import('./usage-store')).useUsageStore;
+      await second.persist.rehydrate();
+      second.getState().addRecord({
+        provider: 'openai-compatible',
+        usage: { promptTokens: 5, completionTokens: 5, totalTokens: 10 },
+        cached: false,
+      });
+      await flushStorage();
+
+      const stored = await readStoredSnapshot();
+      const accumulators = stored.records.filter(
+        item => item.accumulator !== undefined
+      );
+      expect(accumulators).toHaveLength(1);
+      expect(summarizeUsageForMonth(stored.records).tokens).toBe(20);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+});

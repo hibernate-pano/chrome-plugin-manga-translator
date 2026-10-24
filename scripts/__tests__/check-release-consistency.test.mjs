@@ -379,6 +379,93 @@ describe('release consistency guard: the credential boundary', () => {
     }
   });
 
+  it('fails when the import carries a default binding next to a type-only one', () => {
+    const workdir = makeWorkdir();
+    try {
+      /*
+       * `import credentials, { type ProviderType } from '...'` is a runtime
+       * dependency: the default binding survives the compile. A scanner that
+       * reads "every name in the braces starts with `type`" and stops there
+       * would call this one type-only and let the key through.
+       */
+      writeFileSync(
+        join(workdir, 'src', 'content', 'content.ts'),
+        [
+          "import credentials, { type ProviderType } from '@/shared/env-credentials.generated';",
+          'export const key = credentials.minimax.apiKey;',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('can reach the credential module');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the import is indented', () => {
+    const workdir = makeWorkdir();
+    try {
+      /*
+       * An import that is not at the start of the line is still an import.
+       * A scanner that anchors its pattern to the beginning of the line
+       * never sees it.
+       */
+      writeFileSync(
+        join(workdir, 'src', 'content', 'content.ts'),
+        [
+          "  import { ENV_CREDENTIALS } from '@/shared/env-credentials.generated';",
+          'export const key = ENV_CREDENTIALS.minimax.apiKey;',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('can reach the credential module');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('checks the source graph only after the credential files are generated', () => {
+    /*
+     * The credential module is generated, not committed: a clean checkout
+     * does not have it. If the source-level check runs before the
+     * generation, the module is not on disk, the import graph cannot reach
+     * it, and the first gate of the credential boundary passes without
+     * looking. The artifact gate still catches a real key, but the source
+     * gate is the one that stops the mistake before anything is written.
+     */
+    const repoRoot = resolve(
+      dirname(fileURLToPath(import.meta.url)),
+      '..',
+      '..'
+    );
+    const pkg = JSON.parse(
+      readFileSync(join(repoRoot, 'package.json'), 'utf8')
+    );
+
+    for (const script of ['build', 'build:public']) {
+      const command = pkg.scripts[script];
+      const generated = command.indexOf('inject-env-config.mjs');
+      const checked = command.indexOf(
+        'check-release-consistency.mjs --source-only'
+      );
+      expect(
+        generated,
+        `${script} generates the credential files`
+      ).toBeGreaterThan(-1);
+      expect(checked, `${script} runs the source-level check`).toBeGreaterThan(
+        -1
+      );
+      expect(
+        generated,
+        `${script} checks the source graph after the generation`
+      ).toBeLessThan(checked);
+    }
+  });
+
   it('fails when the content script reaches the key through a shared module', () => {
     const workdir = makeWorkdir();
     try {

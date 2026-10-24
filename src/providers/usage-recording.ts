@@ -27,8 +27,11 @@ import type { ProviderType, TokenUsageInfo } from './base';
  * - **A 2xx that carries a *model answer* is recorded**, even when the
  *   answer cannot be read — an empty body, a truncated body, prose where
  *   JSON was asked for. The model ran and the tokens were spent.
- * - **A 408 is recorded** by the worker, which is the layer that can tell
- *   an abandoned request from a refusal.
+ * - **A 408 is recorded** when the request ran a model: the provider may
+ *   well have run it and answered too late for us to hear, and the user
+ *   paid for it whether or not we ever saw the answer. A 408 on a request
+ *   that never ran a model — listing the models a gateway has — is not
+ *   recorded: there was nothing to run and nothing to pay for.
  * - **A network error is not recorded.** The client cannot tell a connection
  *   that died before the request was sent (a DNS failure, a refused port)
  *   from one that died after the provider had already run the model. Not

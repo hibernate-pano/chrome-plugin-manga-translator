@@ -185,6 +185,13 @@ source import graph (`checkCredentialBoundary`) and once on the built bytes
 `@/stores/config-v2` from a content script is the same bug in a different
 shape: the persist middleware deobfuscates the key at module evaluation.
 
+The source gate can only see the credential module if that module exists, and
+it is generated: `scripts/inject-env-config.mjs` writes it. So `--source-only`
+must run **after** the injection, or the gate walks an empty graph in a clean
+checkout and reports a green light it did not earn. A test in
+`scripts/__tests__/check-release-consistency.test.mjs` reads `package.json` and
+asserts that order, in both `build` and `build:public`.
+
 ### Component Patterns
 
 - **UI components**: shadcn/ui style lives in `src/components/ui/`. Only keep

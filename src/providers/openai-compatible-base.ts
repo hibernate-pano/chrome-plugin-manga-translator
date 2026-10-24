@@ -332,20 +332,17 @@ export abstract class OpenAICompatibleProvider
 
     if (response.status === 408 || response.status === 0) {
       /*
-       * A 408 is an abandoned request: the provider had it, and the model
-       * may well have run. The usage rule counts it, because the user paid
-       * for it. The probe is a real completion, so it counts the same way a
-       * translation does.
+       * This was a listing, not a completion. The gateway was asked which
+       * models it has; no model ran, so there is nothing to bill — a
+       * timeout here is a request the provider never ran a model for.
        *
-       * A network error (status 0) is not recorded: the client cannot tell
-       * a connection that died before the request was sent from one that
-       * died after the provider had already run the model. Counting it would
-       * over-report; not counting it under-reports in the rare case. The
-       * rule is written down in `usage-recording.ts` for the same reason.
+       * A network error (status 0) is not recorded either: the client
+       * cannot tell a connection that died before the request was sent from
+       * one that died after the provider had already run the model.
+       * Counting it would over-report; not counting it under-reports in the
+       * rare case. The rule is written down in `usage-recording.ts` for the
+       * same reason.
        */
-      if (response.status === 408) {
-        recordBilledRequest(this.type, null);
-      }
       return {
         valid: false,
         message: `无法连接 ${this.config.baseUrl}：${response.error ?? '网络错误'}`,
@@ -410,6 +407,19 @@ export abstract class OpenAICompatibleProvider
       };
     }
     if (response.status === 408 || response.status === 0) {
+      /*
+       * This one was a real completion: the provider may well have run the
+       * model and answered too late for us to hear it. The user paid for
+       * it whether or not we ever saw the answer, so the bill counts it.
+       *
+       * A network error (status 0) is not recorded: the client cannot tell
+       * a connection that died before the request was sent from one that
+       * died after the provider had already run the model. Counting it
+       * would over-report; not counting it under-reports in the rare case.
+       */
+      if (response.status === 408) {
+        recordBilledRequest(this.type, null);
+      }
       return {
         valid: false,
         message: `无法连接 ${this.config.baseUrl}：${response.error ?? '网络错误'}`,

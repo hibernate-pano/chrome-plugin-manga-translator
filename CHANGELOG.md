@@ -9,6 +9,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The bill no longer goes down when another context writes.** The worker
+  and the settings page each keep their own running total of the month, and
+  the two are added up. Before, both wrote into the same total, and the
+  merge kept whichever copy was newer: a context that had loaded the history
+  earlier replaced the other's counts with its own smaller view. The number
+  the user reads as their bill dropped, and the calls it dropped were gone
+  for good.
+- **A timed-out model listing is not a billable call — and a timed-out
+  completion is.** The two were the wrong way round. `/models` only asks the
+  gateway which models it has; no model runs, so a timeout there is nothing
+  to bill. A chat completion that timed out may well have been run by the
+  provider, and the user paid for it whether or not the answer arrived. The
+  settings page polls the provider every fifteen minutes, so the first
+  mistake added a billable request every fifteen minutes, for as long as the
+  gateway stayed slow.
+- **The credential gate sees every way of writing an import.** A content
+  script that reached the key through `import key, { type T } from '...'`, or
+  through an indented import, walked straight past the source-level check.
+  The check also runs after the credential files are generated now, so it
+  looks at a tree that has them instead of one where they are still missing.
+
 - **The HUD can get out of the way.** It is pinned to the bottom-left —
   the reading panel owns the right side and reaches the bottom of the
   screen — but on a reader that aligns its content to the left, that corner

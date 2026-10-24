@@ -164,6 +164,72 @@ describe('OpenAI-compatible connection test', () => {
     expect(String(spy.mock.calls[0]?.[0])).toContain('/models');
   });
 
+  it('does not count a model listing that timed out as a billable call', async () => {
+    /*
+     * `/models` is a listing: it asks the gateway which models it has and
+     * never runs one. A timeout there is a request the provider did not
+     * run a model for, so there is nothing to bill.
+     */
+    useUsageStore.getState().clearAll();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => mockFetchResponse(408))
+    );
+
+    const result = await (await providerWith({})).testConnection?.();
+
+    expect(result?.valid).toBe(false);
+    expect(
+      summarizeUsageForMonth(useUsageStore.getState().records).billableCalls
+    ).toBe(0);
+  });
+
+  it('does not bill the health poll when the listing times out', async () => {
+    /*
+     * The poll runs every fifteen minutes. If a timed-out listing counted as
+     * a call, a gateway that was slow would add a billable request to the
+     * user's account every fifteen minutes, forever, to keep a dot green.
+     */
+    useUsageStore.getState().clearAll();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async () => mockFetchResponse(408))
+    );
+
+    await (
+      await providerWith({})
+    ).testConnection?.({
+      allowBillableProbe: false,
+    });
+
+    expect(
+      summarizeUsageForMonth(useUsageStore.getState().records).billableCalls
+    ).toBe(0);
+  });
+
+  it('counts a chat probe that timed out, because the model may have run', async () => {
+    /*
+     * The other way round: a chat completion that timed out may well have
+     * been run by the provider. The user paid for it whether or not we ever
+     * saw the answer, so the bill has to count it.
+     */
+    useUsageStore.getState().clearAll();
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) =>
+        String(url).endsWith('/models')
+          ? mockFetchResponse(404)
+          : mockFetchResponse(408)
+      )
+    );
+
+    await (await providerWith({})).testConnection?.();
+
+    expect(
+      summarizeUsageForMonth(useUsageStore.getState().records).billableCalls
+    ).toBe(1);
+  });
+
   it('sends the key as a bearer token', async () => {
     const spy = vi.fn(async (_url: string, _init?: RequestInit) =>
       mockFetchResponse(200, { data: [] })

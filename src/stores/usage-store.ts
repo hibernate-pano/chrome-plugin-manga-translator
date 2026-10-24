@@ -364,25 +364,32 @@ export function summarizeUsageForMonth(
 /**
  * The id of the accumulator that holds a month's running totals.
  *
- * It used to carry a per-context id: every extension context counted its
- * own calls, and the summary added the accumulators up. The cost was that
- * the id changed every time a context started — the worker is torn down
- * after half a minute of idle and comes back with a new one, and every
- * page load is a new content script — so the list grew by one accumulator
- * per process start, month after month, and every single call rewrote all
- * of it.
+ * It carries the name of the writer, and it has to.
  *
- * One accumulator per month is enough now, because there is exactly one
- * writer: the worker. The content script reports its cache hits to the
- * worker instead of writing them itself, so every count in the month lands
- * in the same record, and the worker reads what is already stored before it
- * writes — the merge keeps the newer copy, which is the one that includes
- * everything counted before it.
+ * The accumulator is a *running total*, not a record: two copies of it are
+ * two views of the same calls, and the two views can disagree — a context
+ * that loaded the history earlier folds its new call onto an older base.
+ * The merge keeps the newer copy, so the context with the smaller view
+ * replaces the other's counts with its own. The user's bill goes *down*, and
+ * the calls it dropped are gone for good.
+ *
+ * Two writers that hold two totals cannot disagree in that way: each of them
+ * counted its own calls, so the two are disjoint and the summary adds them
+ * up. The bill is then the sum of what everyone counted, which is the only
+ * honest version of it.
+ *
+ * The writer's name has to survive the worker's restarts. The worker is
+ * torn down after half a minute of idle and comes back as a new process,
+ * so a per-process name would leave one running total per restart — the
+ * list would grow faster than the history it is supposed to keep. The
+ * worker therefore has one name for the whole month. An extension page is
+ * a writer too, but a user opens it by hand, so a per-process name is
+ * enough for it.
  */
 function accumulatorId(month: string): string {
   return historyLoaded
-    ? `${ACCUMULATOR_ID_PREFIX}${month}`
-    : `${ACCUMULATOR_ID_PREFIX}early-${month}`;
+    ? `${ACCUMULATOR_ID_PREFIX}${WRITER_ID}-${month}`
+    : `${ACCUMULATOR_ID_PREFIX}early-${CONTEXT_ID}-${month}`;
 }
 
 /**
@@ -540,6 +547,22 @@ function withLegacySeed(
  * the contexts apart; the counter tells the records apart within one.
  */
 const CONTEXT_ID = Math.random().toString(36).slice(2, 10);
+
+/**
+ * The name of the writer that owns this context's running totals.
+ *
+ * The worker is the writer that matters, and it is the one that outlives a
+ * process: Chrome tears the service worker down after half a minute of idle
+ * and starts a new one, but it is the same writer, and the month must not
+ * collect a running total per restart. An extension page is a writer too,
+ * but a user opens it by hand — once a page is a writer, its name carries
+ * the process id, so two pages never share a total either.
+ *
+ * `window` is what tells the two apart: a service worker has none, an
+ * extension page has one.
+ */
+const WRITER_ID =
+  typeof window === 'undefined' ? 'worker' : `page-${CONTEXT_ID}`;
 
 let recordSequence = 0;
 

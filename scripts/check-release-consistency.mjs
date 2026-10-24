@@ -320,40 +320,69 @@ function resolveImport(specifier, fromFile) {
 }
 
 /**
+ * Is an `import` clause erased at compile time?
+ *
+ * `import type { X }` and `import { type A, type B }` are documentation, not
+ * dependencies. Everything else survives the compile: a default binding,
+ * a namespace, or at least one value inside the braces. The shape
+ * `import credentials, { type ProviderType } from '...'` is the one that
+ * used to be read as type-only — the braces were inspected, every name in
+ * them started with `type`, and the `credentials` binding standing in front
+ * of the braces was never looked at.
+ */
+function isTypeOnlyImportClause(clause) {
+  if (/^type\b/.test(clause)) {
+    return true;
+  }
+  const braceStart = clause.indexOf('{');
+  if (braceStart === -1) {
+    // A default or namespace binding: it survives the compile.
+    return false;
+  }
+  const braceEnd = clause.lastIndexOf('}');
+  const outside = clause
+    .slice(0, braceStart)
+    .concat(clause.slice(braceEnd + 1))
+    .replace(/,/g, '')
+    .trim();
+  if (outside) {
+    return false;
+  }
+  const names = clause
+    .slice(braceStart + 1, braceEnd)
+    .split(',')
+    .map(part => part.trim())
+    .filter(Boolean);
+  return names.length > 0 && names.every(part => /^type\b/.test(part));
+}
+
+/**
  * Collect the modules a file depends on at runtime.
  *
  * `import type {...}` is erased and is not a dependency. `import { type A, b }`
  * is a real dependency because `b` survives the compile.
+ *
+ * Every pattern allows leading whitespace. An import that is indented —
+ * inside a block, after a prettier reformat — is still an import, and a
+ * pattern anchored to the start of the line does not see it.
  */
 function runtimeImports(source) {
   const specifiers = [];
-  const named = /\{([\s\S]*)\}/;
 
   // import ... from '...'
-  const fromPattern = /^import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/gm;
+  const fromPattern = /^[ \t]*import\s+([\s\S]*?)\s+from\s+['"]([^'"]+)['"]/gm;
   let match;
   while ((match = fromPattern.exec(source))) {
-    const clause = match[1].trim();
-    // A type-only import carries no runtime dependency.
-    if (/^type\s/.test(clause)) continue;
-    // `import { type A, type B } from '...'` is type-only as a whole.
-    const bindings = clause.match(named);
-    if (bindings) {
-      const names = bindings[1]
-        .split(',')
-        .map(part => part.trim())
-        .filter(Boolean);
-      if (names.length > 0 && names.every(part => /^type\s/.test(part))) {
-        continue;
-      }
+    if (isTypeOnlyImportClause(match[1].trim())) {
+      continue;
     }
     specifiers.push(match[2]);
   }
 
   // import '...' | export ... from '...' | import('...')
   const others = [
-    /^import\s+['"]([^'"]+)['"]/gm,
-    /^export\s+[\s\S]*?\s+from\s+['"]([^'"]+)['"]/gm,
+    /^[ \t]*import\s+['"]([^'"]+)['"]/gm,
+    /^[ \t]*export\s+[\s\S]*?\s+from\s+['"]([^'"]+)['"]/gm,
     /\bimport\(\s*['"]([^'"]+)['"]\s*\)/g,
   ];
   for (const pattern of others) {
