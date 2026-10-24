@@ -120,6 +120,15 @@ const EXTENSION_DISABLED_SUGGESTION =
   '已经产生的费用不会退回，但剩下的图片不会再发送请求；重新开启「启用扩展」后可以继续翻译。';
 
 /**
+ * 画面在翻译途中被换掉了。
+ *
+ * 服务商没有失败，失败的是这一份结果：它描述的是旧的那张画面。告诉用户
+ * 真相，比报一个"翻译失败"有用——他要做的不是重试，而是让这一张重新
+ * 翻一次。
+ */
+const ARTWORK_CHANGED_MESSAGE = '翻译途中画面被换掉了，这张图需要重新翻译一次';
+
+/**
  * "扩展被关掉了"这个错误和别的失败不一样：它不是某一张图失败，而是整轮
  * 翻译都不该再继续。用一个专门的错误类型把它和"这张图翻译失败"分开。
  */
@@ -141,6 +150,22 @@ function isExtensionDisabledError(
   error: unknown
 ): error is ExtensionDisabledError {
   return error instanceof ExtensionDisabledError;
+}
+
+/**
+ * "画面在翻译途中被换掉了"。
+ *
+ * 这不是服务商的错：模型好好地回答了，只是它回答的是**另一张**图。译文
+ * 描述的是旧像素，画到新画面上就是错的，所以这一份必须丢掉。
+ *
+ * 用专门的错误类型，是为了把它和"这张图翻译失败"分开：服务商没有失败，
+ * 失败的是这一份结果。
+ */
+class ArtworkChangedError extends Error {
+  constructor() {
+    super(ARTWORK_CHANGED_MESSAGE);
+    this.name = 'ArtworkChangedError';
+  }
 }
 
 // ==================== 运行时状态 ====================
@@ -184,6 +209,18 @@ let anchorRepositionHandler: (() => void) | null = null;
 let pageTranslationRequested = false;
 let translationRunInFlight = false;
 /**
+ * 现在有没有一轮翻译占着互斥锁。
+ *
+ * 锁是整页翻译的：右键单图翻译不占它（它只翻一张，不和整页翻译抢）。
+ */
+function holdsTheRunMutex(): boolean {
+  return (
+    translationRunInFlight ||
+    currentState.status === 'translating' ||
+    currentState.status === 'scanning'
+  );
+}
+/**
  * Follow-up scans left before the auto-continue observer stops itself. Seeded
  * whenever the user explicitly asks for the page, so a deliberate translation
  * always gets a full budget.
@@ -219,12 +256,107 @@ let skippedDuplicateCount = 0;
  */
 let pendingCount = 0;
 /**
- * Set once the user cancels a run. `cancelTranslation()` nulls the abort
- * controller, so the run's own `abortController?.signal.aborted` check
- * short-circuits to `undefined` and the run used to finish as "complete".
- * This flag is what actually remembers the cancellation.
+ * 一轮翻译的身份。
+ *
+ * 取消以前是一个模块级布尔量：任何一处取消都会把它置上，而只有"整页翻译"
+ * 会在开始时把它清回 false。这两个动作之间，任何读到它的代码都会以为自己
+ * 被取消了——上一轮取消留下的状态，会让**下一轮**付了钱之后把结果丢掉。
+ *
+ * 取消属于**一轮**，不属于页面。这就是这个对象存在的全部理由。
  */
-let translationCancelled = false;
+interface RunToken {
+  /**
+   * 这一轮开始时页面的纪元。
+   *
+   * 纪元在「清除译文」「换章」「页面卸载」时推进。一轮翻译如果发现手里的
+   * 纪元已经过时，说明它被取代了：它拿到的一切结果都属于旧的那一页，
+   * 不能画到屏幕上，也不能记进这一页的账。
+   */
+  readonly epoch: number;
+  /** 用户按了取消（或扩展被关掉了）。 */
+  cancelled: boolean;
+  /** 这一轮是被什么中止的。 */
+  reason: AbortReason;
+}
+
+/**
+ * 页面的纪元。
+ *
+ * 清除、换章、卸载都推进它：这些动作之后，页面上的一切记录都不再作数，
+ * 任何还在路上的结果都属于旧的那一页。
+ */
+let pageEpoch = 0;
+
+/**
+ * 正在进行的翻译轮次。
+ *
+ * 取消是发给"所有正在跑的轮次"的——用户按取消的时候，不会先去分辨页面上
+ * 到底跑着哪一轮。
+ */
+const activeRuns: Set<RunToken> = new Set();
+
+/**
+ * 当前这一轮**整页**翻译的身份。
+ *
+ * 用来回答"现在占着互斥锁的那一轮，是不是已经被用户取消了"。右键单图
+ * 翻译不占这个锁，所以它不在这里。
+ */
+let pageRunToken: RunToken | null = null;
+
+/**
+ * 开一轮翻译。
+ */
+function beginRun(): RunToken {
+  const token: RunToken = {
+    epoch: pageEpoch,
+    cancelled: false,
+    reason: null,
+  };
+  activeRuns.add(token);
+  return token;
+}
+
+/**
+ * 结束一轮翻译。
+ */
+function endRun(token: RunToken): void {
+  activeRuns.delete(token);
+  if (pageRunToken === token) {
+    pageRunToken = null;
+  }
+}
+
+/**
+ * 这一轮是不是已经作废了（被取消，或者这一页已经被清除/换章）。
+ *
+ * 两种情况：用户按了取消，或者这一页已经被清除/换章（纪元变了）。两种
+ * 情况下这一轮拿到的东西都不能画到屏幕上——前者是用户不要了，后者是已经
+ * 不是这一页了。
+ */
+function isRunDead(token: RunToken): boolean {
+  return token.cancelled || isRunStale(token);
+}
+
+/**
+ * 这一轮是不是已经属于旧的那一页了。
+ *
+ * 清除、换章、卸载之后，这一轮拿到的一切都是旧页的：不能画到屏幕上，也不
+ * 能记进这一页的账。
+ */
+function isRunStale(token: RunToken): boolean {
+  return token.epoch !== pageEpoch;
+}
+
+/**
+ * 这一页是不是已经作废了。
+ *
+ * 清除、换章、卸载走的是同一条路：这一页的记录不再作数，任何还在路上的
+ * 结果都属于旧的那一页。
+ */
+function invalidatePage(): void {
+  pageEpoch += 1;
+}
+
 /**
  * 这一轮是被什么中止的。
  *
@@ -232,7 +364,6 @@ let translationCancelled = false;
  * 告诉用户已经花掉的钱退不了，但剩下的图不会再发出去。
  */
 type AbortReason = 'user' | 'extension-disabled' | null;
-let abortReason: AbortReason = null;
 /**
  * The promise of the currently running translation, if any.
  *
@@ -885,6 +1016,16 @@ function stripUrlQuery(value: string): string {
 }
 
 /**
+ * 两个地址是不是同一张画面。
+ *
+ * 判据只有一条：**换掉查询串之后还是同一个文件**。版本号变了还是同一张图
+ * （译文留着），文件名变了就是另一张（译文作废）。
+ */
+function isSameArtwork(a: string, b: string): boolean {
+  return a === b || stripUrlQuery(a) === stripUrlQuery(b);
+}
+
+/**
  * 记住这张图是在哪个地址上翻的，并盯住它的下一次换图。
  *
  * 听的是 `load` 事件而不是 `src` 属性：属性可以先改、字节后到，只有
@@ -903,10 +1044,7 @@ function rememberTranslatedArtwork(img: HTMLImageElement): void {
       return;
     }
     const current = getImageKey(img);
-    if (
-      current === recorded ||
-      stripUrlQuery(current) === stripUrlQuery(recorded)
-    ) {
+    if (isSameArtwork(current, recorded)) {
       /*
        * 还是同一张画面（只是地址里的版本号变了）：译文留着。
        *
@@ -997,6 +1135,7 @@ function priorityClassForImage(
 
 async function processSingleImage(
   img: HTMLImageElement,
+  token: RunToken,
   forceRefresh: boolean = false,
   onCacheHit?: (hit: boolean) => void,
   priorityClass: JobPriorityClass = 'visible-now'
@@ -1036,6 +1175,14 @@ async function processSingleImage(
     throw new ExtensionDisabledError();
   }
 
+  // 这一轮是不是已经作废了？作废了还发请求就是在花用户不要花的钱。
+  //
+  // 用户按了取消，或者这一页已经被清除/换章（纪元变了）——两种情况下，
+  // 这一轮剩下的图都不该再发出去。
+  if (isRunDead(token)) {
+    throw new Error('Translation cancelled');
+  }
+
   // The marker goes on before the request, so a concurrent scan does not
   // pick the same image up twice. It has to come off again if the request
   // does not produce a translation.
@@ -1059,6 +1206,14 @@ async function processSingleImage(
   attemptedImageKeys.add(getImageKey(img));
   attemptedImages.add(img);
 
+  /**
+   * 这张图在这份请求发出的时候，是哪一张画面。
+   *
+   * 请求飞着的时候页面是可以换图的（懒加载站点把缩略图换成大图是常规做
+   * 法）。回来的译文描述的是**旧**的那张画面，画到新画面上就是错的。
+   */
+  const requestedKey = getImageKey(img);
+
   // The result is needed after the try block, so it is declared here rather
   // than inside it.
   let result: Awaited<ReturnType<TranslatorService['translateImage']>>;
@@ -1079,12 +1234,25 @@ async function processSingleImage(
     // is discarded: no overlay, and no marker. A marker left on an image the
     // user never saw translated makes it permanently un-translatable —
     // `isTranslatableImage` rejects any image carrying it.
-    if (translationCancelled) {
+    //
+    // 判据是"这一轮还活着吗"，不是"页面上有没有一个取消标志"：上一轮
+    // 取消留下的标志会让**这一轮**付了钱却把结果丢掉。
+    if (isRunDead(token)) {
       throw new Error('Translation cancelled');
+    }
+
+    // 画面在请求飞着的时候换了：这份译文描述的是别的像素，不能用。
+    if (!isSameArtwork(getImageKey(img), requestedKey)) {
+      throw new ArtworkChangedError();
     }
   } catch (error) {
     // The image was not translated, so it must not look translated.
-    img.classList.remove(PROCESSED_CLASS);
+    //
+    // 除非这一张已经被别的某一轮翻过了：那时候标记要留着——译文是真的在
+    // 页面上，只是这一轮没画上去（这一轮被取消了，而新一轮已经画了）。
+    if (!processedImages.has(getImageKey(img))) {
+      img.classList.remove(PROCESSED_CLASS);
+    }
     throw error;
   }
 
@@ -1426,15 +1594,33 @@ async function translatePage(
   }
 
   // 翻译进行中的互斥：直接用 currentState 判断，不再维护冗余的 isTranslating 布尔
-  if (
-    translationRunInFlight ||
-    currentState.status === 'translating' ||
-    currentState.status === 'scanning'
-  ) {
-    if (import.meta.env.DEV) {
-      console.warn('[ContentScript] 翻译已在进行中');
+  if (holdsTheRunMutex()) {
+    /*
+     * 上一轮已经被用户取消了 —— 用户多半是按完取消就想重来一次。
+     *
+     * 这一次点击不能被丢掉。上一轮还在收尾（在路上的请求撤不回来），但它
+     * 反正不会再发新的请求了：等它收完，把这一轮接上去，用户点的这一次
+     * 才算数。
+     *
+     * 真的有一轮在跑的时候（没被取消），这一次的点击仍然被挡下：那是另
+     * 一件事，用户没有要求跑两遍。
+     */
+    const previous = activeRunPromise;
+    if (previous && pageRunToken?.cancelled) {
+      await previous.catch(() => undefined);
+      // 等的过程中可能有别的一轮插进来：再抢一次锁。
+      if (holdsTheRunMutex()) {
+        if (import.meta.env.DEV) {
+          console.warn('[ContentScript] 翻译已在进行中');
+        }
+        return;
+      }
+    } else {
+      if (import.meta.env.DEV) {
+        console.warn('[ContentScript] 翻译已在进行中');
+      }
+      return;
     }
-    return;
   }
 
   // Reserve the mutex synchronously, before the first await. READY and
@@ -1444,8 +1630,16 @@ async function translatePage(
   translationRunInFlight = true;
   translationRunGeneration += 1;
   const generation = translationRunGeneration;
+  const token = beginRun();
+  pageRunToken = token;
 
-  const run = runTranslation(forceRefresh, origin, generation, retryImages);
+  const run = runTranslation(
+    forceRefresh,
+    origin,
+    generation,
+    token,
+    retryImages
+  );
   // The handle is published before the first await inside `runTranslation`,
   // so "force retranslate" can always find the run it has to wait for.
   activeRunPromise = run;
@@ -1472,6 +1666,7 @@ async function runTranslation(
   forceRefresh: boolean,
   origin: 'user' | 'follow-up',
   generation: number,
+  token: RunToken,
   retryImages?: HTMLImageElement[]
 ): Promise<void> {
   /*
@@ -1503,8 +1698,10 @@ async function runTranslation(
 
     // A new run starts from a clean slate: a previous run's cancellation must
     // not make this one look cancelled.
-    translationCancelled = false;
-    abortReason = null;
+    //
+    // 这一轮的身份是它自己的（`token`）：上一轮取消过，不等于这一轮被取
+    // 消了。以前这两件事共用一个模块级布尔量，于是上一轮取消留下的状态会
+    // 让这一轮付了钱之后把结果丢掉。
     // Charged only now that the run is committed, so a follow-up blocked by
     // the mutex does not burn budget for a run that never happened.
     if (origin === 'follow-up') {
@@ -1748,7 +1945,7 @@ async function runTranslation(
         // for a run the user deliberately stopped, and put the untouched
         // images into the retry list — so the "retry failed images" button
         // would offer to re-translate images that had never failed.
-        if (translationCancelled || abortController?.signal.aborted) {
+        if (isRunDead(token) || abortController?.signal.aborted) {
           return;
         }
         // "扩展被关掉了"不是某一张图失败，是整轮翻译都不该再继续：剩下的图
@@ -1767,7 +1964,12 @@ async function runTranslation(
           // The friendly message turns a raw provider string ("401
           // unauthorized") into something the user can act on ("API 密钥无效，
           // 请检查配置").
-          firstErrorMessage = parseTranslationError(error).message;
+          //
+          // 画面被换掉不是服务商的错，要说清楚是这一张要重翻。
+          firstErrorMessage =
+            error instanceof ArtworkChangedError
+              ? ARTWORK_CHANGED_MESSAGE
+              : parseTranslationError(error).message;
         }
         if (!fatalError && isFatalTranslationError(error.message)) {
           fatalError = error;
@@ -1785,6 +1987,7 @@ async function runTranslation(
         }
         const result = await processSingleImage(
           img,
+          token,
           forceRefresh,
           hit => {
             if (hit) cachedCount++;
@@ -1838,7 +2041,8 @@ async function runTranslation(
      */
     if (
       translationRunGeneration === generation &&
-      (translationCancelled || fatalError || abortController?.signal.aborted)
+      !isRunStale(token) &&
+      (token.cancelled || fatalError || abortController?.signal.aborted)
     ) {
       for (const img of images) {
         const key = getImageKey(img);
@@ -1847,6 +2051,17 @@ async function runTranslation(
         }
         attemptedImages.add(img);
       }
+    }
+
+    /*
+     * 这一轮已经被取代了：这一页被清过、换过章，或者页面已经卸载。
+     *
+     * 它拿到的一切都属于旧的那一页。不能画（上面已经拦住了），也不能写进
+     * 这一页的状态——新一轮可能正在跑，旧的一轮把它的状态覆盖掉，用户会
+     * 看到一个跑着的翻译突然变成"空闲"。
+     */
+    if (isRunStale(token)) {
+      return;
     }
 
     // 整批完成后统一按 DOM 位置重排编号。
@@ -1893,8 +2108,8 @@ async function runTranslation(
     // 取消优先于"完成"：`cancelTranslation()` 会把 abortController 置空，
     // 光看 `abortController?.signal.aborted` 会短路成 undefined，从而
     // 把一次取消报成"翻译完成"。
-    if (translationCancelled || abortController?.signal.aborted) {
-      if (abortReason === 'extension-disabled') {
+    if (token.cancelled || abortController?.signal.aborted) {
+      if (token.reason === 'extension-disabled') {
         // 用户在翻译途中关掉了扩展：这次中止要说明白，而不是安静地回到
         // "空闲"，否则用户以为翻译已经完成。
         setState({
@@ -1919,15 +2134,20 @@ async function runTranslation(
       lastError: firstErrorMessage,
     });
   } catch (error) {
-    const friendly = parseTranslationError(error);
-    console.error('[ContentScript] 翻译流程失败:', friendly.message);
-    setState({
-      status: 'error',
-      message: friendly.message,
-      suggestion: friendly.suggestion,
-      action: resolveErrorAction(friendly),
-    });
+    // 这一轮已经作废了：它报出来的错属于旧的那一页，不能写进这一页的状态。
+    if (!isRunStale(token)) {
+      const friendly = parseTranslationError(error);
+      console.error('[ContentScript] 翻译流程失败:', friendly.message);
+      setState({
+        status: 'error',
+        message: friendly.message,
+        suggestion: friendly.suggestion,
+        action: resolveErrorAction(friendly),
+      });
+    }
   } finally {
+    endRun(token);
+
     // The mutex is released here for every exit path, including the
     // "extension is disabled" early return. A rejected call that kept the
     // flag set would block the user's first translation after they switch
@@ -1962,7 +2182,7 @@ async function runTranslation(
        * follow-up too, spending budget to do it.
        */
       if (
-        !translationCancelled &&
+        !token.cancelled &&
         !fatalError &&
         !wasAborted &&
         isAutoContinueArmed()
@@ -1981,12 +2201,21 @@ async function runTranslation(
  * 页面已经翻译完了。
  */
 function cancelTranslation(reason: AbortReason = 'user'): void {
-  // The flag is what makes the run report "cancelled" instead of
-  // "complete": `cancelTranslation` nulls the controller, so the run's own
-  // `abortController?.signal.aborted` check would short-circuit to
-  // `undefined` and fall through to the success path.
-  translationCancelled = true;
-  abortReason = reason;
+  /*
+   * 取消发给**所有正在跑的轮次**。
+   *
+   * 用户按取消的时候不会先去分辨页面上跑着哪一轮，所以每一轮都要被通知到。
+   * 而且取消属于这一轮：下一轮开始的时候，标志是它自己的，不会继承上一轮
+   * 的取消状态。
+   *
+   * 这个标志是让这一轮报"已取消"而不是"完成"的东西：`cancelTranslation`
+   * 会把 abortController 置空，只看 `abortController?.signal.aborted` 会
+   * 短路成 undefined，于是掉进成功那条路。
+   */
+  for (const token of activeRuns) {
+    token.cancelled = true;
+    token.reason = reason;
+  }
   if (abortController) {
     abortController.abort();
     abortController = null;
@@ -2018,15 +2247,11 @@ function clearAll(): void {
   // The generation is bumped so the run that is still unwinding does not
   // release a mutex that a newer run has already claimed.
   //
-  // `translationCancelled` is deliberately NOT reset here. `cancelTranslation`
-  // above set it, and the run that is still unwinding — its in-flight image
-  // requests have not resolved yet — reads it to decide whether to render a
-  // late overlay and whether to report "complete". Resetting it to `false`
-  // here made that old run believe it had finished normally, so it drew the
-  // cleared page's translations back on top of the just-cleared artwork and
-  // then announced 「翻译完成」. The next run zeroes the flag itself (in
-  // `runTranslation`), so leaving it true costs nothing — every read of it
-  // lives inside a run that has already re-armed it.
+  // 这一页作废了：还在路上的那一轮拿到的一切都属于刚被清掉的页面，不能画
+  // 回来，也不能记进这一页的账。以前这件事靠一个模块级布尔量记着，而那个
+  // 布尔量会被下一轮清掉——旧的那一轮于是以为"我没被取消"，把答案画回用户
+  // 刚清干净的页面上。纪元不会：新的一轮拿到的是新的纪元。
+  invalidatePage();
   translationRunGeneration += 1;
   translationRunInFlight = false;
 
@@ -2212,8 +2437,17 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
     costNote,
   });
 
+  /*
+   * 这一轮有自己的身份。
+   *
+   * 右键这一条路不占整页翻译的锁，但它仍然是一轮翻译：取消要能取消它，
+   * 而**上一轮**取消留下的状态不能连累它。以前取消是一个模块级布尔量，
+   * 于是"取消过一次之后右键翻一张"会先把钱花出去，再在拿到结果时读到那个
+   * 布尔量、以为"我被取消了"，把结果丢掉——用户付了钱，什么都没看到。
+   */
+  const token = beginRun();
   try {
-    const result = await processSingleImage(img);
+    const result = await processSingleImage(img, token);
     processedImages.add(getImageKey(img));
     setState({
       status: 'complete',
@@ -2222,6 +2456,10 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
       cachedCount: result.cached ? 1 : 0,
     });
   } catch (error) {
+    if (isRunStale(token)) {
+      // 这一页已经不是这一页了：这一张的译文属于旧的那一页，不能报状态。
+      return;
+    }
     const refusal = describeWorkerRefusal(error);
     if (refusal) {
       console.error('[ContentScript] 单图翻译被拒:', refusal.message);
@@ -2236,6 +2474,8 @@ async function translateSingleImage(imageUrl: string): Promise<void> {
       suggestion: friendly.suggestion,
       action: resolveErrorAction(friendly),
     });
+  } finally {
+    endRun(token);
   }
 }
 
@@ -2634,12 +2874,12 @@ let routeWatchTimer: ReturnType<typeof setInterval> | null = null;
 function handleRouteChange(): void {
   // A running translation is about the old DOM; abort it.
   //
-  // `translationCancelled` is left set (not reset to `false`) for the same
-  // reason as in `clearAll`: the old run is still unwinding, and it reads the
-  // flag to decide whether to report a result. Resetting it here made the
-  // previous chapter's run announce 「翻译完成」 with the old chapter's counts
-  // on top of the new, empty chapter. The next run re-arms the flag itself.
+  // 旧章的那一轮还在收尾，它拿到的一切都属于旧章：不能画到新章上，也不能
+  // 记进新章的账（新章的第一张图地址常常和旧章的一样，记进去就等于把新章
+  // 的图标成"已经翻过了"——用户再点多少次都没用）。纪元就是干这个的：它
+  // 不会像那个模块级布尔量一样被下一轮清掉。
   cancelTranslation();
+  invalidatePage();
   translationRunGeneration += 1;
   translationRunInFlight = false;
 
@@ -2757,9 +2997,13 @@ function cleanup(): void {
     abortController.abort();
     abortController = null;
   }
+  // 页面要走了：还在路上的那一轮拿到的一切都不作数。
+  for (const token of activeRuns) {
+    token.cancelled = true;
+  }
+  invalidatePage();
   translationRunGeneration += 1;
   translationRunInFlight = false;
-  translationCancelled = false;
   if (renderer) {
     // dispose() also releases the ResizeObserver and the window resize
     // listener; removeAll() alone would leave both attached to the page.

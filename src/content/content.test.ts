@@ -3259,3 +3259,220 @@ describe('round 11: what the page promises has to be true', () => {
     });
   });
 });
+
+// ================================================================
+// Round 13 — 取消属于一轮，不属于页面
+//
+// `translationCancelled` 是一个模块级布尔量：任何一处取消都会把它置上，
+// 而只有整页翻译会在开始时把它清回 false。于是有两个洞：
+//
+// 1. 上一轮取消留下的状态会连累**下一轮**——右键单图翻译先把钱花出去，
+//    拿到结果时读到那个布尔量，以为"我被取消了"，把结果丢掉。
+// 2. 下一轮一开始就把标志清掉，于是**上一轮**迟到的回调又以为自己没
+//    被取消，把答案画回用户刚清空的页面。
+//
+// 取消属于一轮。这一组测试盯住这个边界。
+// ================================================================
+describe('round 13: cancellation belongs to one run', () => {
+  beforeEach(async () => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    rendererMock.removeTranslation.mockClear();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+    await writeConfig({ enabled: true });
+  });
+
+  it('does not draw the old run’s answer after a new run has started', async () => {
+    // 用户清除译文之后马上重新翻译。旧的那一轮还在路上，它回来的时候，
+    // 新的一轮已经在画自己的答案了。
+    //
+    // 以前：新一轮一开始就把那个取消标志清成 false，旧的一轮于是以为
+    // "我没被取消"，把旧答案画到刚清干净的页面上——用户看到的是刚被自己
+    // 删掉的译文又回来了。
+    let calls = 0;
+    const firstCall: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await new Promise<void>(resolve => {
+          firstCall.release = resolve;
+        });
+      }
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const first = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    clearAll();
+
+    // 新的一轮开始，并且真的画上了自己的答案。
+    const second = translatePage();
+    await flush(4);
+    expect(renderMock).toHaveBeenCalledTimes(1);
+
+    // 旧的那一轮现在才回来。
+    firstCall.release?.();
+    await first;
+    await flush(4);
+
+    // 它不能把自己的答案画上去。
+    expect(renderMock).toHaveBeenCalledTimes(1);
+    await second;
+  });
+
+  it('does not draw a translation of artwork the page has already replaced', async () => {
+    // 懒加载站点把缩略图换成大图是常规做法。请求飞着的时候换了，回来的是
+    // 旧画面���译文——画到新画面上，读者看到的是一段和画面无关的汉字。
+    const gate: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      await new Promise<void>(resolve => {
+        gate.release = resolve;
+      });
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    const img = makeComicImage('https://cdn.example.com/thumb.webp');
+
+    const run = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // 页面把画面换掉了，请求还在路上。
+    img.src = 'https://cdn.example.com/full.webp';
+    img.dispatchEvent(new Event('load'));
+    await flush(2);
+
+    gate.release?.();
+    await run;
+    await flush(4);
+
+    // 这份译文描述的是旧像素，不能画到新画面上。
+    expect(renderMock).not.toHaveBeenCalled();
+    // 而且这一张确实还没翻：它得留在候选里，等用户再要一次。
+    const sendResponse = vi.fn();
+    handleMessage({ type: 'COUNT_IMAGES' }, makeSender(), sendResponse);
+    expect(sendResponse).toHaveBeenCalledWith({
+      success: true,
+      count: 1,
+      pending: 0,
+      total: 1,
+    });
+  });
+
+  it('does not let the previous chapter mark the new chapter as translated', async () => {
+    // 漫画站每一章的第一张图常常是同一个文件名。旧章那一轮的结果如果记进
+    // "已经翻过了"那份记录，新章的图就会被永远当成翻过的——用户再点多少次
+    // 都没用，而新章的图上从来没有译文。
+    let calls = 0;
+    const gate: { release: (() => void) | null } = { release: null };
+    translateImageMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await new Promise<void>(resolve => {
+          gate.release = resolve;
+        });
+      }
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/page-1.webp');
+
+    const run = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // 换章：页面换了 DOM，新章的第一张图地址相同。
+    handleRouteChange();
+    document.body.innerHTML = '';
+    makeComicImage('https://cdn.example.com/page-1.webp');
+
+    // 旧章的答案现在才回来。
+    gate.release?.();
+    await run;
+    await flush(4);
+
+    // 新章的图不能被当成"已经翻过了"。
+    translateImageMock.mockClear();
+    await translatePage();
+    await flush(4);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('starts a new run when the user asks again after cancelling', async () => {
+    // 用户按了取消，又点了一次「翻译当前页」。上一次点击被静默吞掉——用户
+    // 看着页面毫无反应，只能再点一次，而那时候又会被吞掉。
+    //
+    // 上一轮还在收尾（在路上的请求撤不回来），但它不会再发新的请求了：
+    // 这一次点击要接得上去。
+    let calls = 0;
+    const gates: Array<() => void> = [];
+    translateImageMock.mockImplementation(async () => {
+      calls += 1;
+      if (calls === 1) {
+        await new Promise<void>(resolve => {
+          gates.push(resolve);
+        });
+      }
+      return { success: true, textAreas: makeTextAreas('你好') };
+    });
+
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    const first = translatePage();
+    await flush(2);
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    cancelTranslation();
+
+    // 用户马上再点一次。
+    const second = translatePage();
+    await flush(2);
+    // 上一轮还在收尾，这一轮还没有开始发请求。
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+
+    // 上一轮收完。
+    gates.forEach(release => release());
+    await first;
+    await second;
+    await flush(4);
+
+    // 这一次点击算数：新的一轮真的跑起来了。
+    expect(translateImageMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('lets a right-click translation through after an earlier cancellation', async () => {
+    // 用户取消过一次整页翻译，然后右键翻其中一张图。
+    //
+    // 以前：右键这一轮会读到上一轮留下的取消标志，先把请求发出去（钱花了），
+    // 拿到结果时以为"我被取消了"，把结果丢掉——用户付了钱，屏幕上什么都没有。
+    cancelTranslation();
+
+    translateImageMock.mockResolvedValue({
+      success: true,
+      textAreas: makeTextAreas('译好的文字'),
+      cached: false,
+    });
+    const target = makeComicImage('https://cdn.example.com/one.webp');
+
+    await new Promise<void>(resolve => {
+      handleMessage(
+        { type: 'TRANSLATE_SINGLE_IMAGE', imageUrl: target.src },
+        makeSender(),
+        () => resolve()
+      );
+    });
+    await flush();
+
+    expect(translateImageMock).toHaveBeenCalledTimes(1);
+    // 译文真的画上去了：付的钱换到了东西。
+    expect(renderMock).toHaveBeenCalledTimes(1);
+  });
+});

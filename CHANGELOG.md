@@ -9,6 +9,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Cancelling a run no longer leaks into the next one.** Cancellation used
+  to be a flag on the page rather than a fact about a run, so it had two
+  opposite failures. A run that started after an earlier one was cancelled
+  inherited that cancellation: right-clicking a single image sent the
+  request, took the user's money, and then threw the answer away because it
+  believed it had been cancelled. And a run that was still unwinding could
+  have its cancellation cleared by the *next* run starting, which let it
+  draw its late answers back over a page the user had just cleared. Each
+  run now carries its own identity, and a result is only drawn while the
+  run it belongs to is still the one the page is running.
+- **A translation of artwork the page has already replaced is not drawn.**
+  A lazy-loading site swaps a thumbnail for the full-size panel while the
+  request is in flight. The answer describes the old pixels; drawing it on
+  the new picture puts Chinese text over an image it has nothing to do
+  with. The translation is dropped and the image stays a candidate, so the
+  next request covers the picture that is actually on screen.
+- **A chapter change no longer marks the new chapter as translated.** The
+  result of the previous chapter could still arrive after the switch and
+  mark the picture as done. Manga sites reuse file names across chapters,
+  so the new chapter's first page was then treated as translated forever:
+  the user could click as often as they liked, and nothing would happen.
+- **Clicking "translate this page" again after a cancel now does
+  something.** The cancelled run still holds the page while its
+  in-flight requests finish, and the click was dropped without a word.
+  The new request is queued behind it instead, so the click the user made
+  counts.
+
 - **The bill no longer goes down when another context writes.** The worker
   and the settings page each keep their own running total of the month, and
   the two are added up. Before, both wrote into the same total, and the
