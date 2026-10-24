@@ -9,6 +9,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A small box no longer swallows a whole block of text.** The pixel
+  refiner snaps the model's box onto the ink it finds on the page. When
+  the ink surrounded the model's box, the check that is supposed to keep
+  the refinement on the same text could not fire at all — the model had
+  clipped a line, and the model had pointed at a small sound effect drawn
+  on top of a paragraph, and both looked the same. The refiner now also
+  asks how much of the ink the model's box accounts for. A box that
+  explains a third of the ink is the model missing a line, and the
+  refinement is right; a box that explains a few percent is pointing at
+  something else, and the translation is left where the model put it.
 - **Cancelling a run no longer leaks into the next one.** Cancellation used
   to be a flag on the page rather than a fact about a run, so it had two
   opposite failures. A run that started after an earlier one was cancelled

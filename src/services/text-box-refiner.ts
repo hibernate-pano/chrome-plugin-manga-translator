@@ -132,6 +132,28 @@ const MAX_GROUP_DISTANCE = 40;
 const MIN_OVERLAP_RATIO = 0.35;
 
 /**
+ * How much of the found ink the model's box has to explain.
+ *
+ * The overlap ratio above answers "do the two contain each other", and that
+ * question is blind in one case: when the ink swallows the model's box, the
+ * answer is always yes — whether the model clipped a line (the ink is the
+ * same text, one line bigger) or the model pointed at something small that
+ * happens to sit on top of a much bigger block of text.
+ *
+ * This ratio asks the other question: how much of the ink does the model's
+ * box account for. A model box that covers one line of a two-line bubble
+ * explains about a third of it, and the refinement is exactly what should
+ * happen there. A model box that covers a small sound effect drawn on top of
+ * a paragraph explains a few percent — the ink is somebody else's text, and
+ * growing the box to it would put a small translation over a whole
+ * paragraph.
+ *
+ * A fifth of the ink is the line: below it, the ink is mostly not what the
+ * model asked about.
+ */
+const MIN_INK_COVERAGE = 0.2;
+
+/**
  * How much bigger the recovered text may be than the box the model asked
  * for.
  *
@@ -649,6 +671,22 @@ function refineAgainstGlyphs(
     if (overlap < MIN_OVERLAP_RATIO) {
       return modelBox;
     }
+  }
+
+  /*
+   * 墨迹把模型框**整个包住**的时候，上面那道闸门是哑的。
+   *
+   * 包含度是"小框有多大比例落在大框里"，而模型框完全落在墨迹里时，它恒等
+   * 于 1——不管那团墨迹是模型少框了一行，还是模型指的是别处一个小东西
+   * （画在字上的拟声词），而那团墨迹是整段文字。
+   *
+   * 这两种要分开问的问题不一样：不是"它们互相包含吗"，而是"模型框能解释
+   * 这团墨迹的多少"。模型少框了一行 → 能解释三分之一 → 精修该做；模型指的
+   * 是别处 → 只能解释几个百分点 → 那团墨迹不是它的文字，把框撑到那么大只
+   * 会让这一小张的译文盖住整段原文。
+   */
+  if (selection.coverage < MIN_INK_COVERAGE) {
+    return modelBox;
   }
 
   // A degenerate box (no ink at all in one axis) is not usable.

@@ -254,6 +254,20 @@ describe('refineTextBox', () => {
     expect(refined).toEqual(modelBox);
   });
 
+  it('does not let a small box swallow a whole block of text', () => {
+    // 模型给了一个很小的框，落在那块文字**里面** —— 比如一个画在字上的
+    // 拟声词。墨迹把模型框整个包住了，于是"包含度"恒等于 1，上面那道闸门
+    // 根本不响，精修就把整段文字当成了这个小框该有的样子。
+    //
+    // 后果：这一小张的译文会盖住整段原文，而那段原文自己的译文还留在别处
+    // ——读者既读不到那段话，也拿不到它的翻译。
+    const modelBox = box(60 / 200, 33 / 120, 10 / 200, 7 / 120);
+
+    const refined = refineTextBox(bitmap, modelBox);
+
+    expect(refined).toEqual(modelBox);
+  });
+
   it('returns a normalised box inside the image', () => {
     const modelBox = box(0.1, 0.1, 0.3, 0.2);
 
