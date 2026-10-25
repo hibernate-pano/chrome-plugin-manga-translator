@@ -14,6 +14,7 @@
 // ==================== 类型定义 ====================
 
 import type { ErrorAction } from '@/utils/error-handler';
+import type { ImageFailure } from '@/shared/runtime-contracts';
 import { formatEta } from '@/shared/eta';
 import {
   SKIPPED_IMAGES_REASON,
@@ -33,6 +34,23 @@ export type HudState =
       phase?: 'translating' | 'rendering';
       /** Rough seconds remaining. Undefined = not enough signal yet. */
       etaSeconds?: number;
+      /**
+       * How many images have failed *so far*.
+       *
+       * This is the number the reader wants while the run is still going.
+       *
+       * It used to be knowable only at the end: the failure counter lived in
+       * a local variable and reached the state only once the whole chapter
+       * had been through, so a run that lost six of twenty images looked
+       * exactly like a run that was going fine until the last second — and
+       * the reader's only warning came when the progress bar was already
+       * full.
+       *
+       * The progress bar counts failures as progress (a failed image is
+       * finished, just not successfully), so this line is the only place
+       * that says "some of these are not going to work".
+       */
+      failedCount?: number;
       /**
        * What this run is about to cost, when the number of requests is not
        * the number of images.
@@ -96,6 +114,18 @@ export type HudState =
        * is throttling, or the model choked.
        */
       lastError?: string;
+      /**
+       * Every failed image, with its own reason.
+       *
+       * `lastError` is the *first* failure's reason, so a page where three
+       * images failed for three different reasons showed one of them and
+       * dropped the rest. The reader could not tell "the key is wrong" from
+       * "the provider was slow", and those need different things done about
+       * them.
+       *
+       * This list is per image: which one, and why.
+       */
+      failures?: ImageFailure[];
       /**
        * How many spots on the page were found but not translated.
        *
@@ -355,7 +385,15 @@ export class FloatingHud {
     if (state.status === 'scanning') {
       label = '扫描中';
     } else if (state.status === 'translating') {
-      label = `翻译中 ${state.current}/${state.total}`;
+      // 收起之后只剩一颗药丸，但"有几张已经坏了"必须还在。
+      //
+      // 收起是读者为了不挡画面做的取舍，不是放弃知情。药丸是这一轮唯一的
+      // 提示，它上面没有失败数，读者就只能等到卡片弹出来才知道出了问题。
+      const failed = state.failedCount ?? 0;
+      label =
+        failed > 0
+          ? `翻译中 ${state.current}/${state.total} · 失败 ${failed}`
+          : `翻译中 ${state.current}/${state.total}`;
     } else if (state.status === 'complete') {
       label = '翻译完成';
     } else if (state.status === 'error') {
@@ -399,6 +437,17 @@ export class FloatingHud {
           typeof state.etaSeconds === 'number' && state.etaSeconds > 0
             ? ` · 约 ${formatEta(state.etaSeconds)}`
             : '';
+        /*
+         * 已经坏了几张。
+         *
+         * 进度条把失败也算成"走完了一张"，所以它是这条消息存在的原因：
+         * 读者看着进度条一路往前，以为一切正常，而实际上有三张已经白花了
+         * 钱。这行字在**每一次**失败发生时出现，不用等整轮结束。
+         */
+        const failedLine =
+          (state.failedCount ?? 0) > 0
+            ? `<div class="hud-sub hud-sub-error">已有 ${state.failedCount} 张翻译失败</div>`
+            : '';
         return `
           <div class="hud-card">
             <button id="collapse-btn" class="hud-collapse" type="button" aria-label="收起">收起</button>
@@ -407,6 +456,7 @@ export class FloatingHud {
               <div class="hud-progress-bar" style="width:${pct}%"></div>
             </div>
             <div class="hud-sub">${escapeHtml(imageLabel)} / ${state.total}${escapeHtml(etaLabel)}</div>
+            ${failedLine}
             ${
               state.costNote
                 ? `<div class="hud-sub hud-sub-muted">${escapeHtml(state.costNote)}</div>`
@@ -432,6 +482,16 @@ export class FloatingHud {
               state.lastError
             )}</div>`
           : '';
+        /*
+         * 哪几张、分别为什么。
+         *
+         * 以前这里只有一行「失败原因：」，而它是**第一张**失败图的原因。
+         * 三张图以三种原因失败，读者看到其中一张，于是去改 API 密钥——
+         * 而真正卡住这一轮的是另一张图的限流。
+         *
+         * 按张列出来，每一行都是读者能拿去做一件事的话。
+         */
+        const failureLines = this.renderFailureList(state.failures);
         /*
          * 这一轮跑完了，但有几处没有翻出来。
          *
@@ -498,7 +558,7 @@ export class FloatingHud {
               ${missingLine}
               ${cachedLine}
               ${skippedLine}
-              ${errorLine}
+              ${failureLines || errorLine}
               <button id="retry-failed-btn" class="hud-retry">${retryLabel}</button>
               <div class="hud-sub">${describeRetryFailedCost(state.provider)}</div>
             </div>
@@ -511,7 +571,7 @@ export class FloatingHud {
             ${missingLine}
             ${cachedLine}
             ${skippedLine}
-            ${errorLine}
+            ${failureLines || errorLine}
             <div class="hud-sub hud-sub-muted">译文已直接覆盖在原图上</div>
           </div>
         `;
@@ -542,6 +602,40 @@ export class FloatingHud {
       default:
         return '';
     }
+  }
+
+  /**
+   * 哪几张失败了、分别为什么。
+   *
+   * 每一条都是读者能拿去做一件事的话：改密钥、等服务商、还是换个模型。
+   * 只给一个数字（「失败 3 张」）的话，读者什么都做不了。
+   *
+   * 最多列三条：一张卡片能读几行是有限的，而失败的图在画面上有角标，
+   * 读者想看哪一张可以自己看。多出来的只报数量。
+   */
+  private renderFailureList(failures?: ImageFailure[]): string {
+    if (!failures || failures.length === 0) {
+      return '';
+    }
+
+    const MAX_LISTED = 3;
+    const listed = failures.slice(0, MAX_LISTED);
+    const rest = failures.length - listed.length;
+
+    const lines = listed.map(
+      failure =>
+        `<div class="hud-sub hud-sub-error">第 ${failure.index} 张：${escapeHtml(
+          failure.reason
+        )}</div>`
+    );
+
+    if (rest > 0) {
+      lines.push(
+        `<div class="hud-sub hud-sub-muted">还有 ${rest} 张失败，画面上标着</div>`
+      );
+    }
+
+    return lines.join('');
   }
 
   /**

@@ -693,6 +693,116 @@ describe('FloatingHud', () => {
       expect(hudDiv?.textContent).toContain('候选 12 张');
     });
   });
+
+  /*
+   * 失败要**当场**看得见。
+   *
+   * 以前失败数只在整轮结束时才进状态，于是二十张里坏了六张的那一轮，
+   * 在最后两秒之前和"一切正常"的那一轮长得一模一样。进度条不救这个场：
+   * 失败的图也算"走完了一张"，进度条照样往前。
+   */
+  describe('失败是当场说的', () => {
+    function hudText(): string {
+      const host = getHudHost() as HTMLElement;
+      return host.shadowRoot?.getElementById('hud')?.textContent ?? '';
+    }
+
+    it('翻译中已经坏了几张，卡片上就写着', () => {
+      hud.update({
+        status: 'translating',
+        current: 4,
+        total: 12,
+        failedCount: 2,
+      });
+
+      // 不用等整轮结束。读者看着进度条往前，就该知道其中两张已经白花了
+      // 钱 —— 而这一行的存在本身就是进度条不说的那句话。
+      expect(hudText()).toContain('已有 2 张翻译失败');
+    });
+
+    it('还没有失败时不提失败', () => {
+      hud.update({ status: 'translating', current: 4, total: 12 });
+
+      expect(hudText()).not.toContain('翻译失败');
+    });
+
+    it('收起之后药丸上也有失败数', () => {
+      // 收起是读者为了不挡画面做的取舍，不是放弃知情。药丸是那一轮唯一
+      // 剩下的提示，它上面没有失败数，读者就只能等卡片弹出来。
+      hud.update({
+        status: 'translating',
+        current: 4,
+        total: 12,
+        failedCount: 2,
+      });
+
+      const host = getHudHost() as HTMLElement;
+      const shadow = host.shadowRoot;
+      shadow
+        ?.getElementById('collapse-btn')
+        ?.dispatchEvent(
+          new MouseEvent('click', { bubbles: true, composed: true })
+        );
+
+      const collapsed = shadow?.querySelector('.hud-card--collapsed');
+      expect(collapsed?.textContent).toContain('失败 2');
+    });
+
+    it('跑完之后按张列出原因', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 8,
+        failedCount: 2,
+        cachedCount: 0,
+        failures: [
+          { index: 3, reason: 'API 密钥无效，请检查配置' },
+          { index: 7, reason: '请求过于频繁，请稍后重试' },
+        ],
+      });
+
+      // 以前这里只有一行「失败原因：」，写的是**第一张**失败图的原因。
+      // 三张图以三种原因失败时，读者会去改那一张对应的设置，而真正卡住
+      // 这一轮的可能是另一张。每一行都得是读者能拿去做一件事的话。
+      expect(hudText()).toContain('第 3 张：API 密钥无效，请检查配置');
+      expect(hudText()).toContain('第 7 张：请求过于频繁，请稍后重试');
+    });
+
+    it('超过三张时只列三张，剩下的报数量', () => {
+      hud.update({
+        status: 'complete',
+        translatedCount: 5,
+        failedCount: 5,
+        cachedCount: 0,
+        failures: [
+          { index: 1, reason: '原因一' },
+          { index: 2, reason: '原因二' },
+          { index: 3, reason: '原因三' },
+          { index: 4, reason: '原因四' },
+          { index: 5, reason: '原因五' },
+        ],
+      });
+
+      // 卡片能读几行是有限的；失败的那几张在画面上有角标，读者想看哪一
+      // 张可以自己看。多出来的只报数量，但不能一个字都不提。
+      expect(hudText()).toContain('第 1 张：原因一');
+      expect(hudText()).toContain('第 3 张：原因三');
+      expect(hudText()).not.toContain('第 4 张');
+      expect(hudText()).toContain('还有 2 张失败');
+    });
+
+    it('没有逐张原因时退回第一张失败的原因', () => {
+      // 旧的数据形状（只有 lastError）还得能显示出来，不能变成空白。
+      hud.update({
+        status: 'complete',
+        translatedCount: 8,
+        failedCount: 1,
+        cachedCount: 0,
+        lastError: '发生未知错误',
+      });
+
+      expect(hudText()).toContain('发生未知错误');
+    });
+  });
 });
 
 // The HUD is where the reader actually is when a run fails: the popup closes

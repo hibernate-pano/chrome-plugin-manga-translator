@@ -758,4 +758,149 @@ describe('BackgroundJobQueue', () => {
     });
     expect(await third).toBe('third');
   });
+
+  /*
+   * 取消要按"这一页"来，不按"整个扩展"来。
+   *
+   * 读者在第一章点了取消，队列里排着的还有第二章 —— 那是另一个标签页的
+   * 活儿。`cancelAll` 会把它一起扔掉，读者会发现自己刚点的"下一章"也没
+   * 了。队列是所有标签页共用的，所以取消必须带着"我是哪一轮"这个身份。
+   */
+  it('drops only the jobs of the cancelled run', async () => {
+    const queue = new BackgroundJobQueue(1);
+    let release: (() => void) | undefined;
+
+    // 第一个 job 已经在跑（在路上收不回来），它不属于被取消的那一轮。
+    const running = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'running',
+        pageKey: 'running',
+        runScope: 'run-other',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          release = r;
+        });
+        return 'running';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const mine = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'mine',
+        pageKey: 'mine',
+        runScope: 'run-mine',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'mine',
+    });
+
+    const theirs = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'theirs',
+        pageKey: 'theirs',
+        runScope: 'run-other',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'theirs',
+    });
+
+    expect(queue.cancelByRunScope('run-mine')).toBe(1);
+
+    // The reader who pressed cancel learns why instead of hanging.
+    await expect(mine).rejects.toThrow('Translation cancelled');
+    expect(queue.getJob('mine')?.state).toBe('cancelled');
+
+    // The other tab's job is untouched — it is still a real request that
+    // will be paid for and translated.
+    release?.();
+    expect(await running).toBe('running');
+    expect(await theirs).toBe('theirs');
+  });
+
+  it('cancelling a run that queued nothing changes nothing', () => {
+    const queue = new BackgroundJobQueue(1);
+    expect(queue.cancelByRunScope('run-mine')).toBe(0);
+  });
+
+  it('releases the dedup entry of a dropped job', async () => {
+    // 丢了的 job 原来占着这个 imageKey 的去重名额。不放掉的话，下一次请求
+    // 同一张图会折叠到一个已经 reject 过的 promise 上，再也不会真的发出去。
+    const queue = new BackgroundJobQueue(1);
+    let release: (() => void) | undefined;
+
+    const blocker = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'blocker',
+        pageKey: 'blocker',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => {
+        await new Promise<void>(r => {
+          release = r;
+        });
+        return 'blocker';
+      },
+    });
+
+    await new Promise<void>(r => setTimeout(r, 0));
+
+    const dropped = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'dropped',
+        pageKey: 'same-image',
+        runScope: 'run-mine',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'dropped',
+    });
+
+    const collapsed = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'collapsed',
+        pageKey: 'same-image',
+        runScope: 'run-mine',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'collapsed',
+    });
+
+    // The second request for the same image collapsed onto the first one —
+    // one pending job, one promise, two callers waiting on it.
+    expect(queue.cancelByRunScope('run-mine')).toBe(1);
+    await expect(dropped).rejects.toThrow('Translation cancelled');
+    await expect(collapsed).rejects.toThrow('Translation cancelled');
+
+    release?.();
+    await blocker;
+
+    // The dedup entry is free again: the same image can start a real job.
+    const later = queue.enqueue({
+      job: createJobStatus({
+        jobId: 'later',
+        pageKey: 'same-image',
+        runScope: 'run-mine',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        scope: 'page',
+      }),
+      run: async () => 'later',
+    });
+    expect(await later).toBe('later');
+  });
 });

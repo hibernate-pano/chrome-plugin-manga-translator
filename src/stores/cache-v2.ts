@@ -47,6 +47,16 @@ export interface TranslationResult {
   readingResult?: ImageReadingResult;
   /** Error message if translation failed */
   error?: string;
+  /**
+   * The HTTP status the provider answered with, when there was one.
+   *
+   * It is the difference between "invalid API key" (401) and "an unknown
+   * error occurred" for the reader. The worker used to flatten the status
+   * into the message and drop it, so the classification on the far side had
+   * nothing to work with. It travels as a number now, and the message keeps
+   * the `[HTTP nnn]` marker for older workers.
+   */
+  errorStatus?: number;
   /** Whether this result was retrieved from cache */
   cached?: boolean;
   /**

@@ -697,10 +697,33 @@ async function handleMessage(
           sendResponse({ received: true });
           return;
         }
-        case 'HUD_CANCELLED':
+        case 'HUD_CANCELLED': {
+          /*
+           * 取消要真的停住队列。
+           *
+           * 以前这条消息只是转发给弹窗，worker 队列里排着的 job 一个不少地
+           * 继续跑、继续发真实请求、继续计费——读者点了「取消当前翻译」，看到
+           * HUD 回到空闲，账单却还在涨。
+           *
+           * 现在按 runScope 精确丢掉**这一页**还没开始的 job。别的标签页正在
+           * 翻的章节不受影响：读者的「取消」说的是这一页，不是整个扩展。
+           *
+           * 已经在飞的 job 不动：请求已经在路上，收不回来，那一笔钱也已经花
+           * 了。这是这条路径一直以来的诚实边界。
+           */
+          const runScope = request['runScope'];
+          if (typeof runScope === 'string' && runScope) {
+            const dropped = translationJobQueue.cancelByRunScope(runScope);
+            if (dropped > 0) {
+              console.info(
+                `[Background] 取消翻译：丢弃了 ${dropped} 个尚未开始的请求`
+              );
+            }
+          }
           void chrome.runtime.sendMessage(request).catch(() => undefined);
           sendResponse({ received: true });
           return;
+        }
         default:
           sendResponse({ received: true });
           return;
@@ -832,6 +855,7 @@ async function enqueueTranslationJob(
       job: createJobStatus({
         jobId: request.jobId,
         pageKey: request.pageKey,
+        runScope: request.runScope,
         priorityClass: request.priorityClass,
         requestedPath,
         scope: request.scope,
@@ -856,6 +880,7 @@ async function enqueueTranslationJob(
       job: createJobStatus({
         jobId: request.jobId,
         pageKey: request.pageKey,
+        runScope: request.runScope,
         priorityClass: request.priorityClass,
         requestedPath,
         scope: request.scope,
@@ -868,6 +893,7 @@ async function enqueueTranslationJob(
   const job = createJobStatus({
     jobId: request.jobId,
     pageKey: request.pageKey,
+    runScope: request.runScope,
     priorityClass: request.priorityClass,
     requestedPath,
     scope: request.scope,
@@ -961,6 +987,11 @@ async function enqueueTranslationJob(
           cached: response.cached,
           usage: response.usage ?? null,
           error: response.error,
+          // The status travels as a number, not only as the `[HTTP nnn]`
+          // marker inside the message: a provider that never wrote a marker
+          // used to arrive with no status at all, and a 401 became
+          // 「发生未知错误」 instead of 「API 密钥无效，请检查配置」.
+          errorStatus: response.errorStatus,
         };
       }
 

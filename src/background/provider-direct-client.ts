@@ -2,6 +2,7 @@ import { createProvider } from '@/providers';
 import type { ProviderType, TextArea } from '@/providers/base';
 import type { TranslationStylePreset } from '@/utils/translation-style';
 import { getErrorMessage } from '@/utils/error-message';
+import { extractErrorStatus } from '@/utils/error-handler';
 import {
   isAbandonedRequest,
   recordBilledRequest,
@@ -10,6 +11,15 @@ import {
 interface ProviderDirectTranslationResponse {
   success: boolean;
   error?: string;
+  /**
+   * The HTTP status behind the failure, when there was one.
+   *
+   * It used to survive only as the `[HTTP nnn]` marker inside `error`, and
+   * a provider with no marker (Ollama) lost it entirely. The status is what
+   * tells "your key is wrong" from "the provider was too slow", so it
+   * travels as a number too.
+   */
+  errorStatus?: number;
   textAreas?: TextArea[];
   /**
    * Bubbles the model found and translated but gave no box for.
@@ -129,6 +139,7 @@ export async function translateImageViaProviderDirect(
     return {
       success: false,
       error: getErrorMessage(error),
+      errorStatus: extractErrorStatus(error),
     };
   }
 }

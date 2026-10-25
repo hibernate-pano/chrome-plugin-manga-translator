@@ -41,6 +41,7 @@ import { useContentConfigStore } from '@/stores/content-config';
 import { hostMatchesAllowlist } from '@/shared/app-config';
 import type { JobPriorityClass } from '@/shared/runtime-contracts';
 import { describeFee } from '@/shared/cost-wording';
+import { RUN_SCOPE_ID } from '@/shared/run-scope';
 import { fetchContentConfig } from '@/shared/config-client';
 import type { ContentConfigSnapshot } from '@/shared/content-config';
 import type {
@@ -49,6 +50,7 @@ import type {
   ContentState,
   ContentStateReport,
   ContentToPopupMsg,
+  ImageFailure,
   PopupToContentMsg,
   ProviderPreflightRequest,
   ProviderPreflightResponse,
@@ -61,6 +63,7 @@ import { isTranslatableImage } from './image-filter';
 import { getForceRetranslateConfirm } from './force-retranslate-confirm';
 import { getImageExportDialog } from './image-export-dialog';
 import { FloatingHud } from './floating-hud';
+import { FailureBadges } from './failure-badges';
 import { ReadingPanel } from './reading-panel';
 import { ReadingAnchors } from './reading-anchors';
 import { clampPageTranslationConcurrency } from './page-translation-utils';
@@ -177,6 +180,13 @@ let renderer: OverlayRenderer | null = null;
 let hud: FloatingHud | null = null;
 let readingPanel: ReadingPanel | null = null;
 let readingAnchors: ReadingAnchors | null = null;
+/**
+ * 失败的图上打的角标。
+ *
+ * 和阅读面板、编号锚点一样，是"这一页发生了什么"的一个视图。它自己不发
+ * 请求、不花钱，存在的意义只有一个：让读者知道**哪一张**坏了。
+ */
+let failureBadges: FailureBadges | null = null;
 let autoTranslateObserver: MutationObserver | null = null;
 let isAutoTranslateEnabled = false;
 /**
@@ -200,6 +210,12 @@ let lastKnownEnabled: boolean | null = null;
  * function reference to remove the listener.
  */
 let anchorRepositionHandler: (() => void) | null = null;
+/**
+ * The same, for the failure badges: they are anchored to their images, so
+ * they have to follow a scroll or a resize. Saved so `cleanup()` can remove
+ * the listeners by the same reference.
+ */
+let failureBadgeRepositionHandler: (() => void) | null = null;
 /**
  * Set once the user asks for this page to be translated (popup button, context
  * menu, or the host being on the auto-translate allowlist). Auto-continue is
@@ -429,6 +445,42 @@ const attemptedImages: Set<HTMLImageElement> = new Set();
  */
 const failedImages: Set<HTMLImageElement> = new Set();
 /**
+ * 失败的图，以及各自的原因。
+ *
+ * `failedImages` 只回答"哪些图要重翻"，这个回答的是"哪张图、为什么坏"。
+ * 两者不是一回事：`failedImages` 里也装着那些还没轮到就被中止的图——它们
+ * 没失败，只是没翻到。
+ *
+ * 以前这一页只留了**第一张**失败的原因（`lastError`），三张图以三种原因
+ * 失败，读者只被告知其中一种，而那一种很可能不是让这一轮卡住的那一种。
+ */
+const pageFailures: Map<HTMLImageElement, ImageFailure> = new Map();
+
+/**
+ * 记下这张图失败了，以及为什么。
+ *
+ * 角标和卡片读的是同一个记录，所以画面上标的和卡片上写的一定是同一件事。
+ */
+function rememberImageFailure(
+  img: HTMLImageElement,
+  index: number,
+  reason: string
+): void {
+  pageFailures.set(img, { index, reason });
+  failureBadges?.mark(img, reason);
+}
+
+/**
+ * 这张图现在没有失败记录了——重试成功了，或者这一页被清了。
+ *
+ * 重试成功之后画面上还留着那个红色角标，就是一句谎话。
+ */
+function forgetImageFailure(img: HTMLImageElement): void {
+  if (pageFailures.delete(img)) {
+    failureBadges?.clear(img);
+  }
+}
+/**
  * 译完的时候，这张图是哪个地址。
  *
  * 页面可以在翻译之后把地址换掉——懒加载站点把缩略图换成大图是常规做法，
@@ -474,6 +526,12 @@ function resetPerImageState(options: { keepAttempted?: boolean } = {}): void {
     attemptedImages.clear();
   }
   failedImages.clear();
+  // 失败记录和角标也是"这一页发生过什么"的一部分，清页面就得一起清。
+  //
+  // 留着它们的话，卡片会写「失败 3 张」而画面上那三张其实已经翻好了，
+  // 而「重新翻译失败的 N 张」会把它们再翻一遍、再收一次钱。
+  pageFailures.clear();
+  failureBadges?.reset();
   // 译文没了，"这张图是在哪个地址上翻的"也就没意义了：覆盖层已经被撤掉，
   // 留着它只会让下一次换图去撤一层早就不存在的译文。
   translatedImageKeys.clear();
@@ -513,6 +571,10 @@ function currentReport(): ContentStateReport {
     autoContinueBudgetExhausted:
       isAutoTranslateEnabled && autoTranslateRunsRemaining <= 0,
     retryTargetCount: retryTargets().length,
+    // 已经坏了几张、分别为什么。这两个数字在翻译进行中就是真的：读者盯着
+    // 进度条的时候，最想知道的正是"已经坏了几张"。
+    failedCount: pageFailures.size,
+    failures: Array.from(pageFailures.values()),
     // 这一页现在盖着几片译文。「清除本页译文」在没有译文时是空动作，
     // 弹窗靠这个数字决定要不要拦下那一下。
     overlayCount: renderer?.getOverlayCount() ?? 0,
@@ -552,6 +614,9 @@ function setState(state: ContentState): void {
           currentImageIndex: reported.currentImageIndex,
           phase: reported.phase,
           etaSeconds: reported.etaSeconds,
+          // 已经坏了几张。进度条把失败也算成"走完了一张"，所以这一行是
+          // 读者在整轮结束之前唯一能知道"有几张白花钱了"的地方。
+          failedCount: reported.failedCount ?? 0,
           costNote: reported.costNote,
         });
         break;
@@ -605,6 +670,9 @@ function setState(state: ContentState): void {
           autoContinueBudgetExhausted:
             reported.autoContinueBudgetExhausted ?? false,
           lastError: reported.lastError,
+          // 哪几张、分别为什么。`lastError` 只是第一张的原因，它留在那里
+          // 是为了兼容没有这张列表的旧状态。
+          failures: reported.failures ?? [],
         });
         break;
       case 'error':
@@ -771,6 +839,18 @@ async function ensureServicesInitialized(): Promise<void> {
     anchorRepositionHandler = reposition;
     window.addEventListener('scroll', reposition, { passive: true });
     window.addEventListener('resize', reposition);
+  }
+
+  // 失败角标：和锚点一样跟着图走，页面把自己的 body 换掉时也要重建。
+  if (failureBadges && !failureBadges.isAttached()) {
+    failureBadges = null;
+  }
+  if (!failureBadges) {
+    failureBadges = new FailureBadges();
+    const repositionBadges = () => failureBadges?.repositionAll();
+    failureBadgeRepositionHandler = repositionBadges;
+    window.addEventListener('scroll', repositionBadges, { passive: true });
+    window.addEventListener('resize', repositionBadges);
   }
 
   // 重新创建 translator 以获取最新配置
@@ -1138,7 +1218,8 @@ async function processSingleImage(
   token: RunToken,
   forceRefresh: boolean = false,
   onCacheHit?: (hit: boolean) => void,
-  priorityClass: JobPriorityClass = 'visible-now'
+  priorityClass: JobPriorityClass = 'visible-now',
+  signal?: AbortSignal
 ): Promise<ImageProcessResult> {
   // The worker pushes a fresh snapshot whenever the user changes anything in
   // Settings, and that handler nulls the translator so the next image picks
@@ -1220,6 +1301,13 @@ async function processSingleImage(
   try {
     result = await translator.translateImage(img, forceRefresh, undefined, {
       priorityClass,
+      // 这一轮的取消信号。
+      //
+      // 它要走到**切片**那一层：一条长条漫会被切成十几片，读者点取消之后，
+      // 剩下的片不该再一张张发出去。翻译服务以前有一个自己的
+      // AbortController，可它从来没被赋值过——那个信号一直是 undefined，
+      // 所以长条漫的切片在取消之后照跑照计费。
+      signal,
     });
 
     if (onCacheHit) {
@@ -1227,8 +1315,30 @@ async function processSingleImage(
     }
 
     if (!result.success) {
-      throw new Error(result.error || 'Translation failed');
+      /*
+       * The status has to travel with the error.
+       *
+       * The classifier in this file reads `error.status` to tell "invalid
+       * API key" (401) from "request timed out" (408). The result carries
+       * the status as a number for exactly that, and dropping it here is
+       * what made every failure arrive as 「发生未知错误」 — a sentence that
+       * names no cause and no next step.
+       */
+      const failure = new Error(result.error || 'Translation failed');
+      if (typeof result.errorStatus === 'number') {
+        (failure as Error & { status?: number }).status = result.errorStatus;
+      }
+      throw failure;
     }
+
+    /*
+     * 这一张成了。
+     *
+     * 它之前失败过的记录和角标都要撤掉：重试成功之后，画面上还留着那个
+     * 红色角标，就是一句谎话；而卡片上还挂着「第 3 张：请求超时」，读者
+     * 会去查一个已经解决的问题。
+     */
+    forgetImageFailure(img);
 
     // The answer arrived after the user pressed cancel, so the run's result
     // is discarded: no overlay, and no marker. A marker left on an image the
@@ -1723,6 +1833,16 @@ async function runTranslation(
     applyAutoTranslateMode(lastConfigSnapshot);
     void syncAutoTranslateMode();
     abortController = new AbortController();
+    /*
+     * 把这一轮的信号**抓住**，而不是每次去读 `abortController`。
+     *
+     * 取消的时候 `cancelTranslation` 会把 `abortController` 置空（那是刻意的，
+     * 它要靠这个区分"被取消"和"正常结束"）。于是任何在取消之后才去读
+     * `abortController?.signal` 的地方拿到的都是 `undefined`——信号也就传
+     * 不下去了。抓住的是 AbortSignal 对象本身，它一旦被 abort 就一直是
+     * aborted 的。
+     */
+    const runSignal = abortController.signal;
 
     await ensureServicesInitialized();
     if (import.meta.env.DEV) {
@@ -1957,20 +2077,48 @@ async function runTranslation(
         }
         failedCount++;
         const img = images[index];
+        /*
+         * 原因，每张图各留一份。
+         *
+         * 上游把 provider 的报错归一化过了，这里拿到的就是给读者看的那句话：
+         * 原始的 provider 字符串（"401 unauthorized"）被换成读者能行动的话
+         * （"API 密钥无效，请检查配置"）。
+         *
+         * 以前只留**第一张**的：三张图以三种原因失败，读者只被告知其中一种，
+         * 而那一种很可能不是让这一轮卡住的那一种。
+         */
+        const reason =
+          error instanceof ArtworkChangedError
+            ? ARTWORK_CHANGED_MESSAGE
+            : parseTranslationError(error).message;
+
         if (img) {
           failedImages.add(img);
+          rememberImageFailure(img, index + 1, reason);
         }
         if (!firstErrorMessage) {
-          // The friendly message turns a raw provider string ("401
-          // unauthorized") into something the user can act on ("API 密钥无效，
-          // 请检查配置").
-          //
-          // 画面被换掉不是服务商的错，要说清楚是这一张要重翻。
-          firstErrorMessage =
-            error instanceof ArtworkChangedError
-              ? ARTWORK_CHANGED_MESSAGE
-              : parseTranslationError(error).message;
+          firstErrorMessage = reason;
         }
+
+        /*
+         * 让页面**现在**就知道已经坏了几张。
+         *
+         * 以前失败只是被记下来，整轮跑完才写进状态——所以读者盯着进度条看
+         * 到 100%，才知道有六张白花了钱。而进度条把失败也算成"走完了一张"，
+         * 那六张在进度条上和成功的那几张长得一模一样。
+         */
+        if (currentState.status === 'translating') {
+          setState({
+            status: 'translating',
+            current,
+            total,
+            currentImageIndex,
+            phase: 'translating',
+            etaSeconds: computeEtaSeconds(),
+            costNote,
+          });
+        }
+
         if (!fatalError && isFatalTranslationError(error.message)) {
           fatalError = error;
           // Stop the remaining images: they would fail the same way.
@@ -1992,7 +2140,8 @@ async function runTranslation(
           hit => {
             if (hit) cachedCount++;
           },
-          priorityClassForImage(img, Boolean(retryImages))
+          priorityClassForImage(img, Boolean(retryImages)),
+          runSignal
         );
         if (result.success) {
           successCount++;
@@ -2230,8 +2379,12 @@ function cancelTranslation(reason: AbortReason = 'user'): void {
   } else {
     setState({ status: 'idle' });
   }
-  // 通知 popup 取消成功，按钮状态需要更新
-  sendToBackground({ type: 'HUD_CANCELLED' });
+  // 通知 popup 取消成功，按钮状态需要更新。
+  //
+  // 同时带上这一页的运行标识：worker 用它精确丢掉**这一页**还没开始的
+  // 请求。以前这条消息只是转发给弹窗，队列里排着的 job 一个不少地继续跑、
+  // 继续发真实请求、继续计费——读者点了取消，账单还在涨。
+  sendToBackground({ type: 'HUD_CANCELLED', runScope: RUN_SCOPE_ID });
 }
 
 /**
@@ -3029,6 +3182,13 @@ function cleanup(): void {
     window.removeEventListener('scroll', anchorRepositionHandler);
     window.removeEventListener('resize', anchorRepositionHandler);
     anchorRepositionHandler = null;
+  }
+  failureBadges?.destroy();
+  failureBadges = null;
+  if (failureBadgeRepositionHandler) {
+    window.removeEventListener('scroll', failureBadgeRepositionHandler);
+    window.removeEventListener('resize', failureBadgeRepositionHandler);
+    failureBadgeRepositionHandler = null;
   }
   stopAutoTranslateObserver();
   resetPerImageState();

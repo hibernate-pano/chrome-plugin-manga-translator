@@ -28,6 +28,13 @@ interface TranslationTransportRequest {
   priorityClass?: JobPriorityClass;
   scope?: 'viewport' | 'page' | 'chapter' | 'manual';
   isHybridRegions?: boolean;
+  /**
+   * Which page run this request belongs to.
+   *
+   * The worker drops the requests of a run when the reader cancels, so the
+   * id has to travel with every request of that run.
+   */
+  runScope?: string;
 }
 
 interface TranslationTransportResponse {
@@ -42,6 +49,10 @@ interface TranslationTransportResponse {
   unplacedCount?: number;
   pipeline?: 'ocr-first' | 'region-fallback' | 'full-image-fallback';
   cached?: boolean;
+  /**
+   * The HTTP status behind the failure, when the provider answered with one.
+   */
+  errorStatus?: number;
   diagnostics?: {
     detectedRegions: number;
     fallbackRegions: number;
@@ -125,6 +136,7 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
         pageKey,
         scope: request.scope || 'page',
         priorityClass: request.priorityClass || 'visible-now',
+        runScope: request.runScope,
         imageBase64: request.imageBase64,
         mimeType: request.mimeType,
         imageUrl: request.imageUrl,
@@ -155,6 +167,7 @@ export class ChromeRuntimeTranslationTransport implements TranslationTransport {
     return {
       success: response.success,
       error: response.error,
+      errorStatus: response.errorStatus,
       textAreas: response.textAreas,
       unplacedCount: response.unplacedCount,
       pipeline: response.pipeline,

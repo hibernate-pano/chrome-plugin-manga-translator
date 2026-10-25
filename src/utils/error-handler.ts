@@ -80,6 +80,45 @@ export function stripHttpStatusMarker(message: string): string {
 }
 
 /**
+ * The HTTP status behind an error, wherever it happens to be.
+ *
+ * Two places carry it, and which one holds depends on how far the error has
+ * travelled:
+ *
+ * - Before it leaves the provider, it is a property: `createApiError` puts
+ *   the status on the Error object.
+ * - After the worker flattens the error to a string, it is only the
+ *   `[HTTP nnn]` marker at the front of the message.
+ *
+ * The worker used to drop the property and keep only the marker, so a
+ * provider with no marker at all (Ollama) arrived with no status, and a
+ * 401 turned into 「发生未知错误」 instead of 「API 密钥无效，请检查配置」.
+ * The status now travels as a number as well — see
+ * `TranslateImageJobResponse.errorStatus` — and this function is what reads
+ * it on the far side.
+ */
+export function extractErrorStatus(error: unknown): number | undefined {
+  if (typeof error === 'object' && error !== null) {
+    const status = (error as { status?: unknown }).status;
+    if (typeof status === 'number' && Number.isFinite(status)) {
+      return status;
+    }
+  }
+
+  const message =
+    error instanceof Error
+      ? error.message
+      : typeof error === 'string'
+        ? error
+        : undefined;
+
+  if (message === undefined) {
+    return undefined;
+  }
+  return parseHttpStatusFromMessage(message);
+}
+
+/**
  * Does this raw message look like a sentence written for the reader?
  *
  * Our own errors are written in Chinese, for the person using the
@@ -176,6 +215,19 @@ export interface FriendlyError {
   retryable: boolean;
   suggestion?: string; // 解决建议
   action?: ErrorAction; // 可执行的修复入口
+  /**
+   * The HTTP status behind this error, when there was one.
+   *
+   * The friendly message is enough to tell the reader what to do, but the
+   * status is what tells the *code* what to do: it is the difference between
+   * "the provider rejected this" and "the provider was still working when we
+   * gave up" — and only the second one is money already spent.
+   *
+   * It has to be carried here because the retry helper replaces the original
+   * error with the friendly one. Without this, a 408 that came back as a
+   * plain timeout is indistinguishable from a timeout the user caused.
+   */
+  status?: number;
 }
 
 /**
@@ -347,13 +399,19 @@ export class TranslationErrorHandler {
       const codeFromStatus =
         TranslationErrorHandler.getCodeFromStatusCode(statusCode);
       if (codeFromStatus) {
-        return TranslationErrorHandler.createFriendlyError(codeFromStatus);
+        return {
+          ...TranslationErrorHandler.createFriendlyError(codeFromStatus),
+          status: statusCode,
+        };
       }
     }
 
     // 根据错误消息关键词判断
     const code = TranslationErrorHandler.getCodeFromMessage(errorMessage);
-    const friendlyError = TranslationErrorHandler.createFriendlyError(code);
+    const friendlyError = {
+      ...TranslationErrorHandler.createFriendlyError(code),
+      ...(statusCode !== undefined ? { status: statusCode } : {}),
+    };
 
     if (
       code === TranslationErrorCode.UNKNOWN_ERROR &&

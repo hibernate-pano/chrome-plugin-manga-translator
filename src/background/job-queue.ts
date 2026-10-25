@@ -264,6 +264,58 @@ export class BackgroundJobQueue {
     return dropped.length;
   }
 
+  /**
+   * Drop the jobs that belong to one page run, and only those.
+   *
+   * The reader pressed "cancel" on one page. Every job that page had not
+   * started yet would still have become a real, billed request, so they are
+   * dropped rather than started — the same reasoning as {@link cancelAll},
+   * but scoped.
+   *
+   * Scoping is the whole point. `cancelAll` is the right answer when the
+   * *extension* is switched off, because then nothing should run anywhere.
+   * It is the wrong answer when one reader cancels one chapter: another tab
+   * may be translating the next one, and throwing that away would cost the
+   * reader a chapter they never asked to stop.
+   *
+   * Running jobs are left alone: their request is already on the wire and
+   * cannot be recalled. They finish, and they are billed — the same honest
+   * limit {@link cancelAll} has always had.
+   *
+   * @returns how many jobs were dropped.
+   */
+  cancelByRunScope(runScope: string, reason = 'Translation cancelled'): number {
+    if (!runScope || this.pending.length === 0) {
+      return 0;
+    }
+
+    const kept: Array<PendingJob<unknown>> = [];
+    const dropped: Array<PendingJob<unknown>> = [];
+    for (const job of this.pending) {
+      if (job.job.runScope === runScope) {
+        dropped.push(job);
+      } else {
+        kept.push(job);
+      }
+    }
+
+    if (dropped.length === 0) {
+      return 0;
+    }
+
+    this.pending.length = 0;
+    this.pending.push(...kept);
+
+    for (const job of dropped) {
+      this.updateJob(job.job.jobId, { state: 'cancelled' });
+      if (job.dedupEntry) {
+        this.releaseDedupEntry(job.job.pageKey, job.dedupEntry);
+      }
+      job.reject(new Error(reason));
+    }
+    return dropped.length;
+  }
+
   private getCurrentLimit(): number {
     let currentLimit = this.maxConcurrent;
     const nextJob = this.pending[0];
@@ -401,6 +453,7 @@ export class BackgroundJobQueue {
 export function createJobStatus(args: {
   jobId: string;
   pageKey: string;
+  runScope?: string;
   priorityClass: JobPriorityClass;
   requestedPath: RequestedExecutionPath;
   scope: JobStatusPayload['scope'];
@@ -408,6 +461,7 @@ export function createJobStatus(args: {
   return {
     jobId: args.jobId,
     pageKey: args.pageKey,
+    runScope: args.runScope,
     priorityClass: args.priorityClass,
     requestedPath: args.requestedPath,
     scope: args.scope,

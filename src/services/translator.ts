@@ -24,6 +24,7 @@
  */
 import type { ProviderType, TextArea } from '@/providers/base';
 import { providerRequiresApiKey } from '@/shared/local-providers';
+import { RUN_SCOPE_ID } from '@/shared/run-scope';
 import {
   deriveRequestedPath,
   type JobPriorityClass,
@@ -59,8 +60,10 @@ import {
   type TranslationTransport,
 } from '@/services/translation-transport';
 import {
+  extractErrorStatus,
   parseHttpStatusFromMessage,
   retryWithBackoff,
+  stripHttpStatusMarker,
 } from '@/utils/error-handler';
 import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
@@ -150,6 +153,15 @@ interface TranslatorConfig {
   imageOptions?: ImageProcessingOptions;
   /** Transport implementation */
   transport?: TranslationTransport;
+  /**
+   * Which page run these requests belong to.
+   *
+   * The worker drops the requests of a run when the reader cancels, so every
+   * request has to say which run it is. It comes from the content script
+   * (see `@/shared/run-scope`), not from here: a translator can be rebuilt
+   * mid-run when the settings change, and the run it belongs to has not.
+   */
+  runScope?: string;
 }
 
 /**
@@ -166,6 +178,27 @@ interface TranslatorConfig {
  */
 interface TiledTranslationOutcome extends TranslationResult {
   allowFullImageFallback: boolean;
+}
+
+/**
+ * One tile's answer.
+ *
+ * `error` is set when the tile ran and failed. It used to be `null` for a
+ * failure, which said nothing: the reason was logged in development builds
+ * only and thrown away, so a production build could not tell a timeout from
+ * a wrong API key — and neither could the reader.
+ */
+interface TileTranslationResult {
+  areas: TextArea[];
+  error?: string;
+  /**
+   * The HTTP status behind `error`, when the failure came from a response.
+   *
+   * Without it, a 401 and a 408 both arrive as the same sentence, and the
+   * reader is told "an unknown error occurred" — the one message that says
+   * nothing about what to do next.
+   */
+  errorStatus?: number;
 }
 
 interface TransportTextAreasResponse {
@@ -376,7 +409,6 @@ export function normalizeBaseUrl(baseUrl: string | undefined): string {
 export class TranslatorService {
   private config: TranslatorConfig;
   private transport: TranslationTransport;
-  private abortController: AbortController | null = null;
   private isInitialized = false;
 
   constructor(config: TranslatorConfig) {
@@ -439,7 +471,7 @@ export class TranslatorService {
     image: HTMLImageElement,
     forceRefresh: boolean = false,
     imageKeyOverride?: string,
-    options?: { priorityClass?: JobPriorityClass }
+    options?: { priorityClass?: JobPriorityClass; signal?: AbortSignal }
   ): Promise<TranslationResult> {
     if (isDevelopment) {
       _log('开始翻译图片');
@@ -494,7 +526,8 @@ export class TranslatorService {
         const result = await this.translateImageTiled(
           image,
           forceRefresh,
-          options?.priorityClass
+          options?.priorityClass,
+          options?.signal
         );
         if (!result.success) {
           if (result.allowFullImageFallback) {
@@ -555,7 +588,8 @@ export class TranslatorService {
         processed,
         imageKey,
         forceRefresh,
-        options?.priorityClass
+        options?.priorityClass,
+        options?.signal
       );
 
       // 步骤5：写入缓存。质量门分两种"空"：
@@ -593,6 +627,16 @@ export class TranslatorService {
         success: false,
         textAreas: [],
         error: errorMessage,
+        /*
+         * The status travels with the result.
+         *
+         * Everything below this point had it — the provider put it on the
+         * Error, the worker carried it across the process boundary as a
+         * number — and this catch was the one place that dropped it. From
+         * here on the content script only had a sentence, so 401 and 408
+         * both classified as "an unknown error occurred".
+         */
+        errorStatus: extractErrorStatus(error),
       };
     }
   }
@@ -651,16 +695,25 @@ export class TranslatorService {
       priorityClass: metadata?.priorityClass,
       scope: metadata?.scope,
       isHybridRegions: metadata?.isHybridRegions,
+      runScope: this.config.runScope,
     });
 
     if (!response.success) {
-      // The worker flattens the provider's error to a message, so the status
-      // only survives inside the text (as the `[HTTP nnn]` marker). It is
-      // read back here because the status is what tells "the provider
-      // rejected this" from "the provider was still working when we gave up"
-      // — and only the second one is money already spent.
+      /*
+       * The status is what tells "the provider rejected this" from "the
+       * provider was still working when we gave up" — and only the second one
+       * is money already spent.
+       *
+       * It used to survive only as the `[HTTP nnn]` marker inside the
+       * message text, because the worker flattened the error to a string
+       * before it crossed the process boundary. The worker now sends it as a
+       * number as well; the marker is still read, as the fallback for a
+       * worker that is older than the one that sends it.
+       */
       const error = new Error(response.error || '翻译请求失败');
-      const status = parseHttpStatusFromMessage(response.error ?? '');
+      const status =
+        response.errorStatus ??
+        parseHttpStatusFromMessage(response.error ?? '');
       if (status !== undefined) {
         (error as Error & { status?: number }).status = status;
       }
@@ -776,7 +829,8 @@ export class TranslatorService {
   private async translateImageTiled(
     image: HTMLImageElement,
     forceRefresh: boolean,
-    priorityClass?: JobPriorityClass
+    priorityClass?: JobPriorityClass,
+    signal?: AbortSignal
   ): Promise<TiledTranslationOutcome> {
     const tiles = computeTiles(image.naturalWidth, image.naturalHeight);
     if (tiles.length <= 1) {
@@ -812,22 +866,35 @@ export class TranslatorService {
           index,
           imageKey,
           forceRefresh,
-          priorityClass
+          priorityClass,
+          signal
         ),
       {
         maxConcurrent: parallelLimit,
-        signal: this.abortController?.signal,
+        // The reader's cancel reaches the tile loop through here: the pool
+        // stops picking up new tiles once the signal fires.
+        //
+        // It used to read a signal from a field that was never assigned, so
+        // it was always `undefined` — a long strip kept running all of its
+        // tiles after the reader pressed cancel.
+        signal,
       }
     );
 
-    // Retry ONLY the tiles that produced no answer at all. A `null` slot
-    // means the tile threw; an empty `areas` means the provider answered and
-    // found nothing. `processInParallel` writes `undefined` for a slot it
-    // never ran (abort, or a rejection it caught itself), so all three are
-    // "no answer" and none of them may be counted as a reply.
+    /*
+     * Retry ONLY the tiles that produced no answer at all.
+     *
+     * Three shapes come back: `undefined` for a tile the pool never ran (the
+     * reader cancelled), an `error` for a tile that ran and failed, and a
+     * plain result for a tile the provider answered. Only the first two are
+     * "no answer", and neither of them may be counted as a reply.
+     */
+    const isUnanswered = (result: TileTranslationResult | undefined): boolean =>
+      result === undefined || result.error !== undefined;
+
     const failedIndexes: number[] = [];
     perTileResults.forEach((result, index) => {
-      if (result === null || result === undefined) {
+      if (isUnanswered(result)) {
         failedIndexes.push(index);
       }
     });
@@ -851,12 +918,13 @@ export class TranslatorService {
             forceRefresh,
             // 重试的那一片和第一次一样急。丢了优先级标记，它就会被当成
             // 「读者正盯着的那张」，插到人家真正在等的图前面。
-            priorityClass
+            priorityClass,
+            signal
           );
         },
         {
           maxConcurrent: parallelLimit,
-          signal: this.abortController?.signal,
+          signal,
         }
       );
 
@@ -871,9 +939,44 @@ export class TranslatorService {
 
     const allAreas: TextArea[] = perTileResults.flatMap(r => r?.areas ?? []);
 
+    /*
+     * 为什么失败。
+     *
+     * 每一片失败时把原因带出来，最后合成一句给读者看的话。以前这里只有
+     * 一个计数（「3/12 个切片翻译失败」），原因在 `translateTile` 的 catch
+     * 里就丢了——而且只在开发模式下打过一行日志，所以正式构建里连开发者
+     * 自己都看不到「是超时还是密钥错了」。
+     */
+    const failureReasons = Array.from(
+      new Set(
+        perTileResults
+          .map(result => result?.error)
+          .filter((reason): reason is string => Boolean(reason))
+      )
+    );
+    const reasonSuffix =
+      failureReasons.length > 0 ? `：${failureReasons.join('；')}` : '';
+
+    /*
+     * 状态码：只有当所有失败的那几片是同一个状态时才算数。
+     *
+     * 401（密钥无效）和 408（超时）给读者的下一步完全不同，所以状态码得
+     * 跟着上来；但如果几片失败的原因不一样，报一个状态码就是在替其中一
+     * 部分撒谎——那种情况下宁可不说，让原因文本自己把话说清楚。
+     */
+    const failureStatuses = Array.from(
+      new Set(
+        perTileResults
+          .map(result => result?.errorStatus)
+          .filter((status): status is number => typeof status === 'number')
+      )
+    );
+    const sharedErrorStatus =
+      failureStatuses.length === 1 ? failureStatuses[0] : undefined;
+
     if (allAreas.length === 0) {
       const answered = perTileResults.filter(
-        result => result !== null && result !== undefined
+        result => result !== undefined && result.error === undefined
       ).length;
       const unanswered = perTileResults.length - answered;
 
@@ -882,7 +985,8 @@ export class TranslatorService {
         return {
           success: false,
           textAreas: [],
-          error: '所有切片翻译请求均失败',
+          error: `所有切片翻译请求均失败${reasonSuffix}`,
+          errorStatus: sharedErrorStatus,
           allowFullImageFallback: true,
         };
       }
@@ -895,7 +999,8 @@ export class TranslatorService {
         return {
           success: false,
           textAreas: [],
-          error: `${unanswered}/${perTileResults.length} 个切片翻译失败`,
+          error: `${unanswered}/${perTileResults.length} 个切片翻译失败${reasonSuffix}`,
+          errorStatus: sharedErrorStatus,
           allowFullImageFallback: false,
         };
       }
@@ -913,9 +1018,7 @@ export class TranslatorService {
     // Some areas exist but some tiles are still unanswered: the areas we do
     // have are worth keeping, but the strip is incomplete, so the caller
     // must not also pay for the full-image path.
-    const stillUnanswered = perTileResults.filter(
-      result => result === null || result === undefined
-    ).length;
+    const stillUnanswered = perTileResults.filter(isUnanswered).length;
     const allowFullImageFallback = stillUnanswered === perTileResults.length;
 
     const clean = filterOverlapDuplicates(allAreas);
@@ -951,7 +1054,11 @@ export class TranslatorService {
 
   /**
    * Translate a single tile (crop + transport + map back to original coords).
-   * Returns null on failure so one bad tile doesn't fail the page.
+   *
+   * A tile that failed carries its reason instead of vanishing: the reason
+   * is what the reader is told, and it used to be dropped on the floor here
+   * (the catch logged it only in development builds, so a production build
+   * could not tell a timeout from a wrong key).
    */
   private async translateTile(
     image: HTMLImageElement,
@@ -959,8 +1066,9 @@ export class TranslatorService {
     index: number,
     imageKey: string,
     forceRefresh: boolean,
-    priorityClass?: JobPriorityClass
-  ): Promise<{ areas: TextArea[] } | null> {
+    priorityClass?: JobPriorityClass,
+    signal?: AbortSignal
+  ): Promise<TileTranslationResult> {
     try {
       const processed = await processImage(image, {
         maxSize: TILE_MAX_DIMENSION,
@@ -973,6 +1081,16 @@ export class TranslatorService {
           height: tile.height,
         },
       });
+
+      /*
+       * 裁片是本地做的，模型请求要发出去之前，读者可能已经按了取消。
+       *
+       * 池子只在**取**下一片之前看信号，而裁片本身要花时间（画 canvas、
+       * 编码）。等裁完才发现已经取消，这一片的钱就白花了。
+       */
+      if (signal?.aborted) {
+        throw new Error('Translation cancelled');
+      }
 
       let response = await this.sendTranslationRequest(
         processed.base64,
@@ -988,12 +1106,27 @@ export class TranslatorService {
         }
       );
 
-      // Quality gate: a tile that yields no text is suspicious. Retry once
-      // (covers transient JSON/parse flakiness) before accepting empty.
-      const nonEmpty = (response.textAreas ?? []).filter(
+      /*
+       * 什么时候值得再问一次。
+       *
+       * 以前这里是「这一片没有译文 → 再问一次」。但"模型回答了『这里没有
+       * 文字』"和"模型找到了框却没给译文"是两件事：前者是一个**答案**，
+       * 再问一次只会再花一次钱、换回同一句"这里没有文字"；后者才是可疑的，
+       * 再问一次有可能拿到译文。
+       *
+       * 所以判据从"没有译文"收窄成"**找到了框**却没有译文"。一个本来就没字
+       * 的切片，从此只花一次钱。
+       */
+      const areas = response.textAreas ?? [];
+      const nonEmpty = areas.filter(
         area => (area.translatedText ?? '').trim().length > 0
       );
-      if (nonEmpty.length === 0 && !forceRefresh) {
+      if (
+        areas.length > 0 &&
+        nonEmpty.length === 0 &&
+        !forceRefresh &&
+        !signal?.aborted
+      ) {
         response = await this.sendTranslationRequest(
           processed.base64,
           processed.mimeType,
@@ -1018,7 +1151,20 @@ export class TranslatorService {
       if (isDevelopment) {
         _logError(`切片 ${index + 1} 失败:`, error);
       }
-      return null;
+      /*
+       * The `[HTTP nnn]` marker is stripped from the text and carried as a
+       * number instead.
+       *
+       * The marker protocol is anchored to the start of a message, so a
+       * marker sitting in the middle of "所有切片翻译请求均失败：[HTTP 401] …"
+       * is read by nobody — it would only show up in front of the reader as
+       * a piece of internal plumbing.
+       */
+      return {
+        areas: [],
+        error: stripHttpStatusMarker(getErrorMessage(error)),
+        errorStatus: extractErrorStatus(error),
+      };
     }
   }
 
@@ -1027,7 +1173,8 @@ export class TranslatorService {
     processed: Awaited<ReturnType<typeof processImage>>,
     imageKey: string,
     forceRefresh: boolean,
-    priorityClass?: JobPriorityClass
+    priorityClass?: JobPriorityClass,
+    signal?: AbortSignal
   ): Promise<TranslationResult> {
     const appConfig = useContentConfigStore.getState();
     const hybridEnabled =
@@ -1040,7 +1187,8 @@ export class TranslatorService {
         const readingResult = await this.translateRegionsWithHybrid(
           processed,
           imageKey,
-          priorityClass
+          priorityClass,
+          signal
         );
         return {
           success: true,
@@ -1161,7 +1309,8 @@ export class TranslatorService {
   private async translateRegionsWithHybrid(
     processed: Awaited<ReturnType<typeof processImage>>,
     imageKey: string,
-    priorityClass?: JobPriorityClass
+    priorityClass?: JobPriorityClass,
+    signal?: AbortSignal
   ): Promise<ImageReadingResult> {
     const dataUrl = base64ToDataUrl(processed.base64, processed.mimeType);
     const detection = await detectTextRegions(dataUrl, {
@@ -1189,6 +1338,15 @@ export class TranslatorService {
     let order = 0;
 
     for (const batch of batches) {
+      /*
+       * 读者按了取消，就不要再发下一批了。
+       *
+       * 混合管线是一批一批问模型的，一章能问十几次。取消之前这里没有人在
+       * 听信号，于是读者点了取消之后，剩下的批次照发、照计费。
+       */
+      if (signal?.aborted) {
+        throw new Error('Translation cancelled');
+      }
       const batchEntries = await this.translateRegionBatch(
         dataUrl,
         batch,
@@ -1677,16 +1835,6 @@ export class TranslatorService {
   }
 
   /**
-   * Cancel ongoing translation
-   */
-  cancel(): void {
-    if (this.abortController) {
-      this.abortController.abort();
-      this.abortController = null;
-    }
-  }
-
-  /**
    * Check if provider is properly configured
    */
   async validateConfig(): Promise<{ valid: boolean; message: string }> {
@@ -1742,6 +1890,9 @@ export function createTranslatorFromConfig(): TranslatorService {
     targetLanguage: config.targetLanguage,
     cacheEnabled: config.cacheEnabled,
     translationStylePreset: config.translationStylePreset,
+    // 每一页的请求都带着同一个运行标识，读者取消时 worker 才分得清
+    // 哪一些是该丢的。
+    runScope: RUN_SCOPE_ID,
     imageOptions: {
       maxSize: config.maxImageSize,
     },

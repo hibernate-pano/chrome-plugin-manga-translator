@@ -29,7 +29,11 @@ vi.mock('./text-detector', async importOriginal => {
   };
 });
 
-import { TranslatorService, normalizeBaseUrl } from './translator';
+import {
+  TranslatorService,
+  computeTiles,
+  normalizeBaseUrl,
+} from './translator';
 import { useContentConfigStore } from '@/stores/content-config';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
 import {
@@ -227,12 +231,13 @@ describe('TranslatorService pipeline selection', () => {
     expect(fullImageCalls).toHaveLength(1);
   });
 
-  it('degrades when only some tiles answered and none produced text', async () => {
-    // The dangerous middle case: 3 tiles throw and 1 answers "nothing here".
-    // Counting that single reply as a complete run returned success with zero
-    // areas, which skipped the full-image fallback, left three quarters of the
-    // chapter untranslated, and marked the image processed so it was never
-    // retried — a silent data loss disguised as a fix for double billing.
+  it('reports the failure and its reason when only some tiles failed', async () => {
+    // The dangerous middle case: some tiles throw and the rest answer
+    // "nothing here". Counting that as a complete run returned success with
+    // zero areas, which skipped the full-image fallback, left three quarters
+    // of the chapter untranslated, and marked the image processed so it was
+    // never retried — a silent data loss disguised as a fix for double
+    // billing.
     processImageMock.mockImplementation(async (_image, options) => {
       const crop = options?.cropRegion;
       return {
@@ -255,7 +260,7 @@ describe('TranslatorService pipeline selection', () => {
         _request: Parameters<TranslationTransport['translateImage']>[0]
       ) => {
         tileCalls += 1;
-        // Tile 0 answers empty; every other tile fails.
+        // The first two tiles answer "nothing here"; every other tile fails.
         if (tileCalls <= 2) {
           return { success: true, textAreas: [], cached: false };
         }
@@ -273,7 +278,7 @@ describe('TranslatorService pipeline selection', () => {
       transport: { translateImage } as TranslationTransport,
     });
 
-    await translator.translateImage(
+    const result = await translator.translateImage(
       {
         naturalWidth: 800,
         naturalHeight: 4000,
@@ -282,8 +287,30 @@ describe('TranslatorService pipeline selection', () => {
       false
     );
 
-    // The full-image bytes must be attempted rather than reporting a clean
-    // empty page.
+    /*
+     * 这条断言改过。
+     *
+     * 以前它断言"整图必须被发出去"（有一条 full-image 的请求）。那时候它
+     * 成立的原因很偶然：模型回答"这里没有文字"时，那一片会被再问一次，而
+     * 第二次问会失败——于是**每一片**都变成失败，整条走进"全部失败"分支，
+     * 整图兜底才被允许。那是"每一片都失败"的兜底，不是"部分失败"的策略。
+     *
+     * 现在不再为一个"这里没有文字"的答案多问一次（那只是多花一次钱换回
+     * 同一句话），于是真正失败的只有那几片。这条漫画因此走"部分失败"分支：
+     * 报错、留在未处理状态、让读者按张重试——而**不**再付一次整图的钱。
+     * 整图那条路会把 800x4000 压成 205x1024 送出去，读者拿到的是一张
+     * 看不清字的图。
+     *
+     * 真正要守住的是两条：不能报成"翻译成功但什么都没有"，以及不能多花
+     * 一次整图的钱。
+     */
+    expect(result.success).toBe(false);
+    expect(result.textAreas).toHaveLength(0);
+    // The reader is told how many tiles failed and why — a count alone
+    // ("2/4 个切片翻译失败") leaves them with nothing to act on.
+    expect(result.error).toMatch(/\d+\/4 个切片翻译失败/);
+    expect(result.error).toContain('provider 500');
+
     const fullImagePayloads = translateImage.mock.calls
       .map(
         call =>
@@ -291,7 +318,7 @@ describe('TranslatorService pipeline selection', () => {
             ?.imageBase64
       )
       .filter(b64 => b64 === 'full-image');
-    expect(fullImagePayloads.length).toBeGreaterThan(0);
+    expect(fullImagePayloads).toHaveLength(0);
   });
 
   it('still falls back to the full-image path when every tile request fails', async () => {
@@ -625,6 +652,142 @@ describe('TranslatorService tiled failure policy', () => {
 
     expect(result.success).toBe(true);
     expect(fullImagePayloads(translateImage)).toHaveLength(0);
+  });
+
+  it('a tile that honestly has no text is asked once, not twice', async () => {
+    // "这里没有文字"是一个**答案**。以前它会被再问一次 —— 多花一次钱，
+    // 换回同一句"这里没有文字"。一条十二片的条漫里要是有一半是纯画面，
+    // 那一半的钱就白花了两遍。
+    mockProcessImage();
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      textAreas: [],
+      cached: false,
+    }));
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    const result = await translator.translateImage(
+      {
+        naturalWidth: 800,
+        naturalHeight: 4000,
+        src: 'https://example.com/art-only-strip.jpg',
+      } as HTMLImageElement,
+      false
+    );
+
+    const tiles = computeTiles(800, 4000);
+    expect(result.success).toBe(true);
+    // 一次请求，一片。
+    expect(translateImage).toHaveBeenCalledTimes(tiles.length);
+  });
+
+  it('a tile that found boxes but no translation is still asked again', async () => {
+    // 这一条是上面那条的另一半：模型找到了框却没给译文，这是可疑的，
+    // 再问一次有可能拿到译文。两件事不能混为一谈。
+    mockProcessImage();
+
+    const translateImage = vi.fn(async () => ({
+      success: true,
+      textAreas: [
+        {
+          x: 0.1,
+          y: 0.1,
+          width: 0.2,
+          height: 0.1,
+          originalText: '原文',
+          translatedText: '  ',
+        },
+      ],
+      cached: false,
+    }));
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    await translator.translateImage(
+      {
+        naturalWidth: 800,
+        naturalHeight: 4000,
+        src: 'https://example.com/empty-translation.jpg',
+      } as HTMLImageElement,
+      false
+    );
+
+    const tiles = computeTiles(800, 4000);
+    // 每片问两次：第一次没译文，第二次再问一次。
+    expect(translateImage).toHaveBeenCalledTimes(tiles.length * 2);
+  });
+
+  it('the reader cancelling stops the tile loop', async () => {
+    // 一条长条漫会被切成十几片。读者点取消之后，剩下的片不该再一张张发
+    // 出去 —— 那是十几笔已经付出去的钱，换来一段读者根本没要的译文。
+    //
+    // 以前切片这一层读的是一个**从来没被赋值过**的字段，所以那个信号一直
+    // 是 undefined：取消之后长条漫照跑照计费。
+    mockProcessImage();
+
+    const previousLimit = useContentConfigStore.getState().parallelLimit;
+    useContentConfigStore.setState({ parallelLimit: 1 });
+
+    try {
+      const controller = new AbortController();
+      const translateImage = vi.fn(
+        async (
+          _request: Parameters<TranslationTransport['translateImage']>[0]
+        ) => {
+          // 读者在第一片发出去之后按了取消。
+          controller.abort();
+          return { success: true, textAreas: [], cached: false };
+        }
+      );
+      const translator = new TranslatorService({
+        provider: 'openai-compatible',
+        apiKey: 'sk-test',
+        baseUrl: 'https://example.com/v1',
+        model: 'vision-model',
+        targetLanguage: 'zh-CN',
+        cacheEnabled: false,
+        translationStylePreset: 'natural-zh',
+        transport: { translateImage } as TranslationTransport,
+      });
+
+      await translator.translateImage(
+        {
+          naturalWidth: 800,
+          naturalHeight: 4000,
+          src: 'https://example.com/cancelled.jpg',
+        } as HTMLImageElement,
+        false,
+        undefined,
+        { signal: controller.signal }
+      );
+
+      const tiles = computeTiles(800, 4000);
+      expect(tiles.length).toBeGreaterThan(1);
+      // 只有第一片发出去了。
+      expect(translateImage).toHaveBeenCalledTimes(1);
+      // 取消之后也不该去走整图那条路。
+      expect(fullImagePayloads(translateImage)).toHaveLength(0);
+    } finally {
+      useContentConfigStore.setState({ parallelLimit: previousLimit });
+    }
   });
 });
 
@@ -1184,6 +1347,50 @@ describe('TranslatorService error status propagation', () => {
     const friendly = parseTranslationError(new Error(result.error ?? ''));
     expect(friendly.code).toBe('AUTH_ERROR');
     expect(friendly.message).toBe('API 密钥无效，请检查配置');
+  });
+
+  it('keeps the numeric status, not just the text', async () => {
+    // 状态码以数字的形式一路走回来，是为了让"分类器"还有东西可读：文本
+    // 里的 `[HTTP nnn]` 标记只有出现在消息**开头**才认得，而 worker 拼出
+    // 的句子中间那个标记谁也读不到。
+    processImageMock.mockResolvedValue({
+      base64: 'img',
+      mimeType: 'image/jpeg',
+      originalWidth: 800,
+      originalHeight: 600,
+      width: 800,
+      height: 600,
+      wasCompressed: false,
+      hash: 'hash',
+    });
+
+    const translateImage = vi.fn(async () => ({
+      success: false,
+      error: 'Invalid API key',
+      errorStatus: 401,
+    }));
+    const translator = new TranslatorService({
+      provider: 'openai-compatible',
+      apiKey: 'sk-test',
+      baseUrl: 'https://example.com/v1',
+      model: 'vision-model',
+      targetLanguage: 'zh-CN',
+      cacheEnabled: false,
+      translationStylePreset: 'natural-zh',
+      transport: { translateImage } as TranslationTransport,
+    });
+
+    const result = await translator.translateImage(
+      {
+        naturalWidth: 800,
+        naturalHeight: 600,
+        src: 'https://example.com/2.jpg',
+      } as HTMLImageElement,
+      false
+    );
+
+    expect(result.success).toBe(false);
+    expect(result.errorStatus).toBe(401);
   });
 });
 

@@ -934,6 +934,155 @@ describe('F6: failure reasons are surfaced', () => {
 });
 
 // ================================================================
+// 失败要当场看得见，而且要说得清是哪一张、为什么
+//
+// 以前失败数只在整轮结束时才进状态。于是二十张里坏了六张的那一轮，在最后
+// 两秒之前和"一切正常"的那一轮长得一模一样：进度条照样往前，因为失败的
+// 图也算"走完了一张"。读者唯一能看到的失败提示，是整轮跑完之后右下角那张
+// 卡片上的一个数字 —— 而且它写的是**第一张**失败图的原因。
+// ================================================================
+describe('失败是当场说的，而且说得清是哪一张', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    translateImageMock.mockReset();
+    renderMock.mockReset();
+    providerValidateMock.mockReset();
+    providerValidateMock.mockResolvedValue({ valid: true, message: 'ok' });
+    useAppConfigStore.setState({ enabled: true, parallelLimit: 2 });
+    clearAll();
+  });
+
+  /** Every state the content script published, in order. */
+  function allStates(): ContentState[] {
+    const calls = vi.mocked(chrome.runtime.sendMessage).mock.calls;
+    const states: ContentState[] = [];
+    for (const call of calls) {
+      const message = call[0] as { type?: string; state?: ContentState };
+      if (message?.type === 'STATE_UPDATE' && message.state) {
+        states.push(message.state);
+      }
+    }
+    return states;
+  }
+
+  it('翻译还在进行，就已经报出失败了几张', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockImplementation(async (image: HTMLImageElement) => {
+      if (image.src.includes('a.webp')) {
+        return {
+          success: false,
+          textAreas: [],
+          error: '请求超时，请稍后重试',
+        };
+      }
+      return { success: true, textAreas: makeTextAreas('译文'), cached: false };
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+
+    await translatePage();
+
+    // 有一个"翻译中"的状态已经带着失败数了 —— 不用等整轮结束。
+    const midRun = allStates().find(
+      state => state.status === 'translating' && (state.failedCount ?? 0) > 0
+    );
+    expect(midRun).toBeDefined();
+    expect(midRun?.failedCount).toBe(1);
+  });
+
+  it('跑完之后按张列出原因', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '请求超时，请稍后重试',
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.failedCount).toBe(2);
+    expect(state.failures).toHaveLength(2);
+    // 序号跟进度条上的「第 N 张」同号，读者能对得上。
+    expect(state.failures?.[0]?.index).toBe(1);
+    expect(state.failures?.[1]?.index).toBe(2);
+    expect(state.failures?.[0]?.reason).toBe('请求超时，请稍后重试');
+  });
+
+  it('失败的图上画一个角标', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '请求超时，请稍后重试',
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    // 译文没画上去的图，看起来和翻译之前一模一样。角标是"是哪一张"这件事
+    // 在画面上唯一的痕迹。
+    const host = document.querySelector(
+      '[data-manga-translator-failure-badges]'
+    );
+    expect(host).not.toBeNull();
+    const shadow = (host as HTMLElement).shadowRoot;
+    expect(shadow?.querySelectorAll('.badge')).toHaveLength(1);
+  });
+
+  it('重试成功之后角标撤掉', async () => {
+    await writeConfig({ enabled: true });
+    let shouldFail = true;
+    translateImageMock.mockImplementation(async () => {
+      if (shouldFail) {
+        return {
+          success: false,
+          textAreas: [],
+          error: '请求超时，请稍后重试',
+        };
+      }
+      return { success: true, textAreas: makeTextAreas('译文'), cached: false };
+    });
+    const image = makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+    const host = document.querySelector(
+      '[data-manga-translator-failure-badges]'
+    ) as HTMLElement;
+    expect(host.shadowRoot?.querySelectorAll('.badge')).toHaveLength(1);
+
+    // 角标留着就是在说谎：画面上其实已经翻好了。
+    shouldFail = false;
+    image.classList.remove('manga-translated');
+    await translatePage();
+
+    expect(host.shadowRoot?.querySelectorAll('.badge')).toHaveLength(0);
+  });
+
+  it('状态码决定原因，而不是「发生未知错误」', async () => {
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: 'Invalid API key',
+      errorStatus: 401,
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+
+    await translatePage();
+
+    // 401 和 408 给读者的下一步完全不同：一个是改密钥，一个是等一会儿。
+    // 状态码以前在 worker 那一层被拍平成字符串，分类器因此失效，每一种
+    // 失败都长成「发生未知错误」。
+    const state = lastState();
+    expect(state.failures?.[0]?.reason).toContain('API 密钥无效');
+    expect(state.failures?.[0]?.reason).not.toContain('未知错误');
+  });
+});
+
+// ================================================================
 // Round 11 — an answer taken too early: the run outlives its own
 // cancellation
 //

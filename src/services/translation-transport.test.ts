@@ -344,4 +344,66 @@ describe('ChromeRuntimeTranslationTransport', () => {
       });
     }
   });
+
+  it('carries the HTTP status across the worker boundary', async () => {
+    // worker 把 provider 的错误拍平成字符串，状态码曾经只以 `[HTTP nnn]`
+    // 标记的形式留在文本里。标记是"消息开头"才认的，而 worker 拼出来的
+    // 句子（"所有切片翻译请求均失败：[HTTP 401] …"）里的标记谁也读不到。
+    // 状态码于是变成「发生未知错误」。
+    vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
+      success: false,
+      job: {
+        jobId: 'job-8',
+        pageKey: 'page-8',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        actualCapabilityUsed: 'plugin-direct',
+        scope: 'page',
+        state: 'failed',
+      },
+      error: 'Invalid API key',
+      errorStatus: 401,
+    });
+
+    const result = await transport.translateImage({
+      imageBase64: 'base64-data',
+      mimeType: 'image/png',
+      targetLanguage: 'zh-CN',
+      translationStylePreset: 'natural-zh',
+    });
+
+    expect(result.success).toBe(false);
+    expect(result.errorStatus).toBe(401);
+  });
+
+  it('sends the run scope with every request', async () => {
+    // 读者点取消的时候，worker 要能只丢掉**这一页**还没开始的请求。
+    // 没有这个身份，worker 唯一的猜法就是"全部丢掉"——而另一个标签页正
+    // 在翻下一章。
+    vi.mocked(chromeMock.runtime.sendMessage).mockResolvedValue({
+      success: true,
+      job: {
+        jobId: 'job-9',
+        pageKey: 'page-9',
+        priorityClass: 'visible-now',
+        requestedPath: 'plugin-direct',
+        actualCapabilityUsed: 'plugin-direct',
+        scope: 'page',
+        state: 'succeeded',
+      },
+      textAreas: [],
+    });
+
+    await transport.translateImage({
+      imageBase64: 'base64-data',
+      mimeType: 'image/png',
+      targetLanguage: 'zh-CN',
+      translationStylePreset: 'natural-zh',
+      runScope: 'run-abc',
+    });
+
+    expect(chromeMock.runtime.sendMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ runScope: 'run-abc' })
+    );
+  });
 });

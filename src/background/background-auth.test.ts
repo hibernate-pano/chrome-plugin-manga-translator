@@ -1356,3 +1356,128 @@ describe('the worker records the usage', () => {
     expect(useUsageStore.getState().records).toHaveLength(0);
   });
 });
+
+/**
+ * 取消要真的停住队列。
+ *
+ * 以前「取消当前翻译」只是把 HUD 收回空闲，worker 队列里排着的 job 一个
+ * 不少地继续跑、继续发真实请求、继续计费 —— 读者点了取消，账单却还在涨。
+ *
+ * 而取消不能是"全部丢掉"：队列是所有标签页共用的，读者在第一章点了取消，
+ * 另一个标签页正在翻的第二章不该跟着没掉。所以取消带着"我是哪一轮"这个
+ * 身份过去，worker 只丢这一轮还没开始的请求。
+ */
+describe('读者点取消之后，队列真的停住了', () => {
+  let harness: ChromeHarness;
+
+  beforeEach(() => {
+    harness = installChromeMock();
+  });
+
+  function jobRequest(
+    jobId: string,
+    runScope?: string
+  ): Record<string, unknown> {
+    return {
+      type: 'JOB_TRANSLATE_IMAGE',
+      jobId,
+      pageKey: `page-${jobId}`,
+      runScope,
+      scope: 'page',
+      priorityClass: 'visible-now',
+      imageBase64: 'AAAA',
+      mimeType: 'image/png',
+      imageUrl: `https://cdn.example/ch1/${jobId}.jpg`,
+      sourcePageUrl: 'https://manga.example/ch1',
+      targetLanguage: 'zh-CN',
+      translationStylePreset: 'natural-zh',
+    };
+  }
+
+  it('丢掉这一轮还没开始的请求，另一个标签页的不受影响', async () => {
+    harness.localStore[APP_CONFIG_STORAGE_KEY] = {
+      state: {
+        enabled: true,
+        provider: 'openai-compatible',
+        // 一个并发度：第二个 job 只能排着，等第一个。
+        parallelLimit: 1,
+        openaiCompatible: {
+          apiKey: 'sk-test-0123456789abcdef0123456789abcdef',
+          baseUrl: 'https://api.example.com/v1',
+          model: 'gpt-4o',
+        },
+      },
+      version: 4,
+    };
+    await loadWorker();
+
+    // 第一个请求挂住不出结果，于是它一直占着那个并发名额。
+    let fetchCount = 0;
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => {
+        fetchCount += 1;
+        return new Promise(() => {
+          // Never resolves: the job stays in flight.
+        });
+      });
+
+    const sender = {
+      id: EXTENSION_ID,
+      tab: { id: 42, url: 'https://manga.example/ch1' },
+    };
+
+    // The first job starts and stays in flight. Its response never comes:
+    // the request is on the wire and cannot be recalled.
+    void harness.sendToMessage(jobRequest('job-1', 'run-mine'), sender);
+    await waitFor(() => fetchCount === 1, 'the first request to start');
+
+    // The second job of the same run queues behind it.
+    const queued = harness.sendToMessage(
+      jobRequest('job-2', 'run-mine'),
+      sender
+    );
+    // A job from another tab, also queued.
+    const otherTab = harness.sendToMessage(
+      jobRequest('job-3', 'run-other'),
+      sender
+    );
+
+    // Let both jobs reach the queue before the cancel arrives.
+    //
+    // The worker reads its configuration (an async storage read) before it
+    // enqueues anything, so a cancel that arrives in the same tick would
+    // find an empty queue. In the extension the reader has to reach for the
+    // button, so this gap is the normal case, not a race.
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // The reader cancels this run.
+    const cancelResponse = await harness.sendToMessage(
+      { type: 'HUD_CANCELLED', runScope: 'run-mine' },
+      sender
+    );
+    expect(cancelResponse['received']).toBe(true);
+
+    // The queued job of the cancelled run was dropped, and the caller learns
+    // why instead of hanging until the worker is evicted.
+    const queuedResponse = (await Promise.race([
+      queued,
+      new Promise(resolve =>
+        setTimeout(() => resolve({ pending: true }), 2000)
+      ),
+    ])) as ResponseFields & { pending?: boolean };
+    expect(queuedResponse['success']).toBe(false);
+    expect(queuedResponse['error']).toBe('Translation cancelled');
+
+    // The other tab's job is still a real request: it will be paid for and
+    // translated.
+    expect(fetchCount).toBe(1);
+    const otherResponse = (await Promise.race([
+      otherTab,
+      new Promise(resolve => setTimeout(() => resolve({ pending: true }), 50)),
+    ])) as ResponseFields & { pending?: boolean };
+    expect(otherResponse.pending).toBe(true);
+
+    fetchSpy.mockRestore();
+  });
+});

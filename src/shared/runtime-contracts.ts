@@ -47,6 +47,20 @@ export interface JobStatusPayload {
   requestedPath: RequestedExecutionPath;
   actualCapabilityUsed?: RequestedExecutionPath;
   scope: JobScope;
+  /**
+   * Which page run this job belongs to.
+   *
+   * `pageKey` identifies one *image* — the queue dedups by it, so two
+   * requests for the same image collapse into one. It cannot answer "which
+   * page's work should I drop when the reader cancels?", because every image
+   * on the page has a different key.
+   *
+   * This is the other half: one id per content script, carried on every job
+   * that script enqueues. Cancelling a run then means "drop the jobs that
+   * belong to this run" — and only those, so a reader cancelling on one tab
+   * does not throw away another tab's chapter.
+   */
+  runScope?: string;
   state:
     | 'queued'
     | 'running'
@@ -77,6 +91,10 @@ export interface TranslateImageJobRequest {
   type: 'JOB_TRANSLATE_IMAGE';
   jobId: string;
   pageKey: string;
+  /**
+   * The page run this job belongs to. See `JobStatusPayload.runScope`.
+   */
+  runScope?: string;
   scope: JobScope;
   priorityClass: JobPriorityClass;
   imageBase64: string;
@@ -109,6 +127,20 @@ export interface TranslateImageJobResponse {
     totalTokens: number;
   } | null;
   error?: string;
+  /**
+   * The HTTP status the provider answered with, when there was one.
+   *
+   * It used to survive only as the `[HTTP nnn]` marker inside the error
+   * *text*, because the worker flattened the error to a string before it
+   * crossed the process boundary. A reader then saw 「发生未知错误」 for
+   * what was really a 401, and a 401 is the difference between "fix your
+   * API key" and "try again later".
+   *
+   * The text marker is still written — other code still reads it — but the
+   * status travels as a number now, and providers that never had a marker
+   * (Ollama) can report one too.
+   */
+  errorStatus?: number;
 }
 
 /**
@@ -172,6 +204,27 @@ export type ContentStatus =
   | 'translating'
   | 'complete'
   | 'error';
+
+/**
+ * 一张图失败的事实：它是第几张、为什么失败。
+ *
+ * 以前这一页只有两个数字：`failedCount`（几张）和 `lastError`（**第一张**
+ * 的原因）。三张图以三种原因失败，读者看到的是「失败 3」加一句跟其中一张
+ * 有关的话——另外两张为什么坏，无处可查。
+ *
+ * 现在每一张失败都带着自己的原因，而原因只有一份：上游把 provider 的报错
+ * 归一化过（`parseTranslationError`），这里放的就是那份给读者看的话。
+ */
+export interface ImageFailure {
+  /**
+   * 这张图在本轮里的序号（1 起，与进度条上的「第 N 张」同号）。
+   */
+  index: number;
+  /**
+   * 归一化之后的、给读者看的原因。
+   */
+  reason: string;
+}
 
 /**
  * 页面级的事实：不管当前处于什么状态，这些数字都是真的。
@@ -253,6 +306,24 @@ export interface ContentStateReport {
    * 张。用户按之前看到的必须是真正会被计费的那几张。
    */
   retryTargetCount?: number;
+  /**
+   * 这一页已经失败了几张图。
+   *
+   * 它跟 `retryTargetCount` 不是一回事：那个数的是「重试会重新请求几张」，
+   * 而这个数的是「我们试过了，其中几张没成」。一张还没轮到就被中止的图在
+   * 前一个数里，不在后一个数里——它没有失败，它只是没轮到。
+   *
+   * 它放在这里（而不是只在 `complete` 状态里）是因为它**在翻译进行中就是
+   * 真的**：读者盯着进度条的时候，最想知道的正是"已经坏了几张"。以前这个
+   * 数字只在整轮结束时才被写进状态，于是页面上一次失败都不显示。
+   */
+  failedCount?: number;
+  /**
+   * 每一张失败图的原因。
+   *
+   * 有了它，「失败 3 张」才是一句读者能行动的话：哪三张、分别为什么。
+   */
+  failures?: ImageFailure[];
   /** 阅读面板当前是否显示。 */
   readingPanelVisible?: boolean;
 }
@@ -298,7 +369,6 @@ export type ContentState = ContentStateReport &
     | {
         status: 'complete';
         count: number;
-        failedCount?: number;
         cachedCount?: number;
         /**
          * How many spots on the page were found but not translated.
@@ -532,7 +602,18 @@ export type BackgroundToContentMsg = {
 export type ContentToPopupMsg =
   | { type: 'STATE_UPDATE'; state: ContentState }
   | { type: 'READY' }
-  | { type: 'HUD_CANCELLED' };
+  | {
+      type: 'HUD_CANCELLED';
+      /**
+       * Which page run is being cancelled.
+       *
+       * The worker drops the jobs that belong to this run. Without it the
+       * worker would have to guess, and its only guess would be "all of
+       * them" — cancelling on one tab would throw away another tab's
+       * chapter.
+       */
+      runScope?: string;
+    };
 
 /**
  * The keyboard-command messages.
