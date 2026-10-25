@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-10-25
+
+The store listing now speaks the same language as the extension. The Chrome
+Web Store takes the listing's title and summary from the manifest — the
+dashboard shows them as read-only "package title" and "package summary", with
+no input box — so a Chinese-only extension was listing itself in Chinese with
+an English one-liner under it. Both now come from the manifest, in Chinese,
+and the version that carries them goes out with them.
+
+### Changed
+
+- **The manifest's name is the store's title.** `漫画翻译助手` →
+  `漫画翻译助手 - AI 漫画翻译与叠加`. The extension's own interface is
+  unaffected: the popup, the settings page and the onboarding print their own
+  title instead of reading it from the manifest, so the only place the longer
+  name shows is Chrome's extension list and the store listing.
+- **The manifest's description is the store's summary.** It was the English
+  one-liner; it is now the Chinese one. The store caps that field at 132
+  characters, and `check-release-consistency.mjs` fails the build when it does
+  not fit.
+
 ## [2.1.0] - 2026-10-25
 
 Failure visibility and honest cancellation. A failed image is now marked on
@@ -3197,6 +3218,7 @@ ethically guarded, OSS-ready".
 
 [0.3.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.3
 [0.3.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.2
+[2.1.1]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.1.1
 [2.1.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.1.0
 [2.0.4]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.4
 [2.0.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.3

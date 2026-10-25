@@ -139,21 +139,31 @@ code anchor recorded in [`docs/store-claims.md`](./store-claims.md), and
 its support or when a document stops making a promise it is recorded as making.
 Read that table before changing any of the wording below.
 
-**Name:** Manga Translator / 漫画翻译助手
+**Name:** 漫画翻译助手 - AI 漫画翻译与叠加
 
-**Short description:** Translate manga and webtoon images in place with a vision
-model, replacing each text bubble with its translation.
+**Short description:** 在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。
 
-This is the text in `public/manifest.json`, and `check-release-consistency.mjs`
-fails the build if it grows past the store's 132-character limit. "Replacing
-each text bubble" is literal: the translation is drawn in an overlay
-positioned over the bubble, and that bubble is covered by an opaque
-panel — the picture around it is left alone, the bubble itself is not. Do not
-restate it as "leaving the original image uncovered": the listing used to say
-that, and it contradicts `src/services/renderer.ts`, which draws the overlay
-with a `rgb(240, 240, 235)` background. The wording used to be
+Both are the text in `public/manifest.json`, and that is the only place they
+can live: the store takes the listing's title and summary from the package, and
+the dashboard shows them as read-only 「软件包中的标题」 and 「软件包中的摘要」
+with no input box. `check-release-consistency.mjs` fails the build if either
+grows past the store's limits (45 and 132 characters). The extension's own
+interface does not read them — the popup, the settings page and the onboarding
+print their own title — so the longer name shows up in Chrome's extension list
+and in the store listing, nowhere else.
+
+The summary's 「译文叠在原文气泡上」 (the translation is laid over the source
+bubble) is literal: the translation is drawn in an overlay positioned over the
+bubble, and that bubble is covered by an opaque panel — the picture around it
+is left alone, the bubble itself is not. Do not restate it as "leaving the
+original image uncovered": the listing used to say that, and it contradicts
+`src/services/renderer.ts`, which draws the overlay with a
+`rgb(240, 240, 235)` background. The wording used to be
 "preserving the artwork", which a reviewer reads as "the original text stays
-visible"; that was not true, so it was replaced.
+visible"; that was not true, so it was replaced. The summary used to be the
+English one-liner while the listing's language was Chinese; the extension's
+interface has always been Chinese-only, so the store was introducing English
+to a Chinese audience.
 
 The panel is opaque, and the box is snapped to the real extent of the glyphs
 before it is drawn (`src/services/text-box-refiner.ts`). Both parts matter:

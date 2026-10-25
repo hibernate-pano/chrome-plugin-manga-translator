@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "漫画翻译助手",
-  "version": "2.1.0",
+  "name": "漫画翻译助手 - AI 漫画翻译与叠加",
+  "version": "2.1.1",
   "minimum_chrome_version": "110",
-  "description": "Translate manga and webtoon images in place with a vision model, replacing each text bubble with its translation.",
+  "description": "在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。",
   "permissions": [
     "storage",
     "contextMenus",

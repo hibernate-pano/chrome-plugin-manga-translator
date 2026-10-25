@@ -12,30 +12,22 @@
 
 Dashboard 的「产品详情」里，标题和摘要**没有输入框**：它们显示为
 「软件包中的标题」和「软件包中的摘要」，取自 `public/manifest.json` 的
-`name` 与 `description`。线上现值：
+`name` 与 `description`。**v2.1.1 起的值**：
 
 | 字段 | 值 | 来源 |
 | --- | --- | --- |
-| 名称 | `漫画翻译助手` | `public/manifest.json` 的 `name` |
-| 摘要 | `Translate manga and webtoon images in place with a vision model, replacing each text bubble with its translation.` | `public/manifest.json` 的 `description` |
+| 名称 | `漫画翻译助手 - AI 漫画翻译与叠加` | `public/manifest.json` 的 `name` |
+| 摘要 | `在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。` | `public/manifest.json` 的 `description` |
 
 **想换名字或摘要，只能改 manifest + 升版本号 + 重新发版。** 这不是省事，是商店
 的规则：提交审核时它按 manifest 取值，审核期间这两栏和「类别」「语言」一起被锁成
 只读。
 
-原本打算用的是更长的 `漫画翻译助手 - AI 漫画翻译与叠加`，**它没有、也不能填进
-商店**：那一栏不是输入框。要用它，就得把它写进 `public/manifest.json` 的 `name`
-并升版本号（manifest 的 `name` 上限 45 字符，这个长度放得下）。
-
-摘要目前是英文，而扩展界面只有中文。这两栏同属 manifest，要改就一起改
-（`description` 也是应用内会显示的文案）。若要把摘要换成中文，用这一版：
-
-```
-在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。
-```
-
-（这是 132 字符限制内的写法。改 `description` 会连带改 `check-release-consistency.mjs`
-要校验的那份文案，两边要一起动。）
+v2.1.0 及以前线上是「漫画翻译助手」+ 英文摘要 —— 一个界面只有中文的扩展，商店页
+上却挂着一行英文介绍。长名字是本文档早就准备好的商店标题（那时以为这栏能填进去，
+其实不能），v2.1.1 把它和中文摘要一起落进 manifest。应用自己的界面不受影响：弹窗、
+设置页、引导页印的是各自的标题，不读 manifest 的 `name`，所以更长的名字只会出现在
+Chrome 的扩展列表和商店条目里。
 
 ## 说明（详细说明，可编辑）
 
