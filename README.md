@@ -223,7 +223,8 @@ To report a security problem, please do not open a public issue — see
 
 | Version | Status | Highlights |
 |---|---|---|
-| v2.0.4 | current | Public build no longer ships a private model repo; the content script is no longer web-accessible |
+| v2.1.0 | current | Failures are shown while the run is still going — live count, a marker on the picture, one reason per image; cancelling stops the requests that have not been sent; the HTTP status reaches the reader |
+| v2.0.4 | shipped | Public build no longer ships a private model repo; the content script is no longer web-accessible |
 | v2.0.3 | shipped | Chrome Web Store field limits enforced at build time |
 | v2.0.2 | shipped | The unused `activeTab` permission removed; packaging can no longer ship a stale ZIP |
 | v2.0.1 | shipped | Release-tag CI verification |

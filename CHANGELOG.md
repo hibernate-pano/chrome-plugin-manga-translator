@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-10-25
+
+Failure visibility and honest cancellation. A failed image is now marked on
+the page while the run is still going, each failure carries its own reason,
+the HTTP status survives the trip to the reader, and cancelling a run drops
+the requests it has not sent yet.
+
 ### Fixed
 
 - **The release smoke test no longer passes when the content script is
@@ -3190,6 +3197,7 @@ ethically guarded, OSS-ready".
 
 [0.3.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.3
 [0.3.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.2
+[2.1.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.1.0
 [2.0.4]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.4
 [2.0.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.3
 [2.0.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.2
