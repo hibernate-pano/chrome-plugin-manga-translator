@@ -632,7 +632,7 @@ rebuild them.
 ## Where the Store Listing Stands
 
 The listing exists: item id `llicfmiagjiknidigpdcnogfeheogpfd`, publisher
-`19d9e44e-bb97-4040-a498-5e53414b1a49` (Jasper Pan). v2.1.0 was submitted for
+`19d9e44e-bb97-4040-a498-5e53414b1a49` (Jasper Pan). v2.1.1 was submitted for
 review on 2026-10-25 and had not been published yet when this was written.
 The evidence for that, and what is still owed, are in
 [`docs/store-release-log.md`](./store-release-log.md) — the ledger records what

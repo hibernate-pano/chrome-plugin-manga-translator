@@ -13,7 +13,50 @@
 | 公开页 `Version` 变了 | **已上架** |
 | 公开页抓不到版本号 | **还没上架**，不许说已上架 |
 
-## v2.1.0 — 2026-10-25 — 已提交审核（**未上架**）
+## v2.1.1 — 2026-10-25 — 已提交审核（**未上架**）
+
+v2.1.0 的审核提交被取消，这一版顶上去。理由：商店的标题和摘要取自 manifest，
+而 v2.1.0 的 manifest 里是「漫画翻译助手」+ 英文摘要；一个界面只有中文的扩展，
+商店页上挂着一行英文介绍，而那一栏在 Dashboard 里**没有输入框**（显示为「软件
+包中的标题」「软件包中的摘要」）。要改就得改 manifest + 升版本号 + 重新发版。
+2.1.0 从没上架过，没人装过它，取消它的审核提交不损失任何东西；而留着它，商店
+就要先按旧文案过一轮审，再按新文案过一轮审 —— 两轮审核之间，条目会先以旧标题
+上线。
+
+| 项 | 值 |
+| --- | --- |
+| item id | `llicfmiagjiknidigpdcnogfeheogpfd` |
+| 包 | `release/manga-translator-v2.1.1-public.zip`（2 776 045 字节） |
+| 包 sha256 | `bb8d2cc5c55e8cfc4576e7940674f471e2b3dd46c8eae0511432a5370992ae71` |
+| 取消上一版 | `POST /v2/publishers/{pub}/items/{item}:cancelSubmission` → HTTP 200；随后 `fetchStatus` 报 `submittedItemRevisionStatus.state = CANCELLED`（`crxVersion 2.1.0`） |
+| 上传 | `{"itemId":"llicfmiagjiknidigpdcnogfeheogpfd","crxVersion":"2.1.1","uploadState":"SUCCEEDED"}` |
+| 提交审核 | `POST /v2/publishers/{pub}/items/{item}:publish` → HTTP 200，`{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
+| 自证 | 再发一次 publish → **HTTP 400**「Publish condition not met: You may not edit or publish an item that is in review.」 |
+| 草稿 | `crxVersion: 2.1.1` |
+| 公开页 | 抓不到版本号 ⇒ **还没上架** |
+
+**结论：已提交审核，未上架。** 公开页出现 `Version 2.1.1` 之前，对外只能说
+「已提交审核」。
+
+这一版只改 manifest 的 `name` 和 `description`（商店的标题和摘要），不动任何
+行为，所以走 patch 号。应用自己的界面不读 manifest 的 `name`：弹窗、设置页、
+引导页印的都是各自的标题。
+
+**还没目视确认的一件事**：Dashboard 上「软件包中的标题」是否已经显示成
+`漫画翻译助手 - AI 漫画翻译与叠加`。它的值取自被审版本的 manifest，2.1.1 的
+manifest 里就是这个名字，但当时那个 Chrome 窗口正被用来浏览别的条目，没有再
+去抢它。下次在 Dashboard 里看一眼就知道。
+
+### 这一版还欠着的事
+
+| 事 | 谁做 | 怎么改 |
+| --- | --- | --- |
+| 商店标题/摘要 | 已做 | 2.1.1 的 manifest 里已经是中文名 + 中文摘要 |
+| 两个宣传图块（440×280 / 1400×560） | 开发者 | 仓库里的 `promo-1280x800.png` 两个尺寸都对不上，要重新出图。商店不要求 |
+| 宣传视频 | 开发者 | 可选，需要能连通模型服务的机器 |
+| 审核结果 | 商店 | 通过后公开页会出现版本号，那时才能改口说「已上架」 |
+
+## v2.1.0 — 2026-10-25 — 已提交审核（**未上架**；审核提交已取消，由 v2.1.1 顶替）
 
 | 项 | 值 |
 | --- | --- |
@@ -29,6 +72,11 @@
 
 **结论：已提交审核，未上架。** 公开页出现 `Version 2.1.0` 之前，对外只能说
 「已提交审核」。
+
+**后来的结局**：这一版的审核提交被 `cancelSubmission` 取消，由 v2.1.1 顶替 ——
+原因见上面 v2.1.1 那一节。取消之后 `fetchStatus` 报
+`submittedItemRevisionStatus.state = CANCELLED`（`crxVersion 2.1.0`），这一版
+从未上架、从未有人装过。
 
 几个当时的判断，记下来免得下次重新想：
 
@@ -48,7 +96,7 @@
 
 | 事 | 谁做 | 怎么改 |
 | --- | --- | --- |
-| 商店标题/摘要 | 开发者 | 商店这两栏取自 `public/manifest.json`，没有输入框。要改就改 manifest + 升版本号 + 重新发版 |
+| 商店标题/摘要 | 已做 | v2.1.1 的 manifest 里已经是中文名 + 中文摘要，见上一节 |
 | 两个宣传图块（440×280 / 1400×560） | 开发者 | 仓库里的 `promo-1280x800.png` 两个尺寸都对不上，要重新出图。商店不要求 |
 | 宣传视频 | 开发者 | 可选，需要能连通模型服务的机器 |
 | 审核结果 | 商店 | 通过后公开页会出现版本号，那时才能改口说「已上架」 |
