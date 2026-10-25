@@ -1,22 +1,46 @@
 # Chrome 商店上架文案（中文）
 
-创建新条目时逐字段复制。括号内是限制说明，**不要**填进输入框。
+条目已存在：item id `llicfmiagjiknidigpdcnogfeheogpfd`（发布者 Jasper Pan）。
+本文是**这个条目**的文案底稿——改文案时照着填进 Dashboard；以后另建条目也照着填。
+括号内是限制说明，**不要**填进输入框。
 
-## 商品详情（必填）
+> 商店文案只能人工在 Dashboard 改。CWS API 没有 listing 接口，脚本碰不到这些字段，
+> 所以文案与代码脱节只能靠人核——`docs/store-claims.md` 的对照表和
+> `scripts/check-store-claims.mjs` 就是为这件事准备的。
 
-**名称**（≤45 字符）
+## 名称与摘要（来自 manifest，商店里是只读的）
 
-```
-漫画翻译助手 - AI 漫画翻译与叠加
-```
+Dashboard 的「产品详情」里，标题和摘要**没有输入框**：它们显示为
+「软件包中的标题」和「软件包中的摘要」，取自 `public/manifest.json` 的
+`name` 与 `description`。线上现值：
 
-**简短说明**（≤132 字符）
+| 字段 | 值 | 来源 |
+| --- | --- | --- |
+| 名称 | `漫画翻译助手` | `public/manifest.json` 的 `name` |
+| 摘要 | `Translate manga and webtoon images in place with a vision model, replacing each text bubble with its translation.` | `public/manifest.json` 的 `description` |
+
+**想换名字或摘要，只能改 manifest + 升版本号 + 重新发版。** 这不是省事，是商店
+的规则：提交审核时它按 manifest 取值，审核期间这两栏和「类别」「语言」一起被锁成
+只读。
+
+原本打算用的是更长的 `漫画翻译助手 - AI 漫画翻译与叠加`，**它没有、也不能填进
+商店**：那一栏不是输入框。要用它，就得把它写进 `public/manifest.json` 的 `name`
+并升版本号（manifest 的 `name` 上限 45 字符，这个长度放得下）。
+
+摘要目前是英文，而扩展界面只有中文。这两栏同属 manifest，要改就一起改
+（`description` 也是应用内会显示的文案）。若要把摘要换成中文，用这一版：
 
 ```
 在网页原位翻译漫画与条漫图片，译文叠在原文气泡上。支持 OpenAI 兼容接口与本地 Ollama、LM Studio，密钥仅存本地。
 ```
 
-**详细说明**
+（这是 132 字符限制内的写法。改 `description` 会连带改 `check-release-consistency.mjs`
+要校验的那份文案，两边要一起动。）
+
+## 说明（详细说明，可编辑）
+
+> 这一栏是唯一能自由填的长文本，也是审核员真正会读的一栏。改它之前先读
+> `docs/store-claims.md`：下面每一句能力描述都在那张表里登记了代码锚点。
 
 ```
 漫画翻译助手是一个「就地翻译」工具：它在你正在阅读的漫画页面上直接叠加译文，不会跳转到另一个页面。译文画在原文所在位置的一块覆盖层上，气泡里的文字会被这块覆盖层遮住，画面其余部分保持原样。
@@ -75,39 +99,69 @@
 
 | 字段 | 值 |
 | --- | --- |
-| 类别 | `Productivity`（工作与效率） |
-| 语言 | 中文（简体） |
+| 类别 | `工具` |
+| 语言 | `中文（中国）` |
 
-扩展的界面文案目前只有中文（`src/` 里没有 `_locales/`、`default_locale` 或 `t()`），所以这一栏只能填中文。填上 English 会让英文用户以为界面有英文版——一个他们装完才会发现的落差。哪天做了 i18n 再回来加。
+类别这一栏不要填「工作与效率」——商店的下拉里没有这个值，落在「效率」组下的
+`工具`（Tools）。语言下拉里是「中文（中国）」而不是「中文（简体）」，选商店
+给的那个。
+
+扩展的界面文案目前只有中文（`src/` 里没有 `_locales/`、`default_locale` 或 `t()`），
+所以这一栏只能填中文。填上 English 会让英文用户以为界面有英文版——一个他们装完
+才会发现的落差。哪天做了 i18n 再回来加。
 
 ## 图形资产
 
-| 资产 | 规格 | 来源 |
-| --- | --- | --- |
-| 商店图标 | 128×128 PNG | `public/icons/icon128.png` |
-| 特色大图 | 1280×800 JPG/PNG | `store/listing/promo-1280x800.png` |
-| 截图 | 1280×800，建议 3~5 张 | `store/listing/screenshot-1280x800.png`、`store/listing/screenshot-panel-1280x800.png`、`store/listing/screenshot-popup-1280x800.png`、`store/listing/screenshot-options-1280x800.png`（4 张） |
-| 演示视频（选填） | ≤30 秒 MP4 | `store/listing/demo.mp4`——商店的视频是**选填**的，目前这个文件还没有生成（采集需要机器能连上模型服务）；要交的话按 `docs/chrome-web-store-release.md` 里的流程跑一遍 |
+| 资产 | 商店要求 | 仓库里的文件 | 线上 |
+| --- | --- | --- | --- |
+| 商店图标 | 128×128 PNG | `public/icons/icon128.png` | 已上传 |
+| 屏幕截图 | 1280×800 或 640×400，1~5 张 | `store/listing/screenshot{,-panel,-popup,-options}-1280x800.png` | 4 张 |
+| 小型宣传图块 | 440×280 | 无 | 空 |
+| 顶部宣传图块 | 1400×560 | 无 | 空 |
+| 宣传视频 | YouTube 网址，≤30 秒 | 无 | 空 |
 
-`public/icons/` 已有 16/32/48/64/128/256 六种尺寸，其中 `icon128.png` 可直接作为商店图标上传。
+商店图标要**压掉 alpha 通道**再传（商店要 24 位 PNG，不带透明层）：
 
-特色大图由 `node scripts/build-promo-image.mjs` 从那两张截图合成——它只用本地文件渲染，不需要模型、不需要网络，因此在任何机器上都能重做。截图与演示视频则需要真实翻译，由 `node scripts/capture-store-assets.mjs` 采集（需要能连通模型服务的机器）。
+```bash
+magick public/icons/icon128.png -background white -alpha remove -alpha off -type TrueColor -depth 8 store/listing/icon128-flat.png
+```
 
-演示视频最长 30 秒（商店的上限，超了会在上传时被拒），而翻一页整漫画要几分钟，所以采集脚本先真的翻一遍把译文放进缓存，录的是命中缓存的第二遍——于是三十秒里有"译文落在原图上"，而不是三十秒的"正在翻译"。脚本会把成片长度读回来核对，超了就直接失败。
+四张截图都已经在条目里（`screenshot`、`screenshot-panel`、`screenshot-popup`、
+`screenshot-options`），顺序也是这个顺序，商店允许左右调整。
 
-第三张「弹窗」截图由 `node scripts/capture-store-assets.mjs --popup` 采集：它不翻译任何东西，弹窗自己数出这一页有多少张图，所以不需要模型也不产生费用。截图里的站点名是 `comic.example.com`——IANA 保留给示例用的域名，不指向任何真实站点；弹窗背后的漫画页是真的，弹窗里的图片数量是内容脚本真数出来的。
+两个宣传图块和宣传视频都还空着。商店不要求它们，但搜索结果页会留一块位置给
+宣传图块。注意 `store/listing/promo-1280x800.png`（1280×800）**两个槽位都对不上**——
+它不是新槽位的尺寸，要用得重新出图。宣传视频是**选填**的，采集脚本
+`scripts/capture-store-assets.mjs` 需要能连通模型服务的机器；没有它不损失什么，
+有一段坏掉的视频反而更糟。
 
-第四张「设置页」截图由 `node scripts/capture-store-assets.mjs --options` 采集，截的是**公开版**（`pnpm build:public`）：API Key 输入框是空的。商店用户装完打开设置页看到的就是这个样子，而作者 Key 的那串圆点不会出现在商店的图片里。
+## 其他字段
 
-截图目前 4 张，商店建议 3~5 张。
+| 字段 | 值 |
+| --- | --- |
+| 官方网址 | `无`（没有自有域名，商店允许留空） |
+| 首页网址 | `https://github.com/hibernate-pano/chrome-plugin-manga-translator` |
+| 支持信息页面网址 | `https://github.com/hibernate-pano/chrome-plugin-manga-translator/issues` |
+| 成人内容 | 关 |
+
+商店说明里写着，提供网址能改善用户体验，也让评分和评论更有参考价值——所以这两
+栏填上仓库地址。
+
+## 商品支持（付款与公开范围）
+
+| 字段 | 值 |
+| --- | --- |
+| 付款 | `免费`（不支持应用内购） |
+| 公开范围 | `公开`（所选国家/地区的所有用户都能看到） |
+| 分发国家 | `所有地区` |
 
 ## 隐私与支持
 
 | 字段 | 值 |
 | --- | --- |
 | 隐私政策 URL | `https://hibernate-pano.github.io/chrome-plugin-manga-translator/privacy-policy.html` |
-| 支持网址 | 仓库 Issues：`https://github.com/hibernate-pano/chrome-plugin-manga-translator/issues` |
-| 支持邮箱 | 你的开发者联系邮箱 |
+| 支持信息页面网址 | 仓库 Issues：`https://github.com/hibernate-pano/chrome-plugin-manga-translator/issues` |
+| 开发者联系邮箱 | 填在**发布者账号设置**里（Dashboard → 发布者 → 设置），条目上没有这一栏 |
 
 Chrome 商店要求隐私政策是**可公开访问的 URL**，不能是本地文件或 GitHub raw 文本。
 
@@ -117,7 +171,8 @@ Chrome 商店要求隐私政策是**可公开访问的 URL**，不能是本地�
 
 ## CWS 数据使用披露（Data Usage Disclosure）
 
-Chrome 商店的新建条目流程会要求逐项填写数据使用披露。下面是本扩展**照抄即可**的填写建议。
+Chrome 商店的新建条目流程会要求逐项填写数据使用披露。下面是本扩展**照抄即可**
+的填写建议。
 
 ### 单一用途声明
 
@@ -162,4 +217,3 @@ nothing off their own machine at all.
 ### 数据处理方式
 
 选 **"Not applicable — the developer collects no user data"**（若商店要求在"数据收集者"一栏选择，沿用"开发者不收集"这一表述，不要勾选任何暗示开发者会接收数据的选项）。
-

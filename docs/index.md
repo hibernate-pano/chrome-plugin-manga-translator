@@ -20,6 +20,7 @@ Chrome 浏览器扩展：在网页原位翻译漫画与条漫图片，译文叠�
 - [隐私权政策原文](privacy-policy.md)
 - [Chrome 商店上架清单](chrome-web-store-release.md)
 - [商店文案（中文）](store-listing-zh.md)
+- [商店发版台账](store-release-log.md)
 - [商店审核备注（中文）](store-review-notes-zh.md)
 - [对外承诺 → 代码锚点对照表](store-claims.md)
 - [架构说明](architecture-notes.md)

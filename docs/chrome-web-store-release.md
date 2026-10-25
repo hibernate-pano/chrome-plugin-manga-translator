@@ -97,6 +97,8 @@ with more than 10,000 seven-day active users.
 
 The API can upload and publish, but it cannot create a listing. So the first
 version is made in the dashboard, and every version after that is a command.
+This has been done once for item `llicfmiagjiknidigpdcnogfeheogpfd`; the steps
+below are what was done, for anyone starting a second extension.
 
 ### 1. The listing (dashboard, once)
 
@@ -617,9 +619,30 @@ without borrowing anyone's copyrighted page. The rendered demo pages and the
 recording are build outputs and are not committed; the commands above
 rebuild them.
 
+## Where the Store Listing Stands
+
+The listing exists: item id `llicfmiagjiknidigpdcnogfeheogpfd`, publisher
+`19d9e44e-bb97-4040-a498-5e53414b1a49` (Jasper Pan). v2.1.0 was submitted for
+review on 2026-10-25 and had not been published yet when this was written.
+The evidence for that, and what is still owed, are in
+[`docs/store-release-log.md`](./store-release-log.md) — the ledger records what
+the store said, not what was expected.
+
+The one-time setup below is done:
+
+- The Chrome Web Store developer account and the listing exist, and the
+  `PUBLISHER_ID` and `ITEM_ID` they produced are the ones above.
+- Authentication works: the OAuth client in the Google Cloud project, with the
+  credentials read from the environment at publish time.
+- The support URL is in the listing.
+
+Still missing, and not required by the store: the two promo tiles and the
+optional demo video.
+
 ## Still Required
 
-- A support URL and Chrome Web Store developer account.
-- The listing created once in the dashboard (see **One-Time Setup**), and the
-  `PUBLISHER_ID` and `ITEM_ID` that come out of it.
-- One way to authenticate for `scripts/publish-to-store.mjs` (see above).
+- The two promo images (440×280 and 1400×560). The dashboard now asks for
+  those two sizes, and `store/listing/promo-1280x800.png` fits neither of
+  them, so new artwork is needed.
+- The demo recording is optional for the store and cannot be re-made without a
+  machine that can reach a provider.
