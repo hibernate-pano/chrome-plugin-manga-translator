@@ -153,9 +153,30 @@ export type HudState =
 
 // ==================== FloatingHud 类 ====================
 
+/**
+ * What a HUD button press should do.
+ *
+ * These used to be DOM CustomEvents dispatched on the container. Because the
+ * HUD is mounted on somebody else's page with an open shadow root and a
+ * discoverable `data-manga-translator-hud` attribute, a page script could
+ * dispatch the same events itself and spend the user's money on a forced
+ * retranslate — bypassing the two-click confirm that exists precisely to
+ * prevent that. An event carries no proof of who sent it: `isTrusted` is
+ * false even for our own dispatches, so it cannot be used to tell them apart.
+ *
+ * A direct callback can only be invoked by code that holds this instance,
+ * which lives in the isolated world. There is nothing for the page to forge.
+ */
+export interface HudActions {
+  onCancel(): void;
+  onRetryFailed(): void;
+  onErrorAction(actionType: string, command?: string): void;
+}
+
 export class FloatingHud {
   private container: HTMLElement;
   private shadow: ShadowRoot;
+  private actions: HudActions | null = null;
   private autoHideTimer: ReturnType<typeof setTimeout> | null = null;
   /** The state currently on screen, so a button can re-render it. */
   private lastState: HudState | null = null;
@@ -217,9 +238,7 @@ export class FloatingHud {
         this.collapsed = !this.collapsed;
         this.render();
       } else if (target.id === 'cancel-btn') {
-        this.container.dispatchEvent(
-          new CustomEvent('hud-cancel', { bubbles: true, composed: true })
-        );
+        this.actions?.onCancel();
       } else if (target.id === 'retry-failed-btn') {
         if (!this.retryArmed) {
           // The first click only arms the button. The second one spends.
@@ -227,9 +246,7 @@ export class FloatingHud {
           this.render();
           return;
         }
-        this.container.dispatchEvent(
-          new CustomEvent('hud-retry-failed', { bubbles: true, composed: true })
-        );
+        this.actions?.onRetryFailed();
       } else if (target.id === 'error-action-btn') {
         const actionType = target.dataset['actionType'] as
           | 'open-settings'
@@ -237,13 +254,7 @@ export class FloatingHud {
           | undefined;
         const actionCommand = target.dataset['actionCommand'];
         if (actionType) {
-          this.container.dispatchEvent(
-            new CustomEvent('hud-error-action', {
-              bubbles: true,
-              composed: true,
-              detail: { type: actionType, command: actionCommand },
-            })
-          );
+          this.actions?.onErrorAction(actionType, actionCommand);
         }
       }
     });
@@ -358,10 +369,22 @@ export class FloatingHud {
   }
 
   /**
+   * Wire the buttons to their handlers.
+   *
+   * Set once by the content script after construction. Callbacks arrive as
+   * ordinary function calls from inside the shadow click handler, so only the
+   * code that owns this instance can trigger them.
+   */
+  setActions(actions: HudActions): void {
+    this.actions = actions;
+  }
+
+  /**
    * 销毁 HUD，从 DOM 移除
    */
   destroy(): void {
     this.clearAutoHide();
+    this.actions = null;
     this.container.remove();
   }
 

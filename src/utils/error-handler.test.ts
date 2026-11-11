@@ -313,3 +313,54 @@ describe('HTTP status carried inside the message', () => {
     );
   });
 });
+
+/*
+ * Security regression: the reader-facing message is rendered inside a shadow
+ * root the page can read. The API key is already structurally stripped from
+ * every content-side snapshot; the provider endpoint must not be the one
+ * piece of private configuration that leaks in its place.
+ *
+ * Measured before the fix: "未找到 Base URL：https://…（404）" reached the HUD
+ * verbatim. Note that the reachable leak is the 404 path — the network-error
+ * path interposes "连接", which maps to NETWORK_ERROR and drops the detail.
+ */
+describe('parseTranslationError 不把端点地址带进页面可读文案', () => {
+  const ENDPOINT = 'https://internal-gw.corp.example:8080/v1';
+
+  it('404 的 baseUrl 被替换为占位符', () => {
+    const result = parseTranslationError(
+      new Error(`OpenAI 未找到 Base URL：${ENDPOINT}（404）`)
+    );
+
+    expect(result.message).not.toContain('internal-gw.corp.example');
+    expect(result.message).toContain('<endpoint>');
+  });
+
+  it('未知错误里的裸端点也被替换', () => {
+    const result = parseTranslationError(
+      new Error(`Base URL ${ENDPOINT} 无效`)
+    );
+
+    expect(result.code).toBe(TranslationErrorCode.UNKNOWN_ERROR);
+    expect(result.message).not.toContain('internal-gw');
+    expect(result.message).toContain('<endpoint>');
+  });
+
+  it('不误伤普通文本与中文标点', () => {
+    const result = parseTranslationError(
+      new Error('章节数据结构已变更，未匹配到图片节点')
+    );
+
+    expect(result.message).toContain('章节数据结构已变更');
+    expect(result.message).not.toContain('<endpoint>');
+  });
+
+  it('本地地址同样被替换（自建网关与内网代理是重点场景）', () => {
+    const result = parseTranslationError(
+      new Error('未找到 Base URL：http://192.168.1.50:11434/v1（404）')
+    );
+
+    expect(result.message).not.toContain('192.168.1.50');
+    expect(result.message).toContain('<endpoint>');
+  });
+});

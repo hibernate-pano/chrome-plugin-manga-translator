@@ -7,6 +7,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Security
+
+- **A page can no longer spend your money by faking a HUD button press.**
+  The retry card's buttons used to work by dispatching DOM `CustomEvent`s
+  (`hud-cancel`, `hud-retry-failed`, `hud-error-action`) on `document`. The
+  HUD is mounted on somebody else's page with an open shadow root and a
+  discoverable `data-manga-translator-hud` attribute, so any page script could
+  find the host and dispatch those events itself — reaching
+  `retranslateFailedImages()` and a **cache-bypassing** retranslate that bills
+  the reader, with no click at all and without the two-click confirm the card
+  shows.
+  - `isTrusted` is not a usable defence here: it is `false` for our own
+    dispatches too, so filtering on it would break the real buttons.
+  - The events are gone. `FloatingHud` now exposes `setActions()` and calls
+    the handlers directly from inside its shadow click handler, so the only
+    code that can trigger a button is the code that owns the instance — which
+    lives in the isolated world. There is nothing left for a page to forge.
+    `destroy()` clears the callbacks.
+- **A provider endpoint no longer leaks into page-readable text.** The
+  message shown for an unreachable or 404 endpoint interpolated the configured
+  `baseUrl` ("未找到 Base URL：https://…（404）"), and that message is rendered
+  inside the HUD's open shadow root. The API key is already structurally
+  stripped from every content-side snapshot; the endpoint was the one piece of
+  private configuration left behind, which matters for self-hosted gateways and
+  internal proxies. `parseTranslationError` now redacts any URL to
+  `<endpoint>` on the way out (`redactEndpointAddresses`), while the settings
+  page keeps showing the full address — its connection test does not go
+  through that path — and the console keeps the original for debugging.
+  - Note on reach: the `无法连接 …` variant was already dropped, because
+    "连接" maps it to `NETWORK_ERROR` and the detail the reader sees is the
+    generic message. The reachable leak was the 404 path.
+
 ## [2.2.0] - 2026-11-11
 
 ### Added

@@ -503,8 +503,15 @@ describe('FloatingHud', () => {
     });
   });
 
-  describe('hud-cancel 事件', () => {
-    it('点击取消按钮应分发 hud-cancel 事件', () => {
+  describe('hud 按钮 → 直接回调', () => {
+    /*
+     * These used to be DOM events dispatched on the container. A page script
+     * could dispatch the same events itself, and `hud-retry-failed` spends
+     * money — so the mechanism is now a direct call that only the owner of
+     * this instance can make. The security regression test below asserts the
+     * forgeable surface is gone.
+     */
+    it('点击取消按钮应调用 onCancel', () => {
       hud.update({ status: 'translating', current: 1, total: 5 });
 
       const host = getHudHost() as HTMLElement;
@@ -513,17 +520,21 @@ describe('FloatingHud', () => {
         'cancel-btn'
       ) as HTMLElement | null;
 
-      const listener = vi.fn();
-      host.addEventListener('hud-cancel', listener);
+      const onCancel = vi.fn();
+      hud.setActions({
+        onCancel,
+        onRetryFailed: vi.fn(),
+        onErrorAction: vi.fn(),
+      });
 
       cancelBtn?.click();
 
-      expect(listener).toHaveBeenCalledTimes(1);
+      expect(onCancel).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('hud-retry-failed 事件', () => {
-    it('点击重新翻译按钮应分发 hud-retry-failed 事件', () => {
+  describe('hud-retry-failed 回调', () => {
+    it('点击重新翻译按钮应调用 onRetryFailed（两段确认）', () => {
       hud.update({
         status: 'complete',
         translatedCount: 5,
@@ -537,13 +548,17 @@ describe('FloatingHud', () => {
         'retry-failed-btn'
       ) as HTMLElement | null;
 
-      const listener = vi.fn();
-      host.addEventListener('hud-retry-failed', listener);
+      const onRetryFailed = vi.fn();
+      hud.setActions({
+        onCancel: vi.fn(),
+        onRetryFailed,
+        onErrorAction: vi.fn(),
+      });
 
       // The first click only arms the button: this action spends money, and
       // the popup asks before it spends.
       retryBtn?.click();
-      expect(listener).not.toHaveBeenCalled();
+      expect(onRetryFailed).not.toHaveBeenCalled();
 
       const armedBtn = shadow?.getElementById(
         'retry-failed-btn'
@@ -551,7 +566,7 @@ describe('FloatingHud', () => {
       expect(armedBtn?.textContent).toContain('再点一次确认');
 
       armedBtn?.click();
-      expect(listener).toHaveBeenCalledTimes(1);
+      expect(onRetryFailed).toHaveBeenCalledTimes(1);
     });
 
     it('无失败项时不应有重新翻译按钮', () => {
@@ -1041,11 +1056,108 @@ describe('the HUD can be dismissed', () => {
       cachedCount: 0,
     });
     const retried = vi.fn();
-    hud['container'].addEventListener('hud-retry-failed', retried);
+    hud.setActions({
+      onCancel: vi.fn(),
+      onRetryFailed: retried,
+      onErrorAction: vi.fn(),
+    });
 
     (shadow().getElementById('retry-failed-btn') as HTMLButtonElement).click();
     (shadow().getElementById('retry-failed-btn') as HTMLButtonElement).click();
     expect(retried).toHaveBeenCalled();
+  });
+});
+
+/*
+ * Security regression: the page must not be able to spend the reader's money.
+ *
+ * The HUD is mounted on somebody else's page, its shadow root is open, and it
+ * carries a discoverable `data-manga-translator-hud` attribute — so a page
+ * script can find the host and dispatch whatever it likes at it. Every button
+ * action used to be a DOM CustomEvent, which meant `hud-retry-failed` could
+ * be forged: that path forces a cache-bypassing retranslate and bills the
+ * user, with no click at all and without the two-click confirm.
+ *
+ * `isTrusted` cannot be used to tell them apart (it is false for our own
+ * dispatches too), so the fix removes the forgeable surface entirely: the
+ * buttons now call methods on an instance the page cannot reach. These tests
+ * pin that property so nobody reintroduces the event wiring.
+ */
+describe('HUD 按钮不可被页面伪造', () => {
+  let hud: FloatingHud;
+
+  beforeEach(() => {
+    document.body.innerHTML = '';
+    hud = new FloatingHud();
+    hud.setActions({
+      onCancel: vi.fn(),
+      onRetryFailed: vi.fn(),
+      onErrorAction: vi.fn(),
+    });
+  });
+
+  afterEach(() => {
+    hud.destroy();
+  });
+
+  it('页面派发 hud-retry-failed 不会触发重译', () => {
+    const onRetryFailed = vi.fn();
+    hud.setActions({
+      onCancel: vi.fn(),
+      onRetryFailed,
+      onErrorAction: vi.fn(),
+    });
+    hud.update({
+      status: 'complete',
+      translatedCount: 5,
+      failedCount: 2,
+      cachedCount: 0,
+    });
+
+    // Exactly what a page script would do: find the host, fire the old event
+    // names at both the host and the document.
+    const host = getHudHost() as HTMLElement;
+    const forged = { bubbles: true, composed: true };
+    host.dispatchEvent(new CustomEvent('hud-retry-failed', forged));
+    document.dispatchEvent(new CustomEvent('hud-retry-failed', forged));
+
+    expect(onRetryFailed).not.toHaveBeenCalled();
+  });
+
+  it('页面派发 hud-cancel 与 hud-error-action 同样无效', () => {
+    const onCancel = vi.fn();
+    const onErrorAction = vi.fn();
+    hud.setActions({ onCancel, onRetryFailed: vi.fn(), onErrorAction });
+
+    const host = getHudHost() as HTMLElement;
+    const forged = { bubbles: true, composed: true };
+    for (const type of ['hud-cancel', 'hud-error-action']) {
+      host.dispatchEvent(new CustomEvent(type, forged));
+      document.dispatchEvent(new CustomEvent(type, forged));
+    }
+
+    expect(onCancel).not.toHaveBeenCalled();
+    expect(onErrorAction).not.toHaveBeenCalled();
+  });
+
+  it('销毁后回调被清空，点击不再有任何动作', () => {
+    const onCancel = vi.fn();
+    hud.setActions({
+      onCancel,
+      onRetryFailed: vi.fn(),
+      onErrorAction: vi.fn(),
+    });
+    hud.update({ status: 'translating', current: 1, total: 5 });
+
+    const host = getHudHost() as HTMLElement;
+    const cancelBtn = host.shadowRoot?.getElementById(
+      'cancel-btn'
+    ) as HTMLElement | null;
+
+    hud.destroy();
+    cancelBtn?.click();
+
+    expect(onCancel).not.toHaveBeenCalled();
   });
 });
 

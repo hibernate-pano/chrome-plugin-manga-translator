@@ -135,6 +135,25 @@ function isReaderFacingMessage(message: string): boolean {
   return /[一-鿿]/.test(message);
 }
 
+/**
+ * Replace any endpoint address in a reader-facing message with a placeholder.
+ *
+ * The message the reader sees is rendered inside a shadow root the page can
+ * read. The provider endpoint is part of the user's private configuration —
+ * a self-hosted gateway or an internal proxy address is nobody else's
+ * business — while the API key is already structurally stripped from every
+ * content-side snapshot. Without this, an error string that happens to
+ * interpolate `baseUrl` hands the page the one piece of configuration that
+ * was left behind.
+ *
+ * Applied at the edge where a raw message becomes a reader-facing one, so
+ * the full address is still available in the console for the person
+ * debugging it.
+ */
+export function redactEndpointAddresses(message: string): string {
+  return message.replace(/\bhttps?:\/\/[^\s"'<>：，。）)]+/gi, '<endpoint>');
+}
+
 // ============================================================================
 // 错误码定义（符合设计文档）
 // ============================================================================
@@ -799,7 +818,25 @@ export class TranslationErrorHandler {
  * 解析错误并返回友好消息
  */
 export function parseTranslationError(error: unknown): FriendlyError {
-  return TranslationErrorHandler.parseError(error);
+  const friendly = TranslationErrorHandler.parseError(error);
+  /*
+   * Everything this returns is rendered for the reader — in the HUD, whose
+   * shadow root a page script can read, and in the popup. Some provider
+   * errors interpolate the configured `baseUrl` into their message ("未找到
+   * Base URL：https://…/v1（404）"), and a self-hosted gateway or internal
+   * proxy address is the user's private configuration. The API key is
+   * already structurally stripped from every content-side snapshot; this
+   * closes the same gap for the endpoint. The unredacted original message
+   * stays in the console for whoever is debugging the connection.
+   *
+   * Identity is preserved when nothing is redacted: callers rely on a
+   * already-normalized FriendlyError coming back as the same object.
+   */
+  const redacted = redactEndpointAddresses(friendly.message);
+  if (redacted === friendly.message) {
+    return friendly;
+  }
+  return { ...friendly, message: redacted };
 }
 
 /**

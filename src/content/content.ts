@@ -2874,7 +2874,18 @@ function handleStorageChange(
   }
 }
 
-// ==================== HUD 事件监听 ====================
+// ==================== HUD 按钮动作 ====================
+//
+// These were `document`-level CustomEvent listeners (hud-cancel /
+// hud-retry-failed / hud-error-action). The HUD lives on somebody else's page
+// with an open shadow root and a discoverable attribute, so a page script
+// could dispatch the same events and trigger `hud-retry-failed` — a forced,
+// cache-bypassing retranslate that spends the reader's money, without even
+// the two-click confirm the HUD shows. `isTrusted` is false for our own
+// dispatches too, so it cannot distinguish them.
+//
+// The HUD now calls these directly from inside its shadow click handler.
+// There is no forgeable surface.
 
 function handleHudCancel(): void {
   cancelTranslation();
@@ -2965,15 +2976,12 @@ function resolveErrorAction(friendly: FriendlyError): ErrorAction | undefined {
 }
 
 // 错误"修复入口"按钮：根据 action 类型执行
-function handleHudErrorAction(e: Event): void {
-  const detail = (e as CustomEvent<{ type: string; command?: string }>).detail;
-  if (!detail) return;
-  if (detail.type === 'open-settings') {
+function handleHudErrorAction(actionType: string, command?: string): void {
+  if (actionType === 'open-settings') {
     void chrome.runtime
       .sendMessage({ action: 'openOptionsPage' })
       .catch(() => undefined);
-  } else if (detail.type === 'copy-command') {
-    const command = detail.command;
+  } else if (actionType === 'copy-command') {
     if (command) {
       void navigator.clipboard.writeText(command).then(
         () => {
@@ -2988,9 +2996,11 @@ function handleHudErrorAction(e: Event): void {
 }
 
 function setupHudEventListeners(): void {
-  document.addEventListener('hud-cancel', handleHudCancel);
-  document.addEventListener('hud-retry-failed', handleRetryFailed);
-  document.addEventListener('hud-error-action', handleHudErrorAction);
+  hud?.setActions({
+    onCancel: handleHudCancel,
+    onRetryFailed: handleRetryFailed,
+    onErrorAction: handleHudErrorAction,
+  });
 }
 
 // ==================== SPA 路由变化 ====================
@@ -3197,9 +3207,8 @@ function cleanup(): void {
   // the extension context may already be gone.
   chrome.runtime.onMessage?.removeListener(handleMessage);
   chrome.storage.onChanged?.removeListener(handleStorageChange);
-  document.removeEventListener('hud-cancel', handleHudCancel);
-  document.removeEventListener('hud-retry-failed', handleRetryFailed);
-  document.removeEventListener('hud-error-action', handleHudErrorAction);
+  // HUD 按钮走直接回调，不挂在 document 上，因此无需移除监听；
+  // destroy() 会清掉 actions 引用，销毁后按不动任何东西。
   window.removeEventListener('beforeunload', cleanup);
   window.removeEventListener('popstate', checkRouteChange);
   if (routeWatchTimer !== null) {
