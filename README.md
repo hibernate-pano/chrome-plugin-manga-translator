@@ -3,8 +3,14 @@
 <img src="public/icons/icon128.png" width="72" height="72" align="right" alt="">
 
 [![CI](https://github.com/hibernate-pano/chrome-plugin-manga-translator/actions/workflows/ci.yml/badge.svg)](https://github.com/hibernate-pano/chrome-plugin-manga-translator/actions/workflows/ci.yml)
+[![Chrome Web Store](https://img.shields.io/chromewebstore/v/llicfmiagjiknidigpdcnogfeheogpfd?style=flat-square&label=Chrome%20Web%20Store&logo=googlechrome)](https://chromewebstore.google.com/detail/llicfmiagjiknidigpdcnogfeheogpfd)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](./LICENSE)
 
 A Chrome Manifest V3 extension that translates foreign-language manga in your browser.
+
+**在 Chrome 商店安装** →
+[漫画翻译助手 - AI 漫画翻译与叠加](https://chromewebstore.google.com/detail/llicfmiagjiknidigpdcnogfeheogpfd)
+（也可以自己构建，见 [Quick start](#quick-start)）
 
 It calls **any OpenAI-compatible Vision LLM** (OpenAI, Qwen-VL, Gemini via OpenRouter,
 SiliconFlow, ...) or a **local model** (Ollama, LM Studio) on demand, then overlays the
@@ -25,7 +31,17 @@ around the bubble is left alone; the bubble itself is covered by the overlay.
 
 ### 1. Install the extension
 
-The extension is not on the Chrome Web Store yet (see [`ROADMAP.md`](./ROADMAP.md)).
+The extension is on the Chrome Web Store:
+[漫画翻译助手 - AI 漫画翻译与叠加](https://chromewebstore.google.com/detail/llicfmiagjiknidigpdcnogfeheogpfd).
+
+Click **Add to Chrome**, then open any manga page and press the toolbar button.
+No account, no key in the package — you bring your own provider key (or run a
+local model).
+
+If you would rather build it yourself, see below.
+
+### 1b. Build it yourself
+
 For a private build with preloaded credentials:
 
 ```bash
@@ -223,7 +239,8 @@ To report a security problem, please do not open a public issue — see
 
 | Version | Status | Highlights |
 |---|---|---|
-| v2.1.1 | current | The store listing's title and summary now come from the manifest, in Chinese — the dashboard has no input box for either |
+| v2.2.0 | current | The settings page estimates the month's spend from rates **you** enter — it shows 「未设置单价」 rather than a number when a cloud provider has no rate, because a total that silently omits half the month is worse than none |
+| v2.1.1 | live (Chrome Web Store, 2026-10-27) | The store listing's title and summary now come from the manifest, in Chinese — the dashboard has no input box for either |
 | v2.1.0 | shipped | Failures are shown while the run is still going — live count, a marker on the picture, one reason per image; cancelling stops the requests that have not been sent; the HTTP status reaches the reader |
 | v2.0.4 | shipped | Public build no longer ships a private model repo; the content script is no longer web-accessible |
 | v2.0.3 | shipped | Chrome Web Store field limits enforced at build time |

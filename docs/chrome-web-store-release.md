@@ -130,6 +130,42 @@ below are what was done, for anyone starting a second extension.
 The account that owns the store items is not necessarily the account that
 owns the Cloud project, and it needs two-step verification switched on.
 
+### 3. When the refresh token dies (every so often)
+
+The refresh token is not permanent. Google hands out a 30-day refresh token
+for an installed app, and it can be revoked at any time. When it stops
+working, every store call fails with a message that looks like a credential
+problem but is not:
+
+```
+{"error":"invalid_grant","error_description":"Token has been expired or revoked."}
+```
+
+That error says nothing about the client id, the secret or the item — so the
+response is to get a new token, not to start editing credentials at random.
+This happened on 2026-11-11: the token that had been working since October
+was gone, and the first sign of it was a `status` call that could not be made
+at all.
+
+`scripts/authorize-store.mjs` does the whole thing:
+
+```bash
+pnpm store:authorize                      # reads ~/.config/mcp/mcp.json
+pnpm store:authorize --proxy http://127.0.0.1:7897   # behind a proxy
+pnpm store:authorize --dry-run            # check the credentials, touch nothing
+pnpm store:authorize --print-only         # print the token, write nothing
+```
+
+It starts a one-shot server on `127.0.0.1`, opens Google's consent screen in
+Chrome (one click — the only human step), exchanges the returned code for a
+**new** refresh token, writes it back into the credentials file (keeping a
+timestamped backup), and then verifies it by reading the item's status
+through the API. A token that was written is not a token that works, so the
+verification is part of the command, not an optional extra.
+
+If the consent screen does not open, the script prints the URL to paste into
+a browser by hand.
+
 
 ## Store Listing
 
@@ -416,13 +452,31 @@ node scripts/capture-store-assets.mjs --options # store/listing/ — the setting
 node scripts/build-promo-image.mjs    # store/listing/ — the promo image
 ```
 
-`scripts/build-promo-image.mjs` composites `promo-1280x800.png` from the two
+`scripts/build-promo-image.mjs` composites the promo images from the two
 screenshots. It is deliberately independent of the two steps above: it needs
 no model, no API key and no network — it renders a local HTML page with
 headless Chrome and copies the result. The expensive assets above can only be
-re-taken on a machine that can reach a provider; the promo image can be
-re-made anywhere, so the headline and the claims on it can be kept current
+re-taken on a machine that can reach a provider; the promo images can be
+re-made anywhere, so the headline and the claims on them can be kept current
 even when the screenshots cannot be.
+
+It writes three images, each laid out for its own size rather than scaled
+down from one master:
+
+| File | Size | What it is |
+| --- | --- | --- |
+| `store/listing/promo-small-440x280.png` | 440×280 | The store's **small promo tile**: title, one claim, a strip of the manga |
+| `store/listing/promo-large-1400x560.png` | 1400×560 | The store's **large promo tile**: title, three claims, the screenshot |
+| `store/listing/promo-1280x800.png` | 1280×800 | The reference composite, not a store requirement |
+
+`--only small|large|main` renders one of them; `--out <path>` still writes the
+1280×800 one to a chosen path.
+
+**The store rejects a PNG with an alpha channel**, and the failure is silent
+enough to waste an upload. The script therefore checks the PNG's colour type
+*and* `sips -g hasAlpha` before the file lands in `store/listing/`, and again
+after the copy — a tile that would be rejected never reaches the folder the
+listing reads from.
 
 Headless Chrome on macOS writes the screenshot and then reports the display
 link teardown as a non-zero exit. That is why the script checks for the

@@ -34,3 +34,5 @@ store/listing/.debug/
 .conductor/
 .kiro/
 .omx/
+.alma-snapshots
+.pi/

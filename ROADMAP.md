@@ -36,8 +36,28 @@ release notes below; the live version is whatever's at the top of
   and `natural-zh` style handle 반말/-요/-습니다 and webtoon slang.
 - Parallel tile translation (v1.3.1) + tiled results cached (v1.3.2).
 
-## Phase 5 — Next
+## Phase 5 — In progress
 
+- **The extension is live.** v2.1.1 went through review and reached the store
+  on 2026-10-27. As of 2026-11-11 the listing shows **4 users and 0 ratings**
+  — so the remaining work here is not "ship it" but "make it visible". The
+  evidence is in `docs/store-release-log.md`.
+- **Re-authorise the Chrome Web Store OAuth client.** Fixed on 2026-11-11:
+  the token in `~/.config/mcp/mcp.json` had expired (`invalid_grant`) and
+  `pnpm store:authorize` replaced it, verified against `fetchStatus`. It will
+  expire again — `pnpm store:authorize --check` before a release tells you
+  which situation you are in before the upload does.
+- **Promo tiles for the listing.** Done: `pnpm store:promo` renders the
+  440×280 small tile and the 1400×560 large tile alongside the 1280×800
+  composite, each laid out for its size, alpha-checked before it is written.
+  The tiles still have to be **uploaded** in the dashboard — the API has no
+  endpoint for listing assets.
+- **The month's cost, from the user's own rates.** Done: the settings page
+  has price fields (per million tokens, input and output, with a unit) and a
+  「本月估算花费」 panel that adds the month up from them. It shows
+  「未设置单价」 rather than a number when a cloud provider has no rate, and
+  tokens that cannot be attributed to a provider are reported separately
+  instead of being spread across the ones that have a price.
 - Smoke-test the parts of the release that need a provider. `pnpm smoke:public`
   now covers the other half automatically: it drives the credential-free
   `pnpm build:public` artifact in a clean Chrome profile and checks that it
@@ -47,13 +67,8 @@ release notes below; the live version is whatever's at the top of
   actually translate something still need a live provider and a page served
   over HTTP — the fixture is `smoke-test-page.html` and the checklist is in
   `docs/chrome-web-store-release.md`.
-- Create the Chrome Web Store item in the dashboard and submit the package.
-  The upload, the publish request and the rollout percentage are explicit
-  arguments of `pnpm release:publish` now, and the listing copy, the
-  permission justifications and the smoke-test checklist are in
-  `docs/chrome-web-store-release.md`. What the command cannot do is create
-  the listing itself — there is no create-item endpoint.
-- Publish a release artifact and seed 5-10 users with clear install feedback.
+- **Seed 5-10 users with clear install feedback.** This is now the whole
+  Phase 5: the listing is up, it just has no audience.
 - Add provider-aware price estimates to the usage panel; token counts and cache
   hit rate are already visible. A hardcoded per-token rate table used to sit in
   `usage-store.ts` and produced dollar figures for endpoints it knew nothing

@@ -8,9 +8,11 @@
  *
  * 数据存储在 chrome.storage.local，按天聚合。
  *
- * There is deliberately no cost estimate: converting tokens to money needs a
+ * There is deliberately no price table: converting tokens to money needs a
  * per-model price list, and any table shipped in the bundle would be invented
- * numbers presented to the user as a bill.
+ * numbers presented to the user as a bill. What the store keeps is the rates
+ * the user typed themselves, and the estimate is computed from those — see
+ * `usage-cost.ts`, which only the settings page imports.
  *
  * ## Multi-context (multi-tab) consistency
  *
@@ -81,6 +83,17 @@ export interface TranslationUsageRecord {
 }
 
 /**
+ * The tokens one provider spent.
+ *
+ * Input and output are kept apart because they are priced apart: a provider
+ * charges one rate for what went in and another for what came out.
+ */
+export interface ProviderTokenUsage {
+  prompt: number;
+  completion: number;
+}
+
+/**
  * The totals of one day.
  */
 export interface DailyUsageSummary {
@@ -91,7 +104,38 @@ export interface DailyUsageSummary {
   translationCount: number;
   cachedCount: number;
   providers: Partial<Record<ProviderType, number>>;
+  /**
+   * The tokens of this day, split by the provider that spent them.
+   *
+   * The field is optional because the days written before it existed do not
+   * carry it, and an old day must not be guessed at: its tokens stay in
+   * `promptTokens` / `completionTokens`, but nothing says which provider
+   * spent them, so a cost estimate has to leave them out rather than spread
+   * them over the providers that happen to have a price.
+   */
+  tokensByProvider?: Partial<Record<ProviderType, ProviderTokenUsage>>;
 }
+
+/**
+ * What one million tokens cost, as the user says it costs.
+ *
+ * The extension ships no price table. It has no idea what a provider charges
+ * — the rate depends on the endpoint, the model and the plan — so every
+ * number here was typed by the user from their provider's own pricing page.
+ * That makes these figures the user's claim about their bill, and the UI has
+ * to say so wherever it shows them.
+ */
+export interface PriceEntry {
+  /** The price of one million input (prompt) tokens. */
+  inputPerMillion: number;
+  /** The price of one million output (completion) tokens. */
+  outputPerMillion: number;
+  /** The unit the user wants to see, e.g. 「元」 or 「$」. Empty for none. */
+  unit: string;
+}
+
+/** The prices of every provider that has one. */
+export type PriceMap = Partial<Record<ProviderType, PriceEntry>>;
 
 /**
  * The running totals of one context.
@@ -126,6 +170,22 @@ interface UsageStoreState {
    * back and resurrect what the user deleted.
    */
   clearedAt: number;
+  /**
+   * The prices the user entered, per provider.
+   *
+   * There is no built-in table: the extension has no idea what a provider
+   * charges, and a guess presented as a bill is worse than no number at all.
+   */
+  prices: PriceMap;
+  /**
+   * When the prices were last changed.
+   *
+   * The history is merged rather than overwritten, because several contexts
+   * write this snapshot; the prices are a setting, so the newer edit has to
+   * win whole — including the deletion of a price the user no longer wants,
+   * which a per-entry merge could not express.
+   */
+  pricesUpdatedAt: number;
 }
 
 interface UsageStoreActions {
@@ -145,6 +205,10 @@ interface UsageStoreActions {
   };
   /** 清除所有记录 */
   clearAll: () => void;
+  /** 记下用户填的某个服务商的单价 */
+  setPrice: (provider: ProviderType, entry: PriceEntry) => void;
+  /** 忘掉某个服务商的单价 */
+  clearPrice: (provider: ProviderType) => void;
 }
 
 interface UsageOverview {
@@ -217,6 +281,7 @@ function createDaySummary(date: string): DailyUsageSummary {
     translationCount: 0,
     cachedCount: 0,
     providers: {},
+    tokensByProvider: {},
   };
 }
 
@@ -227,9 +292,16 @@ function applyRecordToDay(
   day: DailyUsageSummary,
   record: TranslationUsageRecord
 ): DailyUsageSummary {
+  // The per-provider tokens are copied rather than shared: the same day can
+  // be folded into twice (two accumulators cover it), and the second fold
+  // must not reach into the first one's numbers.
+  const tokensByProvider: Partial<Record<ProviderType, ProviderTokenUsage>> = {
+    ...(day.tokensByProvider ?? {}),
+  };
   const next: DailyUsageSummary = {
     ...day,
     providers: { ...day.providers },
+    tokensByProvider,
   };
   next.translationCount += 1;
   if (record.cached) {
@@ -240,6 +312,14 @@ function applyRecordToDay(
   next.promptTokens += record.usage.promptTokens;
   next.completionTokens += record.usage.completionTokens;
   next.providers[record.provider] = (next.providers[record.provider] || 0) + 1;
+  const spent = tokensByProvider[record.provider] ?? {
+    prompt: 0,
+    completion: 0,
+  };
+  tokensByProvider[record.provider] = {
+    prompt: spent.prompt + record.usage.promptTokens,
+    completion: spent.completion + record.usage.completionTokens,
+  };
   return next;
 }
 
@@ -250,6 +330,10 @@ function applyRecordToDay(
  * calls made before the accumulator existed, while a context's own
  * accumulator accounts for the ones made after — and the day is the sum of
  * both.
+ *
+ * The per-provider tokens are merged per provider, so a day that one side
+ * could not attribute and the other could keeps the attribution it has: the
+ * tokens nobody can place stay unplaced.
  */
 function mergeDaySummaries(
   base: DailyUsageSummary,
@@ -260,6 +344,19 @@ function mergeDaySummaries(
     const key = provider as ProviderType;
     providers[key] = (providers[key] || 0) + (count || 0);
   }
+  const tokensByProvider: Partial<Record<ProviderType, ProviderTokenUsage>> = {
+    ...(base.tokensByProvider ?? {}),
+  };
+  for (const [provider, tokens] of Object.entries(
+    incoming.tokensByProvider ?? {}
+  )) {
+    const key = provider as ProviderType;
+    const existing = tokensByProvider[key] ?? { prompt: 0, completion: 0 };
+    tokensByProvider[key] = {
+      prompt: existing.prompt + (tokens?.prompt ?? 0),
+      completion: existing.completion + (tokens?.completion ?? 0),
+    };
+  }
   return {
     date: base.date,
     totalTokens: base.totalTokens + incoming.totalTokens,
@@ -268,6 +365,7 @@ function mergeDaySummaries(
     translationCount: base.translationCount + incoming.translationCount,
     cachedCount: base.cachedCount + incoming.cachedCount,
     providers,
+    tokensByProvider,
   };
 }
 
@@ -278,8 +376,12 @@ function mergeDaySummaries(
  * covers are counted directly. A record that an accumulator already accounts
  * for is skipped, which is what keeps the two from adding up to twice the
  * calls the user made.
+ *
+ * It is exported because the cost estimate has to count the same calls the
+ * same way: a second implementation of this rule would be a second chance to
+ * bill the user twice.
  */
-function collectUsage(records: TranslationUsageRecord[]): {
+export function collectUsage(records: TranslationUsageRecord[]): {
   days: Map<string, DailyUsageSummary>;
   looseRecords: TranslationUsageRecord[];
 } {
@@ -625,12 +727,15 @@ function recordId(record: TranslationUsageRecord): string {
 // ==================== Snapshot helpers ====================
 
 /**
- * The persisted shape of the history: the records and the moment the
- * history was last cleared. Written and read by every extension context.
+ * The persisted shape of the history: the records, the moment the history
+ * was last cleared, and the prices the user entered. Written and read by
+ * every extension context.
  */
 interface UsageSnapshot {
   records: TranslationUsageRecord[];
   clearedAt: number;
+  prices: PriceMap;
+  pricesUpdatedAt: number;
 }
 
 const MAX_RECORDS = 500;
@@ -729,6 +834,64 @@ function toProviderCounts(
 }
 
 /**
+ * Turn an untrusted stored per-provider token count into a usable one.
+ *
+ * A provider that is not one of ours, or a count that is not a number, is
+ * dropped: the estimate would otherwise price a provider nobody called.
+ */
+function toProviderTokens(
+  value: unknown
+): Partial<Record<ProviderType, ProviderTokenUsage>> {
+  const tokens: Partial<Record<ProviderType, ProviderTokenUsage>> = {};
+  if (!isRecord(value)) {
+    return tokens;
+  }
+  for (const [provider, entry] of Object.entries(value)) {
+    if (!isProviderType(provider) || !isRecord(entry)) {
+      continue;
+    }
+    const prompt = entry['prompt'];
+    const completion = entry['completion'];
+    if (!isFiniteNumber(prompt) || !isFiniteNumber(completion)) {
+      continue;
+    }
+    tokens[provider] = { prompt, completion };
+  }
+  return tokens;
+}
+
+/**
+ * Turn an untrusted stored price into a usable one.
+ *
+ * A price is only a price if both rates are numbers. The unit is free text
+ * — it is a label the user typed — so anything that is not a string becomes
+ * an empty one.
+ */
+function toPriceEntries(value: unknown): PriceMap {
+  const prices: PriceMap = {};
+  if (!isRecord(value)) {
+    return prices;
+  }
+  for (const [provider, entry] of Object.entries(value)) {
+    if (!isProviderType(provider) || !isRecord(entry)) {
+      continue;
+    }
+    const inputPerMillion = entry['inputPerMillion'];
+    const outputPerMillion = entry['outputPerMillion'];
+    if (!isFiniteNumber(inputPerMillion) || !isFiniteNumber(outputPerMillion)) {
+      continue;
+    }
+    const unit = entry['unit'];
+    prices[provider] = {
+      inputPerMillion,
+      outputPerMillion,
+      unit: typeof unit === 'string' ? unit : '',
+    };
+  }
+  return prices;
+}
+
+/**
  * Turn an untrusted stored accumulator into a usable one.
  *
  * A malformed accumulator is dropped rather than repaired: half a month of
@@ -770,6 +933,10 @@ function normalizeAccumulator(value: unknown): UsageAccumulator | undefined {
         : 0,
       translationCount,
       cachedCount,
+      // A day written before this field existed has no attribution. It is
+      // kept as an empty map rather than dropped: the tokens are still
+      // counted in the totals, they just cannot be priced.
+      tokensByProvider: toProviderTokens(summary['tokensByProvider']),
     };
   }
   const rawClearedAt = value['clearedAt'];
@@ -802,7 +969,42 @@ function toSnapshot(value: unknown): UsageSnapshot {
   const rawClearedAt = source['clearedAt'];
   const clearedAt = isFiniteNumber(rawClearedAt) ? rawClearedAt : 0;
 
-  return { records, clearedAt };
+  // A snapshot written before the prices existed carries none: the user has
+  // not entered any, and the estimate has nothing to work with.
+  const rawPricesUpdatedAt = source['pricesUpdatedAt'];
+  const pricesUpdatedAt = isFiniteNumber(rawPricesUpdatedAt)
+    ? rawPricesUpdatedAt
+    : 0;
+
+  return {
+    records,
+    clearedAt,
+    prices: toPriceEntries(source['prices']),
+    pricesUpdatedAt,
+  };
+}
+
+/**
+ * The prices of two snapshots.
+ *
+ * The history is merged entry by entry, because two tabs can record at the
+ * same time and neither record may be lost. A price is a setting, not a
+ * tally: the newer edit has to win whole, including the removal of a price
+ * the user no longer wants — a per-entry merge could not express that.
+ */
+function mergePrices(
+  base: UsageSnapshot,
+  incoming: UsageSnapshot
+): { prices: PriceMap; pricesUpdatedAt: number } {
+  const pricesUpdatedAt = Math.max(
+    base.pricesUpdatedAt,
+    incoming.pricesUpdatedAt
+  );
+  const prices =
+    incoming.pricesUpdatedAt >= base.pricesUpdatedAt
+      ? incoming.prices
+      : base.prices;
+  return { prices, pricesUpdatedAt };
 }
 
 /**
@@ -935,7 +1137,12 @@ function applyClearStamp(
  * Read the snapshot currently stored under `name`.
  */
 async function readStoredSnapshot(name: string): Promise<UsageSnapshot> {
-  const empty: UsageSnapshot = { records: [], clearedAt: 0 };
+  const empty: UsageSnapshot = {
+    records: [],
+    clearedAt: 0,
+    prices: {},
+    pricesUpdatedAt: 0,
+  };
   try {
     if (typeof chrome !== 'undefined' && chrome.storage?.local) {
       const result = await chrome.storage.local.get([name]);
@@ -984,6 +1191,8 @@ async function performWrite(name: string, parsedValue: unknown): Promise<void> {
     state: {
       records: merged.records,
       clearedAt: merged.clearedAt,
+      prices: merged.prices,
+      pricesUpdatedAt: merged.pricesUpdatedAt,
     },
     version: isFiniteNumber(version) ? version : USAGE_STORAGE_VERSION,
   };
@@ -1009,7 +1218,8 @@ function mergeSnapshots(
     unionRecords(base.records, incoming.records),
     clearedAt
   );
-  return { records: capRecords(records), clearedAt };
+  const { prices, pricesUpdatedAt } = mergePrices(base, incoming);
+  return { records: capRecords(records), clearedAt, prices, pricesUpdatedAt };
 }
 
 const chromeLocalStorage = {
@@ -1053,6 +1263,8 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
       records: [],
       monthlyTokens: 0,
       clearedAt: 0,
+      prices: {},
+      pricesUpdatedAt: 0,
 
       addRecord: partial => {
         const record: TranslationUsageRecord = {
@@ -1159,6 +1371,24 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
         // separately so "clear" really clears.
         void clearStoredRecords();
       },
+
+      setPrice: (provider, entry) => {
+        set(state => ({
+          prices: { ...state.prices, [provider]: entry },
+          pricesUpdatedAt: Date.now(),
+        }));
+      },
+
+      clearPrice: provider => {
+        set(state => {
+          if (!(provider in state.prices)) {
+            return state;
+          }
+          const prices = { ...state.prices };
+          delete prices[provider];
+          return { prices, pricesUpdatedAt: Date.now() };
+        });
+      },
     }),
     {
       name: USAGE_STORAGE_KEY,
@@ -1166,9 +1396,13 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
       version: USAGE_STORAGE_VERSION,
       // The persisted shape is the records plus the clear stamp, so the
       // month total is recomputed from them instead of being stored twice.
+      // The prices travel with them: they are the user's own numbers, and
+      // they belong to the same history the estimate is computed from.
       partialize: state => ({
         records: state.records,
         clearedAt: state.clearedAt,
+        prices: state.prices,
+        pricesUpdatedAt: state.pricesUpdatedAt,
       }),
       onRehydrateStorage: () => () => {
         // The stored history is in: from here on the counts of the month go
@@ -1187,11 +1421,23 @@ export const useUsageStore = create<UsageStoreState & UsageStoreActions>()(
         // taken over by the seed entry, so that dropping their details from
         // the list does not drop them from the bill.
         const records = capRecords(withLegacySeed(merged, snapshot.clearedAt));
+        // A price typed before the history finished loading is newer than
+        // the stored one, so it wins — the same rule the snapshot merge
+        // uses, applied to what this context already knows.
+        const prices =
+          currentState.pricesUpdatedAt > snapshot.pricesUpdatedAt
+            ? currentState.prices
+            : snapshot.prices;
         return {
           ...currentState,
           records,
           clearedAt: snapshot.clearedAt,
           monthlyTokens: computeMonthlyTokens(records),
+          prices,
+          pricesUpdatedAt: Math.max(
+            snapshot.pricesUpdatedAt,
+            currentState.pricesUpdatedAt
+          ),
         };
       },
     }
@@ -1257,6 +1503,35 @@ async function clearStoredRecords(): Promise<void> {
  */
 let isApplyingExternal = false;
 
+/**
+ * Whether two price maps say the same thing.
+ *
+ * The comparison is by content, not by identity: the snapshot that comes
+ * back from storage is a fresh object every time, and a comparison by
+ * identity would make every echo of our own write look like a change.
+ */
+function samePrices(a: PriceMap, b: PriceMap): boolean {
+  const providers = new Set([...Object.keys(a), ...Object.keys(b)]);
+  for (const provider of providers) {
+    const left = a[provider as ProviderType];
+    const right = b[provider as ProviderType];
+    if (!left || !right) {
+      if (left !== right) {
+        return false;
+      }
+      continue;
+    }
+    if (
+      left.inputPerMillion !== right.inputPerMillion ||
+      left.outputPerMillion !== right.outputPerMillion ||
+      left.unit !== right.unit
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function applyExternalSnapshot(snapshot: UsageSnapshot): void {
   if (isApplyingExternal) {
     return;
@@ -1268,11 +1543,28 @@ function applyExternalSnapshot(snapshot: UsageSnapshot): void {
     const merged = capRecords(
       applyClearStamp(unionRecords(state.records, snapshot.records), clearedAt)
     );
+    // The prices of the other context are folded in the same way: the newer
+    // edit wins, and a price this context typed while the other one was
+    // writing is not lost.
+    const { prices, pricesUpdatedAt } = mergePrices(
+      {
+        records: state.records,
+        clearedAt: state.clearedAt,
+        prices: state.prices,
+        pricesUpdatedAt: state.pricesUpdatedAt,
+      },
+      snapshot
+    );
 
     // Nothing new arrived: do not touch the state, and therefore do not
     // write back. Writing back on every echo is what turns a merge into a
     // storage write loop.
-    if (sameRecords(state.records, merged) && state.clearedAt === clearedAt) {
+    if (
+      sameRecords(state.records, merged) &&
+      state.clearedAt === clearedAt &&
+      samePrices(state.prices, prices) &&
+      state.pricesUpdatedAt === pricesUpdatedAt
+    ) {
       return;
     }
 
@@ -1280,6 +1572,8 @@ function applyExternalSnapshot(snapshot: UsageSnapshot): void {
       records: merged,
       clearedAt,
       monthlyTokens: computeMonthlyTokens(merged),
+      prices,
+      pricesUpdatedAt,
     });
   } finally {
     isApplyingExternal = false;

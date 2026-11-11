@@ -1,6 +1,6 @@
 {
   "name": "chrome-plugin-manga-translator",
-  "version": "2.1.1",
+  "version": "2.2.0",
   "description": "Chrome插件，用于翻译漫画中的文字，并保持原有样式",
   "type": "module",
   "scripts": {
@@ -11,6 +11,7 @@
     "smoke:public": "node scripts/smoke-test-public-build.mjs",
     "release:check": "node scripts/check-release-consistency.mjs && node scripts/check-store-claims.mjs",
     "publish:store": "node scripts/publish-to-store.mjs",
+    "store:authorize": "node scripts/authorize-store.mjs",
     "release:publish": "pnpm package:public && node scripts/publish-to-store.mjs",
     "store:capture": "node scripts/capture-store-assets.mjs",
     "store:popup": "node scripts/capture-store-assets.mjs --popup",

@@ -27,12 +27,15 @@ import { createProvider } from '@/providers';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { summarizeUsageForMonth, useUsageStore } from '@/stores/usage-store';
+import { estimateMonthlyCost, type PriceEntry } from '@/stores/usage-cost';
 import {
   getDiagnosticsServiceLabel,
   getProviderLabel,
 } from '@/utils/provider-label';
 import type { ProviderType } from '@/providers/base';
 import { evaluateBaseUrlSafety } from '@/shared/app-config';
+import { isLocalProvider } from '@/shared/local-providers';
+import { describeCost } from './cost-summary';
 import {
   PROVIDER_PRESETS,
   findMatchingPreset,
@@ -125,6 +128,38 @@ const PROVIDERS: Array<{
     modelPlaceholder: '在 LM Studio 中加载模型后自动检测',
   },
 ];
+
+/**
+ * The price fields, as the user is typing them.
+ *
+ * The store holds the committed rate; this holds the text in the box. They
+ * are two different things: a half-typed "1." is a string the user is
+ * looking at, and no rate at all is the most the store can say about it.
+ */
+interface PriceDraft {
+  /** 输入价格（每 1,000,000 token） */
+  input: string;
+  /** 输出价格（每 1,000,000 token） */
+  output: string;
+  /** 单位标签，例如「元」或「$」 */
+  unit: string;
+  /**
+   * The rate this draft wrote to the store.
+   *
+   * It is what tells our own write apart from somebody else's: the store
+   * hands back the very object we gave it, so the two can be compared by
+   * identity and our keystrokes do not wipe the field the user is in.
+   */
+  written?: PriceEntry;
+}
+
+/**
+ * The provider the user enters a rate for.
+ *
+ * Only the cloud one can have a rate: the local providers run on the
+ * user's own machine, where there is nobody to bill.
+ */
+const PRICED_PROVIDER: ProviderType = 'openai-compatible';
 
 // v1.1.1: provider presets removed — configuration is fully file-driven
 // (.env via inject-env-config.mjs). The Options page no longer offers
@@ -272,6 +307,9 @@ const OptionsApp: React.FC = () => {
   const setParallelLimit = useAppConfigStore(state => state.setParallelLimit);
   const usageRecords = useUsageStore(state => state.records);
   const clearUsage = useUsageStore(state => state.clearAll);
+  const prices = useUsageStore(state => state.prices);
+  const setPrice = useUsageStore(state => state.setPrice);
+  const clearPrice = useUsageStore(state => state.clearPrice);
 
   const [testingProvider, setTestingProvider] = useState<ProviderType | null>(
     null
@@ -384,6 +422,133 @@ const OptionsApp: React.FC = () => {
     () => summarizeUsageForMonth(usageRecords),
     [usageRecords]
   );
+
+  /**
+   * What this month's calls cost, at the rates the user entered.
+   *
+   * The estimate is `null` when there is nothing to price — no cloud call
+   * the user has a rate for — and the panel then asks for the rates
+   * instead of reporting a smaller number that looks complete.
+   */
+  const costEstimate = useMemo(
+    () => estimateMonthlyCost(usageRecords, prices),
+    [usageRecords, prices]
+  );
+
+  /**
+   * What the cost panel says about that estimate.
+   */
+  const cost = useMemo(
+    () =>
+      describeCost(
+        costEstimate,
+        type => PROVIDERS.find(item => item.type === type)?.name ?? type
+      ),
+    [costEstimate]
+  );
+
+  /**
+   * The price fields, as the user is typing them.
+   */
+  const [priceDraft, setPriceDraft] = useState<PriceDraft>(() => {
+    const price = prices[PRICED_PROVIDER];
+    return {
+      input: price ? String(price.inputPerMillion) : '',
+      output: price ? String(price.outputPerMillion) : '',
+      unit: price?.unit ?? '',
+      written: price,
+    };
+  });
+
+  /**
+   * The price block and the field the "set a price" button points at.
+   */
+  const priceSectionRef = useRef<HTMLDivElement>(null);
+  const priceInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Follow the store when the price changes somewhere else.
+   *
+   * Only a change this draft did not make replaces the text: the field the
+   * user is typing in must not be rewritten under their fingers by the
+   * echo of their own keystroke.
+   */
+  useEffect(() => {
+    const price = prices[PRICED_PROVIDER];
+    setPriceDraft(current => {
+      if (current.written === price) {
+        return current;
+      }
+      return {
+        input: price ? String(price.inputPerMillion) : '',
+        output: price ? String(price.outputPerMillion) : '',
+        unit: price?.unit ?? '',
+        written: price,
+      };
+    });
+  }, [prices]);
+
+  /**
+   * Write what the user typed into the store.
+   *
+   * An empty field is not a rate of zero: it is the absence of a rate, and
+   * the provider drops out of the estimate. A number that is still being
+   * typed ("-", "1e") is not stored either — there is nothing to store yet.
+   *
+   * Both fields are required together. A rate is a pair, and one half of it
+   * cannot price a call: the estimate would either price the missing side at
+   * zero or ignore the typed half, and both are numbers the user did not say.
+   */
+  const handlePriceChange = useCallback(
+    (patch: Partial<PriceDraft>) => {
+      const next = { ...priceDraft, ...patch };
+      setPriceDraft(current => ({ ...current, ...patch }));
+
+      if (next.input.trim() === '' || next.output.trim() === '') {
+        clearPrice(PRICED_PROVIDER);
+        setPriceDraft(current => ({ ...current, written: undefined }));
+        return;
+      }
+
+      const input = Number(next.input);
+      const output = Number(next.output);
+      if (
+        !Number.isFinite(input) ||
+        !Number.isFinite(output) ||
+        input < 0 ||
+        output < 0
+      ) {
+        // The draft is not a rate yet, so there is no rate: keeping the
+        // previous one would price this month at a number the user has
+        // already typed over.
+        clearPrice(PRICED_PROVIDER);
+        setPriceDraft(current => ({ ...current, written: undefined }));
+        return;
+      }
+
+      const entry: PriceEntry = {
+        inputPerMillion: input,
+        outputPerMillion: output,
+        unit: next.unit,
+      };
+      setPrice(PRICED_PROVIDER, entry);
+      setPriceDraft(current => ({ ...current, written: entry }));
+    },
+    [clearPrice, priceDraft, setPrice]
+  );
+
+  /**
+   * Take the user to the price fields.
+   *
+   * "未设置单价" is only half an answer: the other half is where to fix it.
+   */
+  const focusPrices = useCallback(() => {
+    priceSectionRef.current?.scrollIntoView({
+      block: 'center',
+      behavior: 'smooth',
+    });
+    priceInputRef.current?.focus();
+  }, []);
 
   /**
    * The version the user is actually running.
@@ -1799,8 +1964,154 @@ const OptionsApp: React.FC = () => {
               「翻译记录」是本月翻出来的次数，「API 调用」是其中真正发出去的
               请求（缓存命中不计入）。本地服务商（Ollama / LM Studio）的调用
               也会计进上面的数字，但不产生费用——只有云端服务商的请求才会计
-              到你的账单上，具体价格由服务商按 Token 决定。
+              到你的账单上，费用由服务商按 Token 决定。
             </p>
+
+            {/*
+              The cost of the month, at the rates the user entered.
+            */}
+            <div className='mt-3 rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
+              <div className='flex flex-wrap items-center justify-between gap-2'>
+                <span className='text-xs text-slate-400'>本月估算花费</span>
+                <span className='text-lg font-semibold text-slate-100'>
+                  {cost.label}
+                </span>
+              </div>
+              <p className='mt-1 text-xs leading-relaxed text-slate-400'>
+                {cost.note}
+              </p>
+              {cost.needsPrice ? (
+                <button
+                  type='button'
+                  onClick={focusPrices}
+                  className='mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100 transition hover:bg-cyan-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
+                >
+                  去设置单价
+                </button>
+              ) : null}
+            </div>
+
+            {/*
+              The rates themselves.
+
+              The extension ships no price table, so the numbers here are
+              the user's own, typed from their provider's pricing page.
+            */}
+            <div
+              ref={priceSectionRef}
+              id='section-prices'
+              className='mt-3 rounded-lg border border-white/20 bg-slate-950 px-3 py-3'
+            >
+              <div className='text-sm font-medium'>单价</div>
+              <div className='mt-1 text-xs leading-relaxed text-slate-400'>
+                计价方式：每 1,000,000 token。把你服务商价格页上的数字填进来，
+                下面的估算就按它算。
+              </div>
+
+              {PROVIDERS.map(item => {
+                const local = isLocalProvider(item.type);
+                const editable = item.type === PRICED_PROVIDER;
+                const inputClass =
+                  'w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60 disabled:cursor-not-allowed disabled:opacity-40';
+                return (
+                  <div key={item.type} className='mt-3'>
+                    <div className='flex flex-wrap items-end gap-3'>
+                      <div className='w-40 shrink-0 pb-2'>
+                        <div className='text-xs text-slate-200'>
+                          {item.name}
+                        </div>
+                        {local ? (
+                          <div className='text-xs text-slate-500'>
+                            本地运行，不产生费用
+                          </div>
+                        ) : null}
+                      </div>
+                      <label className='min-w-[8rem] flex-1'>
+                        <span className='mb-1 block text-xs text-slate-400'>
+                          输入价格
+                        </span>
+                        <input
+                          ref={editable ? priceInputRef : undefined}
+                          type='number'
+                          min={0}
+                          step='any'
+                          aria-label={`${item.name} 输入价格`}
+                          value={editable ? priceDraft.input : ''}
+                          readOnly={!editable}
+                          disabled={!editable}
+                          placeholder={local ? '—' : '例如 3'}
+                          onChange={
+                            editable
+                              ? event =>
+                                  handlePriceChange({
+                                    input: event.target.value,
+                                  })
+                              : undefined
+                          }
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className='min-w-[8rem] flex-1'>
+                        <span className='mb-1 block text-xs text-slate-400'>
+                          输出价格
+                        </span>
+                        <input
+                          type='number'
+                          min={0}
+                          step='any'
+                          aria-label={`${item.name} 输出价格`}
+                          value={editable ? priceDraft.output : ''}
+                          readOnly={!editable}
+                          disabled={!editable}
+                          placeholder={local ? '—' : '例如 15'}
+                          onChange={
+                            editable
+                              ? event =>
+                                  handlePriceChange({
+                                    output: event.target.value,
+                                  })
+                              : undefined
+                          }
+                          className={inputClass}
+                        />
+                      </label>
+                      <label className='w-24 shrink-0'>
+                        <span className='mb-1 block text-xs text-slate-400'>
+                          单位
+                        </span>
+                        <input
+                          type='text'
+                          aria-label={`${item.name} 货币单位`}
+                          value={editable ? priceDraft.unit : ''}
+                          readOnly={!editable}
+                          disabled={!editable}
+                          placeholder={local ? '—' : '元'}
+                          onChange={
+                            editable
+                              ? event =>
+                                  handlePriceChange({
+                                    unit: event.target.value,
+                                  })
+                              : undefined
+                          }
+                          className={inputClass}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/*
+                Two things have to be said together, or one of them is
+                missed: the number is an estimate of the user's own rates,
+                and the rates themselves are the provider's to decide.
+              */}
+              <p className='mt-3 text-xs leading-relaxed text-slate-400'>
+                这是按你填的单价做的估算，不是服务商的账单。单价由服务商决定，
+                请以服务商页面的价格为准。
+              </p>
+            </div>
           </section>
 
           {/* 关于与支持：版本号、更新日志入口、以及一份本地生成的诊断信息。

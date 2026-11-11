@@ -7,6 +7,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-11
+
+### Added
+
+- **The settings page can tell you what the month cost — using your own
+  numbers.** The extension still ships no price table: a rate depends on the
+  endpoint, the model and the plan, and a table in the bundle is a guess
+  presented as a bill. So the rates are yours to type, per million tokens,
+  with a unit of your choosing, and the panel adds up the month from them.
+  - It says **「未设置单价」** rather than a number when a cloud provider was
+    called and has no rate — a total that silently omits half the month is
+    worse than no total.
+  - Local providers (Ollama, LM Studio) cost nothing, so they are never
+    priced and never reported as unpriced.
+  - Tokens from before the per-provider attribution existed cannot be placed
+    with a provider. They are counted separately and left out of the total
+    instead of being spread over the providers that happen to have a rate.
+  - A rate of zero is a real rate (a free tier) and is not the same as no
+    rate at all.
+  - `estimateMonthlyCost` lives in `src/stores/usage-cost.ts` and is imported
+    only by the settings page, so the content script — which is bundled into
+    every page — does not pay for it. `dist/content.js` is unchanged at
+    174.4 KB.
+  - The wording is not an afterthought: `describeCost` lives in
+    `src/components/Options/cost-summary.ts` with its own tests, because the
+    only failure that matters is the card showing a figure when it has no
+    business showing one.
+- **`pnpm store:authorize`** re-authorises the Chrome Web Store OAuth client.
+  The refresh token expires, and when it does every store call fails with
+  `invalid_grant` — an error that names neither the cause nor the fix. The
+  command runs the consent flow, writes the new token back into the
+  credentials file with a timestamped backup, and verifies it against the API
+  before saying it worked. `--check` verifies the existing token without
+  touching it; `--dry-run` only reports what it found.
+- **Both promo tiles the store asks for.** `pnpm store:promo` now renders
+  `promo-small-440x280.png` and `promo-large-1400x560.png` alongside the
+  1280×800 composite, each laid out for its own size rather than scaled. The
+  store rejects PNGs with an alpha channel, so the script checks the colour
+  type and `sips -g hasAlpha` before the file lands where the listing reads
+  it — a tile that would be rejected never gets there.
+
+### Fixed
+
+- **The release log said the extension was not on the store.** It went live
+  on 2026-10-27 and the log still read 「已提交审核，未上架」 seventeen days
+  later. Corrected, with the evidence (public page `Version 2.1.1`,
+  `fetchStatus` → `PUBLISHED`) and the numbers it now has to be honest about:
+  **4 users, 0 ratings**.
+- **The README told people the extension was not on the Chrome Web Store**
+  and sent them to the roadmap instead. It links to the listing now.
+
 ## [2.1.1] - 2026-10-25
 
 The store listing now speaks the same language as the extension. The Chrome
@@ -3218,6 +3269,7 @@ ethically guarded, OSS-ready".
 
 [0.3.3]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.3
 [0.3.2]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v0.3.2
+[2.2.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.2.0
 [2.1.1]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.1.1
 [2.1.0]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.1.0
 [2.0.4]: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases/tag/v2.0.4

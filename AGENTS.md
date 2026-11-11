@@ -25,7 +25,7 @@ pnpm format:check           # Check formatting
 pnpm type-check             # TypeScript type check only
 
 # Store listing assets
-pnpm store:promo            # Composite store/listing/promo-1280x800.png (no network)
+pnpm store:promo            # Composite the three promo images (no network)
 pnpm store:capture          # Screenshots + demo.mp4 (needs a reachable provider)
 pnpm store:popup            # The popup screenshot (no provider, no money)
 pnpm store:options          # The settings-page screenshot (no provider, no money)
@@ -36,6 +36,8 @@ pnpm package:public         # Credential-free ZIP in release/
 pnpm smoke:public           # Drive the credential-free build in a clean Chrome
 node scripts/publish-to-store.mjs --dry-run   # Verify without uploading
 pnpm release:publish        # Package, upload and publish in one command
+pnpm store:authorize        # Re-authorise the store OAuth client (the refresh
+                            # token expires; this is the fix, not `invalid_grant`)
 ```
 
 **Required before PR** — this is exactly what CI runs, in this order:
