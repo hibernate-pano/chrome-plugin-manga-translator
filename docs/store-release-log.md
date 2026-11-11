@@ -13,6 +13,31 @@
 | 公开页 `Version` 变了 | **已上架** |
 | 公开页抓不到版本号 | **还没上架**，不许说已上架 |
 
+## v2.2.0 — 2026-11-11 — 已提交审核（**待审核**）
+
+第一版带「本月估算花费」的包。只改了设置页与文档，不动译文管线。
+
+| 项 | 值 |
+| --- | --- |
+| item id | `llicfmiagjiknidigpdcnogfeheogpfd` |
+| 包 | `release/manga-translator-v2.2.0-public.zip`（2 778 560 字节） |
+| 包 sha256 | `64077aed1f853fc9f3a6ce0e8299c2b245515379596aaa76aa3535b40b0c625a` |
+| 上传前核对 | `publish-to-store.mjs --dry-run`：包无凭据、token 有效、`2.2.0 > 2.1.1` |
+| 上传 | `{"crxVersion":"2.2.0","uploadState":"SUCCEEDED"}` |
+| 提交审核 | `POST :publish` → `{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
+| 回读状态 | `published=PUBLISHED, submitted=PENDING_REVIEW` |
+| 公开页 | 仍是 2.1.1 ⇒ **未上架**，过审后才会变 |
+| GitHub | tag `v2.2.0` + Release（zip + sha256） |
+
+**结论：已提交审核，未上架。** 过审前对外只能说「已提交审核」。
+
+### 这一版还欠着的事
+
+| 事 | 谁做 | 怎么改 |
+| --- | --- | --- |
+| **两块宣传图上传** | 开发者 | 图已经生成好了（`store/listing/promo-small-440x280.png`、`promo-large-1400x560.png`，均无 alpha、尺寸精确），但商店 API **没有** listing 资产端点，只能在 Dashboard → 商品详情 里手动传 |
+| 审核结果 | 商店 | 过审后公开页出现 `Version 2.2.0` |
+
 ## v2.1.1 — 2026-10-25 提审 / 2026-10-27 **已上架**
 
 v2.1.0 的审核提交被取消，这一版顶上去。理由：商店的标题和摘要取自 manifest，
