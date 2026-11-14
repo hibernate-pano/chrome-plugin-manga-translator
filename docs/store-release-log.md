@@ -13,30 +13,82 @@
 | 公开页 `Version` 变了 | **已上架** |
 | 公开页抓不到版本号 | **还没上架**，不许说已上架 |
 
-## v2.2.0 — 2026-11-11 — 已提交审核（**待审核**）
+## v2.2.0 — 2026-11-11 — **已上架**（线上包早于安全修复，已被 2.2.1 顶替）
 
 第一版带「本月估算花费」的包。只改了设置页与文档，不动译文管线。
 
 | 项 | 值 |
 | --- | --- |
 | item id | `llicfmiagjiknidigpdcnogfeheogpfd` |
-| 包 | `release/manga-translator-v2.2.0-public.zip`（2 778 560 字节） |
-| 包 sha256 | `64077aed1f853fc9f3a6ce0e8299c2b245515379596aaa76aa3535b40b0c625a` |
+| 包（提审时） | `release/manga-translator-v2.2.0-public.zip`（2 778 560 字节） |
+| 包 sha256（提审时） | `64077aed1f853fc9f3a6ce0e8299c2b245515379596aaa76aa3535b40b0c625a` |
 | 上传前核对 | `publish-to-store.mjs --dry-run`：包无凭据、token 有效、`2.2.0 > 2.1.1` |
 | 上传 | `{"crxVersion":"2.2.0","uploadState":"SUCCEEDED"}` |
 | 提交审核 | `POST :publish` → `{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
-| 回读状态 | `published=PUBLISHED, submitted=PENDING_REVIEW` |
-| 公开页 | 仍是 2.1.1 ⇒ **未上架**，过审后才会变 |
+| 公开页（2026-11-14 复核） | `Version 2.2.0` · `Updated November 10, 2026` · **5 users** · **0 ratings** ⇒ **已上架** |
 | GitHub | tag `v2.2.0` + Release（zip + sha256） |
 
-**结论：已提交审核，未上架。** 过审前对外只能说「已提交审核」。
+**结论：已上架。但线上 2.2.0 不含 2026-11-11 14:12 的安全修复。**
+
+### 为什么同一个版本号会有两个包
+
+提审时上传的是 `64077aed…`，构建于安全修复之前。修复提交 `16575fb`（14:12）
+之后，本地又构建了一份 `2e869f…`（2 778 694 字节，14:06:09；`setActions` 在、
+`hud-retry-failed` 不在），但**没有重新上传**。台账只记了前一个 sha，公开页又只
+报版本号，于是「版本对」被误当成了「包对」。
+
+2026-11-14 直接下载线上 CRX 核对：
+
+| 文件/标记 | 线上 2.2.0 | 本地 2.2.0（修复后重建） |
+| --- | --- | --- |
+| `content.js` | 178 380 字节 | 178 074 字节 |
+| `setActions` | **0** | 2 |
+| `hud-retry-failed` | **3** | 0 |
+| `<endpoint>` | **0** | 1 |
+
+线上包仍可被页面脚本伪造 HUD 事件触发绕缓存重翻并计费。由 2.2.1 顶替。
 
 ### 这一版还欠着的事
 
 | 事 | 谁做 | 怎么改 |
 | --- | --- | --- |
 | **两块宣传图上传** | 开发者 | 图已经生成好了（`store/listing/promo-small-440x280.png`、`promo-large-1400x560.png`，均无 alpha、尺寸精确），但商店 API **没有** listing 资产端点，只能在 Dashboard → 商品详情 里手动传 |
-| 审核结果 | 商店 | 过审后公开页出现 `Version 2.2.0` |
+| 审核结果 | 商店 | 已过（2026-11-14 复核：公开页 `Version 2.2.0`） |
+
+## v2.2.1 — 2026-11-14 — 已提交审核（**待审核**）
+
+顶替线上 2.2.0 的安全补丁：源码与 2.2.0 相同，外加 `16575fb`（HUD 直接回调
++ 端点脱敏）。只改安全面，不动译文管线、缓存键和配置格式。
+
+| 项 | 值 |
+| --- | --- |
+| item id | `llicfmiagjiknidigpdcnogfeheogpfd` |
+| 包 | `release/manga-translator-v2.2.1-public.zip`（2 778 694 字节） |
+| 包 sha256 | `076e0dc22d07f650778986cba0d2824daab6dc3294dd06533f3eae2fdb1eaf99` |
+| 包内核对 | `content.js` 178 074 字节；`setActions` ×2；`hud-retry-failed` ×0；`<endpoint>` ×1 |
+| 上传前核对 | `publish-to-store.mjs`：包无凭据、token 有效、`2.2.1 > 2.2.0` |
+| 上传 | `{"crxVersion":"2.2.1","uploadState":"SUCCEEDED"}` |
+| 提交审核 | `POST :publish` → `{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
+| 回读状态 | `published=PUBLISHED (2.2.0), submitted=PENDING_REVIEW (2.2.1)` |
+| 自证 | 再发一次 publish → **HTTP 400**「You may not edit or publish an item that is in review.」（`NOT_UPDATEABLE`） |
+| 公开页 / 线上 CRX（2026-11-14） | 仍是 2.2.0 ⇒ **未上架**；`pnpm store:verify` 报 `expected 2.2.1 / live 2.2.0` |
+| GitHub | 待过审后打 tag / Release |
+
+**结论：已提交审核，未上架。** 过审前对外只能说「已提交审核」。
+
+### 过审后必须做的一步
+
+`pnpm store:verify` 必须返回 0。它下载线上 CRX，逐文件比对 sha256；只有它通过，
+才能把台账改成「已上架」。公开页出现 `Version 2.2.1` 但 verify 仍失败，说明看到的
+是版本号而不是包 —— 2.2.0 就是这样漏掉的。
+
+### 这一版还欠着的事
+
+| 事 | 谁做 | 怎么改 |
+| --- | --- | --- |
+| 审核结果 | 商店 | 过审后公开页出现 `Version 2.2.1` |
+| **线上包核对** | 开发者 | `pnpm store:verify`，必须 exit 0 后再改台账 |
+| **两块宣传图上传** | 开发者 | Dashboard → 商品详情 手动传 `promo-small-440x280.png`、`promo-large-1400x560.png` |
 
 ## v2.1.1 — 2026-10-25 提审 / 2026-10-27 **已上架**
 

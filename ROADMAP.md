@@ -39,9 +39,15 @@ release notes below; the live version is whatever's at the top of
 ## Phase 5 — In progress
 
 - **The extension is live.** v2.1.1 went through review and reached the store
-  on 2026-10-27. As of 2026-11-11 the listing shows **4 users and 0 ratings**
-  — so the remaining work here is not "ship it" but "make it visible". The
-  evidence is in `docs/store-release-log.md`.
+  on 2026-10-27; v2.2.0 followed on 2026-11-11. As of 2026-11-14 the listing
+  shows **5 users and 0 ratings** — so the remaining work here is not "ship
+  it" but "make it visible". The evidence is in
+  `docs/store-release-log.md`.
+- **Version strings are not builds.** The live v2.2.0 was uploaded before the
+  HUD security fix, so the store served the forgeable-event build under the
+  same version that the ledger recorded. `pnpm store:verify` now downloads
+  the live CRX and compares every file hash with `release/*.zip`; v2.2.1 is
+  the re-packaged fix.
 - **Re-authorise the Chrome Web Store OAuth client.** Fixed on 2026-11-11:
   the token in `~/.config/mcp/mcp.json` had expired (`invalid_grant`) and
   `pnpm store:authorize` replaced it, verified against `fetchStatus`. It will
@@ -79,6 +85,12 @@ release notes below; the live version is whatever's at the top of
   model or from user-entered rates, not from a built-in constant.
 
 ## Recently closed
+
+- **The store is verified by bytes, not by version.** `pnpm store:verify`
+  downloads the live CRX, unpacks it, and compares every file hash (plus the
+  manifest version) against the package in `release/`. It exists because the
+  live v2.2.0 answered "2.2.0" while serving a build from before the HUD
+  security fix.
 
 - **A translated page can be saved as a picture.** The question below ("should
   a translated image be exportable") is answered in the affirmative: the
@@ -194,7 +206,8 @@ These are unresolved and we'd like feedback:
 - The content script is injected into every page, so its size is paid on page
   load, not on install. `pnpm build` fails if `dist/content.js` exceeds
   **200 KB** (enforced by `scripts/check-release-consistency.mjs`, run before
-  and after the build, and in CI). Current size is ~165 KB / ~41 KB gzipped.
+  and after the build, and in CI). Current size is ~178 KB / ~57 KB gzipped
+  (measured 2026-11-14; the previous 165 KB / 41 KB line was stale).
   The largest contributors are `content.ts`, `renderer.ts`, `translator.ts`,
   `reading-panel.ts` and `floating-hud.ts` — no single vendor dominates,
   because React, ReactDOM and the icon set are all kept out of this bundle

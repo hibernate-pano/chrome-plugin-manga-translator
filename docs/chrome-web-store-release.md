@@ -23,7 +23,17 @@ the rest:
 ```bash
 pnpm release:publish              # build the package, upload it, publish it
 node scripts/publish-to-store.mjs --dry-run   # check everything, upload nothing
+pnpm store:verify                 # download the live CRX and compare every file
 ```
+
+`pnpm store:verify` is the release check that the public page cannot provide.
+The page reports a *version*, and v2.2.0 proved that a version can be right
+while the bundle is wrong: the ledger's `2.2.0` package was built before the
+HUD security fix, so the live CRX had the old forgeable event path under the
+same version string. The command downloads the CRX Chrome actually serves,
+unpacks it, and compares `manifest.version` and every file hash against
+`release/manga-translator-v<version>-public.zip`. Exit code 0 is the only
+evidence that the store is serving the build that was tested.
 
 ## Uploading With the API
 

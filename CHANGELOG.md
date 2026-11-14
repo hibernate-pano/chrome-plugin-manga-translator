@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [2.2.1] - 2026-11-14
+
 ### Security
 
 - **A page can no longer spend your money by faking a HUD button press.**
@@ -38,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Note on reach: the `无法连接 …` variant was already dropped, because
     "连接" maps it to `NETWORK_ERROR` and the detail the reader sees is the
     generic message. The reachable leak was the 404 path.
+
+### Fixed
+
+- **The store's 2.2.0 package was built before these two fixes.** The public
+  page said `2.2.0` and so did the ledger, but the live CRX had no
+  `setActions` and still carried the three forgeable event names — so the
+  version string agreed while the bytes did not. 2.2.1 is the same source
+  with the fix, re-packaged and re-published.
+  - `pnpm store:verify` now downloads the live CRX and compares every file
+    hash against `release/*.zip`. A version string can no longer stand in for
+    a build; the ledger quotes the comparison's output as evidence.
 
 ## [2.2.0] - 2026-11-11
 
