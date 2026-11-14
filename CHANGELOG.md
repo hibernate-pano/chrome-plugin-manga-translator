@@ -9,6 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **This is 2.3.0; 2.2.1 stays the security patch in review.** The redesign
+  does not change the bytes of the 2.2.1 package that was uploaded, and the
+  version was bumped so the new UI can never be mistaken for the package
+  already in review.
 - **The whole interface is now 校正紙 (proof sheet).** The dark slate + cyan
   shell was replaced with the material the product actually works in: a
   translation is a correction drawn over someone else's artwork, so the

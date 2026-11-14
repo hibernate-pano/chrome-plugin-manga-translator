@@ -239,8 +239,9 @@ To report a security problem, please do not open a public issue — see
 
 | Version | Status | Highlights |
 |---|---|---|
-| v2.2.1 | current | Security patch: the HUD no longer offers a page a forgeable path to a cache-bypassing, billable retranslate, and provider endpoints are redacted from page-readable errors. Same cost panel as 2.2.0 |
-| v2.2.0 | shipped (2026-11-11, superseded by 2.2.1) | The settings page estimates the month's spend from rates **you** enter — it shows 「未设置单价」 rather than a number when a cloud provider has no rate, because a total that silently omits half the month is worse than none |
+| v2.3.0 | unreleased | 校正紙 UI: paper/ink/vermilion proof-sheet surfaces across the popup, settings, onboarding, HUD and reading panel. Ships after 2.2.1 clears review |
+| v2.2.1 | in review | Security patch: the HUD no longer offers a page a forgeable path to a cache-bypassing, billable retranslate, and provider endpoints are redacted from page-readable errors. Same cost panel as 2.2.0 |
+| v2.2.0 | live on the store until 2.2.1 clears review | The settings page estimates the month's spend from rates **you** enter — it shows 「未设置单价」 rather than a number when a cloud provider has no rate, because a total that silently omits half the month is worse than none |
 | v2.1.1 | shipped (Chrome Web Store, 2026-10-27) | The store listing's title and summary now come from the manifest, in Chinese — the dashboard has no input box for either |
 | v2.1.0 | shipped | Failures are shown while the run is still going — live count, a marker on the picture, one reason per image; cancelling stops the requests that have not been sent; the HTTP status reaches the reader |
 | v2.0.4 | shipped | Public build no longer ships a private model repo; the content script is no longer web-accessible |

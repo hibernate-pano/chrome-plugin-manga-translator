@@ -79,16 +79,18 @@
 
 ### 过审后必须做的一步
 
-`pnpm store:verify` 必须返回 0。它下载线上 CRX，逐文件比对 sha256；只有它通过，
-才能把台账改成「已上架」。公开页出现 `Version 2.2.1` 但 verify 仍失败，说明看到的
-是版本号而不是包 —— 2.2.0 就是这样漏掉的。
+`pnpm store:verify release/manga-translator-v2.2.1-public.zip` 必须返回 0
+（main 已经进入 2.3.0 校正紙 UI，默认路径会去找 2.3.0 的包，所以这里要显式给
+2.2.1 的 zip）。它下载线上 CRX，逐文件比对 sha256；只有它通过，才能把台账改成
+「已上架」。公开页出现 `Version 2.2.1` 但 verify 仍失败，说明看到的是版本号而
+不是包 —— 2.2.0 就是这样漏掉的。
 
 ### 这一版还欠着的事
 
 | 事 | 谁做 | 怎么改 |
 | --- | --- | --- |
 | 审核结果 | 商店 | 过审后公开页出现 `Version 2.2.1` |
-| **线上包核对** | 开发者 | `pnpm store:verify`，必须 exit 0 后再改台账 |
+| **线上包核对** | 开发者 | `pnpm store:verify release/manga-translator-v2.2.1-public.zip`，必须 exit 0 后再改台账 |
 | **两块宣传图上传** | 开发者 | Dashboard → 商品详情 手动传 `promo-small-440x280.png`、`promo-large-1400x560.png` |
 
 ## v2.1.1 — 2026-10-25 提审 / 2026-10-27 **已上架**
