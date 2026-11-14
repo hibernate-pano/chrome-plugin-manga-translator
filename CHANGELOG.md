@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **The whole interface is now 校正紙 (proof sheet).** The dark slate + cyan
+  shell was replaced with the material the product actually works in: a
+  translation is a correction drawn over someone else's artwork, so the
+  surfaces are cool paper `#E9E9E2`, ink `#161616`, a vermilion correction
+  pen `#D33A2C` reserved for actions/current/errors, and a blueprint blue
+  `#1F4FA8` reserved for structure and explanatory notes. Zero radius, no
+  gradients, no soft shadows; 1px rules divide rows and columns, serif
+  numerals carry counts and cost.
+  - Popup: 360px paper slip, a three-column count row (可翻译 / 缓存命中 /
+    本页估算), one ink primary action, vermilion left rules for cost warnings
+    and failures.
+  - Settings: a sticky 01–04 index on the left, row-based forms instead of
+    card stacks, provider presets as one table with a vermilion ✓, and a
+    52px serif monthly-cost number.
+  - Onboarding, HUD, reading panel, failure badges, force-retranslate
+    confirm and the image-export dialog all follow the same paper/ink rules.
+    The HUD keeps its 3:1 border on black and white pages and its ≥4.5:1
+    text contrast; every target stays at least 44px.
+  - `src/design-tokens.test.ts` pins the palette relationships; the old
+    dark-theme `surface-scale.test.ts` was deleted with the card system it
+    described. The theme provider now renders one light theme and a stored
+    `dark` from an older build resolves to it instead of repainting half the
+    page.
+  - Design exploration (three directions, six candidates) is kept in
+    `design-demos/` for the record.
+
 ## [2.2.1] - 2026-11-14
 
 ### Security

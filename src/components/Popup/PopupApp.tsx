@@ -1053,7 +1053,7 @@ const PopupApp: React.FC = () => {
         </div>
 
         {/*
-          三格计数：可翻译 / 缓存命中 / 本页估算。
+          三格计数：可翻译 / 缓存命中 / 计费张数。
           衬线数字是这张校正纸上最该被读到的量，竖线只是把它们隔开。
         */}
         <div className='mt-3 grid grid-cols-3 divide-x divide-rule-soft border-y border-rule-soft'>
@@ -1104,7 +1104,7 @@ const PopupApp: React.FC = () => {
               )}
             </div>
             <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-              本页估算
+              计费张数
             </div>
           </div>
         </div>

@@ -170,8 +170,8 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     width: 1280px;
     height: 800px;
     overflow: hidden;
-    background: #020617;
-    color: #f8fafc;
+    background: #DEDED6;
+    color: #161616;
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
@@ -185,8 +185,8 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     /* A single cyan bloom behind the screenshot, so the picture sits in a
        lit space instead of on a flat black rectangle. */
     background:
-      radial-gradient(900px 620px at 78% 42%, rgba(34, 211, 238, 0.16), transparent 68%),
-      radial-gradient(700px 520px at 8% 88%, rgba(99, 102, 241, 0.14), transparent 70%);
+      radial-gradient(900px 620px at 78% 42%, rgba(211, 58, 44, 0.07), transparent 68%),
+      radial-gradient(700px 520px at 8% 88%, rgba(31, 79, 168, 0.06), transparent 70%);
   }
   .copy { width: 430px; flex: none; }
   .eyebrow {
@@ -194,18 +194,18 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     align-items: center;
     gap: 8px;
     padding: 5px 12px;
-    border: 1px solid rgba(34, 211, 238, 0.45);
-    border-radius: 999px;
-    background: rgba(34, 211, 238, 0.08);
-    color: #67e8f9;
+    border: 1px solid rgba(211, 58, 44, 0.55);
+    border-radius: 0;
+    background: rgba(211, 58, 44, 0.05);
+    color: #D33A2C;
     font-size: 15px;
     letter-spacing: 0.06em;
   }
   .eyebrow::before {
     content: "";
     width: 7px; height: 7px;
-    border-radius: 50%;
-    background: #22d3ee;
+    border-radius: 0;
+    background: #D33A2C;
   }
   h1 {
     margin: 22px 0 0;
@@ -218,9 +218,9 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     margin: 18px 0 0;
     font-size: 24px;
     line-height: 1.55;
-    color: #a5b4c8;
+    color: #55554F;
   }
-  .sub b { color: #22d3ee; font-weight: 600; white-space: nowrap; }
+  .sub b { color: #D33A2C; font-weight: 600; white-space: nowrap; }
   ul { margin: 30px 0 0; padding: 0; list-style: none; }
   li {
     display: flex;
@@ -229,16 +229,16 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     margin-top: 13px;
     font-size: 18px;
     line-height: 1.45;
-    color: #cbd5e1;
+    color: #55554F;
   }
   li .tick {
     flex: none;
     width: 22px; height: 22px;
     margin-top: 1px;
-    border-radius: 50%;
-    background: rgba(34, 211, 238, 0.14);
-    border: 1px solid rgba(34, 211, 238, 0.4);
-    color: #67e8f9;
+    border-radius: 0;
+    background: rgba(211, 58, 44, 0.07);
+    border: 1px solid rgba(211, 58, 44, 0.55);
+    color: #D33A2C;
     font-size: 13px;
     line-height: 20px;
     text-align: center;
@@ -248,11 +248,11 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     margin-left: 56px;
     width: 700px;
     height: 560px;
-    border-radius: 14px;
+    border-radius: 0;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
-    background: #0b1020;
+    border: 1px solid rgba(22, 22, 22, 0.55);
+    box-shadow: 10px 10px 0 rgba(22, 22, 22, 0.18);
+    background: #E9E9E2;
   }
   .shot img {
     width: 100%;
@@ -268,17 +268,17 @@ function buildHtml({ panelScreenshot, extensionVersion }) {
     position: absolute;
     left: 14px; top: 14px;
     padding: 5px 11px;
-    border-radius: 999px;
-    background: rgba(2, 6, 23, 0.86);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 0;
+    background: rgba(233, 233, 226, 0.96);
+    border: 1px solid rgba(22, 22, 22, 0.55);
     font-size: 13px;
-    color: #cbd5e1;
+    color: #55554F;
   }
   .foot {
     position: absolute;
     left: 56px; bottom: 26px;
     font-size: 13px;
-    color: #64748b;
+    color: #55554F;
   }
 </style>
 </head>
@@ -330,8 +330,8 @@ function buildSmallHtml({ screenshot }) {
     width: 440px;
     height: 280px;
     overflow: hidden;
-    background: #020617;
-    color: #f8fafc;
+    background: #DEDED6;
+    color: #161616;
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
@@ -341,8 +341,8 @@ function buildSmallHtml({ screenshot }) {
     height: 100%;
     overflow: hidden;
     background:
-      radial-gradient(300px 210px at 94% 4%, rgba(34, 211, 238, 0.20), transparent 70%),
-      radial-gradient(260px 190px at 4% 96%, rgba(99, 102, 241, 0.16), transparent 72%);
+      radial-gradient(300px 210px at 94% 4%, rgba(211, 58, 44, 0.08), transparent 70%),
+      radial-gradient(260px 190px at 4% 96%, rgba(31, 79, 168, 0.07), transparent 72%);
   }
   .copy {
     position: absolute;
@@ -355,10 +355,10 @@ function buildSmallHtml({ screenshot }) {
     align-items: center;
     gap: 6px;
     padding: 3px 10px;
-    border: 1px solid rgba(34, 211, 238, 0.45);
-    border-radius: 999px;
-    background: rgba(34, 211, 238, 0.08);
-    color: #67e8f9;
+    border: 1px solid rgba(211, 58, 44, 0.55);
+    border-radius: 0;
+    background: rgba(211, 58, 44, 0.05);
+    color: #D33A2C;
     font-size: 12px;
     line-height: 1.45;
     letter-spacing: 0.06em;
@@ -366,8 +366,8 @@ function buildSmallHtml({ screenshot }) {
   .eyebrow::before {
     content: "";
     width: 6px; height: 6px;
-    border-radius: 50%;
-    background: #22d3ee;
+    border-radius: 0;
+    background: #D33A2C;
   }
   h1 {
     margin: 9px 0 0;
@@ -380,11 +380,11 @@ function buildSmallHtml({ screenshot }) {
     margin: 8px 0 0;
     font-size: 17px;
     line-height: 1.45;
-    color: #a5b4c8;
+    color: #55554F;
     white-space: nowrap;
   }
   .claim b {
-    color: #22d3ee;
+    color: #D33A2C;
     font-weight: 500;
     /* A heavier CJK face is wider than the regular one, so the first
        highlighted glyph crowds the character before it. The small gap
@@ -398,10 +398,10 @@ function buildSmallHtml({ screenshot }) {
     bottom: 0;
     height: 150px;
     overflow: hidden;
-    border-top: 1px solid rgba(34, 211, 238, 0.30);
-    border-radius: 16px 16px 0 0;
-    box-shadow: 0 -18px 40px rgba(0, 0, 0, 0.55);
-    background: #0b1020;
+    border-top: 1px solid rgba(22, 22, 22, 0.30);
+    border-radius: 0;
+    box-shadow: 0 -6px 0 rgba(22, 22, 22, 0.12);
+    background: #E9E9E2;
   }
   .band img {
     position: absolute;
@@ -417,7 +417,7 @@ function buildSmallHtml({ screenshot }) {
     content: "";
     position: absolute;
     left: 0; right: 0; top: 0; height: 46px;
-    background: linear-gradient(180deg, rgba(2, 6, 23, 0.95), rgba(2, 6, 23, 0));
+    background: linear-gradient(180deg, rgba(233, 233, 226, 0.72), rgba(233, 233, 226, 0) 34%);
     pointer-events: none;
   }
 </style>
@@ -458,8 +458,8 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     width: 1400px;
     height: 560px;
     overflow: hidden;
-    background: #020617;
-    color: #f8fafc;
+    background: #DEDED6;
+    color: #161616;
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
@@ -471,8 +471,8 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     height: 100%;
     padding: 0 64px;
     background:
-      radial-gradient(900px 620px at 76% 44%, rgba(34, 211, 238, 0.16), transparent 68%),
-      radial-gradient(760px 540px at 6% 90%, rgba(99, 102, 241, 0.14), transparent 70%);
+      radial-gradient(900px 620px at 76% 44%, rgba(211, 58, 44, 0.07), transparent 68%),
+      radial-gradient(760px 540px at 6% 90%, rgba(31, 79, 168, 0.06), transparent 70%);
   }
   .copy { width: 540px; flex: none; }
   .eyebrow {
@@ -480,10 +480,10 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     align-items: center;
     gap: 9px;
     padding: 6px 16px;
-    border: 1px solid rgba(34, 211, 238, 0.45);
-    border-radius: 999px;
-    background: rgba(34, 211, 238, 0.08);
-    color: #67e8f9;
+    border: 1px solid rgba(211, 58, 44, 0.55);
+    border-radius: 0;
+    background: rgba(211, 58, 44, 0.05);
+    color: #D33A2C;
     font-size: 18px;
     line-height: 1.45;
     letter-spacing: 0.06em;
@@ -491,8 +491,8 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
   .eyebrow::before {
     content: "";
     width: 8px; height: 8px;
-    border-radius: 50%;
-    background: #22d3ee;
+    border-radius: 0;
+    background: #D33A2C;
   }
   h1 {
     margin: 24px 0 0;
@@ -505,9 +505,9 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     margin: 20px 0 0;
     font-size: 25px;
     line-height: 1.5;
-    color: #a5b4c8;
+    color: #55554F;
   }
-  .sub b { color: #22d3ee; font-weight: 600; white-space: nowrap; }
+  .sub b { color: #D33A2C; font-weight: 600; white-space: nowrap; }
   ul { margin: 30px 0 0; padding: 0; list-style: none; }
   li {
     display: flex;
@@ -516,16 +516,16 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     margin-top: 15px;
     font-size: 21px;
     line-height: 1.45;
-    color: #cbd5e1;
+    color: #55554F;
   }
   li .tick {
     flex: none;
     width: 26px; height: 26px;
     margin-top: 1px;
-    border-radius: 50%;
-    background: rgba(34, 211, 238, 0.14);
-    border: 1px solid rgba(34, 211, 238, 0.4);
-    color: #67e8f9;
+    border-radius: 0;
+    background: rgba(211, 58, 44, 0.07);
+    border: 1px solid rgba(211, 58, 44, 0.55);
+    color: #D33A2C;
     font-size: 15px;
     line-height: 24px;
     text-align: center;
@@ -535,11 +535,11 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     margin-left: 56px;
     width: 676px;
     height: 430px;
-    border-radius: 16px;
+    border-radius: 0;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
-    background: #0b1020;
+    border: 1px solid rgba(22, 22, 22, 0.55);
+    box-shadow: 10px 10px 0 rgba(22, 22, 22, 0.18);
+    background: #E9E9E2;
   }
   .shot img {
     position: absolute;
@@ -555,17 +555,17 @@ function buildLargeHtml({ panelScreenshot, extensionVersion }) {
     position: absolute;
     left: 16px; top: 16px;
     padding: 6px 13px;
-    border-radius: 999px;
-    background: rgba(2, 6, 23, 0.86);
-    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 0;
+    background: rgba(233, 233, 226, 0.96);
+    border: 1px solid rgba(22, 22, 22, 0.55);
     font-size: 15px;
-    color: #cbd5e1;
+    color: #55554F;
   }
   .foot {
     position: absolute;
     left: 64px; bottom: 30px;
     font-size: 15px;
-    color: #64748b;
+    color: #55554F;
   }
 </style>
 </head>

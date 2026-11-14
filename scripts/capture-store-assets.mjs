@@ -847,8 +847,8 @@ async function composePopupListing({
     width: 1280px;
     height: 800px;
     overflow: hidden;
-    background: #020617;
-    color: #f8fafc;
+    background: #DEDED6;
+    color: #161616;
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", "Helvetica Neue", Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
   }
@@ -860,8 +860,8 @@ async function composePopupListing({
     height: 100%;
     padding: 0 64px;
     background:
-      radial-gradient(820px 600px at 74% 46%, rgba(34, 211, 238, 0.16), transparent 68%),
-      radial-gradient(680px 500px at 6% 86%, rgba(99, 102, 241, 0.14), transparent 70%);
+      radial-gradient(820px 600px at 74% 46%, rgba(211, 58, 44, 0.07), transparent 68%),
+      radial-gradient(680px 500px at 6% 86%, rgba(31, 79, 168, 0.07), transparent 70%);
   }
   .copy { width: 470px; flex: none; }
   .eyebrow {
@@ -869,18 +869,18 @@ async function composePopupListing({
     align-items: center;
     gap: 8px;
     padding: 5px 12px;
-    border: 1px solid rgba(34, 211, 238, 0.45);
-    border-radius: 999px;
-    background: rgba(34, 211, 238, 0.08);
-    color: #67e8f9;
+    border: 1px solid rgba(211, 58, 44, 0.55);
+    border-radius: 0;
+    background: rgba(211, 58, 44, 0.05);
+    color: #D33A2C;
     font-size: 15px;
     letter-spacing: 0.06em;
   }
   .eyebrow::before {
     content: "";
     width: 7px; height: 7px;
-    border-radius: 50%;
-    background: #22d3ee;
+    border-radius: 0;
+    background: #D33A2C;
   }
   h1 {
     margin: 22px 0 0;
@@ -892,9 +892,9 @@ async function composePopupListing({
     margin: 18px 0 0;
     font-size: 23px;
     line-height: 1.55;
-    color: #a5b4c8;
+    color: #55554F;
   }
-  .sub b { color: #22d3ee; font-weight: 600; }
+  .sub b { color: #D33A2C; font-weight: 600; }
   ul { margin: 28px 0 0; padding: 0; list-style: none; }
   li {
     display: flex;
@@ -903,16 +903,16 @@ async function composePopupListing({
     margin-top: 13px;
     font-size: 18px;
     line-height: 1.45;
-    color: #cbd5e1;
+    color: #55554F;
   }
   li .tick {
     flex: none;
     width: 22px; height: 22px;
     margin-top: 1px;
-    border-radius: 50%;
-    background: rgba(34, 211, 238, 0.14);
-    border: 1px solid rgba(34, 211, 238, 0.4);
-    color: #67e8f9;
+    border-radius: 0;
+    background: transparent;
+    border: 1px solid rgba(22, 22, 22, 0.55);
+    color: #D33A2C;
     font-size: 13px;
     line-height: 20px;
     text-align: center;
@@ -920,18 +920,18 @@ async function composePopupListing({
   .popup {
     margin-left: 72px;
     width: 380px;
-    border-radius: 14px;
+    border-radius: 0;
     overflow: hidden;
-    border: 1px solid rgba(148, 163, 184, 0.35);
-    box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
-    background: #020617;
+    border: 1px solid #161616;
+    box-shadow: 10px 10px 0 rgba(22, 22, 22, 0.18);
+    background: #E9E9E2;
   }
   .popup img { display: block; width: 100%; }
   .foot {
     position: absolute;
     left: 64px; bottom: 26px;
     font-size: 13px;
-    color: #64748b;
+    color: #55554F;
   }
 </style>
 </head>
