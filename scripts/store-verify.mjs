@@ -109,6 +109,28 @@ export function hashBytes(bytes) {
 }
 
 /**
+ * Rewrite `manifest.json` bytes so the two trees are comparable.
+ *
+ * The store injects `update_url` into the manifest when it signs the CRX —
+ * an uploaded ZIP does not carry the key. Dropping it from both sides makes
+ * "store rewrote one key" distinct from "the uploaded package changed"; any
+ * other manifest edit still shows up as a hash difference.
+ */
+export function normaliseManifest(bytes) {
+  try {
+    const manifest = JSON.parse(bytes.toString('utf8'));
+    if (manifest === null || typeof manifest !== 'object') {
+      return bytes;
+    }
+    delete manifest.update_url;
+    return Buffer.from(JSON.stringify(manifest), 'utf8');
+  } catch {
+    // A manifest that does not parse is compared verbatim and fails below.
+    return bytes;
+  }
+}
+
+/**
  * Turn `{ path: bytes }` into `{ path: sha256 }`, dropping store metadata.
  *
  * Paths are POSIX and relative to the archive root, because that is how both
@@ -121,7 +143,9 @@ export function hashTree(files) {
     if (IGNORED_PREFIXES.some(prefix => normalised.startsWith(prefix))) {
       continue;
     }
-    out.set(normalised, hashBytes(bytes));
+    const payload =
+      normalised === 'manifest.json' ? normaliseManifest(bytes) : bytes;
+    out.set(normalised, hashBytes(payload));
   }
   return out;
 }

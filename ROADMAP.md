@@ -47,8 +47,8 @@ release notes below; the live version is whatever's at the top of
   HUD security fix, so the store served the forgeable-event build under the
   same version that the ledger recorded. `pnpm store:verify` now downloads
   the live CRX and compares every file hash with `release/*.zip`; v2.2.1 is
-  the re-packaged fix, submitted for review on 2026-11-14. Until it is
-  approved, the store still serves the vulnerable 2.2.0 build.
+  the re-packaged fix, approved on 2026-11-14 with `store:verify` exit 0 —
+  the store no longer serves the vulnerable 2.2.0 build.
 - **Re-authorise the Chrome Web Store OAuth client.** Fixed on 2026-11-11:
   the token in `~/.config/mcp/mcp.json` had expired (`invalid_grant`) and
   `pnpm store:authorize` replaced it, verified against `fetchStatus`. It will

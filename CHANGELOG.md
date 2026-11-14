@@ -9,10 +9,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- **This is 2.3.0; 2.2.1 stays the security patch in review.** The redesign
-  does not change the bytes of the 2.2.1 package that was uploaded, and the
-  version was bumped so the new UI can never be mistaken for the package
-  already in review.
+- **2.2.1 shipped on 2026-11-14; 2.3.0 is the redesign on top of it.** The
+  redesign does not change the bytes of the 2.2.1 package that was uploaded, and
+  the version was bumped so the new UI can never be mistaken for the package
+  that the store verified.
 - **The whole interface is now 校正紙 (proof sheet).** The dark slate + cyan
   shell was replaced with the material the product actually works in: a
   translation is a correction drawn over someone else's artwork, so the
@@ -86,7 +86,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   with the fix, re-packaged and re-published.
   - `pnpm store:verify` now downloads the live CRX and compares every file
     hash against `release/*.zip`. A version string can no longer stand in for
-    a build; the ledger quotes the comparison's output as evidence.
+    a build; the ledger quotes the comparison's output as evidence. The live
+    CRX was verified against the 2.2.1 package on 2026-11-14 (exit 0; the
+    store-injected `manifest.json` `update_url` key is normalized away).
 
 ## [2.2.0] - 2026-11-11
 

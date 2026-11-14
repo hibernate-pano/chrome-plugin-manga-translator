@@ -35,6 +35,12 @@ unpacks it, and compares `manifest.version` and every file hash against
 `release/manga-translator-v<version>-public.zip`. Exit code 0 is the only
 evidence that the store is serving the build that was tested.
 
+Two store-side rewrites are normalized away rather than reported as
+differences: `_metadata/` (the store's own signature files) and the
+`update_url` key in `manifest.json` (injected when the store signs the CRX;
+an uploaded ZIP does not carry it). Any other byte, in any other file, still
+fails the comparison — that is the point.
+
 ## Uploading With the API
 
 `scripts/publish-to-store.mjs` uploads the package and publishes it in one

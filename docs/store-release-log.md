@@ -56,7 +56,7 @@
 | **两块宣传图上传** | 开发者 | 图已经生成好了（`store/listing/promo-small-440x280.png`、`promo-large-1400x560.png`，均无 alpha、尺寸精确），但商店 API **没有** listing 资产端点，只能在 Dashboard → 商品详情 里手动传 |
 | 审核结果 | 商店 | 已过（2026-11-14 复核：公开页 `Version 2.2.0`） |
 
-## v2.2.1 — 2026-11-14 — 已提交审核（**待审核**）
+## v2.2.1 — 2026-11-14 提审 / 2026-11-14 **已上架**
 
 顶替线上 2.2.0 的安全补丁：源码与 2.2.0 相同，外加 `16575fb`（HUD 直接回调
 + 端点脱敏）。只改安全面，不动译文管线、缓存键和配置格式。
@@ -72,26 +72,27 @@
 | 提交审核 | `POST :publish` → `{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
 | 回读状态 | `published=PUBLISHED (2.2.0), submitted=PENDING_REVIEW (2.2.1)` |
 | 自证 | 再发一次 publish → **HTTP 400**「You may not edit or publish an item that is in review.」（`NOT_UPDATEABLE`） |
-| 公开页 / 线上 CRX（2026-11-14） | 仍是 2.2.0 ⇒ **未上架**；`pnpm store:verify` 报 `expected 2.2.1 / live 2.2.0` |
+| 公开页 / 线上 CRX（2026-11-14 复核） | `Version 2.2.1` ⇒ **已上架**；`node scripts/verify-store-build.mjs release/manga-translator-v2.2.1-public.zip` → **exit 0**：`files differing 0 / missing 0 / extra 0`（线上 CRX 的 `manifest.json` 仅多出商店注入的 `update_url`，比较时已归一化） |
 | GitHub | tag `v2.2.1` + Release（zip + sha256） |
 
-**结论：已提交审核，未上架。** 过审前对外只能说「已提交审核」。
+**结论：已上架，且线上包逐文件核对通过** —— 这正是 2.2.0 漏掉的那一步。
 
-### 过审后必须做的一步
+### verify 工具的 update_url 归一化（2026-11-14）
 
-`pnpm store:verify release/manga-translator-v2.2.1-public.zip` 必须返回 0
-（main 已经进入 2.3.0 校正紙 UI，默认路径会去找 2.3.0 的包，所以这里要显式给
-2.2.1 的 zip）。它下载线上 CRX，逐文件比对 sha256；只有它通过，才能把台账改成
-「已上架」。公开页出现 `Version 2.2.1` 但 verify 仍失败，说明看到的是版本号而
-不是包 —— 2.2.0 就是这样漏掉的。
+首次对 2.2.1 跑 `store:verify` 报 MISMATCH，唯一差异是 `manifest.json`：线上
+CRX 多了 `"update_url": "https://clients2.google.com/service/update2/crx"`。
+这是商店签 CRX 时注入的，上传的 ZIP 本来就没有；逐字节比较因此把它当成了
+「包被改过」。`hashTree` 现在对 `manifest.json` 先删掉两侧的 `update_url`
+再取哈希（`normaliseManifest`，测试见 `scripts/__tests__/store-verify.test.mjs`
+的 `hashTree` 一节），其余任何 manifest 改动仍然会被抓到。
 
 ### 这一版还欠着的事
 
 | 事 | 谁做 | 怎么改 |
 | --- | --- | --- |
-| 审核结果 | 商店 | 过审后公开页出现 `Version 2.2.1` |
-| **线上包核对** | 开发者 | `pnpm store:verify release/manga-translator-v2.2.1-public.zip`，必须 exit 0 后再改台账 |
-| **两块宣传图上传** | 开发者 | Dashboard → 商品详情 手动传 `promo-small-440x280.png`、`promo-large-1400x560.png` |
+| ~~审核结果~~ | 商店 | 已过：公开页 `Version 2.2.1` |
+| ~~线上包核对~~ | 开发者 | 已做：verify exit 0，见上表 |
+| **两块宣传图上传** | 开发者 | Dashboard → 商品详情 手动传 `promo-small-440x280.png`、`promo-large-1400x560.png`（用 2.3.0 校正紙样式的重生成版） |
 
 ## v2.1.1 — 2026-10-25 提审 / 2026-10-27 **已上架**
 

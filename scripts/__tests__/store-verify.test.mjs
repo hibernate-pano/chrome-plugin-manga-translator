@@ -11,6 +11,7 @@ import {
   compareBundles,
   crxZipOffset,
   describeVerdict,
+  hashBytes,
   hashTree,
   parseArgs,
   StoreVerifyError,
@@ -104,6 +105,45 @@ describe('hashTree', () => {
     expect(tree.get('content.js')).toBe(
       'ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb'
     );
+  });
+
+  it('ignores the store-injected update_url in manifest.json', () => {
+    const package_ = hashTree({
+      'manifest.json': Buffer.from(
+        JSON.stringify({ version: '2.2.1', name: 'm' })
+      ),
+    });
+    const live = hashTree({
+      'manifest.json': Buffer.from(
+        JSON.stringify({
+          version: '2.2.1',
+          name: 'm',
+          update_url: 'https://clients2.google.com/service/update2/crx',
+        })
+      ),
+    });
+    expect(live.get('manifest.json')).toBe(package_.get('manifest.json'));
+  });
+
+  it('still sees a real manifest edit next to the injected key', () => {
+    const package_ = hashTree({
+      'manifest.json': Buffer.from(JSON.stringify({ version: '2.2.1' })),
+    });
+    const live = hashTree({
+      'manifest.json': Buffer.from(
+        JSON.stringify({
+          version: '2.3.0',
+          update_url: 'https://clients2.google.com/service/update2/crx',
+        })
+      ),
+    });
+    expect(live.get('manifest.json')).not.toBe(package_.get('manifest.json'));
+  });
+
+  it('compares an unparseable manifest verbatim', () => {
+    const raw = Buffer.from('not json{');
+    const tree = hashTree({ 'manifest.json': raw });
+    expect(tree.get('manifest.json')).toBe(hashBytes(raw));
   });
 });
 
