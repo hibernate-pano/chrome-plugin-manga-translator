@@ -183,6 +183,16 @@ const PopupApp: React.FC = () => {
     null
   );
   /**
+   * Which face of the proof sheet is showing.
+   *
+   * One 600px popup with everything stacked needed ~1080px of scroll, and
+   * the browser added a second scrollbar around the popup's own one. The
+   * sheet now has two faces — the page you are reading, and the settings
+   * that change how it behaves — with one scroll area per face and a fixed
+   * tab bar and footer. Only the face you chose scrolls.
+   */
+  const [activeView, setActiveView] = useState<'page' | 'settings'>('page');
+  /**
    * Whether the page's follow-up budget ran out.
    *
    * It is a separate fact from `autoContinueArmed`: "not armed" and "armed
@@ -947,7 +957,7 @@ const PopupApp: React.FC = () => {
   }
 
   return (
-    <div className='max-h-[640px] w-[360px] overflow-y-auto bg-paper text-sm text-ink'>
+    <div className='flex h-full w-[360px] flex-col overflow-hidden bg-paper text-sm text-ink'>
       {/*
         读屏用户和眼睛看到的应该是同一件事。
 
@@ -995,13 +1005,60 @@ const PopupApp: React.FC = () => {
         </div>
       </header>
 
-      {/*
+      <div
+        role='tablist'
+        aria-label='弹窗视图'
+        className='flex shrink-0 border-b border-ink'
+      >
+        <button
+          type='button'
+          role='tab'
+          id='popup-tab-page'
+          aria-selected={activeView === 'page'}
+          aria-controls='popup-panel-page'
+          onClick={() => setActiveView('page')}
+          className={`min-h-[44px] flex-1 border-b-2 px-4 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-vermilion ${
+            activeView === 'page'
+              ? 'border-vermilion text-ink'
+              : 'border-transparent text-ink-muted hover:text-ink'
+          }`}
+        >
+          本页
+        </button>
+        <button
+          type='button'
+          role='tab'
+          id='popup-tab-settings'
+          aria-selected={activeView === 'settings'}
+          aria-controls='popup-panel-settings'
+          onClick={() => setActiveView('settings')}
+          className={`min-h-[44px] flex-1 border-b-2 px-4 text-[13px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-vermilion ${
+            activeView === 'settings'
+              ? 'border-vermilion text-ink'
+              : 'border-transparent text-ink-muted hover:text-ink'
+          }`}
+        >
+          设置
+        </button>
+      </div>
+
+      <div className='flex min-h-0 flex-1 flex-col'>
+        <div
+          role='tabpanel'
+          id='popup-panel-page'
+          aria-labelledby='popup-tab-page'
+          hidden={activeView !== 'page'}
+          className={`proof-scroll min-h-0 flex-1 overflow-y-auto ${
+            activeView === 'page' ? 'flex flex-col' : 'hidden'
+          }`}
+        >
+          {/*
         第一次打开弹窗的用户还没有配置任何东西。弹窗以前只给一个点不动的
         「翻译当前页面」按钮和一句「还没有配置 MiniMax」——用户得先自己
         猜出"要去设置页"。商店文案里写着"在弹窗中点「开始设置」"，所以
         这里给的就是那个按钮：一步就到设置页，而设置页会直接弹出引导。
       */}
-      {/*
+          {/*
         跳过引导不等于配置好了。
 
         以前这条横幅只看 `onboardingCompleted`，而向导的三条退出路径
@@ -1009,220 +1066,226 @@ const PopupApp: React.FC = () => {
         Esc，弹窗里唯一指路的那块就永久消失了，手里却什么都没有。判据改成
         "看完过引导**并且**后端配好了"，两个条件缺一不可。
       */}
-      {(!onboardingCompleted || !isConfigured) && (
-        <div className='border-b border-rule-soft px-4 py-3'>
-          <div className='border-l-2 border-blueprint pl-2.5'>
-            <div className='text-sm font-medium text-ink'>先完成一次设置</div>
-            <p className='mt-1 text-xs leading-relaxed text-ink-muted'>
-              填一个 API Key（或改用本地模型）就能开始翻译。引导会说明图片会
-              发到哪里、会花多少钱。
-            </p>
-            <button
-              type='button'
-              onClick={() => {
-                void chrome.runtime.openOptionsPage();
-              }}
-              className='mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-sm font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-            >
-              <Settings className='h-4 w-4' />
-              开始设置
-            </button>
-          </div>
-        </div>
-      )}
+          {(!onboardingCompleted || !isConfigured) && (
+            <div className='border-b border-rule-soft px-4 py-3'>
+              <div className='border-l-2 border-blueprint pl-2.5'>
+                <div className='text-sm font-medium text-ink'>
+                  先完成一次设置
+                </div>
+                <p className='mt-1 text-xs leading-relaxed text-ink-muted'>
+                  填一个 API Key（或改用本地模型）就能开始翻译。引导会说明图片会
+                  发到哪里、会花多少钱。
+                </p>
+                <button
+                  type='button'
+                  onClick={() => {
+                    void chrome.runtime.openOptionsPage();
+                  }}
+                  className='mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-sm font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                >
+                  <Settings className='h-4 w-4' />
+                  开始设置
+                </button>
+              </div>
+            </div>
+          )}
 
-      {/* 主操作区：翻译当前页是用户 90% 的动作，必须最显眼 */}
-      <section className='px-4 pt-4'>
-        <div className='flex items-center justify-between gap-2'>
-          <h2 className='text-sm font-medium'>当前页面</h2>
-          {contentState.status === 'complete' ? (
-            resultSummary?.tone === 'success' ? (
-              <CheckCircle2 className='h-4 w-4 text-ink' />
-            ) : resultSummary?.tone === 'warning' ? (
-              <AlertTriangle className='h-4 w-4 text-vermilion' />
-            ) : (
-              <Info className='h-4 w-4 text-ink-muted' />
-            )
-          ) : contentState.status === 'error' ? (
-            <AlertTriangle className='h-4 w-4 text-vermilion' />
-          ) : null}
-        </div>
-        <div className='mt-1 break-words font-mono text-[11px] text-ink-muted'>
-          {currentHost ? currentHost : '当前页面'}
-          {targetLanguageLabel ? ` · 译为${targetLanguageLabel}` : ''}
-        </div>
+          {/* 主操作区：翻译当前页是用户 90% 的动作，必须最显眼 */}
+          <section className='px-4 pt-4'>
+            <div className='flex items-center justify-between gap-2'>
+              <h2 className='text-sm font-medium'>当前页面</h2>
+              {contentState.status === 'complete' ? (
+                resultSummary?.tone === 'success' ? (
+                  <CheckCircle2 className='h-4 w-4 text-ink' />
+                ) : resultSummary?.tone === 'warning' ? (
+                  <AlertTriangle className='h-4 w-4 text-vermilion' />
+                ) : (
+                  <Info className='h-4 w-4 text-ink-muted' />
+                )
+              ) : contentState.status === 'error' ? (
+                <AlertTriangle className='h-4 w-4 text-vermilion' />
+              ) : null}
+            </div>
+            <div className='mt-1 break-words font-mono text-[11px] text-ink-muted'>
+              {currentHost ? currentHost : '当前页面'}
+              {targetLanguageLabel ? ` · 译为${targetLanguageLabel}` : ''}
+            </div>
 
-        {/*
+            {/*
           三格计数：可翻译 / 缓存命中 / 计费张数。
           衬线数字是这张校正纸上最该被读到的量，竖线只是把它们隔开。
         */}
-        <div className='mt-3 grid grid-cols-3 divide-x divide-rule-soft border-y border-rule-soft'>
-          <div className='px-1 py-2 text-center'>
-            <div className='font-display text-[26px] leading-none text-ink'>
-              {pageImageCount === null ? '—' : pageImageCount}
-              {pageImageCount === null ? null : (
-                <span className='ml-0.5 font-sans text-xs text-ink-muted'>
-                  张
-                </span>
-              )}
-            </div>
-            <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-              可翻译
-            </div>
-          </div>
-          <div className='px-1 py-2 text-center'>
-            <div className='font-display text-[26px] leading-none text-ink'>
-              {cachedImageCount === null ? '—' : cachedImageCount}
-              {cachedImageCount === null ? null : (
-                <span className='ml-0.5 font-sans text-xs text-ink-muted'>
-                  张
-                </span>
-              )}
-            </div>
-            <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-              缓存命中
-            </div>
-          </div>
-          <div
-            className='px-1 py-2 text-center'
-            title='这一页一共要计费的图片数'
-          >
-            <div
-              className={`font-display text-[26px] leading-none ${
-                pageImageTotal !== null &&
-                pageImageTotal > 0 &&
-                !isLocalProvider(provider)
-                  ? 'text-vermilion'
-                  : 'text-ink'
-              }`}
-            >
-              {pageImageTotal === null ? '—' : pageImageTotal}
-              {pageImageTotal === null ? null : (
-                <span className='ml-0.5 font-sans text-xs text-ink-muted'>
-                  张
-                </span>
-              )}
-            </div>
-            <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-              计费张数
-            </div>
-          </div>
-        </div>
-
-        {isRunning ? (
-          <div className='mt-4'>
-            <div className='flex items-baseline justify-between gap-3'>
-              <span className='min-w-0 flex-1 text-sm text-ink'>
-                {statusText}
-              </span>
-              {progressPercent !== null ? (
-                <span className='shrink-0 font-mono text-[11px] text-ink-muted'>
-                  {Math.round(progressPercent)}%
-                </span>
-              ) : null}
-            </div>
-            {/* 进度就是一条规则线：墨色轨道，朱红填充 */}
-            <div
-              className='mt-2 h-1.5 w-full bg-ink'
-              role='progressbar'
-              aria-label='翻译进度'
-              aria-valuemin={0}
-              aria-valuemax={100}
-              aria-valuenow={
-                progressPercent === null
-                  ? undefined
-                  : Math.round(progressPercent)
-              }
-            >
+            <div className='mt-3 grid grid-cols-3 divide-x divide-rule-soft border-y border-rule-soft'>
+              <div className='px-1 py-2 text-center'>
+                <div className='font-display text-[26px] leading-none text-ink'>
+                  {pageImageCount === null ? '—' : pageImageCount}
+                  {pageImageCount === null ? null : (
+                    <span className='ml-0.5 font-sans text-xs text-ink-muted'>
+                      张
+                    </span>
+                  )}
+                </div>
+                <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
+                  可翻译
+                </div>
+              </div>
+              <div className='px-1 py-2 text-center'>
+                <div className='font-display text-[26px] leading-none text-ink'>
+                  {cachedImageCount === null ? '—' : cachedImageCount}
+                  {cachedImageCount === null ? null : (
+                    <span className='ml-0.5 font-sans text-xs text-ink-muted'>
+                      张
+                    </span>
+                  )}
+                </div>
+                <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
+                  缓存命中
+                </div>
+              </div>
               <div
-                className={`h-full bg-vermilion ${
-                  progressPercent === null ? 'w-full animate-pulse' : ''
-                }`}
-                style={
-                  progressPercent === null
-                    ? undefined
-                    : { width: `${progressPercent}%` }
-                }
-              />
-            </div>
-            <button
-              type='button'
-              onClick={handleCancel}
-              className='mt-3 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-4 text-sm font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-            >
-              取消当前翻译
-            </button>
-          </div>
-        ) : (
-          <>
-            {/* 花钱之前先说清楚要花多少 */}
-            {imageCountHint ? (
-              <div
-                className={`mt-3 border-l-2 pl-2.5 ${
-                  isLocalProvider(provider) ? 'border-rule' : 'border-vermilion'
-                }`}
+                className='px-1 py-2 text-center'
+                title='这一页一共要计费的图片数'
               >
-                <p
-                  className={`text-xs leading-relaxed ${
-                    isLocalProvider(provider) ? 'text-ink-muted' : 'text-ink'
+                <div
+                  className={`font-display text-[26px] leading-none ${
+                    pageImageTotal !== null &&
+                    pageImageTotal > 0 &&
+                    !isLocalProvider(provider)
+                      ? 'text-vermilion'
+                      : 'text-ink'
                   }`}
                 >
-                  {imageCountHint.headline}
-                </p>
-                {/*
+                  {pageImageTotal === null ? '—' : pageImageTotal}
+                  {pageImageTotal === null ? null : (
+                    <span className='ml-0.5 font-sans text-xs text-ink-muted'>
+                      张
+                    </span>
+                  )}
+                </div>
+                <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
+                  计费张数
+                </div>
+              </div>
+            </div>
+
+            {isRunning ? (
+              <div className='mt-4'>
+                <div className='flex items-baseline justify-between gap-3'>
+                  <span className='min-w-0 flex-1 text-sm text-ink'>
+                    {statusText}
+                  </span>
+                  {progressPercent !== null ? (
+                    <span className='shrink-0 font-mono text-[11px] text-ink-muted'>
+                      {Math.round(progressPercent)}%
+                    </span>
+                  ) : null}
+                </div>
+                {/* 进度就是一条规则线：墨色轨道，朱红填充 */}
+                <div
+                  className='mt-2 h-1.5 w-full bg-ink'
+                  role='progressbar'
+                  aria-label='翻译进度'
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={
+                    progressPercent === null
+                      ? undefined
+                      : Math.round(progressPercent)
+                  }
+                >
+                  <div
+                    className={`h-full bg-vermilion ${
+                      progressPercent === null ? 'w-full animate-pulse' : ''
+                    }`}
+                    style={
+                      progressPercent === null
+                        ? undefined
+                        : { width: `${progressPercent}%` }
+                    }
+                  />
+                </div>
+                <button
+                  type='button'
+                  onClick={handleCancel}
+                  className='mt-3 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-4 text-sm font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                >
+                  取消当前翻译
+                </button>
+              </div>
+            ) : (
+              <>
+                {/* 花钱之前先说清楚要花多少 */}
+                {imageCountHint ? (
+                  <div
+                    className={`mt-3 border-l-2 pl-2.5 ${
+                      isLocalProvider(provider)
+                        ? 'border-rule'
+                        : 'border-vermilion'
+                    }`}
+                  >
+                    <p
+                      className={`text-xs leading-relaxed ${
+                        isLocalProvider(provider)
+                          ? 'text-ink-muted'
+                          : 'text-ink'
+                      }`}
+                    >
+                      {imageCountHint.headline}
+                    </p>
+                    {/*
                   「一张图可能变成多次请求」是另一类事实：headline 说的是
                   这一页有几张图，这一句说的是计费怎么算。分开写，读者
                   才会先看到「2 张、会花钱」，再看到这条注解。它没有被
                   藏起来 —— 只是不必和按钮抢注意力。
                 */}
-                {imageCountHint.caveat ? (
-                  <p className='mt-1 text-[11px] leading-relaxed text-ink-muted'>
-                    {imageCountHint.caveat}
-                  </p>
+                    {imageCountHint.caveat ? (
+                      <p className='mt-1 text-[11px] leading-relaxed text-ink-muted'>
+                        {imageCountHint.caveat}
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
-              </div>
-            ) : null}
-            <button
-              type='button'
-              onClick={handleTranslate}
-              disabled={!primaryAction.canTranslate}
-              className='mt-3 flex min-h-[48px] w-full items-center justify-center gap-2 border border-ink bg-ink px-4 text-sm font-semibold tracking-wide text-paper transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:bg-paper enabled:hover:text-ink disabled:cursor-not-allowed disabled:border-rule disabled:bg-paper disabled:text-ink-muted'
-            >
-              <Languages className='h-4 w-4' />
-              翻译当前页面
-            </button>
-          </>
-        )}
+                <button
+                  type='button'
+                  onClick={handleTranslate}
+                  disabled={!primaryAction.canTranslate}
+                  className='mt-3 flex min-h-[48px] w-full items-center justify-center gap-2 border border-ink bg-ink px-4 text-sm font-semibold tracking-wide text-paper transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:bg-paper enabled:hover:text-ink disabled:cursor-not-allowed disabled:border-rule disabled:bg-paper disabled:text-ink-muted'
+                >
+                  <Languages className='h-4 w-4' />
+                  翻译当前页面
+                </button>
+              </>
+            )}
 
-        {/*
+            {/*
           扣费警告常驻在这里，就贴在主按钮下面。
           它以前在折叠的"阅读设置"里，等于没有。
         */}
-        {autoTranslateNotice}
+            {autoTranslateNotice}
 
-        {!isRunning ? (
-          <>
-            {primaryAction.message ? (
-              <p className='mt-3 border-l-2 border-vermilion pl-2.5 text-xs leading-relaxed text-vermilion'>
-                {primaryAction.message}
-              </p>
+            {!isRunning ? (
+              <>
+                {primaryAction.message ? (
+                  <p className='mt-3 border-l-2 border-vermilion pl-2.5 text-xs leading-relaxed text-vermilion'>
+                    {primaryAction.message}
+                  </p>
+                ) : null}
+                {primaryAction.blocker === 'provider-unconfigured' ? (
+                  <button
+                    type='button'
+                    onClick={() => {
+                      void chrome.runtime.openOptionsPage();
+                    }}
+                    className='mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-xs font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                  >
+                    <Settings className='h-3.5 w-3.5' />
+                    去设置页填写 API Key
+                  </button>
+                ) : null}
+              </>
             ) : null}
-            {primaryAction.blocker === 'provider-unconfigured' ? (
-              <button
-                type='button'
-                onClick={() => {
-                  void chrome.runtime.openOptionsPage();
-                }}
-                className='mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-xs font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-              >
-                <Settings className='h-3.5 w-3.5' />
-                去设置页填写 API Key
-              </button>
-            ) : null}
-          </>
-        ) : null}
 
-        {/*
+            {/*
           失败信息常驻在这里，不管页面正在不在跑。
 
           它以前被放在"没有任务在跑"的那一支里，于是运行中按下
@@ -1230,96 +1293,98 @@ const PopupApp: React.FC = () => {
           掉进了一个不渲染的分支：用户以为已经停下来了，页面却还在
           翻，还在计费。一个看不见的失败，比没有这个按钮更糟。
         */}
-        {actionError ? (
-          <p className='mt-3 border-l-2 border-vermilion pl-2.5 text-xs leading-relaxed text-vermilion'>
-            操作失败：{actionError}
-          </p>
-        ) : null}
-        {pageAvailability.state === 'needs-refresh' ? (
-          <button
-            type='button'
-            onClick={() => {
-              void handleRefreshTab();
-            }}
-            className='mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-xs font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-          >
-            <RefreshCw className='h-3.5 w-3.5' />
-            刷新页面
-          </button>
-        ) : null}
-
-        {/* 翻译结果：一条规则线加一句结论，不用彩色卡片。
-            翻译完成是用户主动等待的那一刻，"有几张失败了"是那一刻最该
-            被看见的信息。 */}
-        {contentState.status === 'complete' && resultSummary ? (
-          <div
-            className={`mt-3 border-l-2 pl-2.5 ${
-              resultSummary.tone === 'success'
-                ? 'border-ink'
-                : resultSummary.tone === 'warning'
-                  ? 'border-vermilion'
-                  : 'border-rule'
-            }`}
-          >
-            <p
-              className={`flex items-center gap-2 text-sm font-medium ${
-                resultSummary.tone === 'warning' ? 'text-vermilion' : 'text-ink'
-              }`}
-            >
-              {resultSummary.tone === 'success' ? (
-                <CheckCircle2 className='h-3.5 w-3.5 shrink-0' />
-              ) : null}
-              {resultSummary.title}
-            </p>
-            {resultSummary.details.map(detail => (
-              <p
-                key={detail}
-                className='mt-1 text-xs leading-relaxed text-ink-muted'
-              >
-                {detail}
-              </p>
-            ))}
-          </div>
-        ) : null}
-
-        {contentState.status === 'error' ? (
-          <p className='mt-3 border-l-2 border-vermilion pl-2.5 text-xs leading-relaxed text-vermilion'>
-            {statusText}
-          </p>
-        ) : null}
-
-        {/* 失败原因：没有它，用户只知道"失败了几张"，不知道该改什么 */}
-        {contentState.status === 'complete' && contentState.lastError ? (
-          <p className='mt-2 text-[11px] leading-relaxed text-vermilion'>
-            失败原因：{contentState.lastError}
-          </p>
-        ) : null}
-        {/* 错误详情与修复入口：用户撞错后必须有路可走 */}
-        {contentState.status === 'error' ? (
-          <div className='mt-2 border-l-2 border-vermilion pl-2.5'>
-            {contentState.suggestion ? (
-              <p className='text-xs leading-relaxed text-ink-muted'>
-                {contentState.suggestion}
+            {actionError ? (
+              <p className='mt-3 border-l-2 border-vermilion pl-2.5 text-xs leading-relaxed text-vermilion'>
+                操作失败：{actionError}
               </p>
             ) : null}
-            {contentState.action ? (
+            {pageAvailability.state === 'needs-refresh' ? (
               <button
                 type='button'
                 onClick={() => {
-                  const action = contentState.action;
-                  if (action) {
-                    void handleErrorAction(action);
-                  }
+                  void handleRefreshTab();
                 }}
-                className='mt-2 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-3 text-xs font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                className='mt-2 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-xs font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
               >
-                {contentState.action.label}
+                <RefreshCw className='h-3.5 w-3.5' />
+                刷新页面
               </button>
             ) : null}
-          </div>
-        ) : null}
 
-        {/*
+            {/* 翻译结果：一条规则线加一句结论，不用彩色卡片。
+            翻译完成是用户主动等待的那一刻，"有几张失败了"是那一刻最该
+            被看见的信息。 */}
+            {contentState.status === 'complete' && resultSummary ? (
+              <div
+                className={`mt-3 border-l-2 pl-2.5 ${
+                  resultSummary.tone === 'success'
+                    ? 'border-ink'
+                    : resultSummary.tone === 'warning'
+                      ? 'border-vermilion'
+                      : 'border-rule'
+                }`}
+              >
+                <p
+                  className={`flex items-center gap-2 text-sm font-medium ${
+                    resultSummary.tone === 'warning'
+                      ? 'text-vermilion'
+                      : 'text-ink'
+                  }`}
+                >
+                  {resultSummary.tone === 'success' ? (
+                    <CheckCircle2 className='h-3.5 w-3.5 shrink-0' />
+                  ) : null}
+                  {resultSummary.title}
+                </p>
+                {resultSummary.details.map(detail => (
+                  <p
+                    key={detail}
+                    className='mt-1 text-xs leading-relaxed text-ink-muted'
+                  >
+                    {detail}
+                  </p>
+                ))}
+              </div>
+            ) : null}
+
+            {contentState.status === 'error' ? (
+              <p className='mt-3 border-l-2 border-vermilion pl-2.5 text-xs leading-relaxed text-vermilion'>
+                {statusText}
+              </p>
+            ) : null}
+
+            {/* 失败原因：没有它，用户只知道"失败了几张"，不知道该改什么 */}
+            {contentState.status === 'complete' && contentState.lastError ? (
+              <p className='mt-2 text-[11px] leading-relaxed text-vermilion'>
+                失败原因：{contentState.lastError}
+              </p>
+            ) : null}
+            {/* 错误详情与修复入口：用户撞错后必须有路可走 */}
+            {contentState.status === 'error' ? (
+              <div className='mt-2 border-l-2 border-vermilion pl-2.5'>
+                {contentState.suggestion ? (
+                  <p className='text-xs leading-relaxed text-ink-muted'>
+                    {contentState.suggestion}
+                  </p>
+                ) : null}
+                {contentState.action ? (
+                  <button
+                    type='button'
+                    onClick={() => {
+                      const action = contentState.action;
+                      if (action) {
+                        void handleErrorAction(action);
+                      }
+                    }}
+                    className='mt-2 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-3 text-xs font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                  >
+                    {contentState.action.label}
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
+
+            {/*
           重试入口：只重跑失败的那几张，已成功的不会被二次计费。
 
           它以前只在「完成」这一支里出现。于是一章翻到第 8 张时密钥
@@ -1327,351 +1392,368 @@ const PopupApp: React.FC = () => {
           握着「还有 12 张要重试」这个数字，却不给人重试的入口，只能
           重新扫整页。修好密钥之后，读者要的正是"把那 12 张翻掉"。
         */}
-        {retryTargetCount > 0 && !isRunning ? (
-          <button
-            type='button'
-            onClick={requestRetryFailed}
-            className='mt-3 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-xs font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-          >
-            <RefreshCw className='h-3.5 w-3.5' />
-            重新翻译失败的 {retryTargetCount} 张
-          </button>
-        ) : null}
-      </section>
+            {retryTargetCount > 0 && !isRunning ? (
+              <button
+                type='button'
+                onClick={requestRetryFailed}
+                className='mt-3 flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink px-3 text-xs font-medium text-ink transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+              >
+                <RefreshCw className='h-3.5 w-3.5' />
+                重新翻译失败的 {retryTargetCount} 张
+              </button>
+            ) : null}
+          </section>
 
-      {/* 主开关：关闭即完全不请求模型 */}
-      <label className='flex min-h-[44px] cursor-pointer items-center justify-between gap-3 border-t border-rule-soft px-4 py-2'>
-        <div className='min-w-0'>
-          <div className='text-sm font-medium'>启用扩展</div>
-          <div className='font-mono text-[11px] text-ink-muted'>
-            关闭后不会请求任何模型
+          <div className='mt-auto border-t border-rule-soft px-4 py-3'>
+            <p className='font-mono text-[10px] leading-relaxed text-ink-muted'>
+              {isLocalProvider(provider)
+                ? `本月 ${usageSummary.billableCalls} 次模型调用（本机模型，不产生费用）`
+                : `本月 ${usageSummary.billableCalls} 次 API 调用`}
+              {usageSummary.tokens > 0
+                ? ` · ${usageSummary.tokens.toLocaleString('zh-CN')} Token`
+                : ''}
+              {usageSummary.translations > 0
+                ? ` · 缓存命中 ${usageSummary.cacheHitRate}%`
+                : ''}
+            </p>
+            <p className='mt-1 text-[11px] leading-relaxed text-ink-muted'>
+              译文会直接覆盖在气泡上；按住 Alt 可临时切回原文。
+            </p>
           </div>
         </div>
-        <Switch
-          checked={enabled}
-          onCheckedChange={setEnabled}
-          aria-label='启用扩展'
-        />
-      </label>
 
-      {/* 阅读设置：折叠，让低频选项不与主操作争夺注意力 */}
-      <details className='group border-t border-rule-soft'>
-        <summary className='flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 text-sm marker:hidden'>
-          <span className='font-medium'>阅读设置</span>
-          <span className='font-mono text-sm text-ink-muted'>
-            <span className='group-open:hidden'>+</span>
-            <span className='hidden group-open:inline'>−</span>
-          </span>
-        </summary>
-        <div className='border-t border-rule-soft px-4'>
-          <label className='flex min-h-[44px] items-center justify-between gap-3 border-b border-rule-soft py-2'>
+        <div
+          role='tabpanel'
+          id='popup-panel-settings'
+          aria-labelledby='popup-tab-settings'
+          hidden={activeView !== 'settings'}
+          className={`proof-scroll min-h-0 flex-1 overflow-y-auto ${
+            activeView === 'settings' ? '' : 'hidden'
+          }`}
+        >
+          {/* 主开关：关闭即完全不请求模型 */}
+          <label className='flex min-h-[44px] cursor-pointer items-center justify-between gap-3 border-t border-rule-soft px-4 py-2'>
             <div className='min-w-0'>
-              <div className='text-sm font-medium'>自动翻译本站</div>
-              <div className='mt-0.5 text-[11px] leading-snug text-ink-muted'>
-                {currentHost
-                  ? `${describeAutoTranslateCost(provider)}（本设置对 ${currentHost} 的所有页面生效）`
-                  : '当前页面不支持自动翻译'}
+              <div className='text-sm font-medium'>启用扩展</div>
+              <div className='font-mono text-[11px] text-ink-muted'>
+                关闭后不会请求任何模型
               </div>
             </div>
             <Switch
-              checked={isHostAutoTranslated(currentUrl, autoTranslateHosts)}
-              disabled={!currentHost || !enabled}
-              onCheckedChange={checked => {
-                if (!currentHost) return;
-                if (checked) {
-                  addAutoTranslateHost(currentHost);
-                  return;
-                }
-                // Remove whatever actually matched. A plain
-                // `includes(currentHost)` left a wildcard entry in place, so
-                // the switch snapped back on and the page kept translating
-                // itself with no way to stop it from here.
-                const matched = matchingAllowlistEntries(
-                  currentUrl,
-                  autoTranslateHosts
-                );
-                if (matched.length === 0) {
-                  removeAutoTranslateHost(currentHost);
-                  return;
-                }
-                for (const entry of matched) {
-                  removeAutoTranslateHost(entry);
-                }
-              }}
-              aria-label='自动翻译本站'
+              checked={enabled}
+              onCheckedChange={setEnabled}
+              aria-label='启用扩展'
             />
           </label>
 
-          <label className='flex min-h-[44px] items-center justify-between gap-3 border-b border-rule-soft py-2'>
-            <div className='min-w-0'>
-              <div className='text-sm font-medium'>自动续翻</div>
-              <div className='mt-0.5 text-[11px] leading-snug text-ink-muted'>
-                本页新加载的图片继续翻译
-              </div>
-            </div>
-            <Switch
-              checked={autoContinueEnabled}
-              disabled={!enabled}
-              onCheckedChange={setAutoContinueEnabled}
-              aria-label='自动续翻'
-            />
-          </label>
+          {/* 阅读设置：折叠，让低频选项不与主操作争夺注意力 */}
+          <details className='group border-t border-rule-soft'>
+            <summary className='flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 text-sm marker:hidden'>
+              <span className='font-medium'>阅读设置</span>
+              <span className='font-mono text-sm text-ink-muted'>
+                <span className='group-open:hidden'>+</span>
+                <span className='hidden group-open:inline'>−</span>
+              </span>
+            </summary>
+            <div className='border-t border-rule-soft px-4'>
+              <label className='flex min-h-[44px] items-center justify-between gap-3 border-b border-rule-soft py-2'>
+                <div className='min-w-0'>
+                  <div className='text-sm font-medium'>自动翻译本站</div>
+                  <div className='mt-0.5 text-[11px] leading-snug text-ink-muted'>
+                    {currentHost
+                      ? `${describeAutoTranslateCost(provider)}（本设置对 ${currentHost} 的所有页面生效）`
+                      : '当前页面不支持自动翻译'}
+                  </div>
+                </div>
+                <Switch
+                  checked={isHostAutoTranslated(currentUrl, autoTranslateHosts)}
+                  disabled={!currentHost || !enabled}
+                  onCheckedChange={checked => {
+                    if (!currentHost) return;
+                    if (checked) {
+                      addAutoTranslateHost(currentHost);
+                      return;
+                    }
+                    // Remove whatever actually matched. A plain
+                    // `includes(currentHost)` left a wildcard entry in place, so
+                    // the switch snapped back on and the page kept translating
+                    // itself with no way to stop it from here.
+                    const matched = matchingAllowlistEntries(
+                      currentUrl,
+                      autoTranslateHosts
+                    );
+                    if (matched.length === 0) {
+                      removeAutoTranslateHost(currentHost);
+                      return;
+                    }
+                    for (const entry of matched) {
+                      removeAutoTranslateHost(entry);
+                    }
+                  }}
+                  aria-label='自动翻译本站'
+                />
+              </label>
 
-          <label className='block border-b border-rule-soft py-2'>
-            <div className='mb-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-              目标语言
-            </div>
-            <select
-              value={targetLanguage}
-              onChange={e => setTargetLanguage(e.target.value)}
-              /*
-               * The border is the only thing that says "this is a control".
-               * `rule` is the token drawn for exactly that job: 3.06:1 on
-               * paper, which is what WCAG 1.4.11 asks of a control boundary.
-               */
-              className='min-h-[44px] w-full rounded-none border border-rule bg-paper px-3 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-1 focus-visible:ring-offset-paper'
-            >
-              {TARGET_LANGUAGES.map(item => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-          </label>
+              <label className='flex min-h-[44px] items-center justify-between gap-3 border-b border-rule-soft py-2'>
+                <div className='min-w-0'>
+                  <div className='text-sm font-medium'>自动续翻</div>
+                  <div className='mt-0.5 text-[11px] leading-snug text-ink-muted'>
+                    本页新加载的图片继续翻译
+                  </div>
+                </div>
+                <Switch
+                  checked={autoContinueEnabled}
+                  disabled={!enabled}
+                  onCheckedChange={setAutoContinueEnabled}
+                  aria-label='自动续翻'
+                />
+              </label>
 
-          {autoTranslateHosts.length > 0 && (
-            <div className='border-b border-rule-soft py-2 text-[11px] text-ink-muted'>
-              已开启自动翻译的站点：{autoTranslateHosts.length} 个
-            </div>
-          )}
+              <label className='block border-b border-rule-soft py-2'>
+                <div className='mb-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
+                  目标语言
+                </div>
+                <select
+                  value={targetLanguage}
+                  onChange={e => setTargetLanguage(e.target.value)}
+                  /*
+                   * The border is the only thing that says "this is a control".
+                   * `rule` is the token drawn for exactly that job: 3.06:1 on
+                   * paper, which is what WCAG 1.4.11 asks of a control boundary.
+                   */
+                  className='min-h-[44px] w-full rounded-none border border-rule bg-paper px-3 text-sm text-ink outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-1 focus-visible:ring-offset-paper'
+                >
+                  {TARGET_LANGUAGES.map(item => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
 
-          {/*
+              {autoTranslateHosts.length > 0 && (
+                <div className='border-b border-rule-soft py-2 text-[11px] text-ink-muted'>
+                  已开启自动翻译的站点：{autoTranslateHosts.length} 个
+                </div>
+              )}
+
+              {/*
             这一页会不会自己开始翻译 —— 提示搬到了上面的"当前页面"区块里，
             就贴在主按钮下面。折叠面板里的提示没有人看得见，而这一条是
             整个产品里唯一一条"你正在扣费"的警告。
           */}
 
-          <div className='my-2 flex items-start gap-2 border-l-2 border-blueprint pl-2.5 text-xs text-ink-muted'>
-            <Eye className='mt-0.5 h-3.5 w-3.5 shrink-0 text-blueprint' />
-            <span className='leading-relaxed'>
-              译文会直接覆盖在原图上。按住{' '}
-              <kbd className='border border-rule px-1 py-0.5 font-mono text-[10px] text-ink'>
-                Alt
-              </kbd>{' '}
-              可临时切回原文，方便核对或学习。
-            </span>
-          </div>
-        </div>
-      </details>
+              <div className='my-2 flex items-start gap-2 border-l-2 border-blueprint pl-2.5 text-xs text-ink-muted'>
+                <Eye className='mt-0.5 h-3.5 w-3.5 shrink-0 text-blueprint' />
+                <span className='leading-relaxed'>
+                  译文会直接覆盖在原图上。按住{' '}
+                  <kbd className='border border-rule px-1 py-0.5 font-mono text-[10px] text-ink'>
+                    Alt
+                  </kbd>{' '}
+                  可临时切回原文，方便核对或学习。
+                </span>
+              </div>
+            </div>
+          </details>
 
-      {/* 后端选择：折叠 */}
-      <details className='group border-t border-rule-soft'>
-        <summary className='flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 text-sm marker:hidden'>
-          <span className='flex items-center gap-2 font-medium'>
-            {provider === 'ollama' ? (
-              <Server className='h-4 w-4 text-ink-muted' />
-            ) : (
-              <Sparkles className='h-4 w-4 text-ink-muted' />
-            )}
-            翻译后端
-          </span>
-          <span className='font-mono text-sm text-ink-muted'>
-            <span className='group-open:hidden'>+</span>
-            <span className='hidden group-open:inline'>−</span>
-          </span>
-        </summary>
-        <div className='border-t border-rule-soft px-4 py-3'>
-          <div className='grid grid-cols-3 divide-x divide-rule border border-rule'>
-            {PROVIDER_OPTIONS.map(option => {
-              const active = provider === option.value;
-              const label =
-                option.value === 'openai-compatible'
-                  ? cloudProviderLabel
-                  : option.label;
-              return (
-                <button
-                  key={option.value}
-                  type='button'
-                  aria-pressed={active}
-                  onClick={() => {
-                    if (provider === option.value) return;
-                    // The store writes the choice to `chrome.storage.local`,
-                    // and every other context picks it up through the
-                    // store's own change listener. The popup used to also
-                    // broadcast a `CONFIG_UPDATED` message, but nothing
-                    // ever handled it — it was a message to nobody.
-                    setProvider(option.value);
-                  }}
-                  title={label}
-                  className={`min-h-[44px] truncate px-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion ${
-                    active
-                      ? 'bg-ink text-paper'
-                      : 'bg-paper text-ink-muted hover:bg-ink hover:text-paper'
-                  }`}
-                >
-                  {label}
-                </button>
-              );
-            })}
-          </div>
-          {/*
+          {/* 后端选择：折叠 */}
+          <details className='group border-t border-rule-soft'>
+            <summary className='flex min-h-[44px] cursor-pointer list-none items-center justify-between px-4 text-sm marker:hidden'>
+              <span className='flex items-center gap-2 font-medium'>
+                {provider === 'ollama' ? (
+                  <Server className='h-4 w-4 text-ink-muted' />
+                ) : (
+                  <Sparkles className='h-4 w-4 text-ink-muted' />
+                )}
+                翻译后端
+              </span>
+              <span className='font-mono text-sm text-ink-muted'>
+                <span className='group-open:hidden'>+</span>
+                <span className='hidden group-open:inline'>−</span>
+              </span>
+            </summary>
+            <div className='border-t border-rule-soft px-4 py-3'>
+              <div className='grid grid-cols-3 divide-x divide-rule border border-rule'>
+                {PROVIDER_OPTIONS.map(option => {
+                  const active = provider === option.value;
+                  const label =
+                    option.value === 'openai-compatible'
+                      ? cloudProviderLabel
+                      : option.label;
+                  return (
+                    <button
+                      key={option.value}
+                      type='button'
+                      aria-pressed={active}
+                      onClick={() => {
+                        if (provider === option.value) return;
+                        // The store writes the choice to `chrome.storage.local`,
+                        // and every other context picks it up through the
+                        // store's own change listener. The popup used to also
+                        // broadcast a `CONFIG_UPDATED` message, but nothing
+                        // ever handled it — it was a message to nobody.
+                        setProvider(option.value);
+                      }}
+                      title={label}
+                      className={`min-h-[44px] truncate px-1 text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion ${
+                        active
+                          ? 'bg-ink text-paper'
+                          : 'bg-paper text-ink-muted hover:bg-ink hover:text-paper'
+                      }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {/*
             选中态不能只靠颜色区分：三个按钮长得几乎一样，只有底色不同。
             色觉障碍的用户看不出来哪个在用，屏幕阅读器也读不到。这里补一句
             文字，并让 `aria-pressed` 说出状态。
           */}
-          <p className='mt-2 text-xs text-ink'>当前使用中：{providerLabel}</p>
-          <div className='mt-1 break-words font-mono text-[11px] leading-relaxed text-ink-muted'>
-            {pathLabel}
-          </div>
-          <div className='mt-0.5 break-words font-mono text-[11px] leading-relaxed text-ink-muted'>
-            模型：{providerSettings.model || '未设置'}
-          </div>
-          {/*
+              <p className='mt-2 text-xs text-ink'>
+                当前使用中：{providerLabel}
+              </p>
+              <div className='mt-1 break-words font-mono text-[11px] leading-relaxed text-ink-muted'>
+                {pathLabel}
+              </div>
+              <div className='mt-0.5 break-words font-mono text-[11px] leading-relaxed text-ink-muted'>
+                模型：{providerSettings.model || '未设置'}
+              </div>
+              {/*
             用户在这里看得到地址却改不了，会怀疑是自己配错了。给他一条
             去设置页的路，比让他自己猜好。
           */}
-          <button
-            type='button'
-            onClick={() => {
-              void chrome.runtime.openOptionsPage();
-            }}
-            className='mt-1 flex min-h-[44px] items-center text-xs text-ink underline decoration-rule underline-offset-4 transition-colors hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-          >
-            在设置页修改地址、模型或密钥
-          </button>
-        </div>
-      </details>
+              <button
+                type='button'
+                onClick={() => {
+                  void chrome.runtime.openOptionsPage();
+                }}
+                className='mt-1 flex min-h-[44px] items-center text-xs text-ink underline decoration-rule underline-offset-4 transition-colors hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+              >
+                在设置页修改地址、模型或密钥
+              </button>
+            </div>
+          </details>
 
-      {/* 次要 / 危险操作。说明常驻显示：原来藏在 hover 提示里，
+          {/* 次要 / 危险操作。说明常驻显示：原来藏在 hover 提示里，
           触控板用户根本看不到按下会发生什么。 */}
-      <section className='mt-4 border-t border-rule-soft'>
-        <div className='border-b border-rule-soft px-4 py-2'>
-          <button
-            type='button'
-            onClick={requestResetAndRerun}
-            disabled={!primaryAction.canTranslate || isRunning}
-            className='flex min-h-[44px] w-full items-center gap-2 text-left text-sm text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:underline enabled:hover:underline-offset-4 disabled:cursor-not-allowed disabled:opacity-40'
-          >
-            <RefreshCw className='h-4 w-4 shrink-0 text-ink-muted' />
-            忽略缓存重翻
-          </button>
-          <p className='text-[11px] leading-snug text-ink-muted'>
-            {isRunning
-              ? '翻译进行中，完成后可重翻'
-              : '忽略缓存，重新请求本页已加载的图片'}
-          </p>
-        </div>
-        <div className='border-b border-rule-soft px-4 py-2'>
-          <button
-            type='button'
-            onClick={requestReset}
-            disabled={overlayCount === 0}
-            className='flex min-h-[44px] w-full items-center gap-2 text-left text-sm text-vermilion transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:underline enabled:hover:underline-offset-4 disabled:cursor-not-allowed disabled:opacity-40'
-          >
-            <Trash2 className='h-4 w-4 shrink-0' />
-            清除本页译文
-          </button>
-          <p className='text-[11px] leading-snug text-ink-muted'>
-            {overlayCount === 0
-              ? '本页没有译文可清除'
-              : `移除本页 ${overlayCount} 张译文与阅读面板`}
-          </p>
-        </div>
+          <section className='mt-4 border-t border-rule-soft'>
+            <div className='border-b border-rule-soft px-4 py-2'>
+              <button
+                type='button'
+                onClick={requestResetAndRerun}
+                disabled={!primaryAction.canTranslate || isRunning}
+                className='flex min-h-[44px] w-full items-center gap-2 text-left text-sm text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:underline enabled:hover:underline-offset-4 disabled:cursor-not-allowed disabled:opacity-40'
+              >
+                <RefreshCw className='h-4 w-4 shrink-0 text-ink-muted' />
+                忽略缓存重翻
+              </button>
+              <p className='text-[11px] leading-snug text-ink-muted'>
+                {isRunning
+                  ? '翻译进行中，完成后可重翻'
+                  : '忽略缓存，重新请求本页已加载的图片'}
+              </p>
+            </div>
+            <div className='border-b border-rule-soft px-4 py-2'>
+              <button
+                type='button'
+                onClick={requestReset}
+                disabled={overlayCount === 0}
+                className='flex min-h-[44px] w-full items-center gap-2 text-left text-sm text-vermilion transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:underline enabled:hover:underline-offset-4 disabled:cursor-not-allowed disabled:opacity-40'
+              >
+                <Trash2 className='h-4 w-4 shrink-0' />
+                清除本页译文
+              </button>
+              <p className='text-[11px] leading-snug text-ink-muted'>
+                {overlayCount === 0
+                  ? '本页没有译文可清除'
+                  : typeof overlayCount === 'number'
+                    ? `移除本页 ${overlayCount} 张译文与阅读面板`
+                    : '移除本页的译文与阅读面板'}
+              </p>
+            </div>
+          </section>
 
-        {/* 阅读面板开关：以前只有快捷键能关它，用户看到面板挡住正文却
-            找不到地方关。面板本身还没创建时（这一页还没翻译过）不显示，
-            因为那时按下去只会得到一个空面板。 */}
-        {readingPanelVisible !== null && (
-          <div className='border-b border-rule-soft px-4 py-2'>
-            <button
-              type='button'
-              onClick={() => {
-                void handleToggleReadingPanel();
-              }}
-              className='flex min-h-[44px] w-full items-center gap-2 text-left text-sm text-ink transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper enabled:hover:underline enabled:hover:underline-offset-4'
-            >
-              <Eye className='h-4 w-4 shrink-0 text-ink-muted' />
-              {readingPanelVisible ? '隐藏译文阅读面板' : '显示译文阅读面板'}
-            </button>
-            <p className='text-[11px] leading-snug text-ink-muted'>
-              面板盖在画稿上，可随时打开或关掉
-            </p>
-          </div>
-        )}
-      </section>
-
-      {/*
+          {/*
         快捷键：manifest 里注册了四个命令，界面上却没有一个字。
         用户装了扩展以后，只能自己去 chrome://extensions/shortcuts 里
         猜有没有这回事。这块常驻显示，不折叠——折叠起来就等于没有。
       */}
-      <section className='mt-4 border-t border-rule-soft px-4 py-3'>
-        <div className='flex items-center gap-2 text-sm font-medium'>
-          <Keyboard className='h-4 w-4 text-ink-muted' />
-          默认快捷键
-        </div>
-        {/*
+          <section className='mt-4 border-t border-rule-soft px-4 py-3'>
+            <div className='flex items-center gap-2 text-sm font-medium'>
+              <Keyboard className='h-4 w-4 text-ink-muted' />
+              默认快捷键
+            </div>
+            {/*
           These are the defaults the extension ships with. Chrome lets the
           user rebind any of them at chrome://extensions/shortcuts, and
           after that the keys shown here are the ones that no longer work.
           Saying "默认" is the honest version of the same list.
         */}
-        <p className='mt-1 text-[11px] leading-relaxed text-ink-muted'>
-          可在 chrome://extensions/shortcuts 里改成你自己的按键
-        </p>
-        <ul className='mt-2'>
-          {shortcutHints.map(item => (
-            <li
-              key={item.id}
-              className='flex items-center justify-between gap-3 border-t border-rule-soft py-1.5 text-xs text-ink'
-            >
-              <span className='min-w-0 flex-1'>{item.description}</span>
-              <span className='flex shrink-0 items-center'>
-                {item.keys.map((key, index) => (
-                  <span
-                    key={`${item.id}-${index}`}
-                    className='flex items-center'
-                  >
-                    {index > 0 ? (
-                      <span className='px-0.5 text-ink-muted'>+</span>
-                    ) : null}
-                    <kbd className='border border-rule px-1 py-0.5 font-mono text-[10px] text-ink'>
-                      {key}
-                    </kbd>
+            <p className='mt-1 text-[11px] leading-relaxed text-ink-muted'>
+              可在 chrome://extensions/shortcuts 里改成你自己的按键
+            </p>
+            <ul className='mt-2'>
+              {shortcutHints.map(item => (
+                <li
+                  key={item.id}
+                  className='flex items-center justify-between gap-3 border-t border-rule-soft py-1.5 text-xs text-ink'
+                >
+                  <span className='min-w-0 flex-1'>{item.description}</span>
+                  <span className='flex shrink-0 items-center'>
+                    {item.keys.map((key, index) => (
+                      <span
+                        key={`${item.id}-${index}`}
+                        className='flex items-center'
+                      >
+                        {index > 0 ? (
+                          <span className='px-0.5 text-ink-muted'>+</span>
+                        ) : null}
+                        <kbd className='border border-rule px-1 py-0.5 font-mono text-[10px] text-ink'>
+                          {key}
+                        </kbd>
+                      </span>
+                    ))}
                   </span>
-                ))}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </section>
+                </li>
+              ))}
+            </ul>
+          </section>
 
-      {/* 本月用量：让"要花钱的人"随时能看到账单，而不是只在这里点一下
-          才知道花了多少。数据在本地，不产生任何请求。 */}
-      <p className='px-4 pb-1 pt-3 text-left font-mono text-[11px] leading-relaxed text-ink-muted'>
-        {isLocalProvider(provider)
-          ? `本月 ${usageSummary.billableCalls} 次模型调用（本机模型，不产生费用）`
-          : `本月 ${usageSummary.billableCalls} 次 API 调用`}
-        {usageSummary.tokens > 0
-          ? ` · ${usageSummary.tokens.toLocaleString('zh-CN')} Token`
-          : ''}
-        {usageSummary.translations > 0
-          ? ` · 缓存命中 ${usageSummary.cacheHitRate}%`
-          : ''}
-      </p>
+          <footer className='mt-2 border-t border-ink px-4'>
+            <button
+              type='button'
+              onClick={() => {
+                void chrome.runtime.openOptionsPage();
+              }}
+              className='flex min-h-[44px] items-center text-xs text-ink underline decoration-rule underline-offset-4 transition-colors hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+            >
+              打开完整设置页
+            </button>
+          </footer>
+        </div>
+      </div>
 
-      {/* 页脚：一条墨线收住整张校正纸 */}
-      <footer className='mt-3 flex items-center justify-between gap-3 border-t border-ink px-4 py-1'>
-        <button
-          type='button'
-          onClick={() => {
-            void chrome.runtime.openOptionsPage();
-          }}
-          className='flex min-h-[44px] items-center text-xs text-ink underline decoration-rule underline-offset-4 transition-colors hover:decoration-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
-        >
-          打开设置页
-        </button>
-        <span className='font-mono text-[11px] text-ink-muted'>
+      {/* 固定页脚：不随任一视图滚动，保住唯一一条阅读面板开关。 */}
+      <footer className='flex min-h-[44px] shrink-0 items-center justify-between gap-2 border-t border-ink px-4'>
+        {readingPanelVisible !== null ? (
+          <button
+            type='button'
+            onClick={() => {
+              void handleToggleReadingPanel();
+            }}
+            className='flex min-h-[44px] items-center gap-1.5 text-xs text-ink transition-colors hover:underline hover:underline-offset-4 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+          >
+            <Eye className='h-3.5 w-3.5 shrink-0 text-ink-muted' />
+            {readingPanelVisible ? '隐藏译文阅读面板' : '显示译文阅读面板'}
+          </button>
+        ) : (
+          <span className='font-mono text-[10px] text-ink-muted'>
+            本页 {pageImageCount ?? '—'} 张
+          </span>
+        )}
+        <span className='font-mono text-[10px] text-ink-muted'>
           数据只保存在本机
         </span>
       </footer>

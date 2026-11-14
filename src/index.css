@@ -10,6 +10,43 @@ body {
   min-height: 300px;
 }
 
+/*
+ * The popup is a fixed 360x600 sheet with exactly one scroll area inside it.
+ *
+ * Before this, the React root carried `max-h-[640px] overflow-y-auto` while
+ * the document itself grew to 1079px: Chrome capped the popup at ~600px and
+ * scrolled the body, so the reader got two vertical scrollbars at different
+ * heights and neither pane could show a whole section. The body is now the
+ * frame, and `.proof-scroll` is the only thing that moves.
+ */
+.popup-body {
+  width: 360px;
+  height: 600px;
+  margin: 0;
+  overflow: hidden;
+}
+
+.popup-body #app {
+  height: 100%;
+}
+
+.proof-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: hsl(var(--ink-muted) / 0.35) transparent;
+}
+
+.proof-scroll::-webkit-scrollbar {
+  width: 4px;
+}
+
+.proof-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.proof-scroll::-webkit-scrollbar-thumb {
+  background: hsl(var(--ink-muted) / 0.35);
+}
+
 @layer base {
   /*
    * One theme: 校正紙 (proof sheet).

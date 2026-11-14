@@ -182,6 +182,27 @@ describe('PopupApp', () => {
     ).toBeVisible();
   });
 
+  it('switches between the page face and the settings face', async () => {
+    render(<PopupApp />);
+
+    await screen.findByRole('button', { name: '翻译当前页面' });
+    expect(screen.getByRole('tab', { name: '本页' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByText('当前页面')).toBeVisible();
+
+    await userEvent.click(screen.getByRole('tab', { name: '设置' }));
+    expect(screen.getByRole('tab', { name: '设置' })).toHaveAttribute(
+      'aria-selected',
+      'true'
+    );
+    expect(screen.getByText('启用扩展')).toBeVisible();
+    // The page face must be out of the way, not stacked above the settings:
+    // that was the "two scrollbars" bug in a different shape.
+    expect(screen.getByText('当前页面')).not.toBeVisible();
+  });
+
   it('offers a refresh when the page has no content script yet', async () => {
     // The page was already open when the extension was installed, so the
     // content script never ran in it. The popup could only tell the user to
@@ -534,6 +555,7 @@ describe('PopupApp', () => {
 
     render(<PopupApp />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '设置' }));
     const button = await screen.findByRole('button', { name: '忽略缓存重翻' });
     expect(button).toBeDisabled();
     expect(screen.getByText('翻译进行中，完成后可重翻')).toBeInTheDocument();
@@ -563,6 +585,7 @@ describe('PopupApp', () => {
 
     render(<PopupApp />);
 
+    await userEvent.click(await screen.findByRole('tab', { name: '设置' }));
     await userEvent.click(
       await screen.findByRole('button', { name: '忽略缓存重翻' })
     );
@@ -737,7 +760,7 @@ describe('PopupApp', () => {
 
   it('lists the keyboard shortcuts where they can be seen', async () => {
     // 四个快捷键在 manifest 里注册了，界面上一个字都没有。折叠起来等于
-    // 没有——所以这一块常驻显示。
+    // 没有——所以这一块在「设置」视图里常驻显示。
     tabsMock.sendMessage.mockImplementation(
       (_tabId: number, msg: { type: string }) => {
         if (msg.type === 'GET_STATE') {
@@ -748,6 +771,8 @@ describe('PopupApp', () => {
     );
 
     render(<PopupApp />);
+
+    await userEvent.click(await screen.findByRole('tab', { name: '设置' }));
 
     // The block advertises the defaults, not the user's own bindings —
     // Chrome lets them rebind every command.

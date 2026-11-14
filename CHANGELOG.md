@@ -21,9 +21,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `#1F4FA8` reserved for structure and explanatory notes. Zero radius, no
   gradients, no soft shadows; 1px rules divide rows and columns, serif
   numerals carry counts and cost.
-  - Popup: 360px paper slip, a three-column count row (可翻译 / 缓存命中 /
-    本页估算), one ink primary action, vermilion left rules for cost warnings
-    and failures.
+  - Popup: 360px paper slip with two faces — 本页 and 设置 — under a fixed
+    header, tab bar and footer. Each face has its own scroll area, and the
+    body is a fixed 360×600 frame, so there is exactly one scrollbar on
+    screen and neither face is a 1080px strip. 本页 keeps the count row
+    (可翻译 / 缓存命中 / 计费张数), the fee note, one ink primary action, the
+    auto-translate warning and a bottom usage line; 设置 holds the enable
+    switch, reading settings, provider, destructive actions and shortcuts.
   - Settings: a sticky 01–04 index on the left, row-based forms instead of
     card stacks, provider presets as one table with a vermilion ✓, and a
     52px serif monthly-cost number.

@@ -182,6 +182,24 @@ describe('焦点指示器', () => {
   });
 });
 
+describe('popup frame', () => {
+  it('is a fixed 360x600 frame that does not scroll', () => {
+    const block = cssBlock(css, '.popup-body');
+    expect(cssDeclaration(block, 'width')).toBe('360px');
+    expect(cssDeclaration(block, 'height')).toBe('600px');
+    expect(cssDeclaration(block, 'overflow')).toBe('hidden');
+  });
+
+  it('gives the scroll to one inner panel only', () => {
+    // The popup used to have a max-height on the React root and a body that
+    // grew past the browser's cap: two vertical scrollbars, neither able to
+    // show a whole section. The frame clips; .proof-scroll moves.
+    const block = cssBlock(css, '.proof-scroll');
+    expect(cssDeclaration(block, 'scrollbar-width')).toBe('thin');
+    expect(css).toContain('.proof-scroll::-webkit-scrollbar');
+  });
+});
+
 describe('减少动态效果', () => {
   const body = mediaBlock('(prefers-reduced-motion: reduce)');
 
