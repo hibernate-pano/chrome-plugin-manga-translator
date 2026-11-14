@@ -37,37 +37,57 @@ export class ReadingAnchors {
     this.shadow.innerHTML = `
 <style>
   :host { all: initial; }
+  /* A proof-sheet mark on the artwork: a square of paper with an ink frame
+     and a serif numeral. No rounding, no soft shadow — the one depth cue is
+     a hard offset, the same as the reading panel's. */
   .badge {
     position: absolute;
     transform: translate(-50%, -50%);
-    width: 24px;
-    height: 24px;
-    border-radius: 999px;
-    background: #22d3ee;
-    color: #0f172a;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border-radius: 0;
+    background: #E9E9E2;
+    color: #161616;
+    border: 1px solid #161616;
+    font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
     font-size: 12px;
-    font-weight: 700;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums lining-nums;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+    box-shadow: 2px 2px 0 rgba(22, 22, 22, 0.85);
     pointer-events: auto;
     cursor: pointer;
-    border: 2px solid rgba(255, 255, 255, 0.9);
-    transition: transform 0.15s, background 0.15s;
+    transition: background-color 0.12s, color 0.12s;
     user-select: none;
   }
-  .badge:hover {
-    transform: translate(-50%, -50%) scale(1.15);
-    background: #67e8f9;
+  /* Hover and press invert to ink, the same rule the panel's controls use. */
+  .badge:hover,
+  .badge:active {
+    background: #161616;
+    color: #E9E9E2;
+    box-shadow: 2px 2px 0 rgba(22, 22, 22, 0.35);
+  }
+  /* The badge is 22px of paper on the artwork, but a finger needs 44px.
+     The ::after pseudo-element widens the button's hit area without
+     painting anything. */
+  .badge::after {
+    content: '';
+    position: absolute;
+    inset: -11px;
   }
   .badge:focus-visible {
-    /* The same cyan the extension pages use for focus rings. The content
-       script lives in the host page's DOM, so it cannot read the extension's
-       CSS variables — the colour has to be spelled out here. */
-    outline: 2px solid #22d3ee;
+    /* The content script lives in the host page's DOM, so it cannot read the
+       extension's CSS variables — the vermilion has to be spelled out here.
+       It is a ring, never text: vermilion on paper is 3.9:1. */
+    outline: 2px solid #D33A2C;
     outline-offset: 2px;
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .badge { transition: none; }
   }
 </style>
 <div id="container"></div>

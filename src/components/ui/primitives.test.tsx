@@ -49,9 +49,15 @@ function tokenColor(token: string): Rgb | null {
   if (!variable) {
     return null;
   }
-  const { h, s, l } = parseHslTriple(
-    cssDeclaration(cssBlock(appCss, ':root'), variable[1] ?? '')
-  );
+  const root = cssBlock(appCss, ':root');
+  let raw = cssDeclaration(root, variable[1] ?? '');
+  // `--primary: var(--vermilion)` is one level of indirection; follow it so
+  // the test reads the colour the browser actually paints.
+  const alias = /^var\((--[a-z-]+)\)$/.exec(raw);
+  if (alias) {
+    raw = cssDeclaration(root, alias[1] ?? '');
+  }
+  const { h, s, l } = parseHslTriple(raw);
   return hslToRgb(h, s, l);
 }
 
@@ -482,21 +488,23 @@ describe('焦点环的粗细', () => {
 
 // The switch used to be painted white: `--primary` was white, so the
 // checked track and the slider's filled range were white in a product
-// whose accent is cyan. The colour is now read through the chain that
-// decides it — Tailwind token -> CSS variable -> rgb — so a white switch
-// cannot come back unnoticed.
+// with a real accent. The colour is read through the chain that decides
+// it — Tailwind token -> CSS variable -> rgb — so a wrong accent cannot
+// come back unnoticed. The 校正紙 accent is the vermilion correction pen
+// #D33A2C; the switch expresses state as ink/vermilion, the slider fills
+// vermilion over an ink track.
 describe('控件的选中态用产品的主色', () => {
-  it('主色是 cyan-400，不是白色', () => {
-    expect(tokenColor('primary')).toEqual([34, 211, 238]);
+  it('主色是朱红，不是白色', () => {
+    expect(tokenColor('primary')).toEqual([211, 58, 44]);
   });
 
-  it('开关打开时是主色', () => {
+  it('开关打开时是墨底朱红钮', () => {
     render(
       <Switch checked onCheckedChange={() => undefined} aria-label='缓存' />
     );
 
     const control = screen.getByRole('switch', { name: '缓存' });
-    expect(control.className).toContain('data-[state=checked]:bg-primary');
+    expect(control.className).toContain('data-[state=checked]:bg-ink');
     expect(control.className).not.toContain('bg-white');
   });
 
@@ -513,10 +521,10 @@ describe('控件的选中态用产品的主色', () => {
     );
 
     // The filled range is painted with the primary colour; the empty
-    // track is the same colour at 20%.
-    const range = document.querySelector('.bg-primary');
+    // track is ink at 15%.
+    const range = document.querySelector('.bg-vermilion');
     expect(range).not.toBeNull();
-    const track = document.querySelector('.bg-primary\\/20');
+    const track = document.querySelector('.bg-ink\\/15');
     expect(track).not.toBeNull();
   });
 });

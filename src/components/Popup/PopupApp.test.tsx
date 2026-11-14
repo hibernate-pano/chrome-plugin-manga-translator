@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ContentState } from '@/shared/runtime-contracts';
-import { contrastRatio, surfaceColor, type Rgb } from '@/test/contrast';
+import { contrastRatio, type Rgb } from '@/test/contrast';
 
 import PopupApp from './PopupApp';
 
@@ -83,47 +83,40 @@ function latestStateUpdateListener():
     | undefined;
 }
 
-/** The popup's own background. */
-const SLATE_950: Rgb = [2, 6, 23];
-/** The disabled primary button's fill. */
-const SLATE_800: Rgb = [30, 41, 59];
+/** 校正纸的底色：#E9E9E2。 */
+const PAPER: Rgb = [233, 233, 226];
+/** 主按钮禁用时的墨色描边和字色都落在纸面上。 */
+const INK_MUTED: Rgb = [85, 85, 79];
 
 /**
- * The Tailwind shades the popup uses, as the colours they paint.
+ * The Tailwind tokens the popup uses, as the colours they paint.
  *
  * A test that pins a class name only catches the exact string somebody
  * edited. A test that computes the contrast ratio catches the thing the
- * class name stands for — and it fails when the shade is swapped for a
- * darker one, which is how the number got low in the first place.
+ * class name stands for — and it fails when the token is swapped for a
+ * lighter one, which is how the number got low in the first place.
+ *
+ * The popup is a proof sheet: cool paper, ink, and one muted ink for
+ * metadata. No translucent fills — every figure is read against the paper
+ * itself.
  */
 const SHADES: Record<string, Rgb> = {
-  'text-slate-300': [203, 213, 225],
-  'text-slate-400': [148, 163, 184],
-  'text-slate-500': [100, 116, 139],
-  'text-slate-600': [71, 85, 105],
-  'disabled:text-slate-400': [148, 163, 184],
-  'disabled:text-slate-500': [100, 116, 139],
-  'border-slate-500': [100, 116, 139],
-  'border-slate-600': [71, 85, 105],
+  'text-ink': [22, 22, 22],
+  'text-ink-muted': INK_MUTED,
+  'disabled:text-ink-muted': INK_MUTED,
+  'border-rule': [133, 133, 122],
 };
 
 /**
- * The colour an element paints in one of `classes`, on `backdrop`.
+ * The colour an element paints in one of `classes`.
  *
  * The first class the element actually carries wins, so the list is ordered
  * from the most specific to the least.
  */
-function paintedColor(
-  element: Element,
-  classes: string[],
-  backdrop: Rgb
-): Rgb | undefined {
+function paintedColor(element: Element, classes: string[]): Rgb | undefined {
   for (const name of classes) {
     if (!element.classList.contains(name)) {
       continue;
-    }
-    if (name === 'border-white/20') {
-      return surfaceColor('rgba(255, 255, 255, 0.2)', backdrop);
     }
     const solid = SHADES[name];
     if (solid) {
@@ -676,56 +669,35 @@ describe('PopupApp', () => {
 
     const { container } = render(<PopupApp />);
 
-    // 1. 价格那一行落在卡片的填充色上。
+    // 1. 价格那一行写在纸面上，左边一条朱红规则线说"这一页会花钱"。
     const hint = await screen.findByText(/12 张可翻译图片/);
-    const cardFill = surfaceColor('rgba(255, 255, 255, 0.08)', SLATE_950);
-    const hintColor = paintedColor(
-      hint,
-      ['text-slate-300', 'text-slate-400', 'text-slate-500'],
-      cardFill
-    );
+    const hintColor = paintedColor(hint, ['text-ink', 'text-ink-muted']);
     expect(hintColor).toBeDefined();
-    expect(contrastRatio(hintColor as Rgb, cardFill)).toBeGreaterThanOrEqual(
-      4.5
-    );
+    expect(contrastRatio(hintColor as Rgb, PAPER)).toBeGreaterThanOrEqual(4.5);
 
     // 1b. 「一张图可能变成多次请求」那句被调成了注解，字号更小、颜色更浅。
     // 小字对对比度的要求一点不低 —— 它现在更淡，就更要算一遍。
     const caveat = await screen.findByText(/一张图可能变成多次请求/);
-    const caveatColor = paintedColor(
-      caveat,
-      ['text-slate-400', 'text-slate-500'],
-      cardFill
-    );
+    const caveatColor = paintedColor(caveat, ['text-ink-muted', 'text-ink']);
     expect(caveatColor).toBeDefined();
-    expect(contrastRatio(caveatColor as Rgb, cardFill)).toBeGreaterThanOrEqual(
+    expect(contrastRatio(caveatColor as Rgb, PAPER)).toBeGreaterThanOrEqual(
       4.5
     );
 
-    // 2. 主按钮禁用时的字色，落在它自己的灰色底上。
+    // 2. 主按钮禁用时换成纸底、墨色描边和淡墨字 —— 字必须还读得清。
     const button = screen.getByRole('button', { name: '翻译当前页面' });
-    const disabledColor = paintedColor(
-      button,
-      ['disabled:text-slate-400', 'disabled:text-slate-500'],
-      SLATE_800
-    );
+    const disabledColor = paintedColor(button, ['disabled:text-ink-muted']);
     expect(disabledColor).toBeDefined();
-    expect(
-      contrastRatio(disabledColor as Rgb, SLATE_800)
-    ).toBeGreaterThanOrEqual(4.5);
+    expect(contrastRatio(disabledColor as Rgb, PAPER)).toBeGreaterThanOrEqual(
+      4.5
+    );
 
-    // 3. 下拉框的边框：WCAG 1.4.11 要 3:1。
+    // 3. 下拉框的边框：WCAG 1.4.11 要 3:1。rule 令牌正是为这条边界设的。
     const select = container.querySelector('select');
     expect(select).not.toBeNull();
-    const borderColor = paintedColor(
-      select as Element,
-      ['border-slate-500', 'border-slate-600', 'border-white/20'],
-      SLATE_950
-    );
+    const borderColor = paintedColor(select as Element, ['border-rule']);
     expect(borderColor).toBeDefined();
-    expect(contrastRatio(borderColor as Rgb, SLATE_950)).toBeGreaterThanOrEqual(
-      3
-    );
+    expect(contrastRatio(borderColor as Rgb, PAPER)).toBeGreaterThanOrEqual(3);
   });
 
   it('does not tell a local provider that its calls cost money', async () => {

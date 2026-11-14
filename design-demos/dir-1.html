@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>方向 A · 校正紙 · 设计板</title>
+<style>
+  :root{
+    --paper:#E9E9E2; --ink:#161616; --red:#D33A2C; --blue:#1F4FA8;
+    --ink72:rgba(22,22,22,.75); --ink50:rgba(22,22,22,.62); --ink12:rgba(22,22,22,.12);
+    --sans:-apple-system,"PingFang SC","Hiragino Sans GB","Noto Sans SC",sans-serif;
+    --serif:"Songti SC","Noto Serif SC",Georgia,serif;
+    --mono:"SF Mono",Menlo,monospace;
+  }
+  *{margin:0;padding:0;box-sizing:border-box;border-radius:0!important;box-shadow:none!important}
+  html,body{background:var(--paper)}
+  body{font-family:var(--sans);color:var(--ink);width:1440px;height:1100px;overflow:hidden;position:relative}
+  button{font-family:var(--sans);cursor:pointer;background:none;border:none;color:inherit;font-size:inherit}
+  button:focus-visible,input:focus-visible,summary:focus-visible,a:focus-visible{outline:2px solid var(--red);outline-offset:2px}
+  .mono{font-family:var(--mono)}
+
+  /* ---------- 裁切角线 ---------- */
+  .crop{position:absolute;width:18px;height:18px;pointer-events:none}
+  .crop.tl{left:12px;top:12px;border-left:1px solid var(--ink);border-top:1px solid var(--ink)}
+  .crop.tr{right:12px;top:12px;border-right:1px solid var(--ink);border-top:1px solid var(--ink)}
+  .crop.bl{left:12px;bottom:12px;border-left:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+  .crop.br{right:12px;bottom:12px;border-right:1px solid var(--ink);border-bottom:1px solid var(--ink)}
+
+  /* ---------- 页眉 ---------- */
+  header{position:absolute;left:0;top:0;width:1440px;height:112px;border-bottom:1px solid var(--ink);padding:0 40px}
+  .hd-row{display:flex;align-items:center;height:64px;gap:22px}
+  .hd-no{font-family:var(--serif);font-size:56px;font-weight:700;line-height:1;letter-spacing:2px}
+  .hd-vr{width:1px;height:48px;background:var(--ink)}
+  .hd-name{font-size:26px;font-weight:700;letter-spacing:6px}
+  .hd-src{font-size:13px;color:var(--ink72);margin-top:3px}
+  .hd-thesis{font-size:14px;color:var(--ink);margin-top:2px}
+  .hd-spacer{flex:1}
+  .swatches{display:flex;gap:14px}
+  .sw{width:64px}
+  .sw i{display:block;width:100%;height:18px;border:1px solid var(--ink)}
+  .sw b{display:block;font-size:12px;font-weight:400;color:var(--ink72);margin-top:4px;font-family:var(--sans)}
+  .hd-row2{display:flex;align-items:center;height:47px;border-top:1px solid var(--ink12);gap:16px}
+  .hd-form{font-size:14px;color:var(--blue)}
+  .hd-meta{margin-left:auto;font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink72)}
+
+  /* ---------- 校正条（弹窗） ---------- */
+  .peek{position:absolute;left:22px;top:104px;width:132px;height:176px;object-fit:cover;object-position:50% 16%}
+  .slip{position:absolute;left:40px;top:128px;width:360px;height:640px;background:var(--paper);border:1px solid var(--ink);
+        clip-path:polygon(0 0,calc(100% - 24px) 0,100% 24px,100% 100%,0 100%);padding:18px 20px;display:flex;flex-direction:column}
+  .slip-head{display:flex;align-items:baseline;justify-content:space-between}
+  .slip-title{font-size:16px;font-weight:700;letter-spacing:2px}
+  .slip-meta{font-size:12px;color:var(--ink50)}
+  .slip-rule{height:2px;background:var(--red);margin:10px 0 14px}
+  .pg-label{font-size:15px;font-weight:700}
+  .pg-sub{font-size:13px;color:var(--ink72);margin-top:3px}
+  .counts{display:flex;border-top:1px solid var(--ink);border-bottom:1px solid var(--ink);margin-top:12px}
+  .counts>div{flex:1;padding:10px 4px 12px;text-align:center}
+  .counts>div+div{border-left:1px solid var(--ink12)}
+  .counts .lb{font-size:12px;color:var(--ink72)}
+  .counts .vl{font-family:var(--serif);font-size:22px;font-weight:700;margin-top:4px}
+  .anno{position:relative;height:52px;margin-top:16px}
+  .anno-txt{position:absolute;left:2px;top:8px;font-family:var(--serif);font-style:italic;font-weight:700;font-size:20px;color:var(--red);transform:rotate(-2deg)}
+  .anno svg{position:absolute;left:118px;top:2px;overflow:visible}
+  .primaryWrap{position:relative}
+  .btn-primary{display:block;width:100%;height:52px;background:var(--ink);color:var(--paper);font-size:16px;font-weight:700;letter-spacing:4px;transition:background .15s}
+  .btn-primary:hover{background:var(--red)}
+  .btn-primary.off{opacity:.35;pointer-events:none}
+  .ring{position:absolute;left:-6px;top:-9px;width:372px;height:74px;pointer-events:none;overflow:visible}
+  .note-blue{font-size:13px;color:var(--blue);margin-top:10px}
+  .switchRow{display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--ink12);margin-top:12px;padding-top:8px;height:52px}
+  .switchRow .lb{font-size:14px;font-weight:700}
+  .switch{width:44px;height:44px;display:flex;align-items:center;justify-content:center;padding:0}
+  .switch .track{width:40px;height:20px;border:1px solid var(--ink);position:relative;transition:background .15s}
+  .switch .knob{position:absolute;left:2px;top:2px;width:16px;height:14px;background:var(--ink);transition:left .15s,background .15s}
+  .switch.on .track{background:var(--ink)}
+  .switch.on .knob{left:20px;background:var(--red)}
+  .btn-ghost{display:block;width:100%;height:44px;border:1px solid var(--ink);font-size:14px;letter-spacing:2px;margin-top:8px;transition:background .15s,color .15s}
+  .btn-ghost:hover{background:var(--ink);color:var(--paper)}
+  .slip-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;border-top:1px solid var(--ink12);padding-top:6px;height:46px}
+  .link-settings{font-size:14px;font-weight:700;letter-spacing:1px;text-decoration:underline;text-underline-offset:4px;height:34px}
+  .link-settings:hover{color:var(--red)}
+  .slip-ver{font-size:12px;color:var(--ink50)}
+
+  /* ---------- 设置页 ---------- */
+  .opts{position:absolute;left:424px;top:128px;width:916px;height:640px;background:var(--paper);border:1px solid var(--ink);display:flex;flex-direction:column}
+  .opts-top{height:48px;border-bottom:1px solid var(--ink);display:flex;align-items:center;padding:0 20px;gap:12px}
+  .opts-top b{font-size:16px;letter-spacing:2px}
+  .opts-top .crumb{font-size:13px;color:var(--ink72)}
+  .opts-top .right{margin-left:auto;font-size:12px;color:var(--ink50)}
+  .opts-body{flex:1;display:flex;min-height:0}
+  .rail{width:190px;border-right:1px solid var(--ink);display:flex;flex-direction:column}
+  .rail button{display:flex;align-items:center;gap:10px;height:56px;padding:0 16px;text-align:left;border-bottom:1px solid var(--ink12);border-left:2px solid transparent;transition:background .15s}
+  .rail button:hover{background:rgba(22,22,22,.05)}
+  .rail .no{font-size:19px;font-weight:700;font-family:var(--serif);color:var(--ink50);width:30px}
+  .rail .rl{font-size:15px}
+  .rail button.current{border-left-color:var(--red);background:rgba(22,22,22,.05)}
+  .rail button.current .no{color:var(--red)}
+  .rail .fill{flex:1;border-top:1px solid var(--ink12)}
+  .rail .rail-note{padding:12px 16px;font-size:12px;color:var(--ink72);line-height:1.6}
+  .main{flex:1;padding:12px 24px;overflow:hidden}
+  .panel{display:none}
+  .panel.show{display:block}
+  .sec-head{display:flex;align-items:baseline;gap:12px;border-bottom:1px solid var(--ink);padding-bottom:8px}
+  .sec-head b{font-size:15px;letter-spacing:1px}
+  .sec-head span{font-size:13px;color:var(--ink72)}
+  .presets{border:1px solid var(--ink);margin-top:8px}
+  .prow{display:flex;align-items:center;height:38px;padding:0 12px;font-size:14px;border-bottom:1px solid var(--ink12);width:100%;text-align:left;transition:background .15s;gap:16px}
+  .prow:last-child{border-bottom:none}
+  .prow:hover{background:rgba(22,22,22,.05)}
+  .prow .cname{width:104px;font-weight:700;flex:none}
+  .prow .ck{width:22px;color:var(--red);font-weight:700;font-size:16px;visibility:hidden;flex:none}
+  .prow .curl{flex:1.3;color:var(--ink72);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .prow .cmodel{flex:0 0 200px;color:var(--ink72);font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-align:right}
+  .prow.current{background:rgba(22,22,22,.06)}
+  .prow.current .ck{visibility:visible}
+  .prow.current .cname{font-weight:700}
+  .frow{display:flex;align-items:center;gap:12px;margin-top:10px}
+  .frow .fl{width:88px;font-size:13px;color:var(--ink72);flex:none}
+  .frow input[type=text],.frow input[type=password]{flex:1;height:40px;border:1px solid var(--ink);background:transparent;padding:0 10px;font-size:14px;color:var(--ink);font-family:var(--sans)}
+  .frow input.mono{font-family:var(--mono);font-size:13px}
+  .keybtn{height:40px;border:1px solid var(--ink);padding:0 14px;font-size:13px;letter-spacing:1px;transition:background .15s,color .15s}
+  .keybtn:hover{background:var(--ink);color:var(--paper)}
+  .testrow{display:flex;align-items:center;gap:14px;margin-top:12px}
+  .btn-test{height:44px;border:1px solid var(--ink);padding:0 22px;font-size:14px;font-weight:700;letter-spacing:2px;transition:background .15s,color .15s}
+  .btn-test:hover{background:var(--ink);color:var(--paper)}
+  .test-result{font-size:13px;color:var(--ink72)}
+  .test-note{font-size:14px;color:var(--ink72);margin-top:8px}
+  .costrow{display:flex;align-items:center;border-top:1px solid var(--ink);margin-top:12px;padding-top:10px}
+  .costrow .cl{flex:1}
+  .costrow .cl b{font-size:15px}
+  .costrow .cl p{font-size:14px;color:var(--ink72);margin-top:4px;max-width:460px;line-height:1.6}
+  .cost-num{font-family:var(--serif);font-size:54px;font-weight:700;line-height:1}
+  .cost-unit{font-size:12px;color:var(--ink72);margin-left:8px}
+  details{margin-top:12px;border-top:1px solid var(--ink12)}
+  summary{height:40px;display:flex;align-items:center;font-size:13px;font-weight:700;letter-spacing:1px;cursor:pointer;list-style:none}
+  summary::-webkit-details-marker{display:none}
+  summary:before{content:"＋";margin-right:8px;color:var(--blue);font-weight:400}
+  details[open] summary:before{content:"－"}
+  details p{font-size:14px;color:var(--ink72);line-height:1.7;padding-bottom:10px;max-width:600px}
+  .opt-rows .orow{display:flex;align-items:center;height:56px;border-bottom:1px solid var(--ink12)}
+  .opt-rows .orow .ol{width:150px;font-size:14px;font-weight:700;flex:none}
+  .opt-rows .orow .ov{flex:1;font-size:14px;color:var(--ink72)}
+  .opt-rows .orow .ov b{color:var(--ink);font-weight:400}
+  .usage-num{font-family:var(--serif);font-size:26px;font-weight:700;margin-left:10px}
+  .privacy-note{font-size:14px;color:var(--ink72);line-height:1.7;margin-top:10px;max-width:600px}
+
+  /* ---------- 底部漫画条 ---------- */
+  .strip{position:absolute;left:40px;top:828px;width:1360px;height:216px;border:1px solid var(--ink);overflow:hidden;
+         background-color:#4a4a46;background-image:url("file:///Users/panbo/Code/Demos/chrome-plugin-manga-translator/store/demo/demo-manga-page-1.png");
+         background-size:cover;background-repeat:no-repeat;background-position:50% 16%}
+  .rpanel{position:absolute;left:14px;top:10px;width:322px;height:196px;background:var(--paper);border:1px solid var(--ink);display:flex;flex-direction:column;overflow:hidden}
+  .rp-head{height:48px;display:flex;align-items:center;justify-content:space-between;padding:0 10px;border-bottom:1px solid var(--ink)}
+  .rp-head b{font-size:14px;letter-spacing:1px}
+  .seg{display:flex;border:1px solid var(--ink);height:38px}
+  .seg button{width:56px;font-size:13px;letter-spacing:1px;transition:background .15s,color .15s}
+  .seg button.current{background:var(--ink);color:var(--paper)}
+  .rp-entries{flex:1;padding:4px 12px;overflow:hidden}
+  .rp-entry{display:flex;gap:10px;align-items:flex-start;padding:6px 0;border-bottom:1px solid var(--ink12)}
+  .rp-entry:last-child{border-bottom:none}
+  .rp-no{width:22px;height:22px;border:1px solid var(--ink);border-radius:50%!important;font-size:12px;display:flex;align-items:center;justify-content:center;flex:none;margin-top:1px;font-weight:700}
+  .rp-entry .trans{font-size:14px;line-height:1.4}
+  .rp-entry .orig{display:none;font-size:13px;color:var(--blue);line-height:1.4;margin-top:2px}
+  .rpanel[data-mode="orig"] .orig{display:block}
+  .rpanel[data-mode="orig"] .trans{color:var(--ink72)}
+  .hud{position:absolute;left:1036px;top:52px;width:280px;background:var(--paper);border:1px solid var(--ink);padding:10px 14px 12px}
+  .hud-top{display:flex;align-items:baseline;justify-content:space-between}
+  .hud-top b{font-size:15px;letter-spacing:1px}
+  .hud-top span{font-size:12px;color:var(--ink72)}
+  .track{height:3px;background:rgba(22,22,22,.18);margin-top:8px}
+  .fill-red{height:3px;width:60%;background:var(--red)}
+  .btn-cancel{margin-top:10px;width:100%;height:40px;background:var(--red);color:#fff;font-size:14px;font-weight:700;letter-spacing:4px;transition:background .15s}
+  .btn-cancel:hover{background:var(--ink)}
+  .strip-note{position:absolute;left:378px;top:12px;font-size:13px;color:var(--paper);background:var(--ink);padding:4px 10px;letter-spacing:1px}
+
+  /* ---------- 图注与页脚 ---------- */
+  .caption{position:absolute;font-size:12px;color:var(--ink72);letter-spacing:1px}
+  .cap-pop{left:40px;top:776px}
+  .cap-opts{left:424px;top:776px}
+  .cap-strip{left:40px;top:1050px}
+  footer{position:absolute;left:0;top:1078px;width:1440px;height:22px;border-top:1px solid var(--ink12);display:flex;padding:0 40px;align-items:center;font-size:12px;color:var(--ink50)}
+  footer .r{margin-left:auto}
+</style>
+</head>
+<body>
+  <div class="crop tl"></div><div class="crop tr"></div><div class="crop bl"></div><div class="crop br"></div>
+
+  <!-- 页眉 -->
+  <header>
+    <div class="hd-row">
+      <div class="hd-no">02</div>
+      <div class="hd-vr"></div>
+      <div>
+        <div class="hd-name">校正紙</div>
+        <div class="hd-src">借自：祖父江慎的边注与套印 —— 书是被人改过的</div>
+      </div>
+      <div class="hd-thesis">界面是盖在画稿上的校正条：安静、纸感、可信。</div>
+      <div class="hd-spacer"></div>
+      <div class="swatches">
+        <div class="sw"><i style="background:#E9E9E2"></i><b>#E9E9E2 纸</b></div>
+        <div class="sw"><i style="background:#161616"></i><b>#161616 墨</b></div>
+        <div class="sw"><i style="background:#D33A2C"></i><b>#D33A2C 朱</b></div>
+        <div class="sw"><i style="background:#1F4FA8"></i><b>#1F4FA8 蓝</b></div>
+      </div>
+    </div>
+    <div class="hd-row2">
+      <div class="hd-form">form 来自内容的哪里：翻译本身就是在别人的画上做批注——校正纸是这个动作最直接的形态。</div>
+      <div class="hd-meta">proof sheet ／ dir A ／ manga translator ui</div>
+    </div>
+  </header>
+
+  <!-- 画稿一角，校正条压在它上面 -->
+  <img class="peek" src="file:///Users/panbo/Code/Demos/chrome-plugin-manga-translator/store/demo/demo-manga-page-1.png" alt="">
+
+  <!-- 弹窗 · 空闲态 -->
+  <section class="slip" aria-label="弹窗">
+    <div class="slip-head">
+      <div class="slip-title">漫画翻译助手</div>
+      <div class="slip-meta">MiniMax</div>
+    </div>
+    <div class="slip-rule"></div>
+
+    <div>
+      <div class="pg-label">当前页面</div>
+      <div class="pg-sub">demo-manga-page.html ／ 示例页</div>
+    </div>
+
+    <div class="counts">
+      <div><div class="lb">可翻译</div><div class="vl">2 张</div></div>
+      <div><div class="lb">缓存命中</div><div class="vl">0 张</div></div>
+      <div><div class="lb">本页估算</div><div class="vl">0.08 元</div></div>
+    </div>
+
+    <div class="anno">
+      <span class="anno-txt">这一页会花钱</span>
+      <svg width="150" height="46" viewBox="0 0 150 46" fill="none">
+        <path d="M6 6 C 40 26, 78 34, 118 30" stroke="#D33A2C" stroke-width="2" stroke-linecap="round"/>
+        <path d="M110 24 L 122 30 L 112 38" stroke="#D33A2C" stroke-width="2" stroke-linecap="round" fill="none"/>
+      </svg>
+    </div>
+
+    <div class="primaryWrap">
+      <button class="btn-primary" id="primaryBtn">翻译当前页面</button>
+      <svg class="ring" viewBox="0 0 372 74" fill="none">
+        <path d="M18 40 C 10 18, 60 8, 160 6 C 280 4, 358 14, 356 38 C 354 60, 290 70, 180 70 C 70 70, 24 62, 20 46"
+              stroke="#D33A2C" stroke-width="2.5" stroke-linecap="round"/>
+      </svg>
+    </div>
+
+    <div class="note-blue">朱批：重翻会重新计费，清除译文不花钱。</div>
+
+    <div class="switchRow">
+      <span class="lb">启用扩展</span>
+      <button class="switch on" id="extSwitch" aria-label="启用扩展"><span class="track"><span class="knob"></span></span></button>
+    </div>
+
+    <button class="btn-ghost">忽略缓存重翻</button>
+    <button class="btn-ghost">清除本页译文</button>
+    <button class="btn-ghost">显示译文阅读面板</button>
+
+    <div class="slip-foot">
+      <button class="link-settings">打开设置页</button>
+      <span class="slip-ver">数据只保存在本机</span>
+    </div>
+  </section>
+
+  <!-- 设置页 -->
+  <section class="opts" aria-label="设置页">
+    <div class="opts-top">
+      <b>设置</b><span class="crumb">／ 翻译后端</span>
+      <span class="right">漫画翻译助手 · 仅本机数据</span>
+    </div>
+    <div class="opts-body">
+      <nav class="rail">
+        <button class="current" data-rail="01"><span class="no">01</span><span class="rl">翻译后端</span></button>
+        <button data-rail="02"><span class="no">02</span><span class="rl">阅读与语言</span></button>
+        <button data-rail="03"><span class="no">03</span><span class="rl">花费与用量</span></button>
+        <button data-rail="04"><span class="no">04</span><span class="rl">隐私与诊断</span></button>
+        <div class="fill"></div>
+        <div class="rail-note">设置只保存在本机</div>
+      </nav>
+
+      <div class="main">
+        <!-- 01 翻译后端 -->
+        <div class="panel show" data-panel="01">
+          <div class="sec-head"><b>快速选择服务商</b><span>点一下填好地址与模型，Key 仍需自己填</span></div>
+          <div class="presets" id="presets">
+            <button class="prow current" data-url="https://api.minimaxi.com/v1" data-model="MiniMax-M3"><span class="ck">✓</span><span class="cname">MiniMax</span><span class="curl">api.minimaxi.com/v1</span><span class="cmodel">MiniMax-M3</span></button>
+            <button class="prow" data-url="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-VL-72B-Instruct"><span class="ck">✓</span><span class="cname">SiliconFlow</span><span class="curl">api.siliconflow.cn/v1</span><span class="cmodel">Qwen2.5-VL-72B</span></button>
+            <button class="prow" data-url="https://openrouter.ai/api/v1" data-model="qwen/qwen2.5-vl-72b-instruct"><span class="ck">✓</span><span class="cname">OpenRouter</span><span class="curl">openrouter.ai/api/v1</span><span class="cmodel">qwen2.5-vl-72b</span></button>
+            <button class="prow" data-url="https://generativelanguage.googleapis.com/v1beta/openai" data-model="gemini-2.5-flash"><span class="ck">✓</span><span class="cname">Gemini</span><span class="curl">generativelanguage.googleapis.com</span><span class="cmodel">gemini-2.5-flash</span></button>
+            <button class="prow" data-url="https://api.openai.com/v1" data-model="gpt-4o-mini"><span class="ck">✓</span><span class="cname">OpenAI</span><span class="curl">api.openai.com/v1</span><span class="cmodel">gpt-4o-mini</span></button>
+          </div>
+
+          <div class="frow">
+            <span class="fl">Base URL</span>
+            <input class="mono" type="text" id="baseUrl" value="https://api.minimaxi.com/v1">
+          </div>
+          <div class="frow">
+            <span class="fl">模型</span>
+            <input class="mono" type="text" id="model" value="MiniMax-M3">
+          </div>
+          <div class="frow">
+            <span class="fl">API Key</span>
+            <input type="password" id="key" value="sk-demo-000000004f2a" style="font-family:var(--mono);font-size:13px">
+            <button class="keybtn" id="keyBtn">显示</button>
+          </div>
+
+          <div class="testrow">
+            <button class="btn-test">测试配置</button>
+            <span class="test-result">上次测试：成功，218 ms</span>
+          </div>
+          <div class="test-note">测试配置会向服务商发一次请求；本地服务商（Ollama ／ LM Studio）不发网络请求。</div>
+
+          <div class="costrow">
+            <div class="cl">
+              <b>本月估算花费</b>
+              <p>按你填的单价与本月的调用量估算；缓存命中不消耗 Token，也不计入费用。</p>
+            </div>
+            <div style="display:flex;align-items:baseline">
+              <span class="cost-num">1.84</span>
+              <span class="cost-unit">元 ／ 11 月估算</span>
+            </div>
+          </div>
+        </div>
+        <!-- 02 阅读与语言 -->
+
+        <div class="panel" data-panel="02">
+          <div class="sec-head"><b>阅读与语言</b><span>译文怎么摆、翻成什么</span></div>
+          <div class="opt-rows">
+            <div class="orow"><span class="ol">目标语言</span><span class="ov"><b>中文（简体）</b></span></div>
+            <div class="orow"><span class="ol">分辨率</span><span class="ov"><b>高</b>　越准，费用也越高</span></div>
+            <div class="orow"><span class="ol">并发</span><span class="ov"><b>2 张</b>　同时请求的图片数</span></div>
+            <div class="orow"><span class="ol">阅读面板</span><span class="ov"><b>自动打开</b>　按阅读顺序编号</span></div>
+            <div class="orow"><span class="ol">气泡底色</span><span class="ov"><b>半透明黑</b>　盖回原图时用</span></div>
+          </div>
+          <p class="privacy-note">阅读面板按图片在页面里的顺序编号，点编号可以直接跳到那张图；原文以蓝色小字附在译文上方，方便对照。</p>
+        </div>
+
+        <!-- 03 花费与用量 -->
+        <div class="panel" data-panel="03">
+          <div class="sec-head"><b>花费与用量</b><span>仅统计本机记录</span></div>
+          <div class="opt-rows">
+            <div class="orow"><span class="ol">翻译记录</span><span class="ov"><span class="usage-num">12</span>次　本月翻出来的页数</span></div>
+            <div class="orow"><span class="ol">API 调用</span><span class="ov"><span class="usage-num">9</span>次　缓存命中不计入</span></div>
+            <div class="orow"><span class="ol">缓存命中</span><span class="ov"><span class="usage-num">25%</span>　重翻同一页时不重复计费</span></div>
+          </div>
+          <div class="costrow">
+            <div class="cl"><b>本月估算花费</b><p>本地服务商（Ollama ／ LM Studio）的调用计入次数，但不产生费用。</p></div>
+            <div style="display:flex;align-items:baseline"><span class="cost-num">1.84</span><span class="cost-unit">元 ／ 11 月估算</span></div>
+          </div>
+          <details>
+            <summary>单价从哪里来？</summary>
+            <p>扩展不内置价格表。单价由你自己从服务商的定价页抄进来，估算只在本机用这两个数算出，不会上传任何记录。</p>
+          </details>
+        </div>
+
+        <!-- 04 隐私与诊断 -->
+        <div class="panel" data-panel="04">
+          <div class="sec-head"><b>隐私与诊断</b><span>没有账号，没有遥测</span></div>
+          <div class="opt-rows">
+            <div class="orow"><span class="ol">API Key</span><span class="ov"><b>只保存在本机</b>　请求直接发给服务商</span></div>
+            <div class="orow"><span class="ol">翻译记录</span><span class="ov"><b>本机存储</b>　可随时清除</span></div>
+          </div>
+          <div class="testrow"><button class="btn-test">导出诊断信息</button><span class="test-result">排查失败原因时发给开发者</span></div>
+          <p class="privacy-note">诊断包只包含配置形态与最近几次失败的原因，不含 Key，也不含页面图片。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 底部：真实漫画裁切上的 HUD 与阅读面板 -->
+  <section class="strip" aria-label="漫画页上的悬浮层">
+    <div class="rpanel" data-mode="trans" id="rpanel">
+      <div class="rp-head">
+        <b>译文阅读面板</b>
+        <div class="seg">
+          <button data-seg="orig">原文</button>
+          <button class="current" data-seg="trans">译文</button>
+        </div>
+      </div>
+      <div class="rp-entries">
+        <div class="rp-entry"><span class="rp-no">1</span><div><div class="trans">又迟到了吗……</div><div class="orig">また遅刻したのか……</div></div></div>
+        <div class="rp-entry"><span class="rp-no">2</span><div><div class="trans">我先走了</div><div class="orig">先に行くぞ</div></div></div>
+        <div class="rp-entry"><span class="rp-no">3</span><div><div class="trans">前方禁止入内</div><div class="orig">この先立ち入り禁止</div></div></div>
+      </div>
+    </div>
+
+    <div class="strip-note">HUD 与面板盖在画稿上，随时可关</div>
+
+    <div class="hud">
+      <div class="hud-top"><b>正在翻译 3 / 5</b><span>预计剩余约 40 秒</span></div>
+      <div class="track"><div class="fill-red"></div></div>
+      <button class="btn-cancel">取消</button>
+    </div>
+  </section>
+
+  <div class="caption cap-pop">弹窗 · 空闲态 · 360 × 600，左缘压在画稿上</div>
+  <div class="caption cap-opts">设置页 · 分区 01 翻译后端 · 左栏编号即目录</div>
+  <div class="caption cap-strip">底部 · 画稿上的 HUD（运行态）与阅读面板（对照态）</div>
+
+  <footer>
+    <span>校正紙 · 方向 A · 板 1440 × 1100 · 系统黑体 ／ Songti SC</span>
+    <span class="r">四色 ／ 无渐变 ／ 无圆角 ／ 无阴影</span>
+  </footer>
+
+<script>
+(function(){
+  // 设置页左栏：分区切换
+  var rails=document.querySelectorAll('[data-rail]');
+  rails.forEach(function(b){
+    b.addEventListener('click',function(){
+      rails.forEach(function(x){x.classList.toggle('current',x===b);});
+      document.querySelectorAll('[data-panel]').forEach(function(p){
+        p.classList.toggle('show',p.getAttribute('data-panel')===b.getAttribute('data-rail'));
+      });
+      var crumb=document.querySelector('.opts-top .crumb');
+      if(crumb)crumb.textContent='／ '+b.querySelector('.rl').textContent;
+    });
+  });
+
+  // 服务商预设：点一行，填地址与模型
+  var rows=document.querySelectorAll('.prow');
+  rows.forEach(function(r){
+    r.addEventListener('click',function(){
+      rows.forEach(function(x){x.classList.toggle('current',x===r);});
+      var u=document.getElementById('baseUrl'),m=document.getElementById('model');
+      if(u)u.value=r.getAttribute('data-url');
+      if(m)m.value=r.getAttribute('data-model');
+    });
+  });
+
+  // API Key 显示与隐藏
+  var kb=document.getElementById('keyBtn'),ki=document.getElementById('key');
+  if(kb&&ki){
+    kb.addEventListener('click',function(){
+      var show=ki.type==='password';
+      ki.type=show?'text':'password';
+      kb.textContent=show?'隐藏':'显示';
+    });
+  }
+
+  // 开关
+  var ext=document.getElementById('extSwitch'),pb=document.getElementById('primaryBtn');
+  if(ext){
+    ext.addEventListener('click',function(){
+      ext.classList.toggle('on');
+      if(pb)pb.classList.toggle('off',!ext.classList.contains('on'));
+    });
+  }
+
+  // 阅读面板：原文／译文对照
+  var rp=document.getElementById('rpanel');
+  if(rp){
+    var segs=rp.querySelectorAll('[data-seg]');
+    segs.forEach(function(s){
+      s.addEventListener('click',function(){
+        segs.forEach(function(x){x.classList.toggle('current',x===s);});
+        rp.setAttribute('data-mode',s.getAttribute('data-seg'));
+      });
+    });
+  }
+})();
+</script>
+</body>
+</html>

@@ -49,9 +49,27 @@ function productAccent(): Rgb {
     path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../index.css'),
     'utf8'
   );
-  const { h, s, l } = parseHslTriple(
-    cssDeclaration(cssBlock(css, ':root'), '--primary')
-  );
+  const root = cssBlock(css, ':root');
+  /*
+   * Resolve one level of token indirection.
+   *
+   * `--primary` is `var(--vermilion)`, so reading the triple straight out of
+   * the declaration hands `parseHslTriple` the word "var" and the comparison
+   * collapses to NaN — which would pass against anything. Follow the
+   * reference until it lands on a literal `H S% L%` triple.
+   */
+  let value = cssDeclaration(root, '--primary');
+  const visited = new Set<string>();
+  for (;;) {
+    const reference = /^var\(\s*(--[\w-]+)\s*\)$/.exec(value.trim());
+    const name = reference?.[1];
+    if (!name || visited.has(name)) {
+      break;
+    }
+    visited.add(name);
+    value = cssDeclaration(root, name);
+  }
+  const { h, s, l } = parseHslTriple(value);
   return hslToRgb(h, s, l);
 }
 

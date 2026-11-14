@@ -1,0 +1,930 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1440">
+<title>分镜黑 / 漫画翻译助手 UI</title>
+<style>
+  :root{
+    --ink:#0B0B0B;
+    --paper:#F2F0EA;
+    --red:#FF3B1F;
+    --p62:rgba(242,240,234,.62);
+    --p25:rgba(242,240,234,.25);
+    --p15:rgba(242,240,234,.15);
+    --k70:rgba(11,11,11,.70);
+    --k58:rgba(11,11,11,.58);
+    --k25:rgba(11,11,11,.25);
+    --k12:rgba(11,11,11,.12);
+    --sans:-apple-system,BlinkMacSystemFont,"Helvetica Neue","PingFang SC","Hiragino Sans GB","Noto Sans SC",sans-serif;
+    --mono:"SF Mono",Menlo,"PingFang SC",monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    width:1440px;height:1100px;overflow:hidden;
+    background:var(--ink);color:var(--paper);
+    font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;
+  }
+  button{font-family:inherit;color:inherit;background:none;border:0;padding:0;cursor:pointer;}
+  button:focus-visible,a:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{
+    outline:2px solid var(--red);outline-offset:2px;
+  }
+  .mono{font-family:var(--mono);font-size:12px;letter-spacing:.02em;}
+  .board{position:relative;width:1440px;height:1100px;overflow:hidden;}
+
+  /* ---------- 板头 ---------- */
+  .head{position:absolute;left:40px;top:16px;width:1360px;display:flex;justify-content:space-between;gap:56px;}
+  .head-left{width:720px;}
+  .kicker{margin:0 0 4px;color:var(--p62);display:flex;gap:8px;align-items:baseline;}
+  .kicker .sep{color:var(--p25);}
+  .head h1{margin:0;font-size:46px;line-height:50px;letter-spacing:-.035em;font-weight:700;}
+  .thesis{margin:4px 0 0;font-size:15px;line-height:20px;color:rgba(242,240,234,.82);}
+  .head-side{width:560px;padding-top:2px;}
+  .swatches{display:flex;gap:20px;margin:0;padding:0;list-style:none;}
+  .swatches li{display:flex;align-items:center;gap:8px;}
+  .chip{display:block;width:34px;height:22px;border:1px solid var(--p25);}
+  .sw-name{font-size:12px;color:var(--p62);}
+  .sw-hex{font-family:var(--mono);font-size:12px;color:rgba(242,240,234,.78);}
+  .form-line{margin:12px 0 0;font-size:14px;line-height:20px;color:var(--p62);}
+  .form-line b{color:var(--paper);font-weight:600;}
+
+  /* ---------- 弹窗 360x640 ---------- */
+  .popup{
+    position:absolute;left:40px;top:120px;width:360px;height:640px;
+    border:1px solid rgba(242,240,234,.9);
+    background:var(--ink);
+    display:flex;flex-direction:column;gap:8px;
+    overflow:hidden;
+  }
+  .p-lead{
+    position:relative;height:152px;flex:0 0 152px;
+    padding:12px 16px;overflow:hidden;
+  }
+  .p-lead::after{
+    content:"";position:absolute;inset:6px;border:1px solid rgba(242,240,234,.30);
+    pointer-events:none;
+  }
+  .p-lead-meta{position:relative;z-index:3;display:flex;justify-content:space-between;align-items:flex-start;color:var(--p62);}
+  .p-state{display:flex;align-items:center;gap:6px;color:var(--paper);font-family:var(--mono);font-size:12px;}
+  .p-state i{display:block;width:6px;height:6px;background:var(--red);}
+  .p-num{
+    position:absolute;left:12px;bottom:4px;z-index:2;
+    font-size:128px;line-height:.78;font-weight:700;letter-spacing:-.055em;
+    color:var(--paper);font-feature-settings:"tnum";
+  }
+  .p-redbar{
+    position:absolute;z-index:1;right:-58px;bottom:38px;width:286px;height:24px;
+    background:var(--red);transform:rotate(-15deg);
+    clip-path:polygon(0 0,100% 0,94% 100%,6% 100%);
+  }
+  .p-info{flex:0 0 134px;height:134px;padding:12px 16px;display:flex;flex-direction:column;}
+  .p-page{display:flex;justify-content:space-between;align-items:baseline;gap:10px;}
+  .p-page strong{font-size:14px;font-weight:700;letter-spacing:.01em;}
+  .p-page span{font-family:var(--mono);font-size:12px;color:var(--p62);}
+  .p-title{margin:5px 0 0;font-size:20px;line-height:24px;font-weight:600;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .p-facts{display:flex;align-items:flex-end;justify-content:space-between;gap:12px;margin-top:auto;border-top:1px solid var(--p25);padding-top:9px;}
+  .p-facts .count{display:flex;flex-direction:column;gap:2px;}
+  .p-facts .bigline{font-size:17px;line-height:20px;font-weight:600;letter-spacing:-.005em;}
+  .p-facts .smallline{font-family:var(--mono);font-size:12px;line-height:16px;color:var(--p62);}
+  .p-facts .money{text-align:right;}
+  .p-facts .money .k{display:block;font-size:12px;line-height:15px;color:var(--p62);}
+  .p-facts .money .v{display:block;font-size:22px;line-height:24px;font-weight:600;letter-spacing:-.02em;}
+
+  .p-primary{
+    position:relative;flex:0 0 72px;height:72px;
+    display:flex;align-items:center;justify-content:space-between;gap:12px;
+    padding:0 16px 0 22px;background:var(--paper);color:var(--ink);
+    text-align:left;transition:background .12s linear,color .12s linear;
+  }
+  .p-primary::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--red);}
+  .p-primary .big{font-size:26px;line-height:28px;font-weight:700;letter-spacing:-.02em;}
+  .p-primary .small{font-family:var(--mono);font-size:12px;line-height:16px;color:var(--k58);text-align:right;}
+  .p-primary:hover{background:var(--ink);color:var(--paper);}
+  .p-primary:hover .small{color:var(--p62);}
+  .p-primary.is-busy .big{font-size:20px;}
+
+  .p-toggle{
+    flex:0 0 60px;height:60px;display:flex;align-items:center;justify-content:space-between;
+    gap:12px;padding:0 16px;background:var(--paper);color:var(--ink);
+    cursor:pointer;user-select:none;
+  }
+  .p-toggle .txt{display:flex;flex-direction:column;gap:2px;}
+  .p-toggle strong{font-size:15px;line-height:20px;font-weight:700;}
+  .p-toggle em{font-style:normal;font-size:12px;line-height:16px;color:var(--k58);}
+  .p-toggle input{position:absolute;opacity:0;width:1px;height:1px;}
+  .track{
+    position:relative;width:54px;height:28px;flex:0 0 54px;
+    border:2px solid var(--ink);background:transparent;
+  }
+  .knob{position:absolute;left:3px;top:3px;width:18px;height:18px;background:var(--ink);transition:transform .12s linear;}
+  .p-toggle input:checked ~ .track{background:var(--ink);}
+  .p-toggle input:checked ~ .track .knob{transform:translateX(24px);background:var(--paper);}
+  .p-toggle input:focus-visible ~ .track{outline:2px solid var(--red);outline-offset:3px;}
+
+  .p-secondary{flex:0 0 132px;height:132px;display:flex;flex-direction:column;border-top:1px solid var(--p15);}
+  .p-secondary button{
+    flex:1;height:44px;display:flex;align-items:center;justify-content:space-between;
+    gap:10px;padding:0 16px;font-size:14px;color:var(--paper);text-align:left;
+    border-bottom:1px solid var(--p15);transition:background .12s linear,color .12s linear;
+  }
+  .p-secondary button:last-child{border-bottom:0;}
+  .p-secondary button i{display:block;width:6px;height:6px;background:var(--p25);transition:background .12s linear;}
+  .p-secondary button:hover,.p-secondary button.is-on{background:var(--paper);color:var(--ink);}
+  .p-secondary button:hover i,.p-secondary button.is-on i{background:var(--red);}
+  .p-foot{
+    flex:0 0 48px;height:48px;display:flex;align-items:center;justify-content:space-between;
+    padding:0 16px;border-top:1px solid var(--p25);
+  }
+  .p-foot a{
+    display:inline-flex;align-items:center;min-height:44px;font-size:14px;color:var(--paper);
+    text-decoration:none;border-bottom:1px solid var(--p62);
+  }
+  .p-foot a:hover{color:var(--red);border-color:var(--red);}
+  .p-foot span{color:var(--p62);}
+
+  /* ---------- 设置页 960x640 ---------- */
+  .settings{
+    position:absolute;left:440px;top:120px;width:960px;height:640px;
+    border:1px solid rgba(242,240,234,.32);background:var(--ink);
+    display:grid;grid-template-columns:196px 1fr;grid-template-rows:44px 1fr;
+    overflow:hidden;
+  }
+  .s-top{
+    grid-column:1 / span 2;display:flex;align-items:center;justify-content:space-between;
+    padding:0 18px;border-bottom:1px solid var(--p15);
+  }
+  .s-top b{font-size:14px;font-weight:600;letter-spacing:.02em;}
+  .s-top span{color:var(--p62);}
+  .s-rail{border-right:1px solid var(--p15);display:flex;flex-direction:column;min-height:0;}
+  .rail-item{
+    position:relative;height:118px;flex:0 0 118px;display:flex;flex-direction:column;
+    justify-content:center;gap:6px;padding:0 16px 0 20px;
+    border-bottom:1px solid var(--p15);text-align:left;
+    transition:background .12s linear;
+  }
+  .rail-item:hover{background:rgba(242,240,234,.06);}
+  .rail-num{font-family:var(--mono);font-size:32px;line-height:34px;letter-spacing:-.02em;color:rgba(242,240,234,.46);transition:color .12s linear;}
+  .rail-label{font-size:14px;line-height:18px;color:var(--p62);transition:color .12s linear;}
+  .rail-item.is-active .rail-num{color:var(--paper);}
+  .rail-item.is-active .rail-label{color:var(--paper);font-weight:600;}
+  .rail-item.is-active::before{content:"";position:absolute;left:0;top:0;bottom:0;width:6px;background:var(--red);}
+  .s-rail-foot{margin-top:auto;padding:14px 20px 16px;display:flex;align-items:center;gap:8px;color:var(--p62);}
+  .s-rail-foot i{display:block;width:6px;height:6px;background:var(--red);}
+
+  .s-main{min-height:0;padding:16px 24px 16px;overflow:hidden;}
+  .s-panel{height:100%;display:flex;flex-direction:column;min-height:0;overflow:auto;scrollbar-width:thin;}
+  .s-panel[hidden]{display:none;}
+  .s-panel::-webkit-scrollbar{width:6px;}
+  .s-panel::-webkit-scrollbar-thumb{background:var(--p25);}
+  .s-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;}
+  .s-count{display:block;color:var(--p62);line-height:14px;}
+  .s-head h2{margin:4px 0 0;font-size:42px;line-height:44px;font-weight:700;letter-spacing:-.035em;}
+  .s-head p{margin:4px 0 0;font-size:14px;line-height:20px;color:var(--p62);max-width:420px;}
+  .s-now{
+    flex:0 0 auto;margin-top:2px;padding:5px 8px 4px;background:var(--red);color:var(--ink);
+    font-size:12px;line-height:16px;font-weight:700;letter-spacing:.04em;white-space:nowrap;
+  }
+  .s-mini{margin:10px 0 6px;display:flex;justify-content:space-between;color:var(--p62);line-height:16px;}
+
+  .preset-grid{
+    display:grid;grid-template-columns:1.28fr 1fr;grid-template-rows:64px 56px;gap:8px;
+  }
+  .preset{
+    position:relative;display:flex;flex-direction:column;justify-content:center;gap:3px;
+    padding:8px 12px;border:1px solid var(--p25);text-align:left;overflow:hidden;
+    transition:background .12s linear,color .12s linear,border-color .12s linear;
+  }
+  .preset .name{font-size:17px;line-height:20px;font-weight:600;letter-spacing:-.01em;}
+  .preset .desc{font-size:12px;line-height:16px;color:var(--p62);}
+  .preset:hover{border-color:rgba(242,240,234,.7);}
+  .preset.is-active{background:var(--paper);color:var(--ink);border-color:var(--paper);}
+  .preset.is-active .desc{color:var(--k58);}
+  .preset.is-active::after{content:"";position:absolute;right:0;top:0;width:8px;height:8px;background:var(--red);}
+  .preset .mark{position:absolute;right:10px;bottom:8px;font-family:var(--mono);font-size:12px;color:var(--p62);}
+  .preset.is-active .mark{color:var(--k58);}
+
+  .s-form{margin-top:2px;}
+  .frow{
+    display:flex;align-items:center;gap:14px;height:48px;
+    border-bottom:1px solid var(--p25);
+  }
+  .frow > label,.frow > .flabel{
+    flex:0 0 156px;font-family:var(--mono);font-size:12px;line-height:16px;color:var(--p62);
+  }
+  .frow input,.frow select{
+    flex:1;min-width:0;height:46px;background:transparent;border:0;color:var(--paper);
+    font-family:var(--sans);font-size:16px;letter-spacing:-.005em;outline:none;
+  }
+  .frow input::placeholder{color:var(--p62);}
+  .frow select{appearance:none;cursor:pointer;padding-right:22px;}
+  .selectwrap{flex:1;min-width:0;display:flex;align-items:center;gap:10px;}
+  .frow .selectwrap select{flex:0 0 auto;width:auto;padding-right:0;}
+  .caret{
+    width:8px;height:8px;flex:0 0 8px;border-right:1.5px solid var(--paper);
+    border-bottom:1.5px solid var(--paper);transform:rotate(45deg) translateY(-2px);
+  }
+  .frow:focus-within{border-bottom:2px solid var(--paper);}
+  .frow:focus-within > label,.frow:focus-within > .flabel{color:var(--paper);}
+  .frow .reveal{
+    flex:0 0 auto;min-width:56px;height:44px;padding:0 8px;font-size:13px;
+    color:var(--paper);border-left:1px solid var(--p15);
+  }
+  .frow .reveal:hover{color:var(--red);}
+  .frow.is-local input{color:var(--p62);}
+  .frow.is-local .reveal{color:var(--p62);cursor:default;}
+
+  .s-test{display:flex;align-items:center;gap:14px;margin-top:8px;height:44px;}
+  .test-btn{
+    height:44px;padding:0 20px;border:1px solid rgba(242,240,234,.65);
+    font-size:14px;font-weight:600;letter-spacing:.01em;
+    transition:background .12s linear,color .12s linear;
+  }
+  .test-btn:hover{background:var(--paper);color:var(--ink);}
+  .test-state{display:flex;align-items:center;gap:7px;font-size:12px;color:var(--p62);}
+  .test-state i{display:block;width:6px;height:6px;background:var(--p25);}
+  .test-state.ok{color:var(--paper);}
+  .test-state.ok i{background:var(--red);}
+
+  .cost{
+    margin-top:6px;height:104px;flex:0 0 104px;background:var(--paper);color:var(--ink);
+    display:flex;align-items:center;justify-content:space-between;gap:20px;padding:10px 16px;
+  }
+  .cost .cl{display:flex;flex-direction:column;gap:6px;}
+  .cost .cl b{font-size:12px;line-height:16px;font-weight:600;color:var(--k58);letter-spacing:.02em;}
+  .cost .cl p{margin:0;font-size:14px;line-height:20px;color:var(--k70);max-width:260px;}
+  .cost .cn{display:flex;align-items:flex-start;gap:4px;}
+  .cost .cur{font-size:28px;line-height:34px;font-weight:600;margin-top:6px;}
+  .cost .num{font-size:72px;line-height:68px;font-weight:700;letter-spacing:-.045em;font-feature-settings:"tnum";}
+
+  /* 其他分区 */
+  .row-toggle{
+    display:flex;align-items:center;justify-content:space-between;gap:14px;
+    height:52px;border-bottom:1px solid var(--p25);cursor:pointer;
+  }
+  .row-toggle .rt{display:flex;flex-direction:column;gap:2px;}
+  .row-toggle strong{font-size:15px;font-weight:600;line-height:20px;}
+  .row-toggle em{font-style:normal;font-size:12px;line-height:16px;color:var(--p62);}
+  .row-toggle input{position:absolute;opacity:0;width:1px;height:1px;}
+  .t-track{position:relative;width:54px;height:28px;flex:0 0 54px;border:2px solid var(--paper);}
+  .t-knob{position:absolute;left:3px;top:3px;width:18px;height:18px;background:var(--paper);transition:transform .12s linear;}
+  .row-toggle input:checked ~ .t-track{background:var(--paper);}
+  .row-toggle input:checked ~ .t-track .t-knob{transform:translateX(24px);background:var(--ink);}
+  .row-toggle input:focus-visible ~ .t-track{outline:2px solid var(--red);outline-offset:3px;}
+
+  details.s-adv{margin-top:10px;border-top:1px solid var(--p15);}
+  details.s-adv summary{
+    display:flex;align-items:center;justify-content:space-between;min-height:44px;
+    font-size:14px;color:var(--paper);cursor:pointer;list-style:none;
+  }
+  details.s-adv summary::-webkit-details-marker{display:none;}
+  details.s-adv summary span{font-family:var(--mono);font-size:12px;color:var(--p62);}
+  details.s-adv[open] summary span{color:var(--red);}
+  details.s-adv .adv-body{padding:4px 0 10px;color:var(--p62);font-size:14px;line-height:22px;}
+
+  .s-note{font-size:14px;line-height:22px;color:var(--p62);margin:12px 0 0;max-width:620px;}
+  .s-note b{color:var(--paper);font-weight:600;}
+  .diag{
+    margin:8px 0 0;padding:10px 12px;border:1px solid var(--p25);
+    font-family:var(--mono);font-size:12px;line-height:20px;color:var(--p62);
+    white-space:pre-wrap;
+  }
+  .danger{
+    margin-top:12px;height:44px;align-self:flex-start;padding:0 18px;
+    border:1px solid var(--red);color:var(--paper);font-size:14px;font-weight:600;
+  }
+  .danger:hover{background:var(--red);color:var(--ink);}
+  .s-panel .big-num{
+    font-size:72px;line-height:74px;font-weight:700;letter-spacing:-.045em;color:var(--paper);
+  }
+
+  /* ---------- 底部：真实漫画裁切 ---------- */
+  .strip{
+    position:absolute;left:40px;top:820px;width:1360px;height:220px;
+    border:8px solid var(--paper);
+    background-image:url("file:///Users/panbo/Code/Demos/chrome-plugin-manga-translator/store/demo/demo-manga-page-1.png");
+    background-size:1500px auto;background-position:0 10%;
+    overflow:hidden;
+  }
+  .strip::after{content:"";position:absolute;inset:0;border:1px solid rgba(11,11,11,.55);pointer-events:none;z-index:5;}
+  .strip-tag{
+    position:absolute;left:12px;top:12px;z-index:4;display:flex;align-items:center;gap:8px;
+    background:var(--ink);color:var(--paper);padding:6px 10px 5px;font-family:var(--mono);font-size:12px;
+  }
+  .strip-tag i{display:block;width:6px;height:6px;background:var(--red);}
+
+  .hud{
+    position:absolute;left:36px;top:52px;z-index:4;width:380px;height:116px;
+    background:var(--ink);border:1px solid rgba(242,240,234,.85);padding:10px 14px;
+    display:flex;flex-direction:column;
+  }
+  .hud::after{content:"";position:absolute;inset:4px;border:1px solid var(--p15);pointer-events:none;}
+  .hud-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px;}
+  .hud-state{font-size:15px;line-height:20px;font-weight:700;letter-spacing:.01em;}
+  .hud-eta{color:var(--p62);}
+  .hud-track{position:relative;height:8px;margin:9px 0 9px;background:rgba(242,240,234,.20);}
+  .hud-fill{position:absolute;left:0;top:0;height:8px;width:48%;background:var(--paper);}
+  .hud-red{position:absolute;left:48%;top:0;height:8px;width:12%;background:var(--red);}
+  .hud-foot{margin-top:auto;display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .hud-foot span{color:var(--p62);font-family:var(--mono);font-size:12px;}
+  .hud-cancel{
+    height:44px;min-width:84px;padding:0 14px;border:1px solid rgba(242,240,234,.6);
+    font-size:14px;font-weight:600;
+  }
+  .hud-cancel:hover{background:var(--paper);color:var(--ink);}
+  .hud-cancel:disabled{color:var(--p62);border-color:var(--p25);cursor:default;background:transparent;}
+  .hud.is-stopped .hud-fill{opacity:.35;}
+  .hud.is-stopped .hud-red{opacity:.35;}
+
+  .reader{
+    position:absolute;right:0;top:0;bottom:0;z-index:4;width:320px;background:var(--paper);color:var(--ink);
+    display:flex;flex-direction:column;clip-path:polygon(18px 0,100% 0,100% 100%,0 100%);
+  }
+  .reader-head{
+    height:44px;flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;
+    gap:8px;padding-left:22px;border-bottom:1px solid var(--ink);
+  }
+  .reader-title{font-size:14px;font-weight:700;letter-spacing:.02em;}
+  .seg{display:flex;height:44px;}
+  .seg button{
+    height:44px;min-width:52px;padding:0 10px;font-size:13px;font-weight:600;color:var(--ink);
+    border-left:1px solid var(--ink);
+  }
+  .seg button[aria-pressed="true"]{background:var(--ink);color:var(--paper);}
+  .seg button[aria-pressed="false"]:hover{background:rgba(11,11,11,.08);}
+  .reader-close{
+    width:44px;height:44px;flex:0 0 44px;font-size:18px;line-height:44px;text-align:center;
+  }
+  .reader-close:hover{background:var(--ink);color:var(--paper);}
+  .entry{display:flex;height:52px;flex:0 0 52px;border-bottom:1px solid rgba(11,11,11,.16);}
+  .entry:last-child{border-bottom:0;}
+  .entry-tab{
+    position:relative;width:44px;height:44px;flex:0 0 44px;margin:4px 0 0 4px;
+    background:var(--ink);color:var(--paper);font-family:var(--mono);font-size:14px;line-height:44px;
+    text-align:center;transition:background .12s linear,color .12s linear;
+  }
+  .entry-tab:hover{background:var(--red);color:var(--ink);}
+  .entry.is-active .entry-tab{background:var(--paper);color:var(--ink);border:1px solid var(--ink);}
+  .entry.is-active .entry-tab::before{content:"";position:absolute;left:0;top:0;bottom:0;width:4px;background:var(--red);}
+  .entry-text{
+    flex:1;min-width:0;padding:2px 10px 0 8px;color:var(--ink);overflow:hidden;
+  }
+  .entry-text .src{
+    margin:0;font-size:14px;line-height:18px;display:-webkit-box;-webkit-line-clamp:2;
+    -webkit-box-orient:vertical;overflow:hidden;
+  }
+  .entry-text .meta{display:block;font-family:var(--mono);font-size:12px;line-height:14px;color:var(--k58);margin-top:1px;}
+
+  /* ---------- 板注 ---------- */
+  .captions{position:absolute;left:40px;top:772px;width:1360px;display:flex;gap:0;color:var(--p62);}
+  .captions span{font-family:var(--mono);font-size:12px;line-height:16px;}
+  .captions .c1{width:400px;}
+  .captions .c2{width:960px;}
+  .foot{
+    position:absolute;left:40px;top:1052px;width:1360px;display:flex;justify-content:space-between;
+    color:var(--p62);font-family:var(--mono);font-size:12px;line-height:16px;
+  }
+  .fgroup{display:flex;gap:6px;align-items:baseline;}
+  .fgroup .sep{color:var(--p25);}
+</style>
+</head>
+<body>
+<div class="board">
+
+  <header class="head">
+    <div class="head-left">
+      <p class="kicker mono"><span>候选 02</span><span class="sep">/</span><span>服部一成：几何构成，强裁切，字与图的对抗</span></p>
+      <h1>分镜黑</h1>
+      <p class="thesis">漫画由画格组成，工具就该像画格之间的空白。</p>
+    </div>
+    <div class="head-side">
+      <ul class="swatches">
+        <li><span class="chip" style="background:#0B0B0B"></span><span class="sw-name">墨</span><span class="sw-hex">#0B0B0B</span></li>
+        <li><span class="chip" style="background:#F2F0EA"></span><span class="sw-name">纸</span><span class="sw-hex">#F2F0EA</span></li>
+        <li><span class="chip" style="background:#FF3B1F"></span><span class="sw-name">朱</span><span class="sw-hex">#FF3B1F</span></li>
+      </ul>
+      <p class="form-line"><b>form 来自内容的哪里：</b>来自分镜本身。粗 gutter 切开画格，细线是裁切线。</p>
+    </div>
+  </header>
+
+  <!-- 弹窗 -->
+  <section class="popup" aria-label="弹窗 360 × 640，空闲状态">
+    <div class="p-lead">
+      <div class="p-lead-meta">
+        <span class="mono">本页待译</span>
+        <span class="p-state mono"><i></i>空闲</span>
+      </div>
+      <div class="p-redbar" aria-hidden="true"></div>
+      <div class="p-num" aria-hidden="true">02</div>
+    </div>
+
+    <div class="p-info">
+      <div class="p-page">
+        <strong>当前页面</strong>
+        <span>mangadex.org</span>
+      </div>
+      <p class="p-title">第 14 话「放学后」</p>
+      <div class="p-facts">
+        <div class="count">
+          <span class="bigline">可翻译 2 张</span>
+          <span class="smallline">缓存命中 0 张</span>
+        </div>
+        <div class="money">
+          <span class="k">预计花费</span>
+          <span class="v">¥0.04</span>
+        </div>
+      </div>
+    </div>
+
+    <button class="p-primary" type="button" id="translateBtn">
+      <span class="big">翻译当前页面</span>
+      <span class="small">2 张待译<br>首次翻译</span>
+    </button>
+
+    <label class="p-toggle">
+      <span class="txt">
+        <strong>启用扩展</strong>
+        <em>关闭后不会请求任何模型</em>
+      </span>
+      <input type="checkbox" id="extToggle" checked>
+      <span class="track" aria-hidden="true"><span class="knob"></span></span>
+    </label>
+
+    <div class="p-secondary">
+      <button type="button">忽略缓存重翻<i aria-hidden="true"></i></button>
+      <button type="button">清除本页译文<i aria-hidden="true"></i></button>
+      <button type="button" id="panelBtn" aria-pressed="false">显示译文阅读面板<i aria-hidden="true"></i></button>
+    </div>
+
+    <div class="p-foot">
+      <a href="#settings" id="settingsLink">打开设置页</a>
+      <span class="mono">本机 Key</span>
+    </div>
+  </section>
+
+  <!-- 设置页 -->
+  <section class="settings" id="settings" aria-label="设置页片段">
+    <div class="s-top">
+      <b>设置</b>
+      <span class="mono">本机 / 无账号 / 无遥测</span>
+    </div>
+
+    <nav class="s-rail" aria-label="设置分区">
+      <button class="rail-item is-active" type="button" data-target="provider" aria-current="true">
+        <span class="rail-num">01</span>
+        <span class="rail-label">翻译后端</span>
+      </button>
+      <button class="rail-item" type="button" data-target="reading">
+        <span class="rail-num">02</span>
+        <span class="rail-label">阅读与语言</span>
+      </button>
+      <button class="rail-item" type="button" data-target="cost">
+        <span class="rail-num">03</span>
+        <span class="rail-label">花费与用量</span>
+      </button>
+      <button class="rail-item" type="button" data-target="privacy">
+        <span class="rail-num">04</span>
+        <span class="rail-label">隐私与诊断</span>
+      </button>
+      <div class="s-rail-foot mono"><i></i>API Key 只在本机</div>
+    </nav>
+
+    <div class="s-main">
+      <!-- 01 翻译后端 -->
+      <div class="s-panel" data-panel="provider">
+        <div class="s-head">
+          <div>
+            <span class="s-count mono">01 / 04</span>
+            <h2>翻译后端</h2>
+            <p>图片会直接发给你配置的服务商，不经过我们。</p>
+          </div>
+          <span class="s-now">当前使用中</span>
+        </div>
+
+        <div class="s-mini mono"><span>快速选择服务商</span><span>填好地址与模型，Key 仍需自己填</span></div>
+        <div class="preset-grid" role="group" aria-label="服务商预设">
+          <button class="preset is-active" type="button" data-preset="minimax" aria-pressed="true">
+            <span class="name">MiniMax</span>
+            <span class="desc">视觉模型，按 token 计费</span>
+          </button>
+          <button class="preset" type="button" data-preset="openai" aria-pressed="false">
+            <span class="name">OpenAI 兼容</span>
+            <span class="desc">Chat Completions 端点</span>
+          </button>
+          <button class="preset" type="button" data-preset="ollama" aria-pressed="false">
+            <span class="name">Ollama</span>
+            <span class="desc">本地模型，不产生费用</span>
+          </button>
+          <button class="preset" type="button" data-preset="lmstudio" aria-pressed="false">
+            <span class="name">LM Studio</span>
+            <span class="desc">本地服务器，隐私优先</span>
+            <span class="mark">本地</span>
+          </button>
+        </div>
+
+        <form class="s-form" autocomplete="off" onsubmit="return false;">
+          <div class="frow">
+            <label for="baseUrl">接口地址（Base URL）</label>
+            <input id="baseUrl" type="text" value="https://api.minimax.chat/v1">
+          </div>
+          <div class="frow">
+            <label for="model">模型（Model）</label>
+            <input id="model" type="text" value="MiniMax-VL-01">
+          </div>
+          <div class="frow" id="keyRow">
+            <label for="apiKey">API Key（密钥）</label>
+            <input id="apiKey" type="password" value="sk-7f3a92c1e0b4" spellcheck="false">
+            <button class="reveal" type="button" id="revealBtn" aria-pressed="false">显示</button>
+          </div>
+        </form>
+
+        <div class="s-test">
+          <button class="test-btn" type="button" id="testBtn">测试配置</button>
+          <span class="test-state" id="testState" role="status"><i></i>尚未测试</span>
+        </div>
+
+        <div class="cost">
+          <div class="cl">
+            <b>本月估算花费</b>
+            <p>按你填的单价估算，不是服务商的账单。</p>
+          </div>
+          <div class="cn" aria-label="本月估算花费 0.42 元">
+            <span class="cur">¥</span><span class="num">0.42</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 02 阅读与语言 -->
+      <div class="s-panel" data-panel="reading" hidden>
+        <div class="s-head">
+          <div>
+            <span class="s-count mono">02 / 04</span>
+            <h2>阅读与语言</h2>
+            <p>改目标语言会让已经缓存的译文失效，下一次会重新请求。</p>
+          </div>
+        </div>
+        <div class="s-form">
+          <div class="frow">
+            <label for="lang">目标语言</label>
+            <div class="selectwrap">
+              <select id="lang">
+                <option>简体中文</option>
+                <option>繁體中文</option>
+                <option>English</option>
+              </select>
+              <span class="caret" aria-hidden="true"></span>
+            </div>
+          </div>
+          <div class="frow">
+            <label for="res">图片分辨率上限</label>
+            <input id="res" type="number" value="1024" min="256" step="128">
+          </div>
+          <div class="frow">
+            <label for="conc">并发</label>
+            <input id="conc" type="number" value="3" min="1" max="8">
+          </div>
+        </div>
+        <label class="row-toggle" style="margin-top:2px;">
+          <span class="rt">
+            <strong>自动翻译站点</strong>
+            <em>打开后，进入漫画页会自己开始</em>
+          </span>
+          <input type="checkbox" checked>
+          <span class="t-track" aria-hidden="true"><span class="t-knob"></span></span>
+        </label>
+        <label class="row-toggle">
+          <span class="rt">
+            <strong>显示译文阅读面板</strong>
+            <em>在页面右侧按图编号列出译文</em>
+          </span>
+          <input type="checkbox" checked>
+          <span class="t-track" aria-hidden="true"><span class="t-knob"></span></span>
+        </label>
+        <details class="s-adv">
+          <summary>高级阅读设置<span>展开</span></summary>
+          <div class="adv-body">请求超时 45 秒；失败自动重试 1 次。并发越高翻得越快，也越容易触发服务商限流。</div>
+        </details>
+        <p class="s-note">分辨率越高越准，费用也越高。<b>想省钱就翻之前先定好分辨率。</b></p>
+      </div>
+
+      <!-- 03 花费与用量 -->
+      <div class="s-panel" data-panel="cost" hidden>
+        <div class="s-head">
+          <div>
+            <span class="s-count mono">03 / 04</span>
+            <h2>花费与用量</h2>
+            <p>计费按你填的单价估算。只有云端服务商的请求才会计入。</p>
+          </div>
+        </div>
+        <div class="cost" style="margin-top:12px;height:132px;flex:0 0 132px;">
+          <div class="cl">
+            <b>本月估算花费</b>
+            <p>本月翻译 18 页，缓存命中 11 页。</p>
+          </div>
+          <div class="cn"><span class="cur">¥</span><span class="num">0.42</span></div>
+        </div>
+        <div class="s-form" style="margin-top:10px;">
+          <div class="frow">
+            <label for="priceIn">输入价格</label>
+            <input id="priceIn" type="text" value="¥3.00 / 百万 token">
+          </div>
+          <div class="frow">
+            <label for="priceOut">输出价格</label>
+            <input id="priceOut" type="text" value="¥15.00 / 百万 token">
+          </div>
+        </div>
+        <p class="s-note">单价由服务商决定，请以服务商页面的价格为准。本地服务商不产生费用。</p>
+      </div>
+
+      <!-- 04 隐私与诊断 -->
+      <div class="s-panel" data-panel="privacy" hidden>
+        <div class="s-head">
+          <div>
+            <span class="s-count mono">04 / 04</span>
+            <h2>隐私与诊断</h2>
+            <p>API Key 只保存在本机，扩展不收集任何数据。</p>
+          </div>
+        </div>
+        <p class="s-note">译文缓存在本机，重复打开同一页不会再次调用模型；清空后再次翻译会产生新的费用。</p>
+        <details class="s-adv" open>
+          <summary>诊断信息<span>收起</span></summary>
+          <pre class="diag">chrome 版本  Chrome 141
+翻译后端    MiniMax / MiniMax-VL-01
+缓存条目    128
+最近错误    无</pre>
+        </details>
+        <button class="danger" type="button" id="clearBtn">清空本机缓存</button>
+        <p class="s-note" id="clearNote">清空后无法恢复，之后再次翻译会重新计费。</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 真实漫画裁切：HUD 与阅读面板 -->
+  <section class="strip" aria-label="漫画页面上的 HUD 与阅读面板">
+    <div class="strip-tag"><i></i>HUD / 运行中</div>
+
+    <div class="hud" id="hud">
+      <div class="hud-top">
+        <span class="hud-state" id="hudState">正在翻译 3 / 5</span>
+        <span class="hud-eta mono">还要多久 约 6 秒</span>
+      </div>
+      <div class="hud-track" aria-hidden="true">
+        <span class="hud-fill"></span><span class="hud-red"></span>
+      </div>
+      <div class="hud-foot">
+        <span>已加载 5 张 / 失败 0 张</span>
+        <button class="hud-cancel" type="button" id="hudCancel">取消</button>
+      </div>
+    </div>
+
+    <aside class="reader" aria-label="阅读面板">
+      <div class="reader-head">
+        <span class="reader-title">阅读面板</span>
+        <div class="seg" role="group" aria-label="原文与译文">
+          <button type="button" data-lang="ja" aria-pressed="false">原文</button>
+          <button type="button" data-lang="zh" aria-pressed="true">译文</button>
+        </div>
+        <button class="reader-close" type="button" aria-label="关闭阅读面板">×</button>
+      </div>
+      <div class="entry is-active">
+        <button class="entry-tab" type="button" aria-label="跳到第 1 张">1</button>
+        <div class="entry-text"><p class="src" data-ja="待って！" data-zh="等等！">等等！</p><span class="meta">第 1 张</span></div>
+      </div>
+      <div class="entry">
+        <button class="entry-tab" type="button" aria-label="跳到第 2 张">2</button>
+        <div class="entry-text"><p class="src" data-ja="行こう" data-zh="走吧。">走吧。</p><span class="meta">第 2 张</span></div>
+      </div>
+      <div class="entry">
+        <button class="entry-tab" type="button" aria-label="跳到第 3 张">3</button>
+        <div class="entry-text"><p class="src" data-ja="夕暮れの商店街。事件は突然に起きた" data-zh="黄昏的商业街。事件突然发生了。">黄昏的商业街。事件突然发生了。</p><span class="meta">第 3 张</span></div>
+      </div>
+    </aside>
+  </section>
+
+  <div class="captions">
+    <span class="c1">弹窗 360×640 / 空闲态</span>
+    <span class="c2">设置页 / 01 翻译后端 / 白面板按接触印样排</span>
+  </div>
+
+  <div class="foot">
+    <span class="fgroup"><span>分镜黑</span><span class="sep">/</span><span>服部一成 规则借用</span><span class="sep">/</span><span>墨 #0B0B0B</span><span class="sep">/</span><span>纸 #F2F0EA</span><span class="sep">/</span><span>朱 #FF3B1F</span></span>
+    <span class="fgroup"><span>真实漫画裁切</span><span class="sep">/</span><span>demo-manga-page-1.png</span></span>
+  </div>
+</div>
+
+<script>
+(function () {
+  var $ = function (sel, root) { return (root || document).querySelector(sel); };
+  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+
+  /* 主按钮：短暂的启动状态 */
+  var translateBtn = $('#translateBtn');
+  if (translateBtn) {
+    var big = $('.big', translateBtn);
+    var small = $('.small', translateBtn);
+    var busyTimer = 0;
+    translateBtn.addEventListener('click', function () {
+      if (translateBtn.classList.contains('is-busy')) return;
+      translateBtn.classList.add('is-busy');
+      big.textContent = '正在启动…';
+      small.textContent = '2 张';
+      window.clearTimeout(busyTimer);
+      busyTimer = window.setTimeout(function () {
+        translateBtn.classList.remove('is-busy');
+        big.textContent = '翻译当前页面';
+        small.innerHTML = '2 张待译<br>首次翻译';
+      }, 1100);
+    });
+  }
+
+  /* 弹窗：阅读面板开关 */
+  var panelBtn = $('#panelBtn');
+  if (panelBtn) {
+    panelBtn.addEventListener('click', function () {
+      var on = panelBtn.getAttribute('aria-pressed') === 'true';
+      panelBtn.setAttribute('aria-pressed', String(!on));
+      panelBtn.classList.toggle('is-on', !on);
+      panelBtn.firstChild.textContent = on ? '显示译文阅读面板' : '隐藏译文阅读面板';
+    });
+  }
+
+  /* 设置页：分区切换 */
+  var railItems = $$('.rail-item');
+  var panels = $$('.s-panel');
+  railItems.forEach(function (item) {
+    item.addEventListener('click', function () {
+      var target = item.getAttribute('data-target');
+      railItems.forEach(function (other) {
+        var active = other === item;
+        other.classList.toggle('is-active', active);
+        if (active) other.setAttribute('aria-current', 'true');
+        else other.removeAttribute('aria-current');
+      });
+      panels.forEach(function (panel) {
+        panel.hidden = panel.getAttribute('data-panel') !== target;
+      });
+    });
+  });
+
+  /* 服务商预设 */
+  var presets = {
+    minimax: { base: 'https://api.minimax.chat/v1', model: 'MiniMax-VL-01', local: false },
+    openai: { base: 'https://api.openai.com/v1', model: 'gpt-4o', local: false },
+    ollama: { base: 'http://localhost:11434/v1', model: 'llava', local: true },
+    lmstudio: { base: 'http://localhost:1234/v1', model: 'qwen2-vl-7b', local: true }
+  };
+  var baseInput = $('#baseUrl');
+  var modelInput = $('#model');
+  var keyInput = $('#apiKey');
+  var keyRow = $('#keyRow');
+  var revealBtn = $('#revealBtn');
+  var testState = $('#testState');
+  var testTimer = 0;
+
+  function reveal(show) {
+    if (!keyInput || !revealBtn) return;
+    keyInput.type = show ? 'text' : 'password';
+    revealBtn.textContent = show ? '隐藏' : '显示';
+    revealBtn.setAttribute('aria-pressed', String(show));
+  }
+
+  $$('.preset').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var id = btn.getAttribute('data-preset');
+      var data = presets[id];
+      $$('.preset').forEach(function (other) {
+        var active = other === btn;
+        other.classList.toggle('is-active', active);
+        other.setAttribute('aria-pressed', String(active));
+      });
+      if (baseInput) baseInput.value = data.base;
+      if (modelInput) modelInput.value = data.model;
+      keyRow.classList.toggle('is-local', data.local);
+      if (keyInput) {
+        keyInput.disabled = data.local;
+        keyInput.value = data.local ? '' : 'sk-7f3a92c1e0b4';
+        keyInput.placeholder = data.local ? '本地服务无需 API Key' : '';
+      }
+      if (revealBtn) {
+        revealBtn.disabled = data.local;
+        revealBtn.textContent = data.local ? '无需' : '显示';
+        revealBtn.setAttribute('aria-pressed', 'false');
+      }
+      if (testState) {
+        testState.classList.remove('ok');
+        testState.lastChild.textContent = '尚未测试';
+      }
+    });
+  });
+
+  if (revealBtn) {
+    revealBtn.addEventListener('click', function () {
+      if (revealBtn.disabled) return;
+      reveal(keyInput.type === 'password');
+    });
+  }
+
+  if (testState) {
+    var label = testState.lastChild;
+    $('#testBtn').addEventListener('click', function () {
+      if (testState.classList.contains('ok')) {
+        testState.classList.remove('ok');
+        label.textContent = '尚未测试';
+        return;
+      }
+      label.textContent = '测试中…';
+      window.clearTimeout(testTimer);
+      testTimer = window.setTimeout(function () {
+        testState.classList.add('ok');
+        label.textContent = '连接正常，配置有效';
+      }, 700);
+    });
+  }
+
+  /* 阅读面板：原文 / 译文 */
+  var segButtons = $$('.seg button');
+  segButtons.forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      var lang = btn.getAttribute('data-lang');
+      segButtons.forEach(function (other) {
+        other.setAttribute('aria-pressed', String(other === btn));
+      });
+      $$('.src').forEach(function (node) {
+        var text = node.getAttribute(lang === 'ja' ? 'data-ja' : 'data-zh');
+        if (text) node.textContent = text;
+      });
+    });
+  });
+
+  /* 阅读面板：编号跳转 */
+  $$('.entry').forEach(function (entry) {
+    $('.entry-tab', entry).addEventListener('click', function () {
+      $$('.entry').forEach(function (other) {
+        other.classList.toggle('is-active', other === entry);
+      });
+    });
+  });
+
+  /* 阅读面板：关闭 */
+  var reader = $('.reader');
+  $('.reader-close').addEventListener('click', function () {
+    reader.style.display = 'none';
+    var tag = $('.strip-tag');
+    if (tag) tag.textContent = '阅读面板已关闭 / 点击弹窗「显示译文阅读面板」恢复';
+  });
+
+  /* HUD 取消 */
+  var hudCancel = $('#hudCancel');
+  hudCancel.addEventListener('click', function () {
+    hudCancel.disabled = true;
+    hudCancel.textContent = '已取消';
+    $('#hudState').textContent = '已取消 3 / 5';
+    $('.hud-eta').textContent = '已停止';
+    document.getElementById('hud').classList.add('is-stopped');
+  });
+
+  /* 折叠面板：摘要文字跟着开合走 */
+  $$('details.s-adv').forEach(function (item) {
+    var hint = $('summary span', item);
+    item.addEventListener('toggle', function () {
+      if (hint) hint.textContent = item.open ? '收起' : '展开';
+    });
+  });
+
+  /* 清空缓存：两次确认 */
+  var clearBtn = $('#clearBtn');
+  var clearNote = $('#clearNote');
+  if (clearBtn) {
+    var armed = false;
+    clearBtn.addEventListener('click', function () {
+      if (!armed) {
+        armed = true;
+        clearBtn.textContent = '再点一次确认清空';
+        clearNote.textContent = '清空后无法恢复，本机 128 条译文缓存会被删除。';
+      } else {
+        clearBtn.textContent = '已清空';
+        clearBtn.disabled = true;
+        clearNote.textContent = '本机译文缓存已清空。';
+      }
+    });
+  }
+
+  /* 设置页链接：切回翻译后端并聚焦设置页 */
+  var settingsLink = $('#settingsLink');
+  if (settingsLink) {
+    settingsLink.addEventListener('click', function (event) {
+      event.preventDefault();
+      var first = $('.rail-item');
+      if (first) first.click();
+      var settings = $('#settings');
+      settings.style.outline = '2px solid #FF3B1F';
+      window.setTimeout(function () { settings.style.outline = ''; }, 1200);
+      var base = $('#baseUrl');
+      if (base) window.setTimeout(function () { base.focus(); }, 60);
+    });
+  }
+})();
+</script>
+</body>
+</html>

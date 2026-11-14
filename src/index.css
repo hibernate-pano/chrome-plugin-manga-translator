@@ -3,69 +3,72 @@
 @tailwind utilities;
 
 body {
-  font-family: 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Hiragino Sans GB',
+    'Noto Sans SC', 'Microsoft YaHei', sans-serif;
   min-width: 320px;
   min-height: 300px;
 }
 
 @layer base {
-  /* The extension ships one theme: dark.
-     The palette lives on :root itself rather than on a `.dark` class,
-     because the class is added by React after the first paint — the pages
-     used to flash white before the theme settled. It also means a stale
-     `light` class from an older build can no longer repaint the page.
-     The surfaces themselves (bg-slate-950 cards, text-slate-100) are
-     hard-coded dark, so a light palette was never a real option here. */
+  /*
+   * One theme: 校正紙 (proof sheet).
+   *
+   * The extension used to render a dark slate surface with a cyan accent.
+   * The redesign keeps the product's own subject — a translation is a
+   * correction drawn over someone else's artwork — and uses the materials
+   * of a proof sheet: cool paper, ink, a vermilion correction pen, and a
+   * blue construction line. Vermilion is reserved for actions, the current
+   * item, and errors; blue only for structure and explanatory notes.
+   *
+   * The palette lives on :root rather than on a class so the first paint is
+   * already paper, not a white flash followed by a theme swap.
+   */
   :root {
-    color-scheme: dark;
-    /* The page is slate-950 (#020617) — the deepest slate Tailwind ships.
-       It used to be a neutral 3.9% grey, which is what the switch thumb
-       and the slider thumb are painted with; against the blue-tinted page
-       they now read as holes in the surface rather than as a seam. */
-    --background: 222.2 47.4% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 222.2 47.4% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 222.2 47.4% 3.9%;
-    --popover-foreground: 0 0% 98%;
-    /* The accent is cyan, and the focus ring already was. `--primary` was
-       pure white, so the switch track and the slider fill were white in a
-       cyan product — and the white track left the switch thumb at 1.02:1
-       against the page. Pointing `--primary` at the same cyan-400 the
-       focus ring uses makes the accent colour one colour again. */
-    --primary: 187.9 85.7% 53.3%;
-    --primary-foreground: 222.2 47.4% 11.2%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    /* One focus colour for the whole extension: cyan-400, rgb(34,211,238).
-       `--ring` is the shadcn slot the switch and the slider draw their
-       focus ring with, and it points at the same value so the primitives
-       and the global outline cannot drift apart. The content-script
-       overlays cannot read this variable — they live in a shadow root
-       inside somebody else's page — so they hard-code the same colour. */
-    --focus-ring: 187.9 85.7% 53.3%;
+    color-scheme: light;
+
+    --paper: 60 13.7% 90%; /* #E9E9E2 */
+    --ink: 0 0% 8.6%; /* #161616 */
+    --ink-muted: 60 2.9% 33.3%; /* #55554F, 6.15:1 on paper */
+    --vermilion: 5 65.5% 50%; /* #D33A2C */
+    --blueprint: 219 68.8% 39%; /* #1F4FA8, 6.28:1 on paper */
+    --rule: 60 4.2% 50%; /* control boundary, 3.06:1 on paper */
+    --rule-soft: 60 6% 78%; /* decorative 1px rules only */
+
+    --background: var(--paper);
+    --foreground: var(--ink);
+    --card: var(--paper);
+    --card-foreground: var(--ink);
+    --popover: var(--paper);
+    --popover-foreground: var(--ink);
+    /* One accent for every action: the vermilion correction pen. */
+    --primary: var(--vermilion);
+    --primary-foreground: 0 0% 100%;
+    --secondary: 60 8% 84%;
+    --secondary-foreground: var(--ink);
+    --muted: 60 8% 84%;
+    --muted-foreground: var(--ink-muted);
+    --accent: 60 8% 84%;
+    --accent-foreground: var(--ink);
+    --destructive: var(--vermilion);
+    --destructive-foreground: 0 0% 100%;
+    --border: var(--rule-soft);
+    --input: var(--rule);
+    --focus-ring: var(--vermilion);
     --ring: var(--focus-ring);
-    --chart-1: 220 70% 50%;
-    --chart-2: 160 60% 45%;
-    --chart-3: 30 80% 55%;
-    --chart-4: 280 65% 60%;
-    --chart-5: 340 75% 55%;
-    --radius: 0.5rem;
+    --chart-1: 219 68.8% 39%;
+    --chart-2: 5 65.5% 50%;
+    --chart-3: 60 10% 42%;
+    --chart-4: 219 40% 62%;
+    --chart-5: 5 40% 66%;
+    --radius: 0rem;
   }
-  /* The provider keeps the `dark` class on <html>: it is the
-     `darkMode: 'class'` marker that Tailwind keys its `dark:` variants
-     off. The palette is already on :root, so the class only has to agree
-     with it. */
-  .dark {
-    color-scheme: dark;
+
+  /* The provider keeps a class on <html> for Tailwind's `darkMode: 'class'`
+     consumers, but this product has one theme. A stale `dark` class from an
+     older build is removed so it cannot repaint a surface. */
+  .light {
+    color-scheme: light;
   }
 }
 
@@ -77,17 +80,18 @@ body {
     @apply bg-background text-foreground;
   }
 
-  /* Firefox draws its own scrollbar; the options page is long enough for
-     the light default to be visible. Chrome follows `color-scheme: dark`. */
-  html {
-    scrollbar-color: rgba(148, 163, 184, 0.35) transparent;
+  ::selection {
+    background: hsl(var(--vermilion));
+    color: #fff;
   }
 
-  /* 全局键盘聚焦反馈：键盘用户必须能看到当前焦点。
-     focus-visible 只在键盘导航时触发，不影响鼠标点击体验。
-     使用 cyan 在深色 popup/options 上也清晰可见。
-     `summary` 在这里：popup 的两个折叠面板是 <details><summary>，
-     漏掉它就会掉回浏览器默认的蓝色描边，"全局只有一个焦点色"就成了空话。 */
+  html {
+    scrollbar-color: hsl(var(--ink-muted) / 0.45) transparent;
+  }
+
+  /* One focus colour for the whole extension: the correction pen. It is used
+     for keyboard focus only, so a mouse click does not leave a red mark on a
+     quiet page. `summary` is included because both shells use <details>. */
   button:focus-visible,
   input:focus-visible,
   select:focus-visible,
@@ -95,16 +99,36 @@ body {
   a:focus-visible,
   summary:focus-visible,
   [role='button']:focus-visible {
-    outline: 2px solid hsl(var(--focus-ring)); /* cyan-400 */
+    outline: 2px solid hsl(var(--focus-ring));
     outline-offset: 2px;
+  }
+
+  /* The shell pages are proof sheets: the texture comes from the type and the
+     rules, not from a drop shadow. */
+  .proof-rule {
+    border-top: 1px solid hsl(var(--ink) / 0.22);
+  }
+
+  .proof-rule-strong {
+    border-top: 1px solid hsl(var(--ink));
+  }
+
+  .proof-label {
+    font-family: 'SF Mono', 'Menlo', 'Consolas', monospace;
+    font-size: 11px;
+    line-height: 1.4;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: hsl(var(--ink-muted));
+  }
+
+  .proof-number {
+    font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
   }
 }
 
-/* The user asked the system to stop moving things.
-   The extension's own pages (popup, options) are covered by this block;
-   the reading panel scrolls a *third-party* page and cannot be reached
-   from here, so it asks `prefers-reduced-motion` in JavaScript instead
-   (see `src/content/reading-panel.ts`). */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

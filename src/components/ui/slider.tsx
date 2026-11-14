@@ -43,8 +43,8 @@ const Slider = React.forwardRef<
       )}
       {...props}
     >
-      <SliderPrimitive.Track className='relative h-1.5 w-full grow overflow-hidden rounded-full bg-primary/20'>
-        <SliderPrimitive.Range className='absolute h-full bg-primary' />
+      <SliderPrimitive.Track className='relative h-1.5 w-full grow overflow-hidden rounded-none bg-ink/15'>
+        <SliderPrimitive.Range className='absolute h-full bg-vermilion' />
       </SliderPrimitive.Track>
       {Array.from({ length: thumbCount }, (_, index) => {
         const thumbPropsForIndex = thumbProps?.[index];
@@ -72,7 +72,7 @@ const Slider = React.forwardRef<
             // least 2 CSS pixels) and it is offset against the page so it
             // does not disappear into the track it sits on. It was the only
             // 1px ring in the extension.
-            className='block h-4 w-4 rounded-full border border-primary bg-background shadow transition-colors before:absolute before:-inset-[4px] before:content-[""] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50'
+            className='block h-4 w-4 rounded-none border border-ink bg-vermilion transition-colors before:absolute before:-inset-[4px] before:content-[""] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-50'
           />
         );
       })}

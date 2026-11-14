@@ -12,9 +12,9 @@ if (!appRoot) {
 
 ReactDOM.createRoot(appRoot).render(
   <React.StrictMode>
-    {/* Dark for the same reason as the popup: the page surfaces are
-        hard-coded dark, and the shadcn primitives follow the theme class. */}
-    <ThemeProvider defaultTheme='dark' storageKey='manga-translator-theme'>
+    {/* Light (校正紙) for the same reason as the popup: the page surfaces are
+        hard-coded paper, and the shadcn primitives follow the theme class. */}
+    <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
       <OptionsApp />
     </ThemeProvider>
   </React.StrictMode>

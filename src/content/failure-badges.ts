@@ -50,25 +50,25 @@ export class FailureBadges {
     transform: translate(-50%, -50%);
     width: 24px;
     height: 24px;
-    border-radius: 999px;
+    border-radius: 0;
     /*
-     * 红色，而不是产品的青色。
+     * 朱红，而不是产品的结构蓝。
      *
-     * 青色在这个扩展里表示"这里有译文"（覆盖层、编号锚点、阅读面板的编号
-     * 徽章）。失败是另一件事，得一眼能分开——读者扫一眼页面就知道哪张坏了，
-     * 不需要读文字。
+     * 蓝色在这个扩展里表示"这里有结构"（编号锚点、阅读面板的编号）。失败
+     * 是另一件事，得一眼能分开——读者扫一眼页面就知道哪张坏了，不需要读
+     * 文字。纸面上的校对标：方形、墨框、朱红底。
      */
-    background: #dc2626;
+    background: #d33a2c;
     color: #fff;
-    font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-    font-size: 15px;
+    font-family: 'SF Mono', Menlo, monospace;
+    font-size: 14px;
     font-weight: 700;
     line-height: 1;
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
-    border: 2px solid rgba(255, 255, 255, 0.9);
+    box-shadow: 2px 2px 0 rgba(22, 22, 22, 0.25);
+    border: 1px solid #161616;
     user-select: none;
   }
 </style>

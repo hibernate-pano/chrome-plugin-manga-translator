@@ -420,10 +420,10 @@ export class ImageExportDialog {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(2, 6, 23, 0.72);
+    background: rgba(22, 22, 22, 0.45);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
                  'Microsoft YaHei', sans-serif;
-    color: #e2e8f0;
+    color: #161616;
   }
   #card {
     display: flex;
@@ -433,35 +433,36 @@ export class ImageExportDialog {
     /* 预览有 60vh 的上限，加上输入框和按钮也还在一屏之内。 */
     max-height: 90vh;
     padding: 18px;
-    border-radius: 12px;
-    background: rgb(15, 23, 42);
-    border: 1px solid rgba(148, 163, 184, 0.6);
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+    border-radius: 0;
+    background: #e9e9e2;
+    border: 1px solid #161616;
+    box-shadow: 6px 6px 0 rgba(22, 22, 22, 0.18);
     overflow: hidden;
   }
   #card:focus { outline: none; }
-  #card:focus-visible { outline: 2px solid #22d3ee; outline-offset: 2px; }
+  #card:focus-visible { outline: 2px solid #d33a2c; outline-offset: 2px; }
   #dialog-title {
     margin: 0;
-    font-size: 16px;
-    font-weight: 600;
+    font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+    font-size: 20px;
+    font-weight: 700;
   }
   #status {
     margin: 0;
     min-height: 16px;
     font-size: 12px;
-    /* #64748b 在这个面板底色上只有 3.22:1；#94a3b8 是 5.97:1。 */
-    color: #94a3b8;
+    color: #55554f;
   }
-  #status.error { color: #fca5a5; }
+  #status.error { color: #b3261e; }
   #preview-area {
     display: flex;
     align-items: center;
     justify-content: center;
     min-height: 120px;
     padding: 8px;
-    border-radius: 8px;
-    background: rgba(2, 6, 23, 0.6);
+    border-radius: 0;
+    background: #deded6;
+    border: 1px solid rgba(22, 22, 22, 0.22);
   }
   #preview {
     display: block;
@@ -475,17 +476,17 @@ export class ImageExportDialog {
     flex-direction: column;
     gap: 4px;
   }
-  .field label { font-size: 12px; color: #94a3b8; }
+  .field label { font-size: 12px; color: #55554f; }
   #filename {
     width: 100%;
     padding: 8px 10px;
     font-size: 13px;
-    color: #e2e8f0;
-    background: rgba(2, 6, 23, 0.7);
-    border: 1px solid rgba(148, 163, 184, 0.3);
-    border-radius: 6px;
+    color: #161616;
+    background: transparent;
+    border: 1px solid #161616;
+    border-radius: 0;
   }
-  #filename:focus-visible { outline: 2px solid #22d3ee; outline-offset: 1px; }
+  #filename:focus-visible { outline: 2px solid #d33a2c; outline-offset: 1px; }
   #actions {
     display: flex;
     gap: 8px;
@@ -494,23 +495,23 @@ export class ImageExportDialog {
   #actions button {
     padding: 8px 14px;
     font-size: 13px;
-    color: #e2e8f0;
-    background: rgba(148, 163, 184, 0.15);
-    border: 1px solid rgba(148, 163, 184, 0.25);
-    border-radius: 6px;
+    color: #161616;
+    background: transparent;
+    border: 1px solid #161616;
+    border-radius: 0;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: background 0.15s, color 0.15s;
   }
-  #actions button:hover:not(:disabled) { background: rgba(148, 163, 184, 0.28); }
-  #actions button:focus-visible { outline: 2px solid #22d3ee; outline-offset: 1px; }
+  #actions button:hover:not(:disabled) { background: #161616; color: #e9e9e2; }
+  #actions button:focus-visible { outline: 2px solid #d33a2c; outline-offset: 1px; }
   #actions button:disabled { opacity: 0.5; cursor: not-allowed; }
   #actions button.primary {
-    color: #0f172a;
+    color: #ffffff;
     font-weight: 600;
-    background: #22d3ee;
-    border-color: #22d3ee;
+    background: #d33a2c;
+    border-color: #d33a2c;
   }
-  #actions button.primary:hover:not(:disabled) { background: #67e8f9; }
+  #actions button.primary:hover:not(:disabled) { background: #161616; border-color: #161616; }
 </style>
 `;
   }

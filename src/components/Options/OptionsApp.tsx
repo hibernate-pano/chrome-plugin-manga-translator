@@ -253,13 +253,149 @@ function colorInputValue(value: string): string {
 /** 棋盘格底板：半透明的颜色只有放在它上面才看得出 alpha。 */
 const ALPHA_CHECKERBOARD = {
   backgroundImage:
-    'linear-gradient(45deg, rgb(148 163 184 / 0.35) 25%, transparent 25%),' +
-    'linear-gradient(-45deg, rgb(148 163 184 / 0.35) 25%, transparent 25%),' +
-    'linear-gradient(45deg, transparent 75%, rgb(148 163 184 / 0.35) 75%),' +
-    'linear-gradient(-45deg, transparent 75%, rgb(148 163 184 / 0.35) 75%)',
+    'linear-gradient(45deg, rgb(22 22 22 / 0.18) 25%, transparent 25%),' +
+    'linear-gradient(-45deg, rgb(22 22 22 / 0.18) 25%, transparent 25%),' +
+    'linear-gradient(45deg, transparent 75%, rgb(22 22 22 / 0.18) 75%),' +
+    'linear-gradient(-45deg, transparent 75%, rgb(22 22 22 / 0.18) 75%)',
   backgroundSize: '8px 8px',
   backgroundPosition: '0 0, 0 4px, 4px -4px, -4px 0',
 };
+
+/*
+ * 校正纸上的控件只有三种长相。
+ *
+ * 设置页原来是一摞圆角卡片，每一块都在说"我和别的不一样"；校正纸反过来：
+ * 一条墨线分栏，输入框是 1px 方框（纸底、透明），动作是墨黑块或朱红。
+ * 44px 是这一切的高度——输入框、按钮、颜色块同高，一行行的规则线才对得齐，
+ * 也才过得了 WCAG 2.5.8 的点击目标要求。
+ */
+const FIELD_CLASS =
+  'h-11 w-full border border-rule bg-transparent px-3 text-sm text-ink placeholder:text-ink-muted/70 focus-visible:border-vermilion aria-[invalid=true]:border-vermilion disabled:cursor-not-allowed disabled:opacity-40';
+
+/** 次要动作：1px 墨线，透明底，悬停时整块反过来。 */
+const GHOST_BUTTON =
+  'inline-flex h-11 items-center justify-center gap-2 border border-ink bg-transparent px-4 text-sm text-ink transition hover:bg-ink hover:text-paper disabled:cursor-not-allowed disabled:opacity-40';
+
+/** 主动作：整块墨黑，悬停换朱红。 */
+const PRIMARY_BUTTON =
+  'inline-flex h-11 items-center justify-center gap-2 border border-ink bg-ink px-4 text-sm font-medium text-paper transition hover:border-vermilion hover:bg-vermilion disabled:cursor-not-allowed disabled:opacity-40';
+
+/** 破坏性动作：朱红描边，悬停时整块填朱红。 */
+const DANGER_BUTTON =
+  'inline-flex h-11 items-center justify-center gap-2 border border-vermilion bg-transparent px-4 text-sm text-vermilion transition hover:bg-vermilion hover:text-paper disabled:cursor-not-allowed disabled:opacity-40';
+
+/** 分区抬头：11px 编号 + 衬线标题，下面压一条墨线。 */
+const SECTION_HEADER =
+  'flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-ink pb-2';
+
+/** 分区标题：衬线 23px。 */
+const SECTION_TITLE =
+  'scroll-mt-6 font-display text-[23px] leading-tight text-ink';
+
+/** 分区编号：11px 等宽，和左栏同一套数字。 */
+const SECTION_INDEX =
+  'font-mono text-[11px] leading-none tracking-[0.08em] text-ink-muted';
+
+/** 元信息标签：11px 等宽。 */
+const META_LABEL = 'font-mono text-[11px] tracking-[0.08em] text-ink-muted';
+
+/** 表单里的字段名：12px。 */
+const FIELD_LABEL = 'mb-1 block text-xs leading-none text-ink-muted';
+
+/** 说明批注：蓝图蓝只用于结构与解释，不用于动作。 */
+const NOTE_NOTE = 'text-xs leading-relaxed text-ink-muted';
+
+/** 会花钱的提醒：同一条批注，换成蓝图蓝。 */
+const NOTE_WARNING = 'text-xs leading-relaxed text-blueprint';
+
+const RAIL_GROUPS = [
+  {
+    id: 'providers',
+    index: '01',
+    label: '翻译后端',
+    anchor: 'section-providers',
+  },
+  {
+    id: 'reading',
+    index: '02',
+    label: '阅读与语言',
+    anchor: 'section-basics',
+  },
+  {
+    id: 'usage',
+    index: '03',
+    label: '花费与用量',
+    anchor: 'section-usage',
+  },
+  {
+    id: 'privacy',
+    index: '04',
+    label: '隐私与诊断',
+    anchor: 'section-privacy',
+  },
+] as const;
+
+type RailGroupId = (typeof RAIL_GROUPS)[number]['id'];
+
+/**
+ * 把「1.84 元」拆成数字与单位。
+ *
+ * 大号衬线数字是这一格的答案，单位只是它的附注，于是两者要各自拿到
+ * 自己的字号。拆开只影响排版，读到的还是同一句话。
+ */
+function splitCostLabel(label: string): {
+  amount: string;
+  unit: string;
+  /** 这个标签是不是一个数。不是数（「未设置单价」）就不该占 52px 的位置。 */
+  numeric: boolean;
+} {
+  const match = /^([\d.,]+)\s+(.+)$/.exec(label);
+  if (!match) {
+    return {
+      amount: label,
+      unit: '',
+      numeric: /^[\d.,]+$/.test(label),
+    };
+  }
+  return { amount: match[1] ?? label, unit: match[2] ?? '', numeric: true };
+}
+
+/**
+ * 一行开关。
+ *
+ * 四行开关长得一样：左边一句结论加一句代价，右边一个 24×44 的开关。
+ * 抽出来不是为了少写几行，是为了让它们的高度和那几条 1px 规则线对齐。
+ */
+interface SettingSwitchRowProps {
+  title: string;
+  ariaLabel: string;
+  checked: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  children: React.ReactNode;
+}
+
+const SettingSwitchRow: React.FC<SettingSwitchRowProps> = ({
+  title,
+  ariaLabel,
+  checked,
+  onCheckedChange,
+  children,
+}) => (
+  <label className='flex min-h-[44px] items-start justify-between gap-6 py-4'>
+    <span className='min-w-0'>
+      <span className='block text-sm font-medium text-ink'>{title}</span>
+      <span className='mt-1 block text-xs leading-relaxed text-ink-muted'>
+        {children}
+      </span>
+    </span>
+    <Switch
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      aria-label={ariaLabel}
+      className='mt-1 shrink-0'
+    />
+  </label>
+);
 
 const OptionsApp: React.FC = () => {
   const provider = useAppConfigStore(state => state.provider);
@@ -837,6 +973,47 @@ const OptionsApp: React.FC = () => {
     setCacheCleared(true);
   }, []);
 
+  /**
+   * 左栏现在指到哪一块。
+   *
+   * 左栏是目录，目录得知道读者读到哪了。这里只用 IntersectionObserver
+   * 读位置，从不接管滚动：每一项仍然是真的 <a href="#…">，跳转由浏览器
+   * 自己做，键盘、右键"在新标签页打开"、屏读的链接列表全都不受影响。
+   */
+  const [currentGroup, setCurrentGroup] = useState<RailGroupId>('providers');
+
+  useEffect(() => {
+    if (typeof IntersectionObserver === 'undefined') {
+      return;
+    }
+    const targets = RAIL_GROUPS.map(group => ({
+      id: group.id,
+      element: document.getElementById(group.anchor),
+    })).filter(
+      (target): target is { id: RailGroupId; element: HTMLElement } =>
+        target.element !== null
+    );
+    if (targets.length === 0) {
+      return;
+    }
+    const observer = new IntersectionObserver(
+      entries => {
+        const visible = entries.find(entry => entry.isIntersecting);
+        const match = visible
+          ? targets.find(target => target.element === visible.target)
+          : undefined;
+        if (match) {
+          setCurrentGroup(match.id);
+        }
+      },
+      // 只在页面中段那条窄带里判定"当前"：一进页面就是第一块，
+      // 滚到底也还停在最后一块，不会两边乱跳。
+      { rootMargin: '-40% 0px -55% 0px' }
+    );
+    targets.forEach(target => observer.observe(target.element));
+    return () => observer.disconnect();
+  }, []);
+
   const renderProviderCard = (providerType: ProviderType) => {
     const meta = PROVIDERS.find(item => item.type === providerType);
     if (!meta) {
@@ -866,24 +1043,18 @@ const OptionsApp: React.FC = () => {
           key={providerType}
           type='button'
           onClick={() => handleProviderSwitch(providerType)}
-          className='flex w-full items-center justify-between gap-4 rounded-xl border border-white/20 bg-slate-950 px-4 py-3 text-left transition hover:border-white/30 hover:bg-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
+          className='flex min-h-[44px] w-full items-center justify-between gap-4 border-b border-rule-soft px-1 py-2 text-left text-ink-muted transition hover:bg-ink/[0.04] hover:text-ink'
         >
           <span className='flex min-w-0 items-center gap-2'>
             {providerType === 'ollama' ? (
-              <Server
-                aria-hidden='true'
-                className='h-4 w-4 shrink-0 text-slate-300'
-              />
+              <Server aria-hidden='true' className='h-4 w-4 shrink-0' />
             ) : (
-              <Sparkles
-                aria-hidden='true'
-                className='h-4 w-4 shrink-0 text-cyan-300'
-              />
+              <Sparkles aria-hidden='true' className='h-4 w-4 shrink-0' />
             )}
-            <span className='truncate text-sm font-medium'>{meta.name}</span>
-            <span className='truncate text-xs text-slate-400'>
-              {configured}
+            <span className='truncate text-sm font-medium text-ink'>
+              {meta.name}
             </span>
+            <span className='truncate font-mono text-[11px]'>{configured}</span>
           </span>
           {/*
             The right-hand badges must not wrap their own text. Chinese
@@ -893,7 +1064,7 @@ const OptionsApp: React.FC = () => {
             row as a whole may still drop to its own line when the card
             gets narrow.
           */}
-          <span className='flex shrink-0 items-center gap-2 whitespace-nowrap'>
+          <span className='flex shrink-0 items-center gap-3 whitespace-nowrap'>
             {/*
               A coloured dot on its own is not a label: `title` is never read
               out by a screen reader and never seen by a touch user. The word
@@ -902,56 +1073,55 @@ const OptionsApp: React.FC = () => {
             {health !== 'unknown' && (
               <span
                 className={`inline-flex items-center gap-1 text-xs ${
-                  health === 'healthy' ? 'text-emerald-300' : 'text-amber-300'
+                  health === 'healthy' ? 'text-ink' : 'text-vermilion'
                 }`}
               >
                 <span
                   aria-hidden='true'
-                  className={`h-2 w-2 rounded-full ${
-                    health === 'healthy' ? 'bg-emerald-400' : 'bg-amber-400'
+                  className={`h-2 w-2 ${
+                    health === 'healthy' ? 'bg-ink' : 'bg-vermilion'
                   }`}
                 />
                 {health === 'healthy' ? '连接正常' : '连接异常'}
               </span>
             )}
-            <span className='text-xs text-slate-400'>切换到此</span>
+            <span className='text-xs'>切换到此</span>
           </span>
         </button>
       );
     }
 
     return (
-      <div
-        key={providerType}
-        className='rounded-xl border border-cyan-500/40 bg-cyan-500/[0.06] p-4'
-      >
+      <div key={providerType} className='border-b border-ink pb-6'>
         <div className='flex flex-wrap items-start justify-between gap-x-4 gap-y-2'>
           <div className='min-w-[12rem] flex-1'>
             <div className='flex items-center gap-2'>
-              <Check aria-hidden='true' className='h-4 w-4 text-cyan-300' />
+              <Check aria-hidden='true' className='h-4 w-4 text-vermilion' />
               {providerType === 'ollama' ? (
-                <Server aria-hidden='true' className='h-4 w-4 text-slate-300' />
+                <Server aria-hidden='true' className='h-4 w-4 text-ink-muted' />
               ) : (
                 <Sparkles
                   aria-hidden='true'
-                  className='h-4 w-4 text-cyan-300'
+                  className='h-4 w-4 text-ink-muted'
                 />
               )}
-              <h3 className='text-left text-sm font-semibold'>{meta.name}</h3>
+              <h3 className='font-display text-[19px] leading-tight text-ink'>
+                {meta.name}
+              </h3>
             </div>
-            <p className='mt-1 text-sm text-slate-400'>{meta.description}</p>
+            <p className='mt-1 text-sm text-ink-muted'>{meta.description}</p>
           </div>
           {/*
             The badges stay on one line each and the row wraps as a whole.
             A badge that breaks between characters reads as a broken layout,
             not as a label.
           */}
-          <div className='flex flex-wrap items-center gap-2'>
+          <div className='flex flex-wrap items-center gap-x-3 gap-y-2'>
             <span
-              className={`whitespace-nowrap rounded-full border px-2 py-0.5 text-xs ${
+              className={`whitespace-nowrap border px-2 py-0.5 font-mono text-[11px] ${
                 provider === providerType
-                  ? 'border-cyan-500/30 bg-cyan-500/10 text-cyan-100'
-                  : 'border-white/20 text-slate-400'
+                  ? 'border-vermilion text-vermilion'
+                  : 'border-rule text-ink-muted'
               }`}
             >
               {provider === providerType ? '当前使用中' : '点击切换'}
@@ -959,13 +1129,13 @@ const OptionsApp: React.FC = () => {
             {health !== 'unknown' && (
               <span
                 className={`inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs ${
-                  health === 'healthy' ? 'text-emerald-300' : 'text-amber-300'
+                  health === 'healthy' ? 'text-ink' : 'text-vermilion'
                 }`}
               >
                 <span
                   aria-hidden='true'
-                  className={`h-2 w-2 rounded-full ${
-                    health === 'healthy' ? 'bg-emerald-400' : 'bg-amber-400'
+                  className={`h-2 w-2 ${
+                    health === 'healthy' ? 'bg-ink' : 'bg-vermilion'
                   }`}
                 />
                 {health === 'healthy' ? '连接正常' : '连接异常'}
@@ -975,10 +1145,10 @@ const OptionsApp: React.FC = () => {
               href={meta.helpUrl}
               target='_blank'
               rel='noreferrer'
-              className='inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs text-slate-400 transition hover:text-slate-200'
+              className='inline-flex min-h-[24px] shrink-0 items-center gap-1 whitespace-nowrap border-b border-rule text-xs text-ink-muted transition hover:border-ink hover:text-ink'
             >
               文档
-              <ExternalLink className='h-3 w-3' />
+              <ExternalLink aria-hidden='true' className='h-3 w-3' />
             </a>
           </div>
         </div>
@@ -991,17 +1161,17 @@ const OptionsApp: React.FC = () => {
           所以它得在圆点旁边，而不是藏在开发者控制台里。
         */}
         {health === 'unhealthy' && (
-          <div className='mt-3 rounded-lg border border-amber-500/30 bg-amber-500/5 px-3 py-2 text-xs'>
+          <div className='mt-4 border-l-2 border-vermilion pl-3 text-xs leading-relaxed text-vermilion'>
             {!result && providerHealthReason ? (
-              <p className='text-amber-200'>{providerHealthReason}</p>
+              <p>{providerHealthReason}</p>
             ) : null}
-            <p className='text-amber-300'>
+            <p>
               自动探测已暂停，避免反复向连不上的地址发请求。改好配置后点「测试配置」重试。
             </p>
           </div>
         )}
 
-        <div className='mt-4 grid gap-3'>
+        <div className='mt-5 space-y-4'>
           {/*
             The presets. A new user's first obstacle is not the API key, it
             is that "base URL" and "model" are two things they have to know
@@ -1012,10 +1182,15 @@ const OptionsApp: React.FC = () => {
           */}
           {providerType === 'openai-compatible' && (
             <div>
-              <div className='mb-1.5 text-xs text-slate-400'>
+              <div className={`${META_LABEL} mb-2`}>
                 快速选择服务商（点一下填好地址与模型，Key 仍需自己填）
               </div>
-              <div className='grid gap-2 sm:grid-cols-2'>
+              {/*
+                一张表，不是五张卡片：一条墨线围住，1px 规则线分行，
+                正在用的那家由朱红色的对勾标出。地址与模型各占一栏，
+                眼睛可以竖着扫下来比较。
+              */}
+              <div className='border border-ink'>
                 {PROVIDER_PRESETS.map(preset => {
                   const selected =
                     findMatchingPreset({
@@ -1025,11 +1200,7 @@ const OptionsApp: React.FC = () => {
                   return (
                     <div
                       key={preset.id}
-                      className={`rounded-lg border transition ${
-                        selected
-                          ? 'border-cyan-500/50 bg-cyan-500/10'
-                          : 'border-white/20 bg-slate-950 hover:bg-slate-900'
-                      }`}
+                      className='flex items-stretch border-b border-rule-soft last:border-b-0'
                     >
                       <button
                         type='button'
@@ -1044,43 +1215,51 @@ const OptionsApp: React.FC = () => {
                             'openai-compatible': false,
                           }));
                         }}
-                        className='w-full rounded-lg px-3 py-2 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
+                        className={`flex min-h-[44px] min-w-0 flex-1 items-center gap-3 px-3 py-2 text-left transition hover:bg-ink/[0.05] ${
+                          selected ? 'bg-ink/[0.04]' : ''
+                        }`}
                       >
-                        <div className='flex items-center justify-between gap-2'>
-                          <span
-                            className={`text-sm font-medium ${
-                              selected ? 'text-cyan-100' : 'text-slate-200'
-                            }`}
-                          >
-                            {preset.label}
+                        {/*
+                          对勾只出现在命中的那一行。没命中的行留同样宽的
+                          空位，名字才不会左右跳动。
+                        */}
+                        <span
+                          aria-hidden='true'
+                          className={`w-4 shrink-0 text-sm ${
+                            selected ? 'text-vermilion' : 'text-transparent'
+                          }`}
+                        >
+                          ✓
+                        </span>
+                        <span className='w-24 max-w-24 shrink-0 truncate text-sm text-ink sm:w-28'>
+                          {preset.label}
+                        </span>
+                        <span className='min-w-0 flex-1'>
+                          <span className='block truncate font-mono text-[11px] text-ink-muted'>
+                            {preset.baseUrl}
                           </span>
-                          {selected ? (
-                            <Check
-                              aria-hidden='true'
-                              className='h-3.5 w-3.5 shrink-0 text-cyan-300'
-                            />
-                          ) : null}
-                        </div>
-                        <div className='mt-0.5 text-xs leading-snug text-slate-400'>
-                          {preset.note}
-                        </div>
+                          <span className='mt-0.5 block truncate text-xs text-ink-muted'>
+                            {preset.note}
+                          </span>
+                        </span>
+                        <span className='hidden w-44 shrink-0 truncate text-right font-mono text-[11px] text-ink-muted lg:block'>
+                          {preset.model}
+                        </span>
                       </button>
                       {/*
                         预设填好了地址和模型，剩下的那一步——拿 Key——用户
                         还是得自己去那个服务的主页。链接直接指到取 Key 的
                         页面，而不是只给一个服务商名字让人自己搜。
                       */}
-                      <div className='px-3 pb-2'>
-                        <a
-                          href={preset.keyUrl}
-                          target='_blank'
-                          rel='noreferrer'
-                          className='inline-flex items-center gap-1 text-xs text-cyan-300 transition hover:text-cyan-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
-                        >
-                          获取 API Key
-                          <ExternalLink className='h-3 w-3' />
-                        </a>
-                      </div>
+                      <a
+                        href={preset.keyUrl}
+                        target='_blank'
+                        rel='noreferrer'
+                        className='flex min-h-[44px] shrink-0 items-center gap-1 border-l border-rule-soft px-1.5 font-mono text-[11px] text-blueprint underline underline-offset-4 transition hover:bg-ink hover:text-paper md:px-2'
+                      >
+                        获取 API Key
+                        <ExternalLink aria-hidden='true' className='h-3 w-3' />
+                      </a>
                     </div>
                   );
                 })}
@@ -1091,17 +1270,14 @@ const OptionsApp: React.FC = () => {
           <div>
             <label
               htmlFor={`provider-${providerType}-base-url`}
-              className='mb-1 block text-xs text-slate-400'
+              className={FIELD_LABEL}
             >
               接口地址（Base URL）
             </label>
             {/*
              * The border is the only thing that says "this is a control".
-             * `border-white/20` over this page's slate-950 is 1.7:1 — the
-             * field you paste your API key into has no visible edge.
-             * WCAG 1.4.11 wants 3:1, and slate-500 (4.2:1) is the lightest
-             * shade that gets there. The popup's select was fixed for the
-             * same reason; this page had ten controls that were not.
+             * `border-rule` is the control boundary and it measures 3.06:1
+             * against the paper, which is the contrast WCAG 1.4.11 asks for.
              */}
             <input
               id={`provider-${providerType}-base-url`}
@@ -1113,21 +1289,21 @@ const OptionsApp: React.FC = () => {
                 })
               }
               aria-invalid={baseUrlSafety === 'invalid' ? true : undefined}
-              className='w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
+              className={`${FIELD_CLASS} font-mono`}
             />
             {baseUrlSafety === 'insecure' ? (
               // The API key is sent to this address as a Bearer header. Over
               // plaintext HTTP to a machine that is not the user's own, anyone
               // on the path can read it — so say so instead of quietly letting
               // the field look configured.
-              <div className='mt-1 text-xs text-amber-300'>
+              <div className={`mt-1 ${NOTE_WARNING}`}>
                 该地址使用明文 HTTP，API Key
                 会随请求一起被路径上的任何一方读取。 除非是自建本地网关，请改用
                 https。
               </div>
             ) : null}
             {baseUrlSafety === 'invalid' ? (
-              <div className='mt-1 text-xs text-rose-300'>
+              <div className='mt-1 text-xs leading-relaxed text-vermilion'>
                 无法解析该地址，请使用 http(s):// 开头的 URL。
               </div>
             ) : null}
@@ -1136,7 +1312,7 @@ const OptionsApp: React.FC = () => {
           <div>
             <label
               htmlFor={`provider-${providerType}-model`}
-              className='mb-1 block text-xs text-slate-400'
+              className={FIELD_LABEL}
             >
               模型（Model）
             </label>
@@ -1150,7 +1326,7 @@ const OptionsApp: React.FC = () => {
                   model: event.target.value,
                 })
               }
-              className='w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
+              className={`${FIELD_CLASS} font-mono`}
             />
           </div>
 
@@ -1158,7 +1334,7 @@ const OptionsApp: React.FC = () => {
             <div>
               <label
                 htmlFor={`provider-${providerType}-api-key`}
-                className='mb-1 block text-xs text-slate-400'
+                className={FIELD_LABEL}
               >
                 API Key（密钥）
               </label>
@@ -1174,7 +1350,7 @@ const OptionsApp: React.FC = () => {
                       apiKey: event.target.value,
                     })
                   }
-                  className='w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 pr-10 text-sm outline-none focus:border-cyan-500/60'
+                  className={`${FIELD_CLASS} pr-11 font-mono`}
                 />
                 <button
                   type='button'
@@ -1184,10 +1360,10 @@ const OptionsApp: React.FC = () => {
                       [providerType]: !current[providerType],
                     }))
                   }
-                  // 16×16 的图标不是 24×24 的点击目标（WCAG 2.5.8 AA）。
-                  // 给按钮加内边距把可点区域撑到 28×28，再用 right/top
+                  // 16×16 的图标不是点击目标（WCAG 2.5.8 AA）。
+                  // 给按钮加内边距把可点区域撑到 44×44，再用 right/top
                   // 把图标放回原来的位置 —— 看得见的图标一点没动。
-                  className='absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-1.5 text-slate-400 transition hover:text-slate-300'
+                  className='absolute right-0 top-1/2 -translate-y-1/2 p-3.5 text-ink-muted transition hover:text-vermilion'
                   aria-label={
                     showApiKey[providerType] ? '隐藏 API Key' : '显示 API Key'
                   }
@@ -1213,17 +1389,17 @@ const OptionsApp: React.FC = () => {
                     model: ENV_CONFIG.opencode.model,
                   })
                 }
-                className='rounded-lg border border-cyan-500/20 bg-cyan-500/5 px-3 py-2 text-xs text-cyan-200 transition hover:bg-cyan-500/10'
+                className={GHOST_BUTTON}
               >
                 使用构建时 OpenCodeGo 备用配置
               </button>
             )}
 
           {!meta.requiresApiKey && (
-            <div className='flex items-center gap-2 text-xs text-slate-400'>
+            <div className='flex items-center gap-2 text-xs text-ink-muted'>
               <CheckCircle2
                 aria-hidden='true'
-                className='h-3.5 w-3.5 shrink-0 text-emerald-400'
+                className='h-3.5 w-3.5 shrink-0'
               />
               <span>本地服务无需 API Key，可修改地址与模型。</span>
             </div>
@@ -1231,55 +1407,102 @@ const OptionsApp: React.FC = () => {
 
           {result && (
             <div
-              className={`rounded-lg border px-3 py-2 text-sm ${
+              className={`flex items-start gap-2 border-l-2 pl-3 text-sm ${
                 result.success
-                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-100'
-                  : 'border-amber-500/30 bg-amber-500/10 text-amber-100'
+                  ? 'border-ink text-ink'
+                  : 'border-vermilion text-vermilion'
               }`}
             >
-              <div className='flex items-start gap-2'>
-                {result.success ? (
-                  <CheckCircle2 className='mt-0.5 h-4 w-4 shrink-0' />
-                ) : (
-                  <AlertCircle className='mt-0.5 h-4 w-4 shrink-0' />
-                )}
-                <span>{result.message}</span>
-              </div>
+              {result.success ? (
+                <CheckCircle2 className='mt-0.5 h-4 w-4 shrink-0' />
+              ) : (
+                <AlertCircle className='mt-0.5 h-4 w-4 shrink-0' />
+              )}
+              <span>{result.message}</span>
             </div>
           )}
 
-          <button
-            type='button'
-            onClick={event => {
-              event.stopPropagation();
-              void testProvider(providerType);
-            }}
-            disabled={testingProvider === providerType}
-            className='inline-flex items-center justify-center gap-2 rounded-lg border border-white/20 bg-slate-950 px-3 py-2 text-sm transition hover:bg-slate-900 disabled:opacity-40'
-          >
-            {testingProvider === providerType ? (
-              <Loader2 className='h-4 w-4 animate-spin' />
-            ) : (
-              <RefreshCw className='h-4 w-4' />
-            )}
-            测试配置
-          </button>
-          {/*
-            The button is not free. It always sends a request to the
-            provider, and for an OpenAI-compatible endpoint whose gateway
-            does not expose `/models` it falls back to a real completion —
-            one word, but a billed one. The rest of this product is careful
-            to say what a click will cost; this button was the one place
-            that did not.
-          */}
-          <p className='text-xs text-slate-400'>
-            测试配置会向服务商发一次请求；网关不提供 /models
-            时会真的生成一个词，可能产生极少量费用。
-          </p>
+          <div className='flex flex-wrap items-center gap-4'>
+            <button
+              type='button'
+              onClick={event => {
+                event.stopPropagation();
+                void testProvider(providerType);
+              }}
+              disabled={testingProvider === providerType}
+              className={PRIMARY_BUTTON}
+            >
+              {testingProvider === providerType ? (
+                <Loader2 aria-hidden='true' className='h-4 w-4 animate-spin' />
+              ) : (
+                <RefreshCw aria-hidden='true' className='h-4 w-4' />
+              )}
+              测试配置
+            </button>
+            {/*
+              The button is not free. It always sends a request to the
+              provider, and for an OpenAI-compatible endpoint whose gateway
+              does not expose `/models` it falls back to a real completion —
+              one word, but a billed one. The rest of this product is careful
+              to say what a click will cost; this button was the one place
+              that did not.
+            */}
+            <p className={`min-w-0 flex-1 ${NOTE_NOTE}`}>
+              测试配置会向服务商发一次请求；网关不提供 /models
+              时会真的生成一个词，可能产生极少量费用。
+            </p>
+          </div>
         </div>
       </div>
     );
   };
+
+  /**
+   * 左栏那一行：编号用衬线，标签用正文字号。
+   *
+   * 当前那一块靠左侧的朱红竖线标出——朱红只给"当前"，不给装饰。
+   */
+  const renderRailItem = (group: (typeof RAIL_GROUPS)[number]) => {
+    const isCurrent = currentGroup === group.id;
+    return (
+      <li key={group.id} className='flex-1 md:flex-none'>
+        <a
+          href={`#${group.anchor}`}
+          aria-current={isCurrent ? 'location' : undefined}
+          className={`flex min-h-[44px] items-center gap-3 border-b border-l-2 border-rule-soft pl-4 pr-4 text-sm transition md:h-14 ${
+            isCurrent
+              ? 'border-l-vermilion bg-ink/[0.05] text-ink'
+              : 'border-l-transparent text-ink-muted hover:border-l-ink hover:bg-ink/[0.03] hover:text-ink'
+          }`}
+        >
+          <span
+            aria-hidden='true'
+            className={`w-7 shrink-0 font-display text-[19px] tabular-nums leading-none ${
+              isCurrent ? 'text-vermilion' : 'text-ink-muted'
+            }`}
+          >
+            {group.index}
+          </span>
+          <span className='whitespace-nowrap'>{group.label}</span>
+        </a>
+      </li>
+    );
+  };
+
+  /**
+   * 两个分区之间那条更重的横线。
+   *
+   * 左栏把它们分成四块；正文里这四块各起一行，编号和左栏对得上。
+   */
+  const renderGroupRule = (index: string, label: string) => (
+    <div className='mt-12 border-t-2 border-ink pt-2'>
+      <span className={META_LABEL}>
+        {index} ／ {label}
+      </span>
+    </div>
+  );
+
+  const costFigure = splitCostLabel(cost.label);
 
   return (
     <>
@@ -1304,957 +1527,1063 @@ const OptionsApp: React.FC = () => {
           }
         }}
       />
-      <div className='min-h-screen bg-slate-950 px-6 py-8 text-slate-100'>
-        {/*
-          单列纵向分组。两栏网格把"设置"和"翻译后端"并排放，两列高度
-          差一大截，右栏下面就是几百像素的空白；设置页本来也不需要并排
-          比较，改成 max-w-2xl 的单列，内容从上到下一条线读下来。
-        */}
-        <div className='mx-auto max-w-2xl space-y-6'>
-          <header className='flex flex-wrap items-start justify-between gap-3'>
-            <div>
-              <h1 className='text-2xl font-semibold'>漫画翻译助手 · 设置</h1>
-              <p className='mt-2 text-sm text-slate-400'>
-                {describeBackendAvailability(configuredBackends().length)}
-              </p>
-            </div>
-            <div className='flex flex-wrap items-center gap-2'>
-              <button
-                type='button'
-                onClick={() => setReopenOnboarding(true)}
-                className='whitespace-nowrap rounded-full border border-white/20 bg-slate-950 px-3 py-1.5 text-xs text-slate-300 transition hover:border-white/35 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
-              >
-                重新查看引导
-              </button>
-              <div className='flex items-center gap-1.5 whitespace-nowrap rounded-full border border-cyan-500/30 bg-cyan-500/10 px-3 py-1.5'>
-                {provider === 'ollama' ? (
-                  <Server
-                    aria-hidden='true'
-                    className='h-4 w-4 text-slate-300'
-                  />
-                ) : (
-                  <Sparkles
-                    aria-hidden='true'
-                    className='h-4 w-4 text-cyan-300'
-                  />
-                )}
-                <span className='text-sm font-medium text-cyan-100'>
-                  {activeProviderLabel}
+      {/*
+        校正纸：整页只有一层滚动。
+
+        左栏 sticky（不是 fixed，也不自带 overflow），正文是同一份文档流
+        的右半——页面没有第二个滚动容器，浏览器自己的锚点跳转、Ctrl+F、
+        屏读的阅读位置都只对着一个滚动轴。
+      */}
+      <div className='min-h-screen bg-paper text-ink'>
+        <div className='mx-auto flex w-full max-w-[1120px] flex-col md:flex-row'>
+          <nav
+            aria-label='设置分区'
+            className='shrink-0 border-b border-ink bg-paper md:sticky md:top-0 md:h-screen md:w-[220px] md:self-start md:border-b-0 md:border-r md:border-rule'
+          >
+            <div className='flex h-full flex-col'>
+              <div className='flex items-baseline justify-between gap-2 px-5 pb-3 pt-6'>
+                <span className='font-display text-[26px] leading-none tracking-[0.12em] text-ink'>
+                  设置
+                </span>
+                <span className='font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
+                  校正紙
                 </span>
               </div>
+              <ol className='flex flex-wrap border-t border-rule md:block md:border-t-0'>
+                {RAIL_GROUPS.map(renderRailItem)}
+              </ol>
+              <div className='mt-auto border-t border-rule-soft px-5 py-4 font-mono text-[11px] leading-relaxed tracking-[0.04em] text-ink-muted'>
+                设置只保存在本机
+              </div>
             </div>
-          </header>
+          </nav>
 
-          {/* 隐私告知 banner：说明 API key 与图片数据流向，可关闭 */}
-          {!privacyBannerDismissed && (
-            <section className='flex items-start gap-3 rounded-xl border border-cyan-500/30 bg-cyan-500/5 p-4'>
-              <Info
-                aria-hidden='true'
-                className='mt-0.5 h-5 w-5 shrink-0 text-cyan-400'
-              />
-              <div className='flex-1'>
-                <h2 className='text-sm font-semibold text-cyan-100'>
-                  数据流向说明
-                </h2>
-                <p className='mt-1 text-sm text-slate-300'>
-                  你在本页填写的 API Key 只保存在本机
-                  <code className='mx-1 rounded bg-slate-800 px-1 py-0.5 text-xs'>
-                    chrome.storage.local
-                  </code>
-                  ，不会同步到 Google 账户。个人构建也可以从
-                  <code className='mx-1 rounded bg-slate-800 px-1 py-0.5 text-xs'>
-                    .env
-                  </code>
-                  预置后端；公开构建不会包含任何私有 Key。
-                  翻译时漫画图片会直接发送到你配置的 Vision LLM 服务。
+          <div className='min-w-0 flex-1 px-5 pb-20 pt-6 sm:px-8 lg:px-10'>
+            <header className='flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-ink pb-5'>
+              <div className='min-w-0'>
+                <h1 className='font-display text-[30px] leading-tight text-ink'>
+                  漫画翻译助手 · 设置
+                </h1>
+                <p className='mt-2 text-sm text-ink-muted'>
+                  {describeBackendAvailability(configuredBackends().length)}
                 </p>
               </div>
-              <button
-                type='button'
-                onClick={dismissPrivacyBanner}
-                aria-label='关闭告知'
-                className='shrink-0 rounded-md p-1 text-slate-400 transition hover:bg-white/5 hover:text-white'
-              >
-                {/*
-                  一个向下的箭头是"折叠"，不是一个"关闭"。这段说明是整个
-                  产品里唯一写着"图片会离开这台机器"的地方，叉号说的是
-                  "我知道并且我先关掉"，箭头说的是"下面还有内容"。
-                */}
-                <X aria-hidden='true' className='h-4 w-4' />
-              </button>
-            </section>
-          )}
-
-          {/* First-time onboarding is handled by the OnboardingApp modal at the
-            top of this component, shown when onboardingCompleted === false.
-            The old inline "开始使用" quick-pick panel has been removed because
-            it duplicated the onboarding step 2 and conflicted with it. */}
-
-          <section
-            aria-labelledby='section-basics'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-basics' className='text-sm font-semibold'>
-              基础行为
-            </h2>
-
-            <div className='mt-4 space-y-3'>
-              <label className='flex items-center justify-between rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                <div>
-                  <div className='text-sm font-medium'>启用扩展</div>
-                  <div className='text-xs text-slate-400'>
-                    关闭后不会请求任何模型，弹窗里的「翻译」也会停用
-                  </div>
-                </div>
-                <Switch
-                  checked={enabled}
-                  onCheckedChange={setEnabled}
-                  aria-label='启用扩展'
-                />
-              </label>
-
-              <label className='flex items-center justify-between rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                <div>
-                  <div className='text-sm font-medium'>自动续翻</div>
-                  <div className='text-xs text-slate-400'>
-                    页面内后续图片出现时自动继续翻译（
-                    {describeFeeShort(provider)}）。默认开启：
-                    一条条漫往下滚就是几十页，关掉它就不会再自动翻后面加载出来的图——但已加载的图在点「翻译当前页面」时仍会整页翻完。
-                  </div>
-                </div>
-                <Switch
-                  checked={autoContinueEnabled}
-                  onCheckedChange={setAutoContinueEnabled}
-                  aria-label='自动续翻'
-                />
-              </label>
-
-              <div className='rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                <h3 className='text-sm font-medium'>自动翻译站点</h3>
-                <div className='mt-1 text-xs text-slate-400'>
-                  只有列表中的站点会在打开页面时自动翻译。其他站点需要你手动点一下按钮。
-                  但只要这一页开始翻译了，本页后续加载出来的图片会自动接着翻
-                  （见上方「自动续翻」），同样{describeFeeShort(provider)}。
-                </div>
-                {autoTranslateHosts.length === 0 ? (
-                  <div className='mt-3 rounded-lg border border-dashed border-white/20 px-3 py-2 text-xs text-slate-400'>
-                    列表为空，不会自动翻译任何站点。可在此添加，或在弹窗中一键添加当前站点。
-                  </div>
-                ) : (
-                  <ul className='mt-3 space-y-2'>
-                    {autoTranslateHosts.map(host => (
-                      <li
-                        key={host}
-                        className='flex items-center justify-between rounded-lg border border-white/20 bg-slate-950 px-3 py-2'
-                      >
-                        <span className='font-mono text-xs text-slate-200'>
-                          {host}
-                        </span>
-                        <button
-                          type='button'
-                          onClick={() => removeAutoTranslateHost(host)}
-                          aria-label={`移除 ${host}`}
-                          className='text-xs text-slate-400 transition hover:text-rose-300'
-                        >
-                          移除
-                        </button>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-                {/*
-                  这条提示以前只挂在"不在列表里"的那句话上，于是真正会自己
-                  花钱的那一类——名单里的站点——反而没有警告。它常驻在列表
-                  旁边：只要名单不是空的，它就在。
-                */}
-                <div className='mt-3 rounded-lg border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs leading-relaxed text-amber-100'>
-                  <div className='font-medium'>名单里的站点会自己花钱</div>
-                  <div className='mt-1'>
-                    {describeAutoTranslateCost(provider)}
-                    ——名单里的站点，每次打开它的
-                    任何页面都会自动翻译整页图片。通配符 *.example.com 会匹配
-                    该域名下的所有子域名（a.example.com、b.example.com 都算），
-                    等于一次授权、一整片站点。
-                  </div>
-                </div>
-                <form
-                  className='mt-3 flex gap-2'
-                  onSubmit={event => {
-                    event.preventDefault();
-                    if (!newAutoHost.trim()) return;
-                    if (addAutoTranslateHost(newAutoHost)) {
-                      setNewAutoHost('');
-                      setAutoHostError('');
-                    } else {
-                      setAutoHostError(
-                        '无法识别的主机名。请用 example.com 或 *.example.com；通配符需要完整域名（*.com 会被拒绝）。'
-                      );
-                    }
-                  }}
+              <div className='flex flex-wrap items-center gap-2'>
+                <button
+                  type='button'
+                  onClick={() => setReopenOnboarding(true)}
+                  className={`${GHOST_BUTTON} whitespace-nowrap`}
                 >
-                  {/* 输入框原来只有 placeholder，读屏只会念出"编辑，纯文本"。
+                  重新查看引导
+                </button>
+                <div className='flex h-11 items-center gap-2 whitespace-nowrap border border-ink px-3'>
+                  {provider === 'ollama' ? (
+                    <Server aria-hidden='true' className='h-4 w-4 text-ink' />
+                  ) : (
+                    <Sparkles
+                      aria-hidden='true'
+                      className='h-4 w-4 text-vermilion'
+                    />
+                  )}
+                  <span className='text-sm font-medium text-ink'>
+                    {activeProviderLabel}
+                  </span>
+                </div>
+              </div>
+            </header>
+
+            <div>
+              {/* 01 翻译后端 ------------------------------------------------- */}
+              <section aria-labelledby='section-providers' className='pt-8'>
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      01
+                    </span>
+                    <h2 id='section-providers' className={SECTION_TITLE}>
+                      翻译后端
+                    </h2>
+                  </div>
+                </div>
+                <div className='mt-5'>
+                  {PROVIDERS.map(item => renderProviderCard(item.type))}
+                </div>
+              </section>
+
+              {renderGroupRule('02', '阅读与语言')}
+
+              <section aria-labelledby='section-basics' className='mt-6'>
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      02.1
+                    </span>
+                    <h2 id='section-basics' className={SECTION_TITLE}>
+                      基础行为
+                    </h2>
+                  </div>
+                </div>
+
+                <div className='mt-2 divide-y divide-rule-soft'>
+                  <SettingSwitchRow
+                    title='启用扩展'
+                    ariaLabel='启用扩展'
+                    checked={enabled}
+                    onCheckedChange={setEnabled}
+                  >
+                    关闭后不会请求任何模型，弹窗里的「翻译」也会停用
+                  </SettingSwitchRow>
+
+                  <SettingSwitchRow
+                    title='自动续翻'
+                    ariaLabel='自动续翻'
+                    checked={autoContinueEnabled}
+                    onCheckedChange={setAutoContinueEnabled}
+                  >
+                    页面内后续图片出现时自动继续翻译（
+                    {describeFeeShort(provider)}）。
+                    默认开启：一条条漫往下滚就是几十页，关掉它就不会再自动翻后面加载出来的图——但已加载的图在点「翻译当前页面」时仍会整页翻完。
+                  </SettingSwitchRow>
+
+                  <div className='py-4'>
+                    <h3 className='text-sm font-medium text-ink'>
+                      自动翻译站点
+                    </h3>
+                    <div className={`mt-1 ${NOTE_NOTE}`}>
+                      只有列表中的站点会在打开页面时自动翻译。其他站点需要你手动点一下按钮。
+                      但只要这一页开始翻译了，本页后续加载出来的图片会自动接着翻
+                      （见上方「自动续翻」），同样{describeFeeShort(provider)}。
+                    </div>
+                    {autoTranslateHosts.length === 0 ? (
+                      <div className='mt-3 border border-rule-soft px-3 py-2 font-mono text-[11px] leading-relaxed text-ink-muted'>
+                        列表为空，不会自动翻译任何站点。可在此添加，或在弹窗中一键添加当前站点。
+                      </div>
+                    ) : (
+                      <ul className='mt-3 border-y border-rule-soft'>
+                        {autoTranslateHosts.map(host => (
+                          <li
+                            key={host}
+                            className='flex min-h-[44px] items-center justify-between gap-3 border-b border-rule-soft py-1 last:border-b-0'
+                          >
+                            <span className='truncate font-mono text-xs text-ink'>
+                              {host}
+                            </span>
+                            <button
+                              type='button'
+                              onClick={() => removeAutoTranslateHost(host)}
+                              aria-label={`移除 ${host}`}
+                              className='inline-flex h-11 shrink-0 items-center px-2 text-xs text-ink-muted underline underline-offset-4 transition hover:text-vermilion'
+                            >
+                              移除
+                            </button>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
+                    {/*
+                      这条提示以前只挂在"不在列表里"的那句话上，于是真正会自己
+                      花钱的那一类——名单里的站点——反而没有警告。它常驻在列表
+                      旁边：只要名单不是空的，它就在。
+                    */}
+                    <div className='mt-4 border-l-2 border-blueprint pl-3'>
+                      <div className='text-xs font-medium text-blueprint'>
+                        名单里的站点会自己花钱
+                      </div>
+                      <div className={`mt-1 ${NOTE_WARNING}`}>
+                        {describeAutoTranslateCost(provider)}
+                        ——名单里的站点，每次打开它的
+                        任何页面都会自动翻译整页图片。通配符 *.example.com
+                        会匹配
+                        该域名下的所有子域名（a.example.com、b.example.com
+                        都算）， 等于一次授权、一整片站点。
+                      </div>
+                    </div>
+                    <form
+                      className='mt-4 flex gap-2'
+                      onSubmit={event => {
+                        event.preventDefault();
+                        if (!newAutoHost.trim()) return;
+                        if (addAutoTranslateHost(newAutoHost)) {
+                          setNewAutoHost('');
+                          setAutoHostError('');
+                        } else {
+                          setAutoHostError(
+                            '无法识别的主机名。请用 example.com 或 *.example.com；通配符需要完整域名（*.com 会被拒绝）。'
+                          );
+                        }
+                      }}
+                    >
+                      {/* 输入框原来只有 placeholder，读屏只会念出"编辑，纯文本"。
                       视觉标题已经是"自动翻译站点"，这里补一个同名标签，
                       名称和可见文字保持一致。 */}
-                  <label htmlFor='auto-translate-host' className='sr-only'>
-                    自动翻译站点
-                  </label>
-                  <input
-                    id='auto-translate-host'
-                    value={newAutoHost}
-                    onChange={event => setNewAutoHost(event.target.value)}
-                    placeholder='example.com 或 *.example.com'
-                    autoComplete='off'
-                    className='flex-1 rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
-                  />
-                  <button
-                    type='submit'
-                    className='rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
-                  >
-                    添加
-                  </button>
-                </form>
-                {autoHostError ? (
-                  <div className='mt-2 text-xs text-rose-300'>
-                    {autoHostError}
-                  </div>
-                ) : null}
-                <div className='mt-2 text-xs text-slate-400'>
-                  按主机名匹配；带端口的条目（如 localhost:8080）只匹配该端口。
-                  manga.example.com 不会匹配 notmanga.example.com。
-                </div>
-              </div>
-
-              {/*
-                右键菜单是第二个入口，以前界面上一个字都没有：用户右键看到
-                "翻译当前页面"，不知道它和弹窗里的按钮是不是一回事，也
-                不知道它同样要花钱。
-              */}
-              <p className='text-xs leading-relaxed text-slate-400'>
-                在漫画页上右键也有两个入口：「翻译当前页面」和「翻译这张图片」。
-                它们和弹窗里的按钮一样会调用模型，{describeFeeShort(provider)}。
-              </p>
-
-              <label className='flex items-center justify-between rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                <div>
-                  <div className='text-sm font-medium'>缓存结果</div>
-                  <div className='text-xs text-slate-400'>
-                    减少重复图片的重复请求。关掉之后，同一页每次打开都会重新
-                    调用模型服务（{describeFeeShort(provider)}）。
-                  </div>
-                </div>
-                <Switch
-                  checked={cacheEnabled}
-                  onCheckedChange={setCacheEnabled}
-                  aria-label='缓存结果'
-                />
-              </label>
-            </div>
-          </section>
-
-          <section
-            aria-labelledby='section-target-language'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-target-language' className='text-sm font-semibold'>
-              目标语言
-            </h2>
-            <label htmlFor='target-language' className='sr-only'>
-              目标语言
-            </label>
-            <select
-              id='target-language'
-              value={targetLanguage}
-              onChange={e => setTargetLanguage(e.target.value)}
-              className='mt-3 w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none'
-            >
-              {TARGET_LANGUAGES.map(item => (
-                <option key={item.value} value={item.value}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-            {/*
-              改目标语言会让已经缓存的译文失效。
-              缓存的键里带着目标语言（`translator.ts:buildCacheKey`），所以换
-              语言之后，同一张图会被当成没翻过，重新请求一次。原来这一条只
-              写在「图片分辨率上限」下面，而换目标语言恰恰是读者翻完第一章
-              最想做的事 —— 一次悄无声息的全页重新计费。
-            */}
-            <p className='mt-3 text-xs leading-relaxed text-amber-300/80'>
-              改目标语言会让已经缓存的译文失效——同一张图会被重新请求一次 （
-              {describeFeeShort(provider)}
-              ）。想省钱就翻之前先定好语言。
-            </p>
-          </section>
-
-          <section
-            aria-labelledby='section-quality'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-quality' className='text-sm font-semibold'>
-              画质与并发
-            </h2>
-            <p className='mt-1 text-xs leading-relaxed text-slate-400'>
-              这两项直接决定一次翻译的费用与耗时。分辨率越高，识别越准，
-              但送出的图片也越大、Token 越多。
-            </p>
-
-            <div className='mt-4 space-y-3'>
-              <label className='block'>
-                <span className='mb-1.5 block text-xs text-slate-400'>
-                  图片分辨率上限（短边像素）
-                </span>
-                <select
-                  value={String(maxImageSize)}
-                  onChange={e => setMaxImageSize(Number(e.target.value))}
-                  className='w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
-                >
-                  {IMAGE_SIZE_OPTIONS.map(option => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className='text-xs leading-relaxed text-slate-400'>
-                {IMAGE_SIZE_NOTES[maxImageSize] ?? IMAGE_SIZE_NOTES_DEFAULT}
-              </p>
-              <p className='text-xs leading-relaxed text-amber-300/80'>
-                改分辨率会让已经缓存的译文失效——下次再翻同一张图会重新请求
-                一次（{describeFeeShort(provider)}
-                ）。想省钱就翻之前先定好分辨率。
-              </p>
-
-              <label className='block'>
-                <span className='mb-1.5 block text-xs text-slate-400'>
-                  同时翻译的图片数
-                </span>
-                <select
-                  value={String(parallelLimit)}
-                  onChange={e => setParallelLimit(Number(e.target.value))}
-                  className='w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60'
-                >
-                  {PARALLEL_LIMIT_OPTIONS.map(option => (
-                    <option key={option.value} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <p className='text-xs leading-relaxed text-slate-400'>
-                并发越高，整章翻完越快；并发越高也越容易触发服务商的限流。
-                网速或接口不稳时调低更稳。
-              </p>
-            </div>
-          </section>
-
-          <section
-            aria-labelledby='section-translation-style'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2
-              id='section-translation-style'
-              className='text-sm font-semibold'
-            >
-              翻译风格
-            </h2>
-            <label htmlFor='translation-style' className='sr-only'>
-              翻译风格
-            </label>
-            <select
-              id='translation-style'
-              value={translationStylePreset}
-              onChange={e =>
-                setTranslationStylePreset(
-                  e.target.value as
-                    | 'faithful'
-                    | 'natural-zh'
-                    | 'concise-bubble'
-                    | 'preserve-original'
-                )
-              }
-              className='mt-3 w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none'
-            >
-              <option value='natural-zh'>自然中文</option>
-              <option value='faithful'>尽量忠实</option>
-              <option value='concise-bubble'>气泡精简</option>
-              {/* The prompt for this preset already exists and is tuned
-                  for Japanese learners — it was simply never offered in
-                  the UI, so the capability was unreachable. */}
-              <option value='preserve-original'>保留原味（日语学习）</option>
-            </select>
-            {/*
-              这一项以前是整个设置页里唯一没有一句解释的下拉框：四个选项，
-              一个字都不说它会造成什么区别。而它恰恰是最影响输出的一项。
-            */}
-            <p className='mt-3 text-xs leading-relaxed text-slate-400'>
-              {TRANSLATION_STYLE_DESCRIPTIONS[translationStylePreset]}
-            </p>
-            <p className='mt-2 text-xs leading-relaxed text-amber-300/80'>
-              改翻译风格会让已经缓存的译文失效——同一张图会被重新请求一次 （
-              {describeFeeShort(provider)}
-              ）。
-            </p>
-          </section>
-
-          {/* 覆盖层样式折叠面板 */}
-          <section
-            aria-labelledby='section-overlay-style'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-overlay-style' className='text-sm font-semibold'>
-              <button
-                type='button'
-                aria-expanded={overlayStyleExpanded}
-                aria-controls='overlay-style-panel'
-                onClick={() => setOverlayStyleExpanded(!overlayStyleExpanded)}
-                className='flex w-full items-center justify-between gap-3 text-left transition hover:bg-white/[0.02]'
-              >
-                <span>
-                  <span className='block text-sm font-medium'>覆盖层样式</span>
-                  {/* 副标题只是重复面板里的内容，不要混进按钮（和标题）的
-                      可访问名称里，否则读屏会念成"覆盖层样式背景色、文字颜色、
-                      字号等"。 */}
-                  <span
-                    aria-hidden='true'
-                    className='block text-xs text-slate-400'
-                  >
-                    背景色、文字颜色、字号等
-                  </span>
-                </span>
-                <ChevronDown
-                  aria-hidden='true'
-                  className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${
-                    overlayStyleExpanded ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-            </h2>
-
-            {/*
-              折叠时整个面板不渲染。只用 max-h-0 + opacity-0 隐藏的话，里面
-              的输入框照样能被 Tab 选中、也能被读屏念出来 —— 用户按 Tab 会
-              走进一片看不见的地方。
-            */}
-            <div id='overlay-style-panel' hidden={!overlayStyleExpanded}>
-              {overlayStyleExpanded ? (
-                <div className='mt-3 space-y-3 border-t border-white/15 pt-3'>
-                  <label className='flex items-center justify-between rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                    <div>
-                      <div className='text-sm font-medium'>竖排文字</div>
-                      <div className='text-xs text-slate-400'>
-                        日文漫画竖向排版时启用
-                      </div>
-                    </div>
-                    <Switch
-                      checked={verticalText}
-                      onCheckedChange={setVerticalText}
-                      aria-label='竖排文字'
-                    />
-                  </label>
-
-                  <div>
-                    <label
-                      htmlFor='overlay-background-color'
-                      className='mb-1.5 block text-xs text-slate-400'
-                    >
-                      背景色
-                    </label>
-                    <div className='flex items-center gap-2'>
-                      {/*
-                        真实的颜色预览：直接按存储值渲染，透明度看得见。
-                        原来的 <input type="color"> 只能显示不透明颜色，rgba
-                        会被硬编码成 #f0f0eb 顶替，用户看到的是假颜色。
-                      */}
-                      <div className='relative h-8 w-12 shrink-0 overflow-hidden rounded border border-white/20'>
-                        <span
-                          aria-hidden='true'
-                          className='absolute inset-0'
-                          style={ALPHA_CHECKERBOARD}
-                        />
-                        <span
-                          aria-hidden='true'
-                          className='absolute inset-0'
-                          style={{ background: overlayStyle.backgroundColor }}
-                        />
-                        <input
-                          type='color'
-                          aria-label='背景色选择器'
-                          value={colorInputValue(overlayStyle.backgroundColor)}
-                          onChange={e =>
-                            setOverlayStyle({
-                              backgroundColor: applyPickedColor(
-                                overlayStyle.backgroundColor,
-                                e.target.value
-                              ),
-                            })
-                          }
-                          className='absolute inset-0 h-full w-full cursor-pointer opacity-0'
-                        />
-                      </div>
+                      <label htmlFor='auto-translate-host' className='sr-only'>
+                        自动翻译站点
+                      </label>
                       <input
-                        id='overlay-background-color'
-                        type='text'
-                        value={overlayStyle.backgroundColor}
-                        onChange={e =>
-                          setOverlayStyle({ backgroundColor: e.target.value })
-                        }
-                        className='flex-1 rounded-lg border border-slate-500 bg-slate-950 px-3 py-1.5 text-sm outline-none'
+                        id='auto-translate-host'
+                        value={newAutoHost}
+                        onChange={event => setNewAutoHost(event.target.value)}
+                        placeholder='example.com 或 *.example.com'
+                        autoComplete='off'
+                        className={`${FIELD_CLASS} min-w-0 flex-1 font-mono`}
                       />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label
-                      htmlFor='overlay-text-color'
-                      className='mb-1.5 block text-xs text-slate-400'
-                    >
-                      文字颜色
-                    </label>
-                    <div className='flex items-center gap-2'>
-                      <div className='relative h-8 w-12 shrink-0 overflow-hidden rounded border border-white/20'>
-                        <span
-                          aria-hidden='true'
-                          className='absolute inset-0'
-                          style={ALPHA_CHECKERBOARD}
-                        />
-                        <span
-                          aria-hidden='true'
-                          className='absolute inset-0'
-                          style={{ background: overlayStyle.textColor }}
-                        />
-                        <input
-                          type='color'
-                          aria-label='文字颜色选择器'
-                          value={colorInputValue(overlayStyle.textColor)}
-                          onChange={e =>
-                            setOverlayStyle({
-                              textColor: applyPickedColor(
-                                overlayStyle.textColor,
-                                e.target.value
-                              ),
-                            })
-                          }
-                          className='absolute inset-0 h-full w-full cursor-pointer opacity-0'
-                        />
-                      </div>
-                      <input
-                        id='overlay-text-color'
-                        type='text'
-                        value={overlayStyle.textColor}
-                        onChange={e =>
-                          setOverlayStyle({ textColor: e.target.value })
-                        }
-                        className='flex-1 rounded-lg border border-slate-500 bg-slate-950 px-3 py-1.5 text-sm outline-none'
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <div className='mb-3 text-xs text-slate-400'>字号范围</div>
-                    <div className='flex items-center gap-4'>
-                      <span
-                        aria-hidden='true'
-                        className='w-8 text-xs text-slate-400'
+                      <button
+                        type='submit'
+                        className={`${GHOST_BUTTON} shrink-0`}
                       >
-                        {overlayStyle.minFontSize}
-                      </span>
-                      <Slider
-                        min={8}
-                        max={48}
-                        step={1}
-                        value={[
-                          overlayStyle.minFontSize,
-                          overlayStyle.maxFontSize,
-                        ]}
-                        onValueChange={([min, max]) =>
-                          setOverlayStyle({
-                            minFontSize: min,
-                            maxFontSize: max,
-                          })
-                        }
-                        className='flex-1'
-                        // Radix 默认给手柄的 aria-label 是英文的
-                        // "Minimum" / "Maximum"，这里换成中文，并附上
-                        // 读得出来的当前值。
-                        thumbProps={[
-                          {
-                            'aria-label': '字号下限',
-                            'aria-valuetext': `${overlayStyle.minFontSize} 号字`,
-                          },
-                          {
-                            'aria-label': '字号上限',
-                            'aria-valuetext': `${overlayStyle.maxFontSize} 号字`,
-                          },
-                        ]}
-                      />
-                      <span
-                        aria-hidden='true'
-                        className='w-8 text-right text-xs text-slate-400'
-                      >
-                        {overlayStyle.maxFontSize}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </section>
-
-          <section
-            aria-labelledby='section-providers'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-providers' className='text-sm font-semibold'>
-              翻译后端
-            </h2>
-            <div className='mt-4 space-y-3'>
-              {PROVIDERS.map(item => renderProviderCard(item.type))}
-            </div>
-          </section>
-
-          <section
-            aria-labelledby='section-usage'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <div className='flex items-center justify-between gap-4'>
-              <div className='flex items-center gap-2'>
-                <BarChart3
-                  aria-hidden='true'
-                  className='h-4 w-4 text-cyan-300'
-                />
-                <div>
-                  <h2 id='section-usage' className='text-sm font-semibold'>
-                    本月用量
-                  </h2>
-                  <p className='text-xs text-slate-400'>
-                    仅统计本机记录，缓存命中不消耗 Token
-                  </p>
-                </div>
-              </div>
-              <button
-                type='button'
-                onClick={() => setClearUsageDialogOpen(true)}
-                disabled={usageRecords.length === 0}
-                className='rounded-lg border border-white/20 bg-slate-950 px-3 py-1.5 text-xs text-slate-300 transition hover:bg-slate-900 disabled:opacity-40'
-              >
-                清除统计
-              </button>
-            </div>
-
-            <div className='mt-4 grid grid-cols-2 gap-3 md:grid-cols-4'>
-              {[
-                ['翻译记录', usageSummary.translations.toLocaleString()],
-                ['API 调用', usageSummary.billableCalls.toLocaleString()],
-                ['Token', usageSummary.tokens.toLocaleString()],
-                ['缓存命中', `${usageSummary.cacheHitRate}%`],
-              ].map(([label, value]) => (
-                <div
-                  key={label}
-                  className='rounded-lg border border-white/20 bg-slate-950 px-3 py-3'
-                >
-                  <div className='text-xs text-slate-400'>{label}</div>
-                  <div className='mt-1 text-lg font-semibold text-slate-100'>
-                    {value}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <p className='mt-3 text-xs leading-relaxed text-slate-400'>
-              「翻译记录」是本月翻出来的次数，「API 调用」是其中真正发出去的
-              请求（缓存命中不计入）。本地服务商（Ollama / LM Studio）的调用
-              也会计进上面的数字，但不产生费用——只有云端服务商的请求才会计
-              到你的账单上，费用由服务商按 Token 决定。
-            </p>
-
-            {/*
-              The cost of the month, at the rates the user entered.
-            */}
-            <div className='mt-3 rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-              <div className='flex flex-wrap items-center justify-between gap-2'>
-                <span className='text-xs text-slate-400'>本月估算花费</span>
-                <span className='text-lg font-semibold text-slate-100'>
-                  {cost.label}
-                </span>
-              </div>
-              <p className='mt-1 text-xs leading-relaxed text-slate-400'>
-                {cost.note}
-              </p>
-              {cost.needsPrice ? (
-                <button
-                  type='button'
-                  onClick={focusPrices}
-                  className='mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs text-cyan-100 transition hover:bg-cyan-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
-                >
-                  去设置单价
-                </button>
-              ) : null}
-            </div>
-
-            {/*
-              The rates themselves.
-
-              The extension ships no price table, so the numbers here are
-              the user's own, typed from their provider's pricing page.
-            */}
-            <div
-              ref={priceSectionRef}
-              id='section-prices'
-              className='mt-3 rounded-lg border border-white/20 bg-slate-950 px-3 py-3'
-            >
-              <div className='text-sm font-medium'>单价</div>
-              <div className='mt-1 text-xs leading-relaxed text-slate-400'>
-                计价方式：每 1,000,000 token。把你服务商价格页上的数字填进来，
-                下面的估算就按它算。
-              </div>
-
-              {PROVIDERS.map(item => {
-                const local = isLocalProvider(item.type);
-                const editable = item.type === PRICED_PROVIDER;
-                const inputClass =
-                  'w-full rounded-lg border border-slate-500 bg-slate-950 px-3 py-2 text-sm outline-none focus:border-cyan-500/60 disabled:cursor-not-allowed disabled:opacity-40';
-                return (
-                  <div key={item.type} className='mt-3'>
-                    <div className='flex flex-wrap items-end gap-3'>
-                      <div className='w-40 shrink-0 pb-2'>
-                        <div className='text-xs text-slate-200'>
-                          {item.name}
-                        </div>
-                        {local ? (
-                          <div className='text-xs text-slate-500'>
-                            本地运行，不产生费用
-                          </div>
-                        ) : null}
+                        添加
+                      </button>
+                    </form>
+                    {autoHostError ? (
+                      <div className='mt-2 text-xs text-vermilion'>
+                        {autoHostError}
                       </div>
-                      <label className='min-w-[8rem] flex-1'>
-                        <span className='mb-1 block text-xs text-slate-400'>
-                          输入价格
-                        </span>
-                        <input
-                          ref={editable ? priceInputRef : undefined}
-                          type='number'
-                          min={0}
-                          step='any'
-                          aria-label={`${item.name} 输入价格`}
-                          value={editable ? priceDraft.input : ''}
-                          readOnly={!editable}
-                          disabled={!editable}
-                          placeholder={local ? '—' : '例如 3'}
-                          onChange={
-                            editable
-                              ? event =>
-                                  handlePriceChange({
-                                    input: event.target.value,
-                                  })
-                              : undefined
-                          }
-                          className={inputClass}
-                        />
-                      </label>
-                      <label className='min-w-[8rem] flex-1'>
-                        <span className='mb-1 block text-xs text-slate-400'>
-                          输出价格
-                        </span>
-                        <input
-                          type='number'
-                          min={0}
-                          step='any'
-                          aria-label={`${item.name} 输出价格`}
-                          value={editable ? priceDraft.output : ''}
-                          readOnly={!editable}
-                          disabled={!editable}
-                          placeholder={local ? '—' : '例如 15'}
-                          onChange={
-                            editable
-                              ? event =>
-                                  handlePriceChange({
-                                    output: event.target.value,
-                                  })
-                              : undefined
-                          }
-                          className={inputClass}
-                        />
-                      </label>
-                      <label className='w-24 shrink-0'>
-                        <span className='mb-1 block text-xs text-slate-400'>
-                          单位
-                        </span>
-                        <input
-                          type='text'
-                          aria-label={`${item.name} 货币单位`}
-                          value={editable ? priceDraft.unit : ''}
-                          readOnly={!editable}
-                          disabled={!editable}
-                          placeholder={local ? '—' : '元'}
-                          onChange={
-                            editable
-                              ? event =>
-                                  handlePriceChange({
-                                    unit: event.target.value,
-                                  })
-                              : undefined
-                          }
-                          className={inputClass}
-                        />
-                      </label>
-                    </div>
-                  </div>
-                );
-              })}
-
-              {/*
-                Two things have to be said together, or one of them is
-                missed: the number is an estimate of the user's own rates,
-                and the rates themselves are the provider's to decide.
-              */}
-              <p className='mt-3 text-xs leading-relaxed text-slate-400'>
-                这是按你填的单价做的估算，不是服务商的账单。单价由服务商决定，
-                请以服务商页面的价格为准。
-              </p>
-            </div>
-          </section>
-
-          {/* 关于与支持：版本号、更新日志入口、以及一份本地生成的诊断信息。
-              扩展不收集任何数据，所以用户报障时除了这段文本没有别的东西可
-               给 —— 这份诊断信息就是为那一刻准备的。 */}
-          <section
-            aria-labelledby='section-about'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-about' className='text-sm font-semibold'>
-              关于与支持
-            </h2>
-            <div className='mt-3 space-y-3'>
-              <div className='flex flex-wrap items-center justify-between gap-2'>
-                <span className='text-xs text-slate-400'>当前版本</span>
-                <span className='font-mono text-xs text-slate-200'>
-                  {extensionVersion}
-                </span>
-              </div>
-              <a
-                href='https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases'
-                target='_blank'
-                rel='noreferrer'
-                className='inline-flex items-center gap-1.5 text-xs text-cyan-300 transition hover:text-cyan-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
-              >
-                查看更新日志
-                <ExternalLink aria-hidden='true' className='h-3 w-3' />
-              </a>
-
-              <div className='rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                <div className='text-sm font-medium'>复制诊断信息</div>
-                <p className='mt-1 text-xs leading-relaxed text-slate-400'>
-                  扩展不会自动上传任何数据——这份诊断信息只在你点下面的按钮时
-                  复制到剪贴板。遇到问题时，把它连同截图发到 Issues
-                  即可更快定位。 它只包含你在下面能看到的设置与统计，不含 API
-                  Key、接口地址或 你浏览的页面。
-                </p>
-                <button
-                  type='button'
-                  onClick={handleCopyDiagnostics}
-                  disabled={diagnosticsCopied === 'copied'}
-                  className='mt-3 inline-flex items-center gap-2 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-medium text-cyan-100 transition hover:bg-cyan-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 disabled:opacity-60'
-                >
-                  {diagnosticsCopied === 'copied' ? (
-                    <Check aria-hidden='true' className='h-3.5 w-3.5' />
-                  ) : (
-                    <Copy aria-hidden='true' className='h-3.5 w-3.5' />
-                  )}
-                  {diagnosticsCopied === 'copied'
-                    ? '已复制到剪贴板'
-                    : diagnosticsCopied === 'failed'
-                      ? '复制失败，请手动选择'
-                      : '复制诊断信息'}
-                </button>
-              </div>
-            </div>
-          </section>
-
-          {/* 高级：默认收起。放的是"平时别动"的操作。 */}
-          <section
-            aria-labelledby='section-advanced'
-            className='rounded-xl border border-white/25 bg-white/[0.08] p-4'
-          >
-            <h2 id='section-advanced' className='text-sm font-semibold'>
-              <button
-                type='button'
-                aria-expanded={advancedExpanded}
-                aria-controls='advanced-panel'
-                onClick={() => setAdvancedExpanded(!advancedExpanded)}
-                className='flex w-full items-center justify-between gap-3 text-left transition hover:bg-white/[0.02]'
-              >
-                <span>
-                  <span className='block text-sm font-medium'>高级</span>
-                  <span
-                    aria-hidden='true'
-                    className='block text-xs text-slate-400'
-                  >
-                    缓存维护，一般不用动
-                  </span>
-                </span>
-                <ChevronDown
-                  aria-hidden='true'
-                  className={`h-4 w-4 shrink-0 text-slate-400 transition-transform duration-200 ${
-                    advancedExpanded ? 'rotate-180' : ''
-                  }`}
-                />
-              </button>
-            </h2>
-
-            <div id='advanced-panel' hidden={!advancedExpanded}>
-              {advancedExpanded ? (
-                <div className='mt-3 space-y-3 border-t border-white/15 pt-3'>
-                  <div className='rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                    <div className='text-sm font-medium'>翻译缓存</div>
-                    <p className='mt-1 text-xs text-slate-400'>
-                      翻译成功的漫画会缓存在本机，重复打开同一页不会再次调用模型；
-                      翻译失败的图片不写缓存，下次打开会再请求一次。
-                      清空后，这些译文会被删除。
-                    </p>
-                    <p className='mt-2 text-xs text-amber-300'>
-                      清空后再次翻译会重新调用你配置的模型服务，并按该服务的计费规则产生费用。
-                    </p>
-                    <button
-                      type='button'
-                      onClick={() => setClearCacheDialogOpen(true)}
-                      className='mt-3 rounded-lg border border-rose-500/40 bg-rose-500/10 px-3 py-2 text-sm text-rose-200 transition hover:bg-rose-500/20'
-                    >
-                      清空翻译缓存
-                    </button>
-                    {cacheCleared ? (
-                      <p className='mt-2 text-xs text-emerald-300'>
-                        翻译缓存已清空。
-                      </p>
                     ) : null}
+                    <div className={`mt-2 ${META_LABEL} leading-relaxed`}>
+                      按主机名匹配；带端口的条目（如
+                      localhost:8080）只匹配该端口。 manga.example.com 不会匹配
+                      notmanga.example.com。
+                    </div>
                   </div>
 
                   {/*
-                    找回被关掉的数据流向说明。
-
-                    顶部那段说明可以关，关掉是永久的 —— 存储里写下一个标记，
-                    用户就再也看不到它了。可它是整个产品里唯一明说"图片会
-                    直接发给你配置的服务商"的地方，所以这里留一个入口：
-                    关掉不等于删除。
+                    右键菜单是第二个入口，以前界面上一个字都没有：用户右键看到
+                    "翻译当前页面"，不知道它和弹窗里的按钮是不是一回事，也
+                    不知道它同样要花钱。
                   */}
-                  <div className='rounded-lg border border-white/20 bg-slate-950 px-3 py-3'>
-                    <div className='text-sm font-medium'>数据流向说明</div>
-                    <p className='mt-1 text-xs text-slate-400'>
-                      页面顶部那段说明：你的 API Key
-                      只保存在本机，翻译时漫画图片会直接发送到你配置的 Vision
-                      LLM 服务。关掉它只是不再挡住页面，说明本身随时可以调出来。
-                    </p>
-                    <button
-                      type='button'
-                      onClick={restorePrivacyBanner}
-                      className='mt-3 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-sm text-cyan-100 transition hover:bg-cyan-500/20'
-                    >
-                      重新显示数据流向说明
-                    </button>
+                  <p className={`${NOTE_NOTE} py-4`}>
+                    在漫画页上右键也有两个入口：「翻译当前页面」和「翻译这张图片」。
+                    它们和弹窗里的按钮一样会调用模型，
+                    {describeFeeShort(provider)}。
+                  </p>
+
+                  <SettingSwitchRow
+                    title='缓存结果'
+                    ariaLabel='缓存结果'
+                    checked={cacheEnabled}
+                    onCheckedChange={setCacheEnabled}
+                  >
+                    减少重复图片的重复请求。关掉之后，同一页每次打开都会重新
+                    调用模型服务（{describeFeeShort(provider)}）。
+                  </SettingSwitchRow>
+                </div>
+              </section>
+
+              <section
+                aria-labelledby='section-target-language'
+                className='mt-10'
+              >
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      02.2
+                    </span>
+                    <h2 id='section-target-language' className={SECTION_TITLE}>
+                      目标语言
+                    </h2>
                   </div>
                 </div>
-              ) : null}
+                <label htmlFor='target-language' className='sr-only'>
+                  目标语言
+                </label>
+                <select
+                  id='target-language'
+                  value={targetLanguage}
+                  onChange={e => setTargetLanguage(e.target.value)}
+                  className={`${FIELD_CLASS} mt-4`}
+                >
+                  {TARGET_LANGUAGES.map(item => (
+                    <option key={item.value} value={item.value}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+                {/*
+                  改目标语言会让已经缓存的译文失效。
+                  缓存的键里带着目标语言（`translator.ts:buildCacheKey`），所以换
+                  语言之后，同一张图会被当成没翻过，重新请求一次。原来这一条只
+                  写在「图片分辨率上限」下面，而换目标语言恰恰是读者翻完第一章
+                  最想做的事 —— 一次悄无声息的全页重新计费。
+                */}
+                <p className={`mt-3 ${NOTE_WARNING}`}>
+                  改目标语言会让已经缓存的译文失效——同一张图会被重新请求一次 （
+                  {describeFeeShort(provider)}
+                  ）。想省钱就翻之前先定好语言。
+                </p>
+              </section>
+
+              <section aria-labelledby='section-quality' className='mt-10'>
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      02.3
+                    </span>
+                    <h2 id='section-quality' className={SECTION_TITLE}>
+                      画质与并发
+                    </h2>
+                  </div>
+                </div>
+                <p className={`mt-2 ${NOTE_NOTE}`}>
+                  这两项直接决定一次翻译的费用与耗时。分辨率越高，识别越准，
+                  但送出的图片也越大、Token 越多。
+                </p>
+
+                <div className='mt-4 space-y-4'>
+                  <div>
+                    <label htmlFor='max-image-size' className={FIELD_LABEL}>
+                      图片分辨率上限（短边像素）
+                    </label>
+                    <select
+                      id='max-image-size'
+                      value={String(maxImageSize)}
+                      onChange={e => setMaxImageSize(Number(e.target.value))}
+                      className={FIELD_CLASS}
+                    >
+                      {IMAGE_SIZE_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={`mt-2 ${NOTE_NOTE}`}>
+                      {IMAGE_SIZE_NOTES[maxImageSize] ??
+                        IMAGE_SIZE_NOTES_DEFAULT}
+                    </p>
+                    <p className={`mt-2 ${NOTE_WARNING}`}>
+                      改分辨率会让已经缓存的译文失效——下次再翻同一张图会重新请求
+                      一次（{describeFeeShort(provider)}
+                      ）。想省钱就翻之前先定好分辨率。
+                    </p>
+                  </div>
+
+                  <div>
+                    <label htmlFor='parallel-limit' className={FIELD_LABEL}>
+                      同时翻译的图片数
+                    </label>
+                    <select
+                      id='parallel-limit'
+                      value={String(parallelLimit)}
+                      onChange={e => setParallelLimit(Number(e.target.value))}
+                      className={FIELD_CLASS}
+                    >
+                      {PARALLEL_LIMIT_OPTIONS.map(option => (
+                        <option key={option.value} value={option.value}>
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <p className={`mt-2 ${NOTE_NOTE}`}>
+                      并发越高，整章翻完越快；并发越高也越容易触发服务商的限流。
+                      网速或接口不稳时调低更稳。
+                    </p>
+                  </div>
+                </div>
+              </section>
+
+              <section
+                aria-labelledby='section-translation-style'
+                className='mt-10'
+              >
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      02.4
+                    </span>
+                    <h2
+                      id='section-translation-style'
+                      className={SECTION_TITLE}
+                    >
+                      翻译风格
+                    </h2>
+                  </div>
+                </div>
+                <label htmlFor='translation-style' className='sr-only'>
+                  翻译风格
+                </label>
+                <select
+                  id='translation-style'
+                  value={translationStylePreset}
+                  onChange={e =>
+                    setTranslationStylePreset(
+                      e.target.value as
+                        | 'faithful'
+                        | 'natural-zh'
+                        | 'concise-bubble'
+                        | 'preserve-original'
+                    )
+                  }
+                  className={`${FIELD_CLASS} mt-4`}
+                >
+                  <option value='natural-zh'>自然中文</option>
+                  <option value='faithful'>尽量忠实</option>
+                  <option value='concise-bubble'>气泡精简</option>
+                  {/* The prompt for this preset already exists and is tuned
+                      for Japanese learners — it was simply never offered in
+                      the UI, so the capability was unreachable. */}
+                  <option value='preserve-original'>
+                    保留原味（日语学习）
+                  </option>
+                </select>
+                {/*
+                  这一项以前是整个设置页里唯一没有一句解释的下拉框：四个选项，
+                  一个字都不说它会造成什么区别。而它恰恰是最影响输出的一项。
+                */}
+                <p className={`mt-3 ${NOTE_NOTE}`}>
+                  {TRANSLATION_STYLE_DESCRIPTIONS[translationStylePreset]}
+                </p>
+                <p className={`mt-2 ${NOTE_WARNING}`}>
+                  改翻译风格会让已经缓存的译文失效——同一张图会被重新请求一次 （
+                  {describeFeeShort(provider)}
+                  ）。
+                </p>
+              </section>
+
+              {/* 覆盖层样式折叠面板 */}
+              <section
+                aria-labelledby='section-overlay-style'
+                className='mt-10'
+              >
+                <h2 id='section-overlay-style' className={SECTION_HEADER}>
+                  <button
+                    type='button'
+                    aria-expanded={overlayStyleExpanded}
+                    aria-controls='overlay-style-panel'
+                    onClick={() =>
+                      setOverlayStyleExpanded(!overlayStyleExpanded)
+                    }
+                    className='flex min-h-[44px] w-full items-baseline justify-between gap-3 text-left transition hover:text-vermilion'
+                  >
+                    <span className='flex items-baseline gap-3'>
+                      <span aria-hidden='true' className={SECTION_INDEX}>
+                        02.5
+                      </span>
+                      <span className='font-display text-[23px] leading-tight text-ink'>
+                        覆盖层样式
+                      </span>
+                    </span>
+                    {/* 副标题只是重复面板里的内容，不要混进按钮（和标题）的
+                        可访问名称里，否则读屏会念成"覆盖层样式背景色、文字颜色、
+                        字号等"。 */}
+                    <span
+                      aria-hidden='true'
+                      className='hidden text-xs text-ink-muted sm:block'
+                    >
+                      背景色、文字颜色、字号等
+                    </span>
+                    <ChevronDown
+                      aria-hidden='true'
+                      className={`h-4 w-4 shrink-0 self-center text-ink-muted transition-transform duration-200 ${
+                        overlayStyleExpanded ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </button>
+                </h2>
+
+                {/*
+                  折叠时整个面板不渲染。只用 max-h-0 + opacity-0 隐藏的话，里面
+                  的输入框照样能被 Tab 选中、也能被读屏念出来 —— 用户按 Tab 会
+                  走进一片看不见的地方。
+                */}
+                <div id='overlay-style-panel' hidden={!overlayStyleExpanded}>
+                  {overlayStyleExpanded ? (
+                    <div className='mt-2 divide-y divide-rule-soft border-t border-rule-soft'>
+                      <SettingSwitchRow
+                        title='竖排文字'
+                        ariaLabel='竖排文字'
+                        checked={verticalText}
+                        onCheckedChange={setVerticalText}
+                      >
+                        日文漫画竖向排版时启用
+                      </SettingSwitchRow>
+
+                      <div className='py-4'>
+                        <label
+                          htmlFor='overlay-background-color'
+                          className={FIELD_LABEL}
+                        >
+                          背景色
+                        </label>
+                        <div className='flex items-center gap-2'>
+                          {/*
+                            真实的颜色预览：直接按存储值渲染，透明度看得见。
+                            原来的 <input type="color"> 只能显示不透明颜色，rgba
+                            会被硬编码成 #f0f0eb 顶替，用户看到的是假颜色。
+                          */}
+                          <div className='relative h-11 w-14 shrink-0 overflow-hidden border border-rule'>
+                            <span
+                              aria-hidden='true'
+                              className='absolute inset-0'
+                              style={ALPHA_CHECKERBOARD}
+                            />
+                            <span
+                              aria-hidden='true'
+                              className='absolute inset-0'
+                              style={{
+                                background: overlayStyle.backgroundColor,
+                              }}
+                            />
+                            <input
+                              type='color'
+                              aria-label='背景色选择器'
+                              value={colorInputValue(
+                                overlayStyle.backgroundColor
+                              )}
+                              onChange={e =>
+                                setOverlayStyle({
+                                  backgroundColor: applyPickedColor(
+                                    overlayStyle.backgroundColor,
+                                    e.target.value
+                                  ),
+                                })
+                              }
+                              className='absolute inset-0 h-full w-full cursor-pointer opacity-0'
+                            />
+                          </div>
+                          <input
+                            id='overlay-background-color'
+                            type='text'
+                            value={overlayStyle.backgroundColor}
+                            onChange={e =>
+                              setOverlayStyle({
+                                backgroundColor: e.target.value,
+                              })
+                            }
+                            className={`${FIELD_CLASS} min-w-0 flex-1 font-mono`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className='py-4'>
+                        <label
+                          htmlFor='overlay-text-color'
+                          className={FIELD_LABEL}
+                        >
+                          文字颜色
+                        </label>
+                        <div className='flex items-center gap-2'>
+                          <div className='relative h-11 w-14 shrink-0 overflow-hidden border border-rule'>
+                            <span
+                              aria-hidden='true'
+                              className='absolute inset-0'
+                              style={ALPHA_CHECKERBOARD}
+                            />
+                            <span
+                              aria-hidden='true'
+                              className='absolute inset-0'
+                              style={{ background: overlayStyle.textColor }}
+                            />
+                            <input
+                              type='color'
+                              aria-label='文字颜色选择器'
+                              value={colorInputValue(overlayStyle.textColor)}
+                              onChange={e =>
+                                setOverlayStyle({
+                                  textColor: applyPickedColor(
+                                    overlayStyle.textColor,
+                                    e.target.value
+                                  ),
+                                })
+                              }
+                              className='absolute inset-0 h-full w-full cursor-pointer opacity-0'
+                            />
+                          </div>
+                          <input
+                            id='overlay-text-color'
+                            type='text'
+                            value={overlayStyle.textColor}
+                            onChange={e =>
+                              setOverlayStyle({ textColor: e.target.value })
+                            }
+                            className={`${FIELD_CLASS} min-w-0 flex-1 font-mono`}
+                          />
+                        </div>
+                      </div>
+
+                      <div className='py-4'>
+                        <div className='mb-3 text-xs leading-none text-ink-muted'>
+                          字号范围
+                        </div>
+                        <div className='flex min-h-[44px] items-center gap-4'>
+                          <span
+                            aria-hidden='true'
+                            className='w-8 font-display text-[15px] tabular-nums text-ink-muted'
+                          >
+                            {overlayStyle.minFontSize}
+                          </span>
+                          <Slider
+                            min={8}
+                            max={48}
+                            step={1}
+                            value={[
+                              overlayStyle.minFontSize,
+                              overlayStyle.maxFontSize,
+                            ]}
+                            onValueChange={([min, max]) =>
+                              setOverlayStyle({
+                                minFontSize: min,
+                                maxFontSize: max,
+                              })
+                            }
+                            className='flex-1'
+                            // Radix 默认给手柄的 aria-label 是英文的
+                            // "Minimum" / "Maximum"，这里换成中文，并附上
+                            // 读得出来的当前值。
+                            thumbProps={[
+                              {
+                                'aria-label': '字号下限',
+                                'aria-valuetext': `${overlayStyle.minFontSize} 号字`,
+                              },
+                              {
+                                'aria-label': '字号上限',
+                                'aria-valuetext': `${overlayStyle.maxFontSize} 号字`,
+                              },
+                            ]}
+                          />
+                          <span
+                            aria-hidden='true'
+                            className='w-8 text-right font-display text-[15px] tabular-nums text-ink-muted'
+                          >
+                            {overlayStyle.maxFontSize}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                  ) : null}
+                </div>
+              </section>
+
+              {renderGroupRule('03', '花费与用量')}
+
+              <section aria-labelledby='section-usage' className='mt-6'>
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <BarChart3
+                      aria-hidden='true'
+                      className='h-4 w-4 self-center text-ink-muted'
+                    />
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      03.1
+                    </span>
+                    <h2 id='section-usage' className={SECTION_TITLE}>
+                      本月用量
+                    </h2>
+                  </div>
+                  <button
+                    type='button'
+                    onClick={() => setClearUsageDialogOpen(true)}
+                    disabled={usageRecords.length === 0}
+                    className={`${GHOST_BUTTON} shrink-0`}
+                  >
+                    清除统计
+                  </button>
+                </div>
+                <p className={`mt-2 ${META_LABEL}`}>
+                  仅统计本机记录，缓存命中不消耗 Token
+                </p>
+
+                {/*
+                  四个数字一排，中间是竖线，不是四张卡片：这是同一张表上的
+                  四栏，读者横向比较，而不是分别阅读四个盒子。
+                */}
+                <div className='mt-4 grid grid-cols-2 border-t border-ink sm:grid-cols-4'>
+                  {[
+                    ['翻译记录', usageSummary.translations.toLocaleString()],
+                    ['API 调用', usageSummary.billableCalls.toLocaleString()],
+                    ['Token', usageSummary.tokens.toLocaleString()],
+                    ['缓存命中', `${usageSummary.cacheHitRate}%`],
+                  ].map(([label, value]) => (
+                    <div
+                      key={label}
+                      className='border-b border-rule-soft px-3 py-3 sm:border-b-0 sm:border-l sm:first:border-l-0'
+                    >
+                      <div className='font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
+                        {label}
+                      </div>
+                      <div className='mt-1 font-display text-[28px] tabular-nums leading-none text-ink'>
+                        {value}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                <p className={`mt-4 ${NOTE_NOTE}`}>
+                  「翻译记录」是本月翻出来的次数，「API 调用」是其中真正发出去的
+                  请求（缓存命中不计入）。本地服务商（Ollama / LM Studio）的调用
+                  也会计进上面的数字，但不产生费用——只有云端服务商的请求才会计
+                  到你的账单上，费用由服务商按 Token 决定。
+                </p>
+
+                {/*
+                  The cost of the month, at the rates the user entered.
+                */}
+                <div className='mt-5 flex flex-wrap items-end justify-between gap-x-6 gap-y-4 border-t border-ink pt-4'>
+                  <div className='min-w-0 flex-1'>
+                    <div className={META_LABEL}>本月估算花费</div>
+                    <p className={`mt-1 max-w-[42rem] ${NOTE_NOTE}`}>
+                      {cost.note}
+                    </p>
+                    {cost.needsPrice ? (
+                      <button
+                        type='button'
+                        onClick={focusPrices}
+                        className={`${GHOST_BUTTON} mt-3`}
+                      >
+                        去设置单价
+                      </button>
+                    ) : null}
+                  </div>
+                  {/*
+                    数字是这一格的答案，所以它用衬线、52px；单位只说明这个
+                    数字花的是什么钱，退到 12px，和答案基线对齐。
+                  */}
+                  <div className='flex shrink-0 items-baseline gap-2'>
+                    <span
+                      className={`font-display tabular-nums leading-none text-ink ${
+                        costFigure.numeric ? 'text-[52px]' : 'text-[26px]'
+                      }`}
+                    >
+                      {costFigure.amount}
+                    </span>
+                    {costFigure.unit ? (
+                      <span className='text-xs text-ink-muted'>
+                        {costFigure.unit}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+
+                {/*
+                  The rates themselves.
+
+                  The extension ships no price table, so the numbers here are
+                  the user's own, typed from their provider's pricing page.
+                */}
+                <div
+                  ref={priceSectionRef}
+                  id='section-prices'
+                  className='mt-6 scroll-mt-6 border-t border-rule-soft pt-4'
+                >
+                  <div className='flex flex-wrap items-baseline justify-between gap-2'>
+                    <h3 className='font-display text-[19px] leading-tight text-ink'>
+                      单价
+                    </h3>
+                    <span className={META_LABEL}>每 1,000,000 token</span>
+                  </div>
+                  <p className={`mt-1 ${NOTE_NOTE}`}>
+                    计价方式：每 1,000,000
+                    token。把你服务商价格页上的数字填进来， 下面的估算就按它算。
+                  </p>
+
+                  <div className='mt-4 divide-y divide-rule-soft border-t border-rule-soft'>
+                    {PROVIDERS.map(item => {
+                      const local = isLocalProvider(item.type);
+                      const editable = item.type === PRICED_PROVIDER;
+                      return (
+                        <div key={item.type} className='py-3'>
+                          <div className='flex flex-wrap items-end gap-3'>
+                            <div className='w-40 shrink-0 pb-2'>
+                              <div className='text-sm text-ink'>
+                                {item.name}
+                              </div>
+                              {local ? (
+                                <div className='mt-0.5 font-mono text-[11px] text-ink-muted'>
+                                  本地运行，不产生费用
+                                </div>
+                              ) : null}
+                            </div>
+                            <label className='min-w-[8rem] flex-1'>
+                              <span className={FIELD_LABEL}>输入价格</span>
+                              <input
+                                ref={editable ? priceInputRef : undefined}
+                                type='number'
+                                min={0}
+                                step='any'
+                                aria-label={`${item.name} 输入价格`}
+                                value={editable ? priceDraft.input : ''}
+                                readOnly={!editable}
+                                disabled={!editable}
+                                placeholder={local ? '—' : '例如 3'}
+                                onChange={
+                                  editable
+                                    ? event =>
+                                        handlePriceChange({
+                                          input: event.target.value,
+                                        })
+                                    : undefined
+                                }
+                                className={`${FIELD_CLASS} font-display`}
+                              />
+                            </label>
+                            <label className='min-w-[8rem] flex-1'>
+                              <span className={FIELD_LABEL}>输出价格</span>
+                              <input
+                                type='number'
+                                min={0}
+                                step='any'
+                                aria-label={`${item.name} 输出价格`}
+                                value={editable ? priceDraft.output : ''}
+                                readOnly={!editable}
+                                disabled={!editable}
+                                placeholder={local ? '—' : '例如 15'}
+                                onChange={
+                                  editable
+                                    ? event =>
+                                        handlePriceChange({
+                                          output: event.target.value,
+                                        })
+                                    : undefined
+                                }
+                                className={`${FIELD_CLASS} font-display`}
+                              />
+                            </label>
+                            <label className='w-24 shrink-0'>
+                              <span className={FIELD_LABEL}>单位</span>
+                              <input
+                                type='text'
+                                aria-label={`${item.name} 货币单位`}
+                                value={editable ? priceDraft.unit : ''}
+                                readOnly={!editable}
+                                disabled={!editable}
+                                placeholder={local ? '—' : '元'}
+                                onChange={
+                                  editable
+                                    ? event =>
+                                        handlePriceChange({
+                                          unit: event.target.value,
+                                        })
+                                    : undefined
+                                }
+                                className={FIELD_CLASS}
+                              />
+                            </label>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/*
+                    Two things have to be said together, or one of them is
+                    missed: the number is an estimate of the user's own rates,
+                    and the rates themselves are the provider's to decide.
+                  */}
+                  <p className={`mt-3 ${NOTE_NOTE}`}>
+                    这是按你填的单价做的估算，不是服务商的账单。单价由服务商决定，
+                    请以服务商页面的价格为准。
+                  </p>
+                </div>
+              </section>
+
+              {/*
+                04 这一块整体挂在 #section-privacy 上，而不是挂在顶部那段
+                说明上：说明是可以关掉的，关掉之后左栏那一条仍然要有落点。
+              */}
+              <div id='section-privacy' className='scroll-mt-6'>
+                {renderGroupRule('04', '隐私与诊断')}
+
+                {/* 隐私告知 banner：说明 API key 与图片数据流向，可关闭 */}
+                {!privacyBannerDismissed && (
+                  <section className='mt-6 flex items-start gap-3 border-l-2 border-blueprint py-3 pl-4 pr-1'>
+                    <Info
+                      aria-hidden='true'
+                      className='mt-0.5 h-5 w-5 shrink-0 text-blueprint'
+                    />
+                    <div className='min-w-0 flex-1'>
+                      <h2 className='text-sm font-medium text-ink'>
+                        数据流向说明
+                      </h2>
+                      <p className='mt-1 text-sm leading-relaxed text-ink-muted'>
+                        你在本页填写的 API Key 只保存在本机
+                        <code className='mx-1 bg-ink/[0.06] px-1 font-mono text-xs'>
+                          chrome.storage.local
+                        </code>
+                        ，不会同步到 Google 账户。个人构建也可以从
+                        <code className='mx-1 bg-ink/[0.06] px-1 font-mono text-xs'>
+                          .env
+                        </code>
+                        预置后端；公开构建不会包含任何私有 Key。
+                        翻译时漫画图片会直接发送到你配置的 Vision LLM 服务。
+                      </p>
+                    </div>
+                    <button
+                      type='button'
+                      onClick={dismissPrivacyBanner}
+                      aria-label='关闭告知'
+                      className='flex h-11 w-11 shrink-0 items-center justify-center text-ink-muted transition hover:text-vermilion'
+                    >
+                      {/*
+                      一个向下的箭头是"折叠"，不是一个"关闭"。这段说明是整个
+                      产品里唯一写着"图片会离开这台机器"的地方，叉号说的是
+                      "我知道并且我先关掉"，箭头说的是"下面还有内容"。
+                    */}
+                      <X aria-hidden='true' className='h-4 w-4' />
+                    </button>
+                  </section>
+                )}
+
+                {/* First-time onboarding is handled by the OnboardingApp modal at the
+                top of this component, shown when onboardingCompleted === false.
+                The old inline "开始使用" quick-pick panel has been removed because
+                it duplicated the onboarding step 2 and conflicted with it. */}
+
+                {/* 关于与支持：版本号、更新日志入口、以及一份本地生成的诊断信息。
+                  扩展不收集任何数据，所以用户报障时除了这段文本没有别的东西可
+                   给 —— 这份诊断信息就是为那一刻准备的。 */}
+                <section aria-labelledby='section-about' className='mt-10'>
+                  <div className={SECTION_HEADER}>
+                    <div className='flex items-baseline gap-3'>
+                      <span aria-hidden='true' className={SECTION_INDEX}>
+                        04.2
+                      </span>
+                      <h2 id='section-about' className={SECTION_TITLE}>
+                        关于与支持
+                      </h2>
+                    </div>
+                  </div>
+                  <div className='mt-2 divide-y divide-rule-soft'>
+                    <div className='flex min-h-[44px] flex-wrap items-center justify-between gap-2 py-3'>
+                      <span className={META_LABEL}>当前版本</span>
+                      <span className='font-mono text-xs text-ink'>
+                        {extensionVersion}
+                      </span>
+                    </div>
+                    <div className='py-3'>
+                      <a
+                        href='https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases'
+                        target='_blank'
+                        rel='noreferrer'
+                        className='inline-flex min-h-[44px] items-center gap-1.5 border-b border-rule font-mono text-[11px] text-blueprint transition hover:border-ink hover:text-ink'
+                      >
+                        查看更新日志
+                        <ExternalLink aria-hidden='true' className='h-3 w-3' />
+                      </a>
+                    </div>
+
+                    <div className='py-4'>
+                      <div className='text-sm font-medium text-ink'>
+                        复制诊断信息
+                      </div>
+                      <p className={`mt-1 ${NOTE_NOTE}`}>
+                        扩展不会自动上传任何数据——这份诊断信息只在你点下面的按钮时
+                        复制到剪贴板。遇到问题时，把它连同截图发到 Issues
+                        即可更快定位。 它只包含你在下面能看到的设置与统计，不含
+                        API Key、接口地址或 你浏览的页面。
+                      </p>
+                      <button
+                        type='button'
+                        onClick={handleCopyDiagnostics}
+                        disabled={diagnosticsCopied === 'copied'}
+                        className={`${GHOST_BUTTON} mt-3`}
+                      >
+                        {diagnosticsCopied === 'copied' ? (
+                          <Check aria-hidden='true' className='h-3.5 w-3.5' />
+                        ) : (
+                          <Copy aria-hidden='true' className='h-3.5 w-3.5' />
+                        )}
+                        {diagnosticsCopied === 'copied'
+                          ? '已复制到剪贴板'
+                          : diagnosticsCopied === 'failed'
+                            ? '复制失败，请手动选择'
+                            : '复制诊断信息'}
+                      </button>
+                    </div>
+                  </div>
+                </section>
+
+                {/* 高级：默认收起。放的是"平时别动"的操作。 */}
+                <section aria-labelledby='section-advanced' className='mt-10'>
+                  <h2 id='section-advanced' className={SECTION_HEADER}>
+                    <button
+                      type='button'
+                      aria-expanded={advancedExpanded}
+                      aria-controls='advanced-panel'
+                      onClick={() => setAdvancedExpanded(!advancedExpanded)}
+                      className='flex min-h-[44px] w-full items-baseline justify-between gap-3 text-left transition hover:text-vermilion'
+                    >
+                      <span className='flex items-baseline gap-3'>
+                        <span aria-hidden='true' className={SECTION_INDEX}>
+                          04.3
+                        </span>
+                        <span className='font-display text-[23px] leading-tight text-ink'>
+                          高级
+                        </span>
+                      </span>
+                      <span
+                        aria-hidden='true'
+                        className='hidden text-xs text-ink-muted sm:block'
+                      >
+                        缓存维护，一般不用动
+                      </span>
+                      <ChevronDown
+                        aria-hidden='true'
+                        className={`h-4 w-4 shrink-0 self-center text-ink-muted transition-transform duration-200 ${
+                          advancedExpanded ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </button>
+                  </h2>
+
+                  <div id='advanced-panel' hidden={!advancedExpanded}>
+                    {advancedExpanded ? (
+                      <div className='mt-2 divide-y divide-rule-soft border-t border-rule-soft'>
+                        <div className='py-4'>
+                          <div className='text-sm font-medium text-ink'>
+                            翻译缓存
+                          </div>
+                          <p className={`mt-1 ${NOTE_NOTE}`}>
+                            翻译成功的漫画会缓存在本机，重复打开同一页不会再次调用模型；
+                            翻译失败的图片不写缓存，下次打开会再请求一次。
+                            清空后，这些译文会被删除。
+                          </p>
+                          <p className={`mt-2 ${NOTE_WARNING}`}>
+                            清空后再次翻译会重新调用你配置的模型服务，并按该服务的计费规则产生费用。
+                          </p>
+                          <button
+                            type='button'
+                            onClick={() => setClearCacheDialogOpen(true)}
+                            className={`${DANGER_BUTTON} mt-3`}
+                          >
+                            清空翻译缓存
+                          </button>
+                          {cacheCleared ? (
+                            <p className='mt-2 text-xs text-ink-muted'>
+                              翻译缓存已清空。
+                            </p>
+                          ) : null}
+                        </div>
+
+                        {/*
+                        找回被关掉的数据流向说明。
+
+                        顶部那段说明可以关，关掉是永久的 —— 存储里写下一个标记，
+                        用户就再也看不到它了。可它是整个产品里唯一明说"图片会
+                        直接发给你配置的服务商"的地方，所以这里留一个入口：
+                        关掉不等于删除。
+                      */}
+                        <div className='py-4'>
+                          <div className='text-sm font-medium text-ink'>
+                            数据流向说明
+                          </div>
+                          <p className={`mt-1 ${NOTE_NOTE}`}>
+                            页面顶部那段说明：你的 API Key
+                            只保存在本机，翻译时漫画图片会直接发送到你配置的
+                            Vision LLM
+                            服务。关掉它只是不再挡住页面，说明本身随时可以调出来。
+                          </p>
+                          <button
+                            type='button'
+                            onClick={restorePrivacyBanner}
+                            className={`${GHOST_BUTTON} mt-3`}
+                          >
+                            重新显示数据流向说明
+                          </button>
+                        </div>
+                      </div>
+                    ) : null}
+                  </div>
+                </section>
+              </div>
             </div>
-          </section>
+          </div>
         </div>
 
         <ConfirmDialog

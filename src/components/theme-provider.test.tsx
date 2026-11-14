@@ -68,7 +68,7 @@ describe('theme provider storage', () => {
   });
 
   it('reads the stored theme through storage.local', async () => {
-    localStore['manga-translator-theme'] = 'dark';
+    localStore['manga-translator-theme'] = 'light';
     render(
       <ThemeProvider storageKey='manga-translator-theme'>
         <ThemeProbe />
@@ -78,8 +78,8 @@ describe('theme provider storage', () => {
     await act(async () => {
       await Promise.resolve();
     });
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
-    expect(document.documentElement.classList.contains('light')).toBe(false);
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
   it('never touches storage.sync', async () => {
@@ -93,7 +93,7 @@ describe('theme provider storage', () => {
       .spyOn(console, 'error')
       .mockImplementation(() => {});
 
-    localStore['manga-translator-theme'] = 'dark';
+    localStore['manga-translator-theme'] = 'light';
     render(
       <ThemeProvider storageKey='manga-translator-theme'>
         <ThemeProbe />
@@ -103,7 +103,7 @@ describe('theme provider storage', () => {
       await Promise.resolve();
     });
 
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('light')).toBe(true);
     expect(consoleError).not.toHaveBeenCalled();
     consoleError.mockRestore();
   });
@@ -125,13 +125,13 @@ describe('theme provider honours a pinned theme', () => {
   });
 
   it('keeps a pinned theme even when storage holds an older system value', async () => {
-    // The surfaces are hard-coded dark and the shadcn primitives follow the
-    // theme class, so a leftover `system` from an earlier version put a light
-    // switch on a dark card — measured at 1.26:1 against its own track.
+    // The surfaces are hard-coded paper and the shadcn primitives follow the
+    // theme class, so a leftover `system` from an earlier version must not
+    // repaint them into a half-and-half page.
     localStore['manga-translator-theme'] = 'system';
 
     render(
-      <ThemeProvider defaultTheme='dark' storageKey='manga-translator-theme'>
+      <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
         <ThemeProbe />
       </ThemeProvider>
     );
@@ -140,19 +140,18 @@ describe('theme provider honours a pinned theme', () => {
       await Promise.resolve();
     });
 
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
-    expect(document.documentElement.classList.contains('light')).toBe(false);
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('does not let a stored light theme repaint the page', async () => {
-    // The bug the accessibility review found: `resolveStored` only ever
-    // overrode a stored `system`, so a stored `light` survived and the page
-    // came up half white (body rgb(255,255,255) with rgb(10,10,10) text)
-    // and half black (the hard-coded dark cards).
-    localStore['manga-translator-theme'] = 'light';
+  it('does not let a stored dark theme repaint the paper page', async () => {
+    // A `dark` value left by an older build must not repaint the paper
+    // surfaces: the body would go near-black while every proof-sheet
+    // surface stayed paper.
+    localStore['manga-translator-theme'] = 'dark';
 
     render(
-      <ThemeProvider defaultTheme='dark' storageKey='manga-translator-theme'>
+      <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
         <ThemeProbe />
       </ThemeProvider>
     );
@@ -161,15 +160,15 @@ describe('theme provider honours a pinned theme', () => {
       await Promise.resolve();
     });
 
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
-    expect(document.documentElement.classList.contains('light')).toBe(false);
+    expect(document.documentElement.classList.contains('light')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
   });
 
-  it('removes a stale light class left on the document element', async () => {
-    document.documentElement.classList.add('light');
+  it('removes a stale dark class left on the document element', async () => {
+    document.documentElement.classList.add('dark');
 
     render(
-      <ThemeProvider defaultTheme='dark' storageKey='manga-translator-theme'>
+      <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
         <ThemeProbe />
       </ThemeProvider>
     );
@@ -178,30 +177,30 @@ describe('theme provider honours a pinned theme', () => {
       await Promise.resolve();
     });
 
-    expect(document.documentElement.classList.contains('light')).toBe(false);
-    expect(document.documentElement.classList.contains('dark')).toBe(true);
+    expect(document.documentElement.classList.contains('dark')).toBe(false);
+    expect(document.documentElement.classList.contains('light')).toBe(true);
   });
 });
 
 // The resolution rule on its own: what the provider does with whatever is
 // in storage.
 describe('resolveStoredTheme', () => {
-  it('keeps a stored dark theme', () => {
-    expect(resolveStoredTheme('dark', 'dark')).toBe('dark');
+  it('keeps a stored light theme', () => {
+    expect(resolveStoredTheme('light', 'light')).toBe('light');
   });
 
-  it('overrides a stored light theme', () => {
-    // A light theme is not implemented, so it must never reach the DOM.
-    expect(resolveStoredTheme('light', 'dark')).toBe('dark');
+  it('overrides a stored dark theme', () => {
+    // The dark theme is not implemented, so it must never reach the DOM.
+    expect(resolveStoredTheme('dark', 'light')).toBe('light');
   });
 
   it('overrides a stored system theme', () => {
-    expect(resolveStoredTheme('system', 'dark')).toBe('dark');
+    expect(resolveStoredTheme('system', 'light')).toBe('light');
   });
 
   it('falls back to the pinned theme for anything unrecognised', () => {
-    expect(resolveStoredTheme(undefined, 'dark')).toBe('dark');
-    expect(resolveStoredTheme(null, 'dark')).toBe('dark');
-    expect(resolveStoredTheme('neon', 'dark')).toBe('dark');
+    expect(resolveStoredTheme(undefined, 'light')).toBe('light');
+    expect(resolveStoredTheme(null, 'light')).toBe('light');
+    expect(resolveStoredTheme('neon', 'light')).toBe('light');
   });
 });

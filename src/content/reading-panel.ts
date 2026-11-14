@@ -25,6 +25,9 @@ interface ReadingPanelOptions {
   highlightDurationMs?: number;
 }
 
+/** Which language the entry text leads with. */
+type ReadingMode = 'translated' | 'original';
+
 interface Entry {
   /** DOM 中图片元素本身的弱引用（用于定位） */
   image: HTMLImageElement;
@@ -123,9 +126,17 @@ export class ReadingPanel {
   private list: HTMLElement;
   private collapseBtn: HTMLButtonElement;
   private hideBtn: HTMLButtonElement;
+  private modeOriginalBtn: HTMLButtonElement;
+  private modeTranslatedBtn: HTMLButtonElement;
 
   private entries: Entry[] = [];
   private collapsed: boolean;
+  /**
+   * Which language the entries lead with. 「译文」 is the default — the
+   * panel is a reading surface for the translation — and 「原文」 swaps the
+   * two so a bilingual reader can compare the other way round.
+   */
+  private mode: ReadingMode = 'translated';
   /**
    * Whether the panel is shown at all. Distinct from `collapsed`: collapsing
    * leaves a header handle, hiding removes the panel from the page.
@@ -166,9 +177,13 @@ export class ReadingPanel {
     this.shadow.innerHTML = `${this.buildStyles()}
 <div id="root">
   <header id="header">
-    <div>
-      <strong>阅读面板</strong>
+    <div id="header-title">
+      <strong id="panel-title">译文阅读面板</strong>
       <span id="count" data-testid="count">0 张</span>
+    </div>
+    <div id="mode-switch" role="group" aria-label="显示原文或译文">
+      <button id="mode-original" type="button" aria-pressed="false">原文</button>
+      <button id="mode-translated" type="button" aria-pressed="true">译文</button>
     </div>
     <div id="header-actions">
       <button id="collapse-btn" type="button" aria-label="收起面板">−</button>
@@ -186,10 +201,22 @@ export class ReadingPanel {
       'collapse-btn'
     ) as HTMLButtonElement;
     this.hideBtn = this.shadow.getElementById('hide-btn') as HTMLButtonElement;
+    this.modeOriginalBtn = this.shadow.getElementById(
+      'mode-original'
+    ) as HTMLButtonElement;
+    this.modeTranslatedBtn = this.shadow.getElementById(
+      'mode-translated'
+    ) as HTMLButtonElement;
 
     const empty = this.shadow.getElementById('empty') as HTMLElement;
     this.collapseBtn.addEventListener('click', () => this.toggleCollapsed());
     this.hideBtn.addEventListener('click', () => this.requestHide());
+    this.modeOriginalBtn.addEventListener('click', () =>
+      this.setMode('original')
+    );
+    this.modeTranslatedBtn.addEventListener('click', () =>
+      this.setMode('translated')
+    );
 
     if (this.collapsed) {
       this.root.classList.add('collapsed');
@@ -507,6 +534,31 @@ export class ReadingPanel {
     );
   }
 
+  /**
+   * Lead each entry with the translation or with the source text.
+   *
+   * Both languages already travel with every entry; this only decides which
+   * one is set as the reading text and which one sits behind the 「原文」 /
+   * 「译文」 disclosure. Every entry is re-rendered because the teaser is
+   * cut from the leading text.
+   */
+  private setMode(mode: ReadingMode): void {
+    if (this.mode === mode) {
+      return;
+    }
+    this.mode = mode;
+    this.root.classList.toggle('mode-original', mode === 'original');
+    this.modeOriginalBtn.setAttribute(
+      'aria-pressed',
+      String(mode === 'original')
+    );
+    this.modeTranslatedBtn.setAttribute(
+      'aria-pressed',
+      String(mode === 'translated')
+    );
+    this.entries.forEach(entry => this.renderEntryContent(entry));
+  }
+
   private toggleCollapsed(): void {
     this.collapsed = !this.collapsed;
     if (this.collapsed) {
@@ -533,7 +585,7 @@ export class ReadingPanel {
   private flashHighlight(target: HTMLElement): void {
     const originalOutline = target.style.outline;
     const originalOffset = target.style.outlineOffset;
-    target.style.outline = '3px solid #22d3ee';
+    target.style.outline = '3px solid #D33A2C';
     target.style.outlineOffset = '2px';
     if (this.highlightTimer) {
       clearTimeout(this.highlightTimer);
@@ -550,9 +602,24 @@ export class ReadingPanel {
   }
 
   private renderEntryContent(entry: Entry): void {
-    const texts = entry.textAreas
+    const translated = entry.textAreas
       .map(area => (area.translatedText ?? '').trim())
       .filter(text => text.length > 0);
+
+    // The source text travels with the translation (`TextArea.originalText`
+    // is already populated by the model). The panel used to drop it, so the
+    // one surface that is *for reading* was the one surface where the
+    // original could not be read — a bilingual reader had nowhere to look.
+    const originals = entry.textAreas
+      .map(area => (area.originalText ?? '').trim())
+      .filter(text => text.length > 0);
+
+    // The header switch decides which language this entry leads with. A
+    // translation with no source text (an OCR-only run, say) keeps leading
+    // with the translation rather than going blank.
+    const leadWithOriginal = this.mode === 'original' && originals.length > 0;
+    const texts = leadWithOriginal ? originals : translated;
+    const alternate = leadWithOriginal ? translated : originals;
 
     const first = texts[0] ?? '';
     const split = splitPreview(first, PREVIEW_MAX_CHARS);
@@ -568,14 +635,6 @@ export class ReadingPanel {
     const bodyTexts =
       split.rest.length > 0 ? [split.rest, ...texts.slice(1)] : texts.slice(1);
 
-    // The source text travels with the translation (`TextArea.originalText`
-    // is already populated by the model). The panel used to drop it, so the
-    // one surface that is *for reading* was the one surface where the
-    // original could not be read — a bilingual reader had nowhere to look.
-    const originals = entry.textAreas
-      .map(area => (area.originalText ?? '').trim())
-      .filter(text => text.length > 0);
-
     nodeSet(
       entry.node,
       this.buildEntryInner(
@@ -583,7 +642,8 @@ export class ReadingPanel {
         preview,
         bodyTexts,
         texts.length > 0,
-        originals
+        alternate,
+        leadWithOriginal ? '译文' : '原文'
       )
     );
   }
@@ -593,7 +653,8 @@ export class ReadingPanel {
     preview: string,
     bodyTexts: string[],
     hasText: boolean,
-    originals: string[] = []
+    alternate: string[] = [],
+    alternateLabel = '原文'
   ): DocumentFragment {
     const frag = document.createDocumentFragment();
 
@@ -632,15 +693,15 @@ export class ReadingPanel {
       frag.appendChild(empty);
     }
 
-    // The original text, collapsed by default so it does not compete with
-    // the translation for attention, but always one click away.
-    if (originals.length > 0) {
+    // The other language, collapsed by default so it does not compete with
+    // the text being read for attention, but always one click away.
+    if (alternate.length > 0) {
       const details = document.createElement('details');
       details.className = 'entry-original';
 
       const summary = document.createElement('summary');
       summary.className = 'entry-original-summary';
-      summary.textContent = '原文';
+      summary.textContent = alternateLabel;
       // The summary sits inside the entry, and the entry scrolls its image
       // into view when clicked. Expanding the original text therefore
       // scrolled the manga page away from the panel the reader was reading
@@ -660,12 +721,11 @@ export class ReadingPanel {
 
       const list = document.createElement('ul');
       list.className = 'entry-original-list';
-      originals.forEach(text => {
+      alternate.forEach(text => {
         const li = document.createElement('li');
         li.textContent = text;
         list.appendChild(li);
       });
-
       details.appendChild(summary);
       details.appendChild(list);
       frag.appendChild(details);
@@ -693,14 +753,18 @@ export class ReadingPanel {
 <style>
   :host, * { box-sizing: border-box; }
   #root {
+    /* 校正紙: a sheet of cold paper laid over someone else's artwork. The
+       palette is the extension's — paper, ink, vermilion for the current
+       item, blueprint for structure — and the panel reads as print, not as
+       a floating card: square corners, a 1px ink frame and a hard offset
+       shadow. */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
-                 'Microsoft YaHei', sans-serif;
-    color: #e2e8f0;
-    background: rgba(15, 23, 42, 0.94);
-    backdrop-filter: blur(8px);
-    border: 1px solid rgba(148, 163, 184, 0.6);
-    border-radius: 12px;
-    box-shadow: 0 16px 40px rgba(0, 0, 0, 0.45);
+                 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
+    color: #161616;
+    background: #E9E9E2;
+    border: 1px solid #161616;
+    border-radius: 0;
+    box-shadow: 4px 4px 0 #161616;
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -712,6 +776,8 @@ export class ReadingPanel {
     /* On a phone the fixed 320px was 85% of the screen: the panel covered
        the manga it was supposed to accompany. */
     width: min(320px, calc(100vw - 32px));
+    font-size: 14px;
+    line-height: 1.5;
   }
   /* Collapsed, the panel is just its header bar. Keeping the full 320px width
      would leave an invisible rectangle over the page. */
@@ -719,118 +785,196 @@ export class ReadingPanel {
     width: auto;
   }
   #root.collapsed #list,
-  #root.collapsed #empty {
+  #root.collapsed #empty,
+  #root.collapsed #mode-switch {
     display: none;
   }
   #header {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    padding: 10px 14px;
-    border-bottom: 1px solid rgba(148, 163, 184, 0.15);
+    gap: 8px;
+    padding: 6px 6px 6px 12px;
+    border-bottom: 1px solid #161616;
     font-size: 13px;
+    flex: none;
   }
-  #header strong { font-weight: 600; }
-  #header > div { display: flex; align-items: center; gap: 8px; }
-  #header-actions { gap: 2px; }
+  #header-title {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 1px;
+    min-width: 0;
+    overflow: hidden;
+    flex: 1 1 auto;
+  }
+  #panel-title {
+    /* The page's name is a masthead: serif, tracked out, one line. */
+    font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+    font-size: 13px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 100%;
+  }
   #count {
+    font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
     font-size: 11px;
-    color: #94a3b8;
-    border: 1px solid rgba(148, 163, 184, 0.2);
-    padding: 1px 6px;
-    border-radius: 999px;
+    letter-spacing: 0.04em;
+    color: #55554F;
+    white-space: nowrap;
+    max-width: 100%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  /* A segmented control, drawn as one ruled box: the active side is ink. */
+  #mode-switch {
+    display: flex;
+    flex: none;
+    border: 1px solid #161616;
+  }
+  #mode-switch button {
+    appearance: none;
+    min-width: 44px;
+    height: 44px;
+    padding: 0 8px;
+    font-family: inherit;
+    font-size: 12px;
+    line-height: 1;
+    color: #161616;
+    background: #E9E9E2;
+    border: 0;
+    border-radius: 0;
+    cursor: pointer;
+    transition: background-color 0.12s, color 0.12s;
+  }
+  #mode-switch button + button {
+    border-left: 1px solid #161616;
+  }
+  #mode-switch button[aria-pressed='true'] {
+    background: #161616;
+    color: #E9E9E2;
+  }
+  #mode-switch button:focus-visible {
+    outline: 2px solid #D33A2C;
+    outline-offset: 2px;
+  }
+  #header-actions {
+    display: flex;
+    flex: none;
+    gap: 4px;
   }
   #collapse-btn, #hide-btn {
-    border: none;
-    background: transparent;
-    color: #94a3b8;
-    font-size: 18px;
+    appearance: none;
+    border: 1px solid #161616;
+    background: #E9E9E2;
+    color: #161616;
+    font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
+    font-size: 15px;
+    line-height: 1;
     cursor: pointer;
-    width: 24px;
-    height: 24px;
-    border-radius: 4px;
-    transition: background 0.15s;
+    min-width: 44px;
+    height: 44px;
+    border-radius: 0;
+    padding: 0;
+    transition: background-color 0.12s, color 0.12s;
   }
-  #hide-btn { font-size: 14px; }
-  #collapse-btn:hover, #hide-btn:hover { background: rgba(148, 163, 184, 0.15); color: #e2e8f0; }
+  #collapse-btn:hover, #hide-btn:hover {
+    background: #161616;
+    color: #E9E9E2;
+  }
   #collapse-btn:focus-visible, #hide-btn:focus-visible {
-    outline: 2px solid #22d3ee;
-    outline-offset: 1px;
+    outline: 2px solid #D33A2C;
+    outline-offset: 2px;
   }
   #list {
     list-style: none;
-    padding: 8px;
+    padding: 0;
     margin: 0;
     overflow-y: auto;
-    flex: 1;
+    overscroll-behavior: contain;
+    flex: 1 1 auto;
+    /* Without this the flex item refuses to shrink below its content and
+       the panel grows instead of scrolling. */
+    min-height: 0;
     scrollbar-width: thin;
-    scrollbar-color: rgba(148, 163, 184, 0.3) transparent;
+    scrollbar-color: rgba(22, 22, 22, 0.3) transparent;
   }
   #list::-webkit-scrollbar { width: 6px; }
   #list::-webkit-scrollbar-thumb {
-    background: rgba(148, 163, 184, 0.3);
-    border-radius: 3px;
+    background: rgba(22, 22, 22, 0.3);
+    border-radius: 0;
   }
   #empty {
     padding: 24px 16px;
     text-align: center;
     font-size: 12px;
-    /* #64748b measured 3.22:1 against the panel surface (rgb(29,37,55) on
-       a white page) — under the 4.5:1 that small text owes. #94a3b8 is
-       5.97:1 and is the same grey the count badge already uses. */
-    color: #94a3b8;
+    /* #55554F measures 6.15:1 on the paper surface — comfortably over the
+       4.5:1 that 12px text owes. */
+    color: #55554F;
     line-height: 1.6;
     margin: 0;
   }
   .entry {
-    border-radius: 8px;
-    padding: 8px 10px;
-    margin-bottom: 6px;
+    position: relative;
+    border-radius: 0;
+    padding: 12px 14px 12px 16px;
     cursor: pointer;
-    transition: background 0.15s, transform 0.15s;
-    border: 1px solid transparent;
+    border-top: 1px solid rgba(22, 22, 22, 0.18);
+    /* Reserved so the current entry can be marked with a vermilion rule
+       without the text shifting when the mark comes and goes. */
+    border-left: 2px solid transparent;
+    transition: background-color 0.15s, border-color 0.15s;
+  }
+  .entry:first-child {
+    border-top: 0;
   }
   .entry:hover {
-    background: rgba(34, 211, 238, 0.08);
-    border-color: rgba(34, 211, 238, 0.3);
+    background: rgba(22, 22, 22, 0.045);
   }
   .entry:focus-visible {
-    outline: 2px solid #22d3ee;
-    outline-offset: 1px;
+    outline: 2px solid #D33A2C;
+    outline-offset: -2px;
   }
+  /* The current entry is marked with a rule, not with a filled card. */
   .entry.flash {
-    background: rgba(34, 211, 238, 0.18);
-    border-color: rgba(34, 211, 238, 0.6);
+    border-left-color: #D33A2C;
   }
-  .entry-head { display: flex; gap: 8px; align-items: center; }
+  .entry-head { display: flex; gap: 8px; align-items: flex-start; }
   .entry-num {
-    flex-shrink: 0;
-    width: 20px;
+    flex: none;
+    min-width: 20px;
     height: 20px;
+    padding: 0 3px;
+    margin-top: 2px;
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    background: #22d3ee;
-    color: #0f172a;
-    border-radius: 999px;
-    font-size: 11px;
-    font-weight: 700;
+    background: transparent;
+    color: #161616;
+    border: 1px solid #161616;
+    border-radius: 0;
+    font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+    font-size: 12px;
+    font-weight: 600;
+    line-height: 1;
+    font-variant-numeric: tabular-nums lining-nums;
   }
   .entry-preview {
-    /* The translated line is the content of the panel; it was set at the
-       same 12px as the notes around it, and in a 320px column a long
-       sentence broke into unreadable stubs. 13px is the smallest step
-       that gives the text room without reflowing every entry into three
-       lines. */
-    font-size: 13px;
-    color: #cbd5e1;
+    /* The line the reader came for. 15px is the panel's reading size; the
+       one-line teaser keeps the list scannable. */
+    font-size: 15px;
+    line-height: 1.6;
+    color: #161616;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
     flex: 1;
+    min-width: 0;
   }
   .entry-body {
-    margin-top: 6px;
+    margin-top: 4px;
     padding-left: 28px;
   }
   .entry-body ul {
@@ -839,57 +983,89 @@ export class ReadingPanel {
     padding: 0;
   }
   .entry-body li {
-    /* The translation itself. It was smaller than the secondary notes
-       around it, which is backwards: this is the thing the reader came
-       for. */
-    font-size: 13px;
-    color: #e2e8f0;
-    line-height: 1.6;
+    font-size: 15px;
+    color: #161616;
+    line-height: 1.7;
     padding: 2px 0;
   }
   .entry-empty {
     margin-top: 4px;
     padding-left: 28px;
     font-size: 12px;
-    /* Same 3.22:1 -> 5.97:1 fix as #empty. */
-    color: #94a3b8;
+    color: #55554F;
     font-style: italic;
   }
-  /* The source text, one click away. The summary is a real <summary>, so it
-     gets the browser's own expand behaviour and keyboard handling for free —
-     it only needs the list marker removed and the panel's own focus colour. */
+  /* The other language, one click away. The summary is a real <summary>, so
+     it gets the browser's own expand behaviour and keyboard handling for
+     free — it only needs the list marker removed and the panel's own focus
+     colour. */
   .entry-original {
-    margin-top: 6px;
+    margin-top: 8px;
     padding-left: 28px;
   }
   .entry-original-summary {
     cursor: pointer;
     list-style: none;
+    width: max-content;
+    max-width: 100%;
+    font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
     font-size: 11px;
-    color: #94a3b8;
-    transition: color 0.15s;
+    letter-spacing: 0.06em;
+    color: #55554F;
+    transition: color 0.12s;
+  }
+  .entry-original-summary::before {
+    content: '+ ';
+  }
+  .entry-original[open] .entry-original-summary::before {
+    content: '− ';
   }
   .entry-original-summary::-webkit-details-marker {
     display: none;
   }
   .entry-original-summary:hover {
-    color: #cbd5e1;
+    color: #161616;
+    text-decoration: underline;
+    text-underline-offset: 2px;
   }
   .entry-original-summary:focus-visible {
-    outline: 2px solid #22d3ee;
+    outline: 2px solid #D33A2C;
     outline-offset: 2px;
-    border-radius: 2px;
   }
   .entry-original-list {
     list-style: none;
     margin: 4px 0 0;
-    padding: 0;
+    /* A thin rule sets the source text apart as a margin note under the
+       translation it belongs to. */
+    border-left: 1px solid rgba(31, 79, 168, 0.35);
+    padding: 0 0 0 8px;
   }
   .entry-original-list li {
-    font-size: 11px;
-    color: #94a3b8;
+    font-size: 12px;
     line-height: 1.6;
     padding: 1px 0;
+    /* The source text is structure, not a call to action: blueprint blue. */
+    color: #1F4FA8;
+  }
+  /* In 「原文」 mode the disclosure holds the translation instead, and the
+     translation is not the structural text — ink-muted keeps the blue for
+     actual source lines. */
+  #root.mode-original .entry-original-list {
+    border-left-color: rgba(22, 22, 22, 0.18);
+  }
+  #root.mode-original .entry-original-list li {
+    color: #55554F;
+  }
+  /* Reduced motion: the flash still paints (it is a state, not an
+     animation), it just arrives without a transition. */
+  @media (prefers-reduced-motion: reduce) {
+    #mode-switch button,
+    #collapse-btn,
+    #hide-btn,
+    .entry,
+    .entry-original-summary {
+      transition: none;
+    }
   }
 </style>
 `;

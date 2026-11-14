@@ -728,24 +728,27 @@ export class FloatingHud {
         * { box-sizing: border-box; margin: 0; padding: 0; }
 
         .hud-card {
-          background: rgba(0, 0, 0, 0.75);
-          backdrop-filter: blur(8px);
-          -webkit-backdrop-filter: blur(8px);
-          /* The card has to have an edge on somebody else's page. On a dark
-             page the translucent black card *is* the page — without a border
-             the card's boundary was 1.00:1 against it and the HUD looked
-             like part of the background. The reading panel already solved
-             this the same way, so the HUD copies its border and shadow
-             instead of inventing a second treatment. */
-          border: 1px solid rgba(255, 255, 255, 0.5);
-          box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-          border-radius: 12px;
-          padding: 14px 18px;
-          min-width: 200px;
-          max-width: 280px;
+          /* 校正紙：一张不透明的纸，压在别人的画上。
+             An opaque sheet is what makes the HUD readable on *any* page: a
+             translucent card takes the colour of the artwork behind it, and
+             on a black page it stopped being a card at all (its edge was
+             1.00:1). Paper over the page, ink on the paper, one hairline
+             around it, and the page can be black or white.
+             The 1px ink edge is 14.8:1 against the paper and clears 3:1
+             against both black and white pages. */
+          background: #E9E9E2;
+          border: 1px solid rgb(22, 22, 22);
+          box-shadow: 4px 4px 0 rgba(22, 22, 22, 0.18);
+          padding: 14px 16px;
+          min-width: 220px;
+          max-width: 300px;
           pointer-events: auto;
-          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-          /* Room for the close button in the top-right corner. */
+          font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI',
+            'PingFang SC', sans-serif;
+          font-size: 14px;
+          line-height: 1.4;
+          color: #161616;
+          /* Room for the 收起/close control in the top-right corner. */
           position: relative;
         }
 
@@ -766,151 +769,191 @@ export class FloatingHud {
           justify-content: center;
           border: none;
           background: transparent;
-          /* 0.9 alpha over the red error card (rgb(191,64,64) on a white
-             page) is rgb(249,236,236): 4.53:1, where 0.65 managed 3.08:1. */
-          color: rgba(255, 255, 255, 0.9);
+          /* Ink on paper is 14.8:1; the old 0.65-alpha white on the red card
+             managed 3.08:1. */
+          color: #161616;
+          font-family: 'Songti SC', 'Noto Serif SC', serif;
           font-size: 18px;
           line-height: 1;
           cursor: pointer;
-          border-radius: 6px;
           transition: background 0.15s, color 0.15s;
         }
         .hud-close:hover {
-          background: rgba(255, 255, 255, 0.15);
-          color: #fff;
+          background: #161616;
+          color: #E9E9E2;
         }
         .hud-close:focus-visible {
-          outline: 2px solid #22d3ee;
+          outline: 2px solid #D33A2C;
           outline-offset: 1px;
         }
 
-        /* 收起之后：只剩一颗药丸，几乎不挡画面。 */
+        /* 收起之后：一张小纸签，标签和进度还在，几乎不挡画面。 */
         .hud-card--collapsed {
-          padding: 4px 6px;
+          padding: 0;
           min-width: 0;
-          border-radius: 999px;
+          max-width: none;
         }
 
+        /* Expanded, 收起 is a small mono control in the corner: no plate, no
+           pill, just a hairline that appears on hover. */
         .hud-collapse {
-          border: none;
+          position: absolute;
+          top: 2px;
+          right: 2px;
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          min-height: 24px;
+          padding: 4px 8px;
+          border: 1px solid transparent;
           background: transparent;
-          color: #fff;
-          font-family: inherit;
-          font-size: 12px;
+          color: #55554F;
+          font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
+          font-size: 11px;
+          letter-spacing: 0.04em;
           line-height: 1.4;
-          padding: 2px 8px;
-          border-radius: 999px;
           cursor: pointer;
           white-space: nowrap;
         }
 
         .hud-collapse:hover {
-          background: rgba(255, 255, 255, 0.15);
+          color: #161616;
+          border-color: rgba(22, 22, 22, 0.35);
         }
 
+        .hud-collapse:focus-visible {
+          outline: 2px solid #D33A2C;
+          outline-offset: 1px;
+        }
+
+        /* Collapsed, the whole tab is the button, and the vermilion tick at
+           its left edge is the progress that is still on screen. */
+        .hud-card--collapsed .hud-collapse {
+          position: static;
+          min-height: 28px;
+          padding: 6px 10px;
+          gap: 6px;
+          color: #161616;
+        }
+
+        .hud-card--collapsed .hud-collapse::before {
+          content: '';
+          display: block;
+          flex: none;
+          width: 3px;
+          height: 12px;
+          background: #D33A2C;
+        }
+
+        /* 出错时是一张带朱红左边栏的纸，不是一整块暗红。 */
         .hud-card--error {
-          background: rgba(180, 30, 30, 0.85);
+          background: #E9E9E2;
+          border-left: 3px solid rgb(211, 58, 44);
         }
 
         .hud-title {
-          color: #fff;
-          font-size: 14px;
+          color: #161616;
+          font-family: 'Songti SC', 'Noto Serif SC', 'Songti TC', serif;
+          font-size: 15px;
           font-weight: 600;
-          line-height: 1.4;
-          margin-bottom: 6px;
+          line-height: 1.35;
+          padding-bottom: 6px;
+          margin-bottom: 8px;
+          border-bottom: 1px solid rgba(22, 22, 22, 0.22);
+          /* Leaves the corner control its own space. */
+          padding-right: 44px;
         }
 
-        /* Alpha ladder on the dark card (rgb(64,64,64) on a white page):
-           title #fff -> sub 0.8 (7.36:1) -> muted 0.7 (6.07:1). The muted
-           line used to sit at 0.5 / 11px, which measured 3.95:1 — below the
-           4.5:1 that small text owes. */
+        /* 纸上的标签：mono 小字。墨色 14.8:1，次要说明 6.15:1（11px 也够）。 */
         .hud-sub {
-          color: rgba(255, 255, 255, 0.8);
+          color: #161616;
+          font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 12px;
-          line-height: 1.4;
+          line-height: 1.5;
+          font-variant-numeric: tabular-nums;
         }
         .hud-sub-muted {
-          color: rgba(255, 255, 255, 0.7);
-          font-size: 12px;
+          color: #55554F;
+          font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
+          font-size: 11px;
+          line-height: 1.5;
           margin-top: 2px;
+          font-variant-numeric: tabular-nums;
         }
 
+        /* The failure line is written in ink and marked with a vermilion rule
+           rather than tinted vermilion: the accent is 3.90:1 on paper, and a
+           11px line owes 4.5:1. */
         .hud-sub-error {
-          color: #fecaca;
+          color: #161616;
+          font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 11px;
-          margin-top: 4px;
+          margin-top: 6px;
+          padding-left: 6px;
+          border-left: 2px solid rgb(211, 58, 44);
           line-height: 1.5;
           word-break: break-word;
         }
 
-        /* The error text is the reason the card exists, so it is fully
-           opaque: 5.22:1 on the red card, against 4.53:1 at 0.9 alpha. */
         .hud-message {
-          color: #fff;
+          color: #161616;
           font-size: 12px;
-          line-height: 1.4;
+          line-height: 1.5;
           margin-top: 4px;
+          word-break: break-word;
         }
 
         /* The hint under an error message is the text that tells the reader
-           what to do next, so it has to be readable. 0.6 alpha over the red
-           card (rgb(191,64,64) on a white page) was rgb(230,179,179) —
-           2.83:1. 0.95 gives rgb(252,245,245), 4.87:1, and 12px keeps it
-           out of the "too small to read" range. */
+           what to do next, so it is ink on paper (14.8:1) and never smaller
+           than 12px. */
         .hud-suggestion {
-          color: rgba(255, 255, 255, 0.95);
+          color: #161616;
           font-size: 12px;
-          line-height: 1.4;
+          line-height: 1.5;
           margin-top: 8px;
           padding-top: 8px;
-          border-top: 1px solid rgba(255, 255, 255, 0.15);
+          border-top: 1px solid rgba(22, 22, 22, 0.22);
+          word-break: break-word;
         }
 
-        /* The action button only ever appears on the red error card. A
-           translucent *white* plate under a white label measured 4.05:1 —
-           under the 4.5:1 that a 12px label owes. A translucent *black*
-           plate keeps the label at 8.39:1 and still reads as a button,
-           because the border is what outlines it. */
+        /* 错误卡上的次要动作：墨线勾出的纸按钮，悬停时整块翻成墨色。
+           (Ink on paper is 14.8:1 — the old translucent white plate under a
+           white label measured 4.05:1.) */
         .hud-action {
           margin-top: 10px;
           padding: 6px 12px;
-          background: rgba(0, 0, 0, 0.28);
-          color: #fff;
-          border: 1px solid rgba(255, 255, 255, 0.45);
-          border-radius: 6px;
+          min-height: 24px;
+          background: #E9E9E2;
+          color: #161616;
+          border: 1px solid rgb(22, 22, 22);
+          font-family: inherit;
           font-size: 12px;
-          font-weight: 500;
           cursor: pointer;
           pointer-events: auto;
-          transition: background 0.15s, border-color 0.15s;
+          transition: background 0.15s, color 0.15s;
         }
 
         .hud-action:hover {
-          background: rgba(0, 0, 0, 0.18);
-          border-color: rgba(255, 255, 255, 0.7);
+          background: #161616;
+          color: #E9E9E2;
         }
 
         .hud-progress-track {
-          background: rgba(255, 255, 255, 0.2);
-          border-radius: 4px;
+          /* 墨色 12%：15% 复合出来的轨道与朱红填充只有 2.87:1，指示器至少
+             要 3:1。 */
+          background: rgba(22, 22, 22, 0.12);
           height: 4px;
-          margin: 8px 0 4px;
+          margin: 10px 0 6px;
           overflow: hidden;
         }
 
-        /* The fill has to be told apart from the track it sits in, or the
-           progress is unreadable: #3b82f6 on the track measured 1.56:1.
-           The fill is the product's own accent — the same cyan-400 as the
-           focus ring and the reading panel's number badge — because a blue
-           widget bolted onto a cyan product reads as a different tool.
-           Cyan-400 and the old blue-300 happen to share a luminance, so
-           the 3.18:1 against the track is the same either way; the reason
-           to change it is that it is now the colour the user already
-           knows. */
+        /* The fill is the product's own accent — the same vermilion as
+           --primary in index.css (which is what the popup's primary button
+           uses). It reads against the ink track at 3.06:1; the old fill
+           measured 1.56:1. */
         .hud-progress-bar {
-          background: #22d3ee;
+          background: #D33A2C;
           height: 100%;
-          border-radius: 4px;
           transition: width 0.3s ease;
         }
 
@@ -923,39 +966,53 @@ export class FloatingHud {
           margin-top: 10px;
           background: none;
           border: none;
-          color: rgba(255, 255, 255, 0.8);
+          border-bottom: 1px solid rgb(211, 58, 44);
+          color: #161616;
+          font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 12px;
           cursor: pointer;
-          padding: 4px 0;
+          padding: 4px 8px;
           min-height: 24px;
           display: inline-flex;
           align-items: center;
-          text-decoration: underline;
+          white-space: nowrap;
         }
 
         .hud-cancel:hover {
-          color: #fff;
+          background: #161616;
+          border-bottom-color: #161616;
+          color: #E9E9E2;
         }
 
-        /* The primary action is the product's accent with the dark ink on
-           it — the same pairing the reading panel's number badge uses.
-           White text on this cyan measured 1.81:1; the dark ink is 8.08:1
-           on the 0.85-alpha fill over the card. */
+        /* The primary action is the one solid vermilion block on the sheet:
+           a white label on #D33A2C is 4.76:1. It stays vermilion on hover —
+           the underline is the feedback, not a lighter fill. */
         .hud-retry {
           margin-top: 10px;
-          background: rgba(34, 211, 238, 0.85);
+          background: #D33A2C;
           border: none;
-          border-radius: 6px;
-          color: #0f172a;
+          color: #ffffff;
+          font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 12px;
           cursor: pointer;
           padding: 6px 12px;
+          min-height: 28px;
           display: inline-block;
           width: 100%;
+          text-align: left;
         }
 
         .hud-retry:hover {
-          background: rgba(34, 211, 238, 1);
+          background: #D33A2C;
+          color: #ffffff;
+          text-decoration: underline;
+        }
+
+        .hud-cancel:focus-visible,
+        .hud-retry:focus-visible,
+        .hud-action:focus-visible {
+          outline: 2px solid #D33A2C;
+          outline-offset: 2px;
         }
       </style>
     `;

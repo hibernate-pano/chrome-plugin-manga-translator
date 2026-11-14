@@ -1,0 +1,709 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>方向 C · 巨字海报 — 漫画翻译助手</title>
+<style>
+  :root{
+    --paper:#FFFFFF;
+    --ink:#000000;
+    --signal:#E2231A;
+    --sans:"Helvetica Neue", Helvetica, Arial, "PingFang SC", "Hiragino Sans GB", "Noto Sans SC", sans-serif;
+    --mono:"SF Mono", SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html,body{width:1440px;height:1100px;background:var(--paper);color:var(--ink);font-family:var(--sans);-webkit-font-smoothing:antialiased}
+  body{overflow:hidden}
+  button{font:inherit;color:inherit;background:none;border:0;cursor:pointer;text-align:left}
+  button:focus-visible,a:focus-visible,input:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+  .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+  .board{position:relative;width:1440px;height:1100px;background:var(--paper)}
+  .board::before{content:"";position:absolute;left:0;top:0;width:1440px;height:4px;background:var(--signal);z-index:5}
+
+  /* ---------------- header ---------------- */
+  .board-head{
+    position:absolute;left:0;top:0;width:1440px;height:96px;
+    display:grid;grid-template-columns:340px 1fr 300px;gap:32px;align-items:center;
+    padding:6px 40px 0;border-bottom:1px solid var(--ink);background:var(--paper);
+  }
+  .head-a{display:flex;flex-direction:column;gap:3px;padding-top:6px}
+  .head-a .k{font-family:var(--mono);font-size:12px;letter-spacing:.04em}
+  .head-a h1{font-size:27px;line-height:1.05;font-weight:900;letter-spacing:-.5px}
+  .head-a .src{font-family:var(--mono);font-size:12px;line-height:1.4}
+  .head-b{display:flex;flex-direction:column;justify-content:center;gap:4px;border-left:1px solid var(--ink);padding-left:28px;height:100%}
+  .head-b .thesis{font-size:15px;line-height:1.35;font-weight:700;max-width:610px}
+  .head-b .note{font-size:14px;line-height:1.35;max-width:640px}
+  .head-b .formline{font-size:14px;line-height:1.35;font-weight:600;max-width:660px}
+  .head-c{display:flex;flex-direction:column;align-items:flex-end;gap:6px}
+  .swatches{display:flex;gap:12px}
+  .sw{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
+  .chip{display:block;width:54px;height:22px;border:1px solid var(--ink)}
+  .chip.white{background:#fff}
+  .chip.black{background:#000}
+  .chip.red{background:var(--signal);border-color:var(--signal)}
+  .sw .hex{font-family:var(--mono);font-size:12px;line-height:1}
+  .head-c .rule{font-size:12px;line-height:1.2}
+
+  /* ---------------- shared ---------------- */
+  .figcap{position:absolute;height:22px;display:flex;align-items:center;gap:8px;font-size:12px;line-height:1;border-top:1px solid var(--ink);padding-top:7px}
+  .figcap .n{font-family:var(--mono);font-weight:700}
+
+  /* ---------------- popup ---------------- */
+  .popup{
+    position:absolute;left:40px;top:120px;width:360px;height:640px;
+    border:1px solid var(--ink);background:var(--paper);
+    display:flex;flex-direction:column;overflow:hidden;
+  }
+  .p-mast{height:34px;flex:0 0 34px;display:flex;align-items:center;justify-content:space-between;padding:0 16px;border-bottom:1px solid var(--ink)}
+  .p-brand{display:flex;align-items:center;gap:7px;font-size:12px;font-weight:700;letter-spacing:.02em}
+  .p-brand i{width:8px;height:8px;background:var(--signal);display:block}
+  .p-no{font-family:var(--mono);font-size:12px}
+
+  .p-hero{flex:1 1 auto;min-height:0;padding:10px 16px 8px;display:flex;flex-direction:column;justify-content:space-between;border-bottom:1px solid var(--ink)}
+  .p-kicker{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12px;line-height:1}
+  .p-kicker .host{font-family:var(--mono);font-size:12px}
+  .p-headline{font-size:58px;line-height:.98;font-weight:900;letter-spacing:-3px;margin:1px 0 0}
+  .p-costlabel{display:flex;align-items:baseline;justify-content:space-between;font-size:12px;line-height:1;margin-top:6px}
+  .p-cost{font-family:var(--mono);font-size:66px;line-height:.88;font-weight:700;letter-spacing:-4px;margin-top:3px}
+  .p-costnote{font-size:12px;line-height:1.25;margin-top:4px}
+
+  .p-stats{flex:0 0 88px;display:grid;grid-template-columns:1fr 1fr;border-bottom:1px solid var(--ink)}
+  .stat{padding:8px 16px 6px;display:flex;flex-direction:column;justify-content:space-between}
+  .stat+.stat{border-left:1px solid var(--ink)}
+  .stat .lab{font-size:12px;line-height:1}
+  .stat .val{display:flex;align-items:flex-end;gap:4px}
+  .stat .num{font-family:var(--mono);font-size:48px;line-height:.78;font-weight:700;letter-spacing:-2px}
+  .stat .num.sig{color:var(--signal)}
+  .stat .unit{font-size:14px;line-height:1;margin-bottom:1px}
+
+  .p-cta{flex:0 0 auto;padding:0 0 8px;border-bottom:1px solid var(--ink)}
+  .p-primary{
+    width:100%;height:58px;background:var(--ink);color:var(--paper);border:1px solid var(--ink);border-left:0;border-right:0;
+    display:flex;align-items:center;justify-content:space-between;padding:0 18px;
+    font-size:16px;font-weight:700;letter-spacing:.02em;transition:background .12s,color .12s;
+  }
+  .p-primary i{display:block;width:8px;height:8px;background:var(--signal)}
+  .p-primary:hover{background:var(--paper);color:var(--ink)}
+  .p-primary:active{background:var(--signal);color:var(--paper);border-color:var(--signal)}
+  .p-ctanote{font-size:12px;line-height:1.3;margin-top:7px;padding:0 18px}
+
+  .p-toggle{flex:0 0 50px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 16px;border-bottom:1px solid var(--ink)}
+  .p-toggle .tl{font-size:14px;line-height:1.1;font-weight:700}
+  .p-toggle .tn{font-size:12px;line-height:1.3;margin-top:1px}
+  .switch{position:relative;width:44px;height:44px;display:grid;place-items:center;flex:0 0 44px}
+  .switch .track{position:relative;width:44px;height:24px;border:1px solid var(--ink);background:var(--ink);transition:background .12s}
+  .switch .track::after{content:"";position:absolute;top:3px;left:23px;width:16px;height:16px;background:var(--paper);transition:left .12s,background .12s}
+  .switch[aria-checked="false"] .track{background:var(--paper)}
+  .switch[aria-checked="false"] .track::after{left:3px;background:var(--ink)}
+  .switch:hover .track{border-color:var(--signal);outline:1px solid var(--signal);outline-offset:-1px}
+
+  .p-row{width:100%;height:44px;flex:0 0 44px;display:grid;grid-template-columns:24px 1fr auto;align-items:center;gap:8px;padding:0 16px;border-bottom:1px solid var(--ink);transition:background .1s,color .1s}
+  .p-row:last-of-type{border-bottom:1px solid var(--ink)}
+  .p-row .idx{font-family:var(--mono);font-size:12px}
+  .p-row .rl{font-size:14px;line-height:1}
+  .p-row .rn{font-family:var(--mono);font-size:12px}
+  .p-row:hover{background:var(--ink);color:var(--paper)}
+  .p-row:active{background:var(--signal);border-color:var(--signal);color:var(--paper)}
+
+  .p-foot{flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;gap:8px;padding:0 16px;width:100%;transition:background .1s,color .1s}
+  .p-foot .fl{display:flex;align-items:baseline;gap:7px}
+  .p-foot .fl b{font-size:14px;text-decoration:underline;text-underline-offset:3px}
+  .p-foot .fl small{font-size:12px}
+  .p-foot .fm{font-family:var(--mono);font-size:12px}
+  .p-foot:hover{background:var(--ink);color:var(--paper)}
+
+  /* ---------------- settings ---------------- */
+  .settings{position:absolute;left:440px;top:120px;width:960px;height:640px;border:1px solid var(--ink);background:var(--paper);display:flex;flex-direction:column;overflow:hidden}
+  .s-top{flex:0 0 30px;display:flex;align-items:center;justify-content:space-between;padding:0 18px;border-bottom:1px solid var(--ink);font-family:var(--mono);font-size:12px;line-height:1}
+  .s-body{flex:1 1 auto;display:grid;grid-template-columns:repeat(12,1fr);grid-template-rows:1fr;min-height:0}
+  .s-rail{grid-column:span 3;border-right:1px solid var(--ink);padding:18px 0 14px;display:flex;flex-direction:column;min-height:0}
+  .rail-k{font-family:var(--mono);font-size:12px;padding:0 22px 10px;border-bottom:1px solid var(--ink);margin-bottom:8px;line-height:1}
+  .rail-item{width:100%;height:62px;display:grid;grid-template-columns:38px 1fr;align-items:center;gap:6px;padding:0 22px;border-bottom:1px solid var(--ink);font-size:15px;line-height:1;position:relative;transition:background .1s,color .1s}
+  .rail-item .i{font-family:var(--mono);font-size:22px;line-height:1;letter-spacing:-1px}
+  .rail-item.active{font-weight:700}
+  .rail-item.active::before{content:"";position:absolute;left:0;top:0;width:4px;height:100%;background:var(--signal)}
+  .rail-item:hover{background:var(--ink);color:var(--paper)}
+  .rail-foot{margin-top:auto;padding:14px 22px 0;font-size:12px;line-height:1.5;border-top:1px solid var(--ink)}
+  .rail-foot span{display:block}
+  .costband .cb-m span,.costband .cb-r span{display:block}
+
+  .s-main{grid-column:span 9;padding:16px 26px 18px;display:flex;flex-direction:column;min-height:0}
+  .s-kicker{font-family:var(--mono);font-size:12px;line-height:1}
+  .s-headrow{display:flex;align-items:flex-end;justify-content:space-between;gap:28px;margin-top:5px}
+  .s-headrow h2{font-size:40px;line-height:.95;font-weight:900;letter-spacing:-2px}
+  .s-headrow p{font-size:14px;line-height:1.45;max-width:320px;padding-bottom:2px}
+  .s-rule{height:1px;background:var(--ink);margin-top:12px}
+
+  .s-cols{flex:1 1 auto;min-height:0;display:grid;grid-template-columns:300px 1fr;gap:0;margin-top:14px}
+  .s-left{display:flex;flex-direction:column;padding-right:24px;min-height:0}
+  .s-right{display:flex;flex-direction:column;border-left:1px solid var(--ink);padding-left:24px;min-height:0}
+
+  .seg{display:flex;height:44px;border:1px solid var(--ink)}
+  .seg .tab{flex:1 1 0;height:44px;font-size:12px;line-height:1.1;text-align:center;padding:0 4px;display:flex;align-items:center;justify-content:center;border-right:1px solid var(--ink);transition:background .1s,color .1s}
+  .seg .tab:last-child{border-right:0}
+  .seg .tab[aria-selected="true"]{background:var(--ink);color:var(--paper);font-weight:700}
+  .seg .tab:not([aria-selected="true"]):hover{background:var(--ink);color:var(--paper)}
+
+  .plabel{margin-top:12px;margin-bottom:2px;display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12px;line-height:1.3}
+  .plabel b{font-weight:700}
+  .preset{width:100%;height:44px;display:grid;grid-template-columns:14px 1fr auto;align-items:center;gap:8px;border-bottom:1px solid var(--ink);padding:0 2px;position:relative;transition:background .1s,color .1s}
+  .preset:first-of-type{border-top:1px solid var(--ink)}
+  .preset .box{width:10px;height:10px;border:1px solid var(--ink);display:block}
+  .preset .pn{font-size:14px;line-height:1}
+  .preset .pm{font-family:var(--mono);font-size:12px;line-height:1}
+  .preset[aria-pressed="true"]{font-weight:700}
+  .preset[aria-pressed="true"] .box{background:var(--signal);border-color:var(--signal)}
+  .preset:hover{background:var(--ink);color:var(--paper)}
+  .preset:hover .box{border-color:var(--paper)}
+  .preset:hover[aria-pressed="true"] .box{background:var(--paper)}
+
+  .keyline{margin-top:16px;padding-top:12px;border-top:1px solid var(--ink)}
+  .keyline a{display:inline-flex;align-items:center;min-height:44px;font-size:14px;text-decoration:underline;text-underline-offset:3px}
+  .keyline a:hover{background:var(--ink);color:var(--paper);text-decoration:none}
+  .keyline p{font-size:12px;line-height:1.45;margin-top:2px}
+  .localnote{font-size:14px;line-height:1.5;margin-top:14px;border-top:1px solid var(--ink);padding-top:12px}
+  .localnote b{display:block;font-size:12px;margin-bottom:6px;font-family:var(--mono);font-weight:400}
+
+  .field{display:block;padding-top:2px}
+  .field+.field{margin-top:8px}
+  .field .flabel{display:flex;align-items:baseline;justify-content:space-between;gap:8px;font-size:12px;line-height:1.2}
+  .field .flabel em{font-style:normal;font-family:var(--mono)}
+  .field input{width:100%;height:44px;border:0;border-bottom:1px solid var(--ink);background:transparent;font-family:var(--mono);font-size:14px;padding:6px 34px 4px 0;color:var(--ink);border-radius:0}
+  .field input:focus{outline:none;border-bottom:2px solid var(--signal)}
+  .field input::placeholder{color:var(--ink)}
+  .field input[type="password"]{letter-spacing:.12em}
+  .keywrap{position:relative}
+  .reveal{position:absolute;right:0;bottom:0;width:44px;height:44px;display:flex;align-items:center;justify-content:flex-end;font-size:12px;padding:0 2px 0 0;text-decoration:underline;text-underline-offset:3px;transition:color .1s}
+  .reveal:hover{color:var(--signal)}
+  .fhelp{display:flex;justify-content:space-between;gap:8px;font-size:12px;line-height:1.3;margin-top:4px}
+
+  .s-testrow{display:flex;align-items:center;gap:12px;margin-top:18px;padding-top:14px;border-top:1px solid var(--ink)}
+  .testbtn{height:44px;padding:0 20px;background:var(--ink);color:var(--paper);border:1px solid var(--ink);font-size:14px;font-weight:700;transition:background .12s,color .12s;white-space:nowrap}
+  .testbtn:hover{background:var(--paper);color:var(--ink)}
+  .testbtn[disabled]{cursor:progress;background:var(--ink);color:var(--paper)}
+  .testbtn[disabled] i{display:inline-block;width:7px;height:7px;background:var(--signal);margin-left:8px;vertical-align:1px}
+  .teststatus{font-size:12px;line-height:1.35}
+  .teststatus .st{font-family:var(--mono);font-weight:700}
+  .acc{margin-top:auto;border-top:1px solid var(--ink)}
+  .acc summary{list-style:none;height:44px;display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:14px;font-weight:700;cursor:pointer;transition:background .1s,color .1s}
+  .acc summary::-webkit-details-marker{display:none}
+  .acc summary:hover{background:var(--ink);color:var(--paper)}
+  .acc summary:focus-visible{outline:2px solid var(--signal);outline-offset:2px}
+  .acc .sign{font-family:var(--mono);font-size:18px;line-height:1;font-weight:400}
+  .acc .sign-minus{display:none}
+  .acc[open] .sign-plus{display:none}
+  .acc[open] .sign-minus{display:inline}
+  .acc-body{padding:0 0 6px;font-size:14px;line-height:1.4}
+  .acc-body p+p{margin-top:3px}
+
+  .costband{flex:0 0 auto;margin-top:14px;border-top:4px solid var(--ink);padding-top:8px;display:grid;grid-template-columns:1fr 220px 220px;align-items:start;gap:0}
+  .costband .cb-l{display:flex;flex-direction:column;align-items:flex-start;gap:3px}
+  .costband .cl{font-size:12px;line-height:1}
+  .costband .cv{font-family:var(--mono);font-size:34px;line-height:.85;font-weight:700;letter-spacing:-1.5px}
+  .costband .cb-m,.costband .cb-r{border-left:1px solid var(--ink);padding-left:20px;font-size:12px;line-height:1.55}
+  .costband .cb-m b,.costband .cb-r b{font-family:var(--mono);font-weight:700}
+
+  /* ---------------- strip ---------------- */
+  .strip{position:absolute;left:40px;top:820px;width:1360px;height:220px;border:1px solid var(--ink);background:var(--paper);overflow:hidden}
+  .strip-art{position:absolute;inset:0;background-image:url("file:///Users/panbo/Code/Demos/chrome-plugin-manga-translator/store/demo/demo-manga-page-1.png");background-size:cover;background-position:50% 7.5%;background-repeat:no-repeat;filter:grayscale(1) contrast(1.14)}
+
+  .strip-cap{position:absolute;left:0;top:0;width:280px;height:220px;background:var(--ink);color:var(--paper);padding:12px 18px 10px;display:flex;flex-direction:column}
+  .strip-cap .cap-top{font-family:var(--mono);font-size:12px;line-height:1}
+  .strip-cap .glyph{font-size:132px;line-height:.84;font-weight:900;letter-spacing:-8px;margin:2px 0 0 -6px}
+  .strip-cap .cap-bot{margin-top:auto;display:flex;justify-content:space-between;gap:10px;font-size:12px;line-height:1.3}
+  .strip-cap .cap-bot .b1{font-weight:700}
+
+  .hud{position:absolute;left:300px;top:46px;width:344px;background:var(--paper);border:1px solid var(--ink);padding:10px 14px 12px;display:flex;flex-direction:column;gap:8px}
+  .hud-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+  .hud-state{font-size:13px;line-height:1;font-weight:700}
+  .hud-count{font-family:var(--mono);font-size:24px;line-height:1;font-weight:700;letter-spacing:-1px}
+  .hud-bar{display:grid;grid-template-columns:repeat(5,1fr);gap:3px;height:8px}
+  .hud-bar i{display:block;border:1px solid var(--ink);background:var(--paper)}
+  .hud-bar i.done{background:var(--ink)}
+  .hud-bar i.now{background:var(--signal);border-color:var(--signal)}
+  .hud[data-state="cancelled"] .hud-bar i.now{background:var(--paper);border-color:var(--signal);border-style:dashed}
+  .hud-bot{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:2px}
+  .hud-eta{font-family:var(--mono);font-size:12px;line-height:1.2}
+  .cancel{height:44px;min-width:88px;border:1px solid var(--ink);display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;transition:background .1s,color .1s}
+  .cancel:hover{background:var(--ink);color:var(--paper)}
+  .cancel:active{background:var(--signal);border-color:var(--signal);color:var(--paper)}
+
+  .panel{position:absolute;right:0;top:0;width:380px;height:220px;background:var(--paper);border-left:1px solid var(--ink);display:flex;flex-direction:column}
+  .panel[hidden]{display:none}
+  .panel-head{flex:0 0 44px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 0 0 14px;border-bottom:1px solid var(--ink)}
+  .panel-title{font-size:13px;line-height:1;font-weight:700}
+  .seg-lang{display:flex;height:44px;border-left:1px solid var(--ink)}
+  .lang{width:58px;height:44px;display:flex;align-items:center;justify-content:center;font-size:12px;border-left:1px solid var(--ink);transition:background .1s,color .1s}
+  .lang:first-child{border-left:0}
+  .lang[aria-pressed="true"]{background:var(--ink);color:var(--paper);font-weight:700}
+  .lang:not([aria-pressed="true"]):hover{background:var(--ink);color:var(--paper)}
+  .entry{flex:1 1 0;min-height:0;width:100%;display:grid;grid-template-columns:34px 1fr;gap:4px;align-items:center;padding:5px 12px 5px 10px;border-bottom:1px solid var(--ink);position:relative;transition:background .1s,color .1s}
+  .entry:last-child{border-bottom:0}
+  .entry .e-idx{font-family:var(--mono);font-size:12px;align-self:start;margin-top:4px}
+  .entry .e-body{display:flex;flex-direction:column;gap:2px;overflow:hidden}
+  .entry .e-jp{font-size:12px;line-height:1.25;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .entry .e-zh{font-size:15px;line-height:1.25;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .panel.show-jp .e-jp{font-size:15px;font-weight:700}
+  .panel.show-jp .e-zh{font-size:12px;font-weight:400}
+  .entry[aria-current="true"]::before{content:"";position:absolute;left:0;top:0;width:4px;height:100%;background:var(--signal)}
+  .entry[aria-current="true"] .e-idx{color:var(--signal);font-weight:700}
+  .entry:hover{background:var(--ink);color:var(--paper)}
+  .entry:hover .e-idx{color:var(--paper)}
+
+  .board-foot{position:absolute;left:40px;top:1052px;width:1360px;height:44px;border-top:1px solid var(--ink);display:flex;align-items:center;justify-content:space-between;gap:20px;font-family:var(--mono);font-size:12px;line-height:1}
+  .board-foot .mid{text-align:center}
+
+  [hidden]{display:none !important}
+  .flash{outline:3px solid var(--signal);outline-offset:3px}
+</style>
+</head>
+<body>
+<div class="board">
+
+  <!-- ============ HEADER ============ -->
+  <header class="board-head">
+    <div class="head-a">
+      <div class="k">方向 C / 03</div>
+      <h1>巨字海报</h1>
+      <div class="src">秒数轮盘 · 网页风格 #6</div>
+    </div>
+    <div class="head-b">
+      <p class="thesis">把工具做成一张头版：这一页花多少钱是标题，其余全是小字。</p>
+      <p class="note">来源：Jacquemus 的巨型字、Rik Oostenbroek 的硬黑白、Domestika 的栏目网格。</p>
+      <p class="formline">form 来自内容的哪里：漫画是印刷品，工具就用印刷品的排版语言，不用 App 卡片。</p>
+    </div>
+    <div class="head-c">
+      <div class="swatches">
+        <div class="sw"><span class="chip white"></span><span class="hex">#FFFFFF</span></div>
+        <div class="sw"><span class="chip black"></span><span class="hex">#000000</span></div>
+        <div class="sw"><span class="chip red"></span><span class="hex">#E2231A</span></div>
+      </div>
+      <div class="rule">三色 / 无渐变 / 无阴影 / 无圆角</div>
+    </div>
+  </header>
+
+  <!-- ============ POPUP ============ -->
+  <section class="popup" aria-label="弹窗设计稿">
+    <div class="p-mast">
+      <div class="p-brand"><i aria-hidden="true"></i>漫画翻译助手</div>
+      <div class="p-no">NO.001</div>
+    </div>
+
+    <div class="p-hero">
+      <div class="p-kicker">
+        <span>当前页面</span>
+        <span class="host">comic-days.com</span>
+      </div>
+      <h2 class="p-headline">这一页</h2>
+      <div class="p-costlabel">
+        <span>本次估算花费</span>
+        <span>MiniMax-M3</span>
+      </div>
+      <div class="p-cost">¥0.04</div>
+      <div class="p-costnote">按你填的单价算；忽略缓存重翻会再计费。</div>
+    </div>
+
+    <div class="p-stats">
+      <div class="stat">
+        <span class="lab">可翻译</span>
+        <span class="val"><span class="num sig">2</span><span class="unit">张</span></span>
+      </div>
+      <div class="stat">
+        <span class="lab">缓存命中</span>
+        <span class="val"><span class="num">0</span><span class="unit">张</span></span>
+      </div>
+    </div>
+
+    <div class="p-cta">
+      <button class="p-primary" type="button" id="translateBtn">
+        <span>翻译当前页面</span>
+        <i aria-hidden="true"></i>
+      </button>
+      <p class="p-ctanote" id="ctaNote">2 张图 / 2 次请求 / 约 8 秒</p>
+    </div>
+
+    <div class="p-toggle">
+      <div>
+        <div class="tl">启用扩展</div>
+        <div class="tn" id="toggleNote">在漫画页自动出现按钮</div>
+      </div>
+      <button class="switch" type="button" role="switch" aria-checked="true" aria-label="启用扩展" id="enableSwitch">
+        <span class="track" aria-hidden="true"></span>
+      </button>
+    </div>
+
+    <button class="p-row" type="button" id="forceRow">
+      <span class="idx">02</span>
+      <span class="rl">忽略缓存重翻</span>
+      <span class="rn">会再计费</span>
+    </button>
+    <button class="p-row" type="button" id="clearRow">
+      <span class="idx">03</span>
+      <span class="rl">清除本页译文</span>
+      <span class="rn" id="clearNote">0 张</span>
+    </button>
+    <button class="p-row" type="button" id="panelRow" aria-pressed="true">
+      <span class="idx">04</span>
+      <span class="rl" id="panelRowLabel">显示译文阅读面板</span>
+      <span class="rn" id="panelRowState">开</span>
+    </button>
+
+    <button class="p-foot" type="button" id="settingsLink">
+      <span class="fl"><b>设置</b><small>翻译后端 / 语言 / 单价</small></span>
+      <span class="fm">本月 ¥12.60</span>
+    </button>
+  </section>
+
+  <div class="figcap" style="left:40px;top:770px;width:360px">
+    <span class="n">FIG. 01</span><span>弹窗 / 360×640 / 空闲态</span>
+  </div>
+
+  <!-- ============ SETTINGS ============ -->
+  <section class="settings" aria-label="设置页设计稿" id="settingsBoard">
+    <div class="s-top">
+      <span>漫画翻译助手 / 设置</span>
+      <span>Key 只保存在本机</span>
+    </div>
+
+    <div class="s-body">
+      <nav class="s-rail" aria-label="设置分区">
+        <div class="rail-k">索引 / INDEX</div>
+        <button class="rail-item active" type="button"><span class="i">01</span><span>翻译后端</span></button>
+        <button class="rail-item" type="button"><span class="i">02</span><span>阅读与语言</span></button>
+        <button class="rail-item" type="button"><span class="i">03</span><span>花费与用量</span></button>
+        <button class="rail-item" type="button"><span class="i">04</span><span>隐私与诊断</span></button>
+        <div class="rail-foot">
+          <span>12 栏 / 960px</span>
+          <span>没有账号，没有遥测。</span>
+          <span>配置只写本机存储。</span>
+        </div>
+      </nav>
+
+      <div class="s-main">
+        <div class="s-kicker">01 / 04 / 翻译后端</div>
+        <div class="s-headrow">
+          <h2>翻译后端</h2>
+          <p>扩展把整页图片交给这个服务，再把译文画回气泡。地址、模型、Key 都由你提供。</p>
+        </div>
+        <div class="s-rule"></div>
+
+        <div class="s-cols">
+          <div class="s-left">
+            <div class="seg" role="tablist" aria-label="服务商类型">
+              <button class="tab" role="tab" type="button" data-provider="openai" aria-selected="true">OpenAI 兼容</button>
+              <button class="tab" role="tab" type="button" data-provider="ollama" aria-selected="false">Ollama</button>
+              <button class="tab" role="tab" type="button" data-provider="lmstudio" aria-selected="false">LM Studio</button>
+            </div>
+
+            <div id="presetBlock">
+              <div class="plabel"><b>快速选择服务商</b><span>点一下填好地址与模型</span></div>
+              <button class="preset" type="button" data-base="https://api.minimaxi.com/v1" data-model="MiniMax-M3" aria-pressed="true">
+                <span class="box" aria-hidden="true"></span><span class="pn">MiniMax</span><span class="pm">MiniMax-M3</span>
+              </button>
+              <button class="preset" type="button" data-base="https://api.siliconflow.cn/v1" data-model="Qwen/Qwen2.5-VL-72B" aria-pressed="false">
+                <span class="box" aria-hidden="true"></span><span class="pn">SiliconFlow</span><span class="pm">Qwen2.5-VL-72B</span>
+              </button>
+              <button class="preset" type="button" data-base="https://openrouter.ai/api/v1" data-model="qwen2.5-vl-72b" aria-pressed="false">
+                <span class="box" aria-hidden="true"></span><span class="pn">OpenRouter</span><span class="pm">qwen2.5-vl-72b</span>
+              </button>
+              <button class="preset" type="button" data-base="https://generativelanguage.googleapis.com/v1beta/openai" data-model="gemini-2.5-flash" aria-pressed="false">
+                <span class="box" aria-hidden="true"></span><span class="pn">Gemini</span><span class="pm">gemini-2.5-flash</span>
+              </button>
+              <button class="preset" type="button" data-base="https://api.openai.com/v1" data-model="gpt-4o-mini" aria-pressed="false">
+                <span class="box" aria-hidden="true"></span><span class="pn">OpenAI</span><span class="pm">gpt-4o-mini</span>
+              </button>
+            </div>
+
+            <div class="localnote" id="localNote" hidden>
+              <b>本地服务</b>
+              不用 API Key。确认 Ollama 或 LM Studio 已启动，地址与模型可改。
+            </div>
+
+            <div class="keyline" id="keylineBlock">
+              <a href="https://platform.minimaxi.com/" target="_blank" rel="noreferrer">获取 API Key</a>
+              <p>预设只填地址和模型；Key 仍需你自己粘贴。</p>
+            </div>
+
+          </div>
+
+          <div class="s-right">
+            <label class="field" for="baseUrl">
+              <span class="flabel"><span>接口地址（Base URL）</span><em>https</em></span>
+              <input id="baseUrl" type="text" value="https://api.minimaxi.com/v1" spellcheck="false" autocomplete="off">
+            </label>
+
+            <label class="field" for="modelName">
+              <span class="flabel"><span>模型（Model）</span><em>视觉模型</em></span>
+              <input id="modelName" type="text" value="MiniMax-M3" spellcheck="false" autocomplete="off">
+            </label>
+
+            <div class="field" id="keyField">
+              <label class="flabel" for="apiKey"><span>API Key（密钥）</span><em>仅在本机</em></label>
+              <div class="keywrap">
+                <input id="apiKey" type="password" value="mmx-8f3a2c7d91" spellcheck="false" autocomplete="off" aria-describedby="keyHelp">
+                <button class="reveal" type="button" id="revealKey" aria-pressed="false" aria-label="显示 API Key">显示</button>
+              </div>
+              <div class="fhelp" id="keyHelp"><span>读写 chrome.storage.local</span><span>刷新后仍保留</span></div>
+            </div>
+
+            <div class="s-testrow">
+              <button class="testbtn" type="button" id="testBtn">测试配置</button>
+              <p class="teststatus" aria-live="polite"><span id="testState">未测试</span><br><span class="st" id="testDetail">改动后重新测试</span></p>
+            </div>
+
+            <details class="acc" open>
+              <summary>
+                <span>Key 与连接说明</span>
+                <span class="sign" aria-hidden="true"><span class="sign-plus">+</span><span class="sign-minus">−</span></span>
+              </summary>
+              <div class="acc-body">
+                <p>测试会向服务商发一次请求，可能产生极少量费用。</p>
+                <p>Key 只在本机，不经过开发者服务器。</p>
+              </div>
+            </details>
+          </div>
+        </div>
+
+        <div class="costband">
+          <div class="cb-l">
+            <span class="cl">本月估算花费</span>
+            <span class="cv">¥12.60</span>
+          </div>
+          <div class="cb-m">
+            <span><b>8</b> 次 API 调用</span>
+            <span><b>34,120</b> token 输入与输出</span>
+          </div>
+          <div class="cb-r">
+            <span>缓存命中 <b>62%</b>，不计费</span>
+            <span>单价在「花费与用量」里填</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div class="figcap" style="left:440px;top:770px;width:960px">
+    <span class="n">FIG. 02</span><span>设置页片段 / 960×640 / 翻译后端</span>
+  </div>
+
+  <!-- ============ STRIP ============ -->
+  <section class="strip" aria-label="页面内 HUD 与阅读面板">
+    <div class="strip-art" aria-hidden="true"></div>
+
+    <div class="strip-cap">
+      <div class="cap-top">页面内 / 09</div>
+      <div class="glyph" aria-hidden="true">譯</div>
+      <div class="cap-bot">
+        <span class="b1">HUD 与阅读面板</span>
+        <span>不遮画格</span>
+      </div>
+    </div>
+
+    <div class="hud" id="hud" data-state="running">
+      <div class="hud-top">
+        <span class="hud-state" id="hudState">正在翻译</span>
+        <span class="hud-count">3 / 5</span>
+      </div>
+      <div class="hud-bar" role="progressbar" aria-label="翻译进度" aria-valuemin="0" aria-valuemax="5" aria-valuenow="3">
+        <i class="done"></i><i class="done"></i><i class="done"></i><i class="now"></i><i></i>
+      </div>
+      <div class="hud-bot">
+        <span class="hud-eta" id="hudEta">剩余约 8 秒</span>
+        <button class="cancel" type="button" id="cancelBtn">取消</button>
+      </div>
+    </div>
+
+    <aside class="panel show-zh" id="readingPanel" aria-label="译文阅读面板">
+      <div class="panel-head">
+        <span class="panel-title">译文阅读面板</span>
+        <div class="seg-lang" role="group" aria-label="显示原文或译文">
+          <button class="lang" type="button" data-lang="zh" aria-pressed="true">译文</button>
+          <button class="lang" type="button" data-lang="jp" aria-pressed="false">原文</button>
+        </div>
+      </div>
+      <button class="entry" type="button" aria-current="false">
+        <span class="e-idx">01</span>
+        <span class="e-body"><span class="e-jp">待って！</span><span class="e-zh">等一下！</span></span>
+      </button>
+      <button class="entry" type="button" aria-current="true">
+        <span class="e-idx">02</span>
+        <span class="e-body"><span class="e-jp">行こう</span><span class="e-zh">走吧</span></span>
+      </button>
+      <button class="entry" type="button" aria-current="false">
+        <span class="e-idx">03</span>
+        <span class="e-body"><span class="e-jp">夕暮れの商店街。事件は突然に起きた</span><span class="e-zh">傍晚的商店街。事件突然发生了</span></span>
+      </button>
+    </aside>
+  </section>
+
+  <footer class="board-foot">
+    <span>FIG. 03 / 页面内 / 真实漫画裁切</span>
+    <span class="mid">C · 巨字海报 / 1440×1100 / 2×</span>
+    <span>可试：服务商 / 预设 / Key / 测试 / 开关 / 原文译文</span>
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  var $ = function(s, r){ return (r||document).querySelector(s); };
+  var $$ = function(s, r){ return Array.prototype.slice.call((r||document).querySelectorAll(s)); };
+
+  /* provider tabs */
+  var tabs = $$('.seg .tab');
+  var baseInput = $('#baseUrl');
+  var modelInput = $('#modelName');
+  var presetBlock = $('#presetBlock');
+  var keyField = $('#keyField');
+  var localNote = $('#localNote');
+
+  tabs.forEach(function(tab){
+    tab.addEventListener('click', function(){
+      tabs.forEach(function(t){
+        t.setAttribute('aria-selected', String(t === tab));
+      });
+      var local = tab.dataset.provider !== 'openai';
+      presetBlock.hidden = local;
+      keyField.hidden = local;
+      localNote.hidden = !local;
+      $('#keylineBlock').hidden = local;
+      if (local){
+        baseInput.value = tab.dataset.provider === 'ollama'
+          ? 'http://localhost:11434/v1'
+          : 'http://localhost:1234/v1';
+        modelInput.value = tab.dataset.provider === 'ollama' ? 'llava' : 'local-vision';
+      } else {
+        baseInput.value = 'https://api.minimaxi.com/v1';
+        modelInput.value = 'MiniMax-M3';
+      }
+      $('#testState').textContent = '未测试';
+      $('#testDetail').textContent = '改动后重新测试';
+    });
+  });
+
+  /* presets */
+  var presets = $$('.preset');
+  presets.forEach(function(p){
+    p.addEventListener('click', function(){
+      presets.forEach(function(o){ o.setAttribute('aria-pressed', String(o === p)); });
+      baseInput.value = p.dataset.base;
+      modelInput.value = p.dataset.model;
+      $('#testState').textContent = '未测试';
+      $('#testDetail').textContent = '改动后重新测试';
+    });
+  });
+
+  /* password reveal */
+  var reveal = $('#revealKey');
+  var key = $('#apiKey');
+  reveal.addEventListener('click', function(){
+    var show = key.type === 'password';
+    key.type = show ? 'text' : 'password';
+    reveal.textContent = show ? '隐藏' : '显示';
+    reveal.setAttribute('aria-pressed', String(show));
+    reveal.setAttribute('aria-label', show ? '隐藏 API Key' : '显示 API Key');
+  });
+
+  /* test connection */
+  var testBtn = $('#testBtn');
+  var timer = null;
+  testBtn.addEventListener('click', function(){
+    if (timer) return;
+    testBtn.disabled = true;
+    testBtn.innerHTML = '正在测试<i aria-hidden="true"></i>';
+    $('#testState').textContent = '请求中';
+    $('#testDetail').textContent = 'POST /chat/completions';
+    timer = setTimeout(function(){
+      testBtn.disabled = false;
+      testBtn.textContent = '测试配置';
+      var offline = !baseInput.value.indexOf('http://localhost');
+      $('#testState').textContent = offline ? '连接失败' : '连接正常';
+      $('#testDetail').textContent = offline ? '检查本地服务是否启动' : '412 ms / 模型可用';
+      timer = null;
+    }, 900);
+  });
+
+  /* enable toggle */
+  var sw = $('#enableSwitch');
+  sw.addEventListener('click', function(){
+    var on = sw.getAttribute('aria-checked') === 'true';
+    sw.setAttribute('aria-checked', String(!on));
+    $('#toggleNote').textContent = on ? '已暂停，手动翻译仍可用' : '在漫画页自动出现按钮';
+  });
+
+  /* reading panel row */
+  var panelRow = $('#panelRow');
+  var readingPanel = $('#readingPanel');
+  panelRow.addEventListener('click', function(){
+    var on = panelRow.getAttribute('aria-pressed') === 'true';
+    panelRow.setAttribute('aria-pressed', String(!on));
+    readingPanel.hidden = on;
+    $('#panelRowLabel').textContent = on ? '隐藏译文阅读面板' : '显示译文阅读面板';
+    $('#panelRowState').textContent = on ? '关' : '开';
+  });
+
+  /* settings link highlights the settings board */
+  $('#settingsLink').addEventListener('click', function(){
+    var board = $('#settingsBoard');
+    board.classList.add('flash');
+    setTimeout(function(){ board.classList.remove('flash'); }, 1400);
+  });
+
+  /* popup primary: demo running state */
+  var translateBtn = $('#translateBtn');
+  translateBtn.addEventListener('click', function(){
+    var running = translateBtn.dataset.running === '1';
+    if (!running){
+      translateBtn.dataset.running = '1';
+      translateBtn.innerHTML = '<span>取消当前翻译</span><i aria-hidden="true"></i>';
+      $('#ctaNote').textContent = '正在翻译 2 / 3 · 剩余约 5 秒';
+      $('#hudState').textContent = '正在翻译';
+    } else {
+      translateBtn.dataset.running = '0';
+      translateBtn.innerHTML = '<span>翻译当前页面</span><i aria-hidden="true"></i>';
+      $('#ctaNote').textContent = '已停止 · 缓存命中 1 张';
+      $('#hudState').textContent = '已取消';
+    }
+  });
+
+  /* force retranslate row */
+  $('#forceRow').addEventListener('click', function(){
+    $('#ctaNote').textContent = '重翻会跳过缓存，2 张全部重新计费';
+  });
+
+  /* clear row */
+  $('#clearRow').addEventListener('click', function(){
+    $('#clearNote').textContent = '本页无译文';
+  });
+
+  /* HUD cancel */
+  var hud = $('#hud');
+  $('#cancelBtn').addEventListener('click', function(){
+    var cancelled = hud.dataset.state === 'cancelled';
+    hud.dataset.state = cancelled ? 'running' : 'cancelled';
+    $('#hudState').textContent = cancelled ? '正在翻译' : '已取消';
+    $('#hudEta').textContent = cancelled ? '剩余约 8 秒' : '停在 3 / 5';
+    $('#cancelBtn').textContent = cancelled ? '取消' : '继续';
+  });
+
+  /* reading panel language */
+  $$('.lang').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      $$('.lang').forEach(function(b){ b.setAttribute('aria-pressed', String(b === btn)); });
+      readingPanel.classList.toggle('show-jp', btn.dataset.lang === 'jp');
+      readingPanel.classList.toggle('show-zh', btn.dataset.lang === 'zh');
+    });
+  });
+
+  /* reading panel entries */
+  $$('.entry').forEach(function(entry){
+    entry.addEventListener('click', function(){
+      $$('.entry').forEach(function(e){ e.setAttribute('aria-current', 'false'); });
+      entry.setAttribute('aria-current', 'true');
+    });
+  });
+})();
+</script>
+</body>
+</html>

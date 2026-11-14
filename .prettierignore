@@ -5,6 +5,10 @@
 *.yml
 *.yaml
 
+# Design exploration boards (design-demos/) are hand-authored mockups, not
+# source: prettier would churn the hand-tuned layout of the art direction.
+design-demos
+
 node_modules
 dist
 coverage

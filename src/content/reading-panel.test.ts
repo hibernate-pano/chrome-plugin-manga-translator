@@ -476,7 +476,7 @@ describe('ReadingPanel interactions', () => {
     const entry = shadow.querySelector('.entry') as HTMLElement;
     entry.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter' }));
 
-    expect(img.style.outline).toContain('22d3ee');
+    expect(img.style.outline).toContain('D33A2C');
     expect(entry.classList.contains('flash')).toBe(true);
 
     vi.advanceTimersByTime(1300);
@@ -770,6 +770,136 @@ describe('阅读面板的对比度预算', () => {
       panel.destroy();
     }
   });
+
+  it('15px 译文正文在纸底上至少 4.5:1', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(contrastOf(panel, '.entry-body li')).toBeGreaterThanOrEqual(4.5);
+      expect(contrastOf(panel, '.entry-preview')).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('12px 原文在纸底上至少 4.5:1', () => {
+    // The source text is the smallest prose in the panel and it is set in
+    // blueprint blue. Blue at 12px still owes 4.5:1 on paper.
+    const panel = new ReadingPanel();
+    try {
+      expect(
+        contrastOf(panel, '.entry-original-list li')
+      ).toBeGreaterThanOrEqual(4.5);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('面板上不再有青色或石板灰', () => {
+    // The proof sheet is paper, ink, vermilion and blueprint — the old
+    // cyan-on-slate overlay palette is gone, not just recoloured.
+    const panel = new ReadingPanel();
+    try {
+      const css = stylesheet(panel).toLowerCase();
+      for (const colour of [
+        '22d3ee',
+        '67e8f9',
+        '0f172a',
+        '94a3b8',
+        'cbd5e1',
+        'e2e8f0',
+        '64748b',
+      ]) {
+        expect(css).not.toContain(colour);
+      }
+    } finally {
+      panel.destroy();
+    }
+  });
+});
+
+// The header carries a 原文 / 译文 switch: the panel holds both languages,
+// and this decides which one is set as the reading text.
+describe('原文/译文切换', () => {
+  beforeEach(() => {
+    document.body.innerHTML = '';
+  });
+
+  /** The panel's shadow root, read from the host element it attaches. */
+  function panelShadow(): ShadowRoot {
+    const shadow = document.querySelector(
+      '[data-manga-translator-reading-panel]'
+    )?.shadowRoot;
+    if (!shadow) {
+      throw new Error('reading panel has no shadow root');
+    }
+    return shadow;
+  }
+
+  it('默认以译文为正文', () => {
+    const panel = new ReadingPanel();
+    try {
+      panel.upsert(makeImage(), makeAreas(['译一']));
+      const shadow = panelShadow();
+      expect(shadow.querySelector('.entry-preview')?.textContent).toBe('译一');
+      expect(
+        shadow.getElementById('mode-translated')?.getAttribute('aria-pressed')
+      ).toBe('true');
+      expect(
+        shadow.getElementById('mode-original')?.getAttribute('aria-pressed')
+      ).toBe('false');
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('切到原文后正文读原文，译文退到折叠区', () => {
+    const panel = new ReadingPanel();
+    try {
+      panel.upsert(makeImage(), makeAreas(['译一']));
+      const shadow = panelShadow();
+      const originalBtn = shadow.getElementById('mode-original');
+
+      originalBtn?.click();
+
+      expect(originalBtn?.getAttribute('aria-pressed')).toBe('true');
+      expect(
+        shadow.getElementById('mode-translated')?.getAttribute('aria-pressed')
+      ).toBe('false');
+      expect(shadow.querySelector('.entry-preview')?.textContent).toBe(
+        '原文 1'
+      );
+      expect(shadow.querySelector('.entry-original-summary')?.textContent).toBe(
+        '译文'
+      );
+      const alternate = Array.from(
+        shadow.querySelectorAll('.entry-original-list li')
+      ).map(li => li.textContent);
+      expect(alternate).toEqual(['译一']);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('切回译文恢复原文的折叠区', () => {
+    const panel = new ReadingPanel();
+    try {
+      panel.upsert(makeImage(), makeAreas(['译一']));
+      const shadow = panelShadow();
+
+      shadow.getElementById('mode-original')?.click();
+      shadow.getElementById('mode-translated')?.click();
+
+      expect(shadow.querySelector('.entry-preview')?.textContent).toBe('译一');
+      expect(shadow.querySelector('.entry-original-summary')?.textContent).toBe(
+        '原文'
+      );
+      expect(
+        shadow.getElementById('mode-translated')?.getAttribute('aria-pressed')
+      ).toBe('true');
+    } finally {
+      panel.destroy();
+    }
+  });
 });
 
 describe('滚动方式', () => {
@@ -847,10 +977,10 @@ describe('滚动方式', () => {
 
 // The translation is the thing the reader opened the panel for.
 //
-// It was set at 12px — the same size as the notes around it and smaller
-// than the popup's body text — inside a 320px column. A translated line
-// is prose, not a label, and prose at 12px in a narrow column breaks into
-// unreadable stubs.
+// It used to be set at 12px — the same size as the notes around it and
+// smaller than the popup's body text — inside a 320px column. A translated
+// line is prose, not a label. The proof sheet sets it at 15px, with the
+// source text at 12px and the metadata at 11px.
 describe('译文字号不能比旁边的说明还小', () => {
   function stylesheet(panel: ReadingPanel): string {
     const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
@@ -863,19 +993,28 @@ describe('译文字号不能比旁边的说明还小', () => {
     );
   }
 
-  it('译文正文是 13px', () => {
+  it('译文正文是 15px', () => {
     const panel = new ReadingPanel();
     try {
-      expect(fontSize(panel, '.entry-body li')).toBe(13);
+      expect(fontSize(panel, '.entry-body li')).toBe(15);
     } finally {
       panel.destroy();
     }
   });
 
-  it('译文预览也是 13px', () => {
+  it('译文预览也是 15px', () => {
     const panel = new ReadingPanel();
     try {
-      expect(fontSize(panel, '.entry-preview')).toBe(13);
+      expect(fontSize(panel, '.entry-preview')).toBe(15);
+    } finally {
+      panel.destroy();
+    }
+  });
+
+  it('原文是 12px', () => {
+    const panel = new ReadingPanel();
+    try {
+      expect(fontSize(panel, '.entry-original-list li')).toBe(12);
     } finally {
       panel.destroy();
     }
@@ -897,10 +1036,13 @@ describe('译文字号不能比旁边的说明还小', () => {
     }
   });
 
-  it('序号徽章还是 11px——它是一个数字', () => {
+  it('序号是 12px 的衬线数字', () => {
     const panel = new ReadingPanel();
     try {
-      expect(fontSize(panel, '.entry-num')).toBe(11);
+      expect(fontSize(panel, '.entry-num')).toBe(12);
+      expect(
+        cssDeclaration(cssBlock(stylesheet(panel), '.entry-num'), 'font-family')
+      ).toContain('Songti SC');
     } finally {
       panel.destroy();
     }

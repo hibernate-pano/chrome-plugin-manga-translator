@@ -149,7 +149,7 @@ export function ConfirmDialog({
 
   return (
     <div
-      className='fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4'
+      className='fixed inset-0 z-50 flex items-center justify-center bg-ink/45 p-4'
       onClick={onCancel}
       role='presentation'
     >
@@ -160,20 +160,20 @@ export function ConfirmDialog({
         aria-labelledby='confirm-dialog-title'
         aria-describedby='confirm-dialog-desc'
         onClick={e => e.stopPropagation()}
-        className='w-full max-w-sm rounded-2xl border border-white/25 bg-slate-900 p-5 shadow-2xl'
+        className='w-full max-w-sm rounded-none border border-ink bg-paper p-5 shadow-[6px_6px_0_rgba(22,22,22,0.18)]'
       >
         <h2
           id='confirm-dialog-title'
           className={cn(
             'text-base font-semibold',
-            destructive ? 'text-red-400' : 'text-white'
+            destructive ? 'text-vermilion' : 'text-ink'
           )}
         >
           {title}
         </h2>
         <p
           id='confirm-dialog-desc'
-          className='mt-2 text-sm leading-relaxed text-slate-300'
+          className='mt-2 text-sm leading-relaxed text-ink-muted'
         >
           {description}
         </p>
@@ -182,7 +182,7 @@ export function ConfirmDialog({
             ref={cancelRef}
             type='button'
             onClick={onCancel}
-            className='rounded-lg border border-white/20 bg-slate-950 px-4 py-2 text-sm text-slate-200 transition hover:bg-slate-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
+            className='rounded-none border border-ink bg-paper px-4 py-2 text-sm text-ink transition hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
           >
             {cancelLabel}
           </button>
@@ -190,10 +190,10 @@ export function ConfirmDialog({
             type='button'
             onClick={onConfirm}
             className={cn(
-              'rounded-lg px-4 py-2 text-sm font-medium text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900',
+              'rounded-none px-4 py-2 text-sm font-medium text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
               destructive
-                ? 'bg-red-700 hover:bg-red-800 focus-visible:ring-red-400'
-                : 'bg-cyan-700 hover:bg-cyan-800 focus-visible:ring-cyan-400'
+                ? 'bg-vermilion hover:bg-ink focus-visible:ring-vermilion'
+                : 'bg-ink hover:bg-vermilion focus-visible:ring-vermilion'
             )}
           >
             {confirmLabel}

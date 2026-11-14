@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowRight, CheckCircle2, Info, Sparkles, X } from 'lucide-react';
+import { ArrowRight, CheckCircle2, Info, X } from 'lucide-react';
 
 import { useAppConfigStore } from '@/stores/config-v2';
 import { configuredBackends } from '@/shared/env-backends';
@@ -255,7 +255,7 @@ export const OnboardingApp: React.FC<OnboardingAppProps> = ({
 
   return (
     <div
-      className='fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4'
+      className='fixed inset-0 z-50 flex items-center justify-center bg-ink/45 p-4'
       role='presentation'
     >
       <div
@@ -264,18 +264,23 @@ export const OnboardingApp: React.FC<OnboardingAppProps> = ({
         aria-labelledby='onboarding-title'
         aria-describedby={STEP_DESCRIPTION_ID[step]}
         ref={dialogRef}
-        className='relative w-full max-w-xl rounded-2xl border border-white/25 bg-slate-900 p-6 shadow-2xl'
+        className='relative w-full max-w-[520px] border border-ink bg-paper p-8 shadow-[8px_8px_0_0_#161616]'
       >
         <button
           type='button'
           onClick={close}
-          className='absolute right-4 top-4 rounded-md p-1 text-slate-400 transition hover:bg-white/[0.05] hover:text-slate-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
+          className='absolute right-4 top-4 flex h-11 w-11 items-center justify-center text-ink-muted transition hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion'
           aria-label='跳过引导'
         >
           <X className='h-4 w-4' />
         </button>
 
-        <Stepper currentStep={step} />
+        <div className='flex items-center justify-between gap-6 pr-14'>
+          <p className='font-mono text-[11px] uppercase tracking-[0.18em] text-ink-muted'>
+            校正紙 / 首次设置
+          </p>
+          <Stepper currentStep={step} />
+        </div>
 
         {step === 'welcome' && (
           <WelcomeStep
@@ -293,15 +298,17 @@ export const OnboardingApp: React.FC<OnboardingAppProps> = ({
           />
         )}
 
-        <div className='mt-6 flex items-center justify-between border-t border-white/15 pt-4'>
+        <div className='mt-6 flex items-center justify-between border-t border-rule-soft pt-4'>
           <button
             type='button'
             onClick={close}
-            className='text-xs text-slate-400 underline-offset-2 transition hover:text-slate-200 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400'
+            className='flex min-h-[44px] items-center text-xs text-ink-muted underline-offset-4 transition hover:text-ink hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion'
           >
             稍后再设置
           </button>
-          <span className='text-xs text-slate-400'>按 Esc 可跳过</span>
+          <span className='font-mono text-[11px] tracking-wide text-ink-muted'>
+            按 Esc 可跳过
+          </span>
         </div>
       </div>
     </div>
@@ -312,29 +319,14 @@ const Stepper: React.FC<{ currentStep: Step }> = ({ currentStep }) => {
   const idx = stepIndex(currentStep);
   const labels = ['欢迎', '准备就绪'];
   return (
-    <div className='mb-5 flex items-center gap-2'>
+    <div className='flex items-center gap-2'>
       {STEPS.map((s, i) => (
         <React.Fragment key={s}>
           <div
-            className={cn(
-              'flex h-6 w-6 items-center justify-center rounded-full text-xs font-semibold transition',
-              i < idx
-                ? 'bg-cyan-500/20 text-cyan-300'
-                : i === idx
-                  ? 'bg-cyan-500 text-white'
-                  : 'bg-white/5 text-slate-400'
-            )}
-          >
-            {i < idx ? <CheckCircle2 className='h-3.5 w-3.5' /> : i + 1}
-          </div>
-          {i < STEPS.length - 1 && (
-            <div
-              className={cn(
-                'h-px flex-1 transition',
-                i < idx ? 'bg-cyan-500/40' : 'bg-white/10'
-              )}
-            />
-          )}
+            aria-hidden='true'
+            className={cn('h-[2px] w-8', i <= idx ? 'bg-vermilion' : 'bg-rule')}
+          />
+          {i < STEPS.length - 1 && <div aria-hidden='true' className='w-2' />}
         </React.Fragment>
       ))}
       <span className='sr-only'>{labels[idx]}</span>
@@ -355,19 +347,17 @@ const WelcomeStep: React.FC<{
   onNext: () => void;
   descriptionId: string;
 }> = ({ onNext, descriptionId }) => (
-  <div className='space-y-4'>
-    <div className='flex items-start gap-3'>
-      <div className='rounded-xl bg-cyan-500/10 p-2.5 text-cyan-300'>
-        <Sparkles className='h-5 w-5' />
-      </div>
-      <div>
-        <h2 id='onboarding-title' className='text-lg font-semibold text-white'>
-          欢迎使用漫画翻译助手
-        </h2>
-        <p className='mt-1 text-sm text-slate-400'>
-          网页漫画的实时翻译阅读体验。译文覆盖在原图上，保留画风与排版。
-        </p>
-      </div>
+  <div className='space-y-5'>
+    <div className='pt-4'>
+      <h2
+        id='onboarding-title'
+        className='font-display text-[30px] leading-tight text-ink'
+      >
+        欢迎使用漫画翻译助手
+      </h2>
+      <p className='mt-2 text-sm text-ink-muted'>
+        网页漫画的实时翻译阅读体验。译文覆盖在原图上，保留画风与排版。
+      </p>
     </div>
 
     {/*
@@ -380,14 +370,11 @@ const WelcomeStep: React.FC<{
       the button that turns it on. A user who does not know their comic pages
       are being sent to a paid API has no way to find out later.
     */}
-    <div
-      id={descriptionId}
-      className='rounded-xl border border-white/20 bg-slate-950 p-4'
-    >
+    <div id={descriptionId} className='border-l-2 border-blueprint py-1 pl-4'>
       <div className='flex items-start gap-3'>
-        <Info className='mt-0.5 h-4 w-4 shrink-0 text-cyan-300' />
-        <div className='text-sm text-slate-300'>
-          <p className='font-medium text-white'>数据流向与费用</p>
+        <Info className='mt-0.5 h-4 w-4 shrink-0 text-blueprint' />
+        <div className='text-sm text-ink'>
+          <p className='font-medium text-ink'>数据流向与费用</p>
           {/*
             两句话，两种情况。
 
@@ -397,7 +384,7 @@ const WelcomeStep: React.FC<{
             而"若希望图片不离开本机…"只是补丁，不是陈述。分岔写在条件句
             里，选哪种后端都为真。
           */}
-          <ul className='mt-2 space-y-1.5 leading-relaxed text-slate-400'>
+          <ul className='mt-2 space-y-1.5 leading-relaxed text-ink-muted'>
             <li>
               用云端服务时：你正在阅读的页面上的漫画图片会被发送给你选择的 AI
               服务，图片会离开这台机器，并按该服务的计费标准产生费用。
@@ -415,16 +402,16 @@ const WelcomeStep: React.FC<{
       </div>
     </div>
 
-    <div className='rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm'>
-      <div className='font-medium text-cyan-100'>已预置的后端</div>
+    <div className='border-t border-rule-soft pt-4 text-sm'>
+      <div className='font-medium text-ink'>已预置的后端</div>
       {configuredBackends().length > 0 ? (
-        <ul className='mt-1 space-y-1 text-slate-300'>
+        <ul className='mt-2 space-y-1.5 text-ink'>
           {configuredBackends().map(b => (
             <li key={b.label} className='flex items-center gap-2'>
-              <CheckCircle2 className='h-4 w-4 shrink-0 text-cyan-300' />
+              <CheckCircle2 className='h-4 w-4 shrink-0 text-blueprint' />
               <span>
                 {b.label} ·{' '}
-                <span className='font-mono text-xs text-slate-400'>
+                <span className='font-mono text-xs text-ink-muted'>
                   {b.detail}
                 </span>
               </span>
@@ -432,11 +419,11 @@ const WelcomeStep: React.FC<{
           ))}
         </ul>
       ) : (
-        <p className='mt-1 text-amber-400'>
+        <p className='mt-2 text-vermilion'>
           还没有预置任何后端：最后一步会带你去设置页填写自己的 API Key。
         </p>
       )}
-      <p className='mt-2 text-xs leading-relaxed text-slate-400'>
+      <p className='mt-2 text-xs leading-relaxed text-ink-muted'>
         本地 Ollama / LM Studio 无需 API Key，但需要你自己启动服务并拉好模型；
         云端后端可在设置页配置。
       </p>
@@ -446,7 +433,7 @@ const WelcomeStep: React.FC<{
       type='button'
       onClick={onNext}
       data-onboarding-primary='true'
-      className='mt-2 inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 py-2.5 text-sm font-medium text-white transition hover:bg-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
+      className='mt-2 inline-flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink bg-ink px-4 text-sm font-medium text-paper transition hover:bg-paper hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
     >
       下一步
       <ArrowRight className='h-4 w-4' />
@@ -476,9 +463,12 @@ const ReadyStep: React.FC<{
   localProvider: boolean;
   descriptionId: string;
 }> = ({ onFinish, onConfigure, hasProvider, localProvider, descriptionId }) => (
-  <div className='space-y-4'>
-    <div>
-      <h2 id='onboarding-title' className='text-lg font-semibold text-white'>
+  <div className='space-y-5'>
+    <div className='pt-4'>
+      <h2
+        id='onboarding-title'
+        className='font-display text-[30px] leading-tight text-ink'
+      >
         {hasProvider ? '准备就绪' : '还差一步'}
       </h2>
       {/*
@@ -490,7 +480,7 @@ const ReadyStep: React.FC<{
         moment they enable the extension* — so the facts belong here, in
         the same breath as the button that turns it on.
       */}
-      <div id={descriptionId} className='mt-1 space-y-2 text-sm text-slate-400'>
+      <div id={descriptionId} className='mt-2 space-y-2 text-sm text-ink-muted'>
         {hasProvider ? (
           localProvider ? (
             <p>
@@ -520,21 +510,21 @@ const ReadyStep: React.FC<{
       </div>
     </div>
 
-    <div className='rounded-xl border border-cyan-500/20 bg-cyan-500/5 p-4 text-sm text-slate-300'>
+    <div className='border-t border-rule-soft pt-4 text-sm text-ink'>
       <p className='leading-relaxed'>
         接下来去你常去的漫画页，点浏览器右上角的{' '}
-        <span className='font-medium text-white'>扩展图标</span>
+        <span className='font-medium text-ink'>扩展图标</span>
         （一个带地球的对话气泡）→ 打开弹窗 → 点
-        <span className='font-medium text-white'>「翻译当前页面」</span>。
+        <span className='font-medium text-ink'>「翻译当前页面」</span>。
         工具栏上找不到它？点地址栏右侧的
-        <span className='font-medium text-white'>拼图按钮</span>
+        <span className='font-medium text-ink'>拼图按钮</span>
         ，在列表里把它固定住。 译文会直接覆盖在原图上；按住 Alt
         键可临时切回原文。
       </p>
       <p className='mt-3 leading-relaxed'>
         不想点按钮？页面上右键就有
-        <span className='font-medium text-white'>「翻译当前页面」</span>和
-        <span className='font-medium text-white'>「翻译这张图片」</span>；键盘
+        <span className='font-medium text-ink'>「翻译当前页面」</span>和
+        <span className='font-medium text-ink'>「翻译这张图片」</span>；键盘
         快捷键是 Ctrl/⌘+Shift+Y（翻译）、+X（忽略缓存重翻）、+E（清除覆盖层）、
         +S（开关译文阅读面板）。
       </p>
@@ -550,7 +540,7 @@ const ReadyStep: React.FC<{
       type='button'
       onClick={hasProvider ? onFinish : onConfigure}
       data-onboarding-primary='true'
-      className='inline-flex w-full items-center justify-center gap-2 rounded-lg bg-cyan-700 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-cyan-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-900'
+      className='inline-flex min-h-[44px] w-full items-center justify-center gap-2 border border-ink bg-ink px-4 text-sm font-semibold text-paper transition hover:bg-paper hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
     >
       {hasProvider ? '完成并启用翻译' : '去填写 API Key'}
       {hasProvider ? (

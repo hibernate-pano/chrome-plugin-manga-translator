@@ -254,7 +254,7 @@ export class ForceRetranslateConfirm {
         align-items: center;
         justify-content: center;
         padding: 16px;
-        background: rgba(2, 6, 23, 0.72);
+        background: rgba(22, 22, 22, 0.45);
         font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
       }
 
@@ -263,11 +263,11 @@ export class ForceRetranslateConfirm {
         max-width: 380px;
         box-sizing: border-box;
         padding: 20px;
-        border-radius: 14px;
-        border: 1px solid rgba(148, 163, 184, 0.6);
-        background: #0f172a;
-        color: #e2e8f0;
-        box-shadow: 0 20px 50px rgba(0, 0, 0, 0.45);
+        border-radius: 0;
+        border: 1px solid #161616;
+        background: #e9e9e2;
+        color: #161616;
+        box-shadow: 6px 6px 0 rgba(22, 22, 22, 0.18);
       }
 
       #card:focus {
@@ -276,16 +276,17 @@ export class ForceRetranslateConfirm {
 
       h2 {
         margin: 0 0 8px;
-        font-size: 15px;
-        font-weight: 600;
-        color: #f8fafc;
+        font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
+        font-size: 20px;
+        font-weight: 700;
+        color: #161616;
       }
 
       p {
         margin: 0 0 16px;
         font-size: 13px;
-        line-height: 1.6;
-        color: #cbd5e1;
+        line-height: 1.65;
+        color: #55554f;
       }
 
       #actions {
@@ -295,29 +296,35 @@ export class ForceRetranslateConfirm {
       }
 
       button {
-        min-height: 32px;
-        padding: 0 14px;
-        border-radius: 8px;
-        border: 1px solid rgba(148, 163, 184, 0.3);
-        background: #020617;
-        color: #e2e8f0;
+        min-height: 40px;
+        padding: 0 16px;
+        border-radius: 0;
+        border: 1px solid #161616;
+        background: transparent;
+        color: #161616;
         font-size: 13px;
         cursor: pointer;
       }
 
       button.danger {
-        border-color: transparent;
-        background: #b91c1c;
+        border-color: #d33a2c;
+        background: #d33a2c;
         color: #ffffff;
         font-weight: 500;
       }
 
       button:hover {
-        filter: brightness(1.15);
+        background: #161616;
+        color: #e9e9e2;
+      }
+
+      button.danger:hover {
+        background: #161616;
+        color: #e9e9e2;
       }
 
       button:focus-visible {
-        outline: 2px solid #22d3ee;
+        outline: 2px solid #d33a2c;
         outline-offset: 2px;
       }
 

@@ -12,13 +12,11 @@ if (!appRoot) {
 
 ReactDOM.createRoot(appRoot).render(
   <React.StrictMode>
-    {/* The popup's own surfaces are hard-coded dark (`bg-slate-950`), but the
-        shadcn primitives read the semantic CSS variables. Following the
-        system theme put a light `bg-input` switch on a dark card — the
-        unchecked state measured a 1.26:1 contrast against its own track, so
-        the switch looked like a blank line. Pinning the theme to dark keeps
-        the two in step. */}
-    <ThemeProvider defaultTheme='dark' storageKey='manga-translator-theme'>
+    {/* One theme: 校正紙. The surfaces are hard-coded paper utilities and the
+        shadcn primitives read the same variables; pinning the theme keeps the
+        two in step. A stored `dark` from an older build resolves to the
+        pinned theme instead of repainting the page. */}
+    <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
       <PopupApp />
     </ThemeProvider>
   </React.StrictMode>

@@ -323,15 +323,13 @@ describe('OnboardingApp 快捷键与右键菜单', () => {
 /**
  * WCAG 1.4.3 的对比度，测试自己算。
  *
- * 引导弹窗是深色的（slate-900）。辅助文字如果用 slate-500/600，
- * 读屏之外的人基本看不清 —— 而「按 Esc 可跳过」是整个弹窗里唯一
- * 的一句提示。tailwind 的调色板值写在这里：数字比"看着还行"可靠。
+ * 校正纸方向之后弹窗是浅色纸面（#E9E9E2）。辅助文字统一用 ink-muted
+ * （#55554F，6.15:1），不再有任何低对比的灰字 —— 数字比"看着还行"可靠。
  */
-const SLATE: Record<string, string> = {
-  'slate-400': '#94a3b8',
-  'slate-500': '#64748b',
-  'slate-600': '#475569',
-  'slate-900': '#0f172a',
+const PALETTE: Record<string, string> = {
+  paper: '#E9E9E2',
+  ink: '#161616',
+  'ink-muted': '#55554F',
 };
 
 function luminance(hex: string): number {
@@ -353,63 +351,60 @@ function contrast(foreground: string, background: string): number {
  * 调色板里没有的颜色就是测试没算过 —— 宁可报错，也不要用一个默认值
  * 把一个真实的对比度问题放过去。
  */
-function slateColor(name: string): string {
-  const value = SLATE[name];
+function paletteColor(name: string): string {
+  const value = PALETTE[name];
   if (!value) {
     throw new Error(`对比度表里没有 ${name}`);
   }
   return value;
 }
 
-/** bg-white/5 铺在 slate-900 上之后的实际底色。 */
-function overWhite5(base: string): string {
-  const channels = [1, 3, 5].map(i => parseInt(base.slice(i, i + 2), 16));
-  return `#${channels
-    .map(c =>
-      Math.round(0.05 * 255 + 0.95 * c)
-        .toString(16)
-        .padStart(2, '0')
-    )
-    .join('')}`;
-}
-
 /**
- * 深色弹窗上的文字必须读得清。
- *
- * slate-600 在 slate-900 上是 2.36:1，slate-500 是 3.07:1 ——
- * 两条都低于 4.5:1 的正文门槛。slate-400 是 6.97:1。
+ * 纸面弹窗上的辅助文字必须读得清。
  */
 describe('OnboardingApp 文字对比度', () => {
-  it('「按 Esc 可跳过」在弹窗底色上读得清', () => {
+  it('「按 Esc 可跳过」在纸面底色上读得清', () => {
     render(<OnboardingApp />);
 
     const hint = screen.getByText('按 Esc 可跳过');
     const textClass = hint.className
       .split(/\s+/)
-      .find(name => name.startsWith('text-slate-'))
+      .find(name => name.replace('text-', '') in PALETTE)
       ?.replace('text-', '');
     expect(textClass).toBeDefined();
     const ratio = contrast(
-      slateColor(textClass as string),
-      slateColor('slate-900')
+      paletteColor(textClass as string),
+      paletteColor('paper')
     );
     expect(ratio).toBeGreaterThanOrEqual(4.5);
   });
 
-  it('步骤条上没走到的那一步读得清', () => {
+  it('顶部的元数据行在纸面底色上读得清', () => {
     render(<OnboardingApp />);
 
-    // 第二步还没走到，它的序号画在一个半透明的浅色底上。
-    const pending = screen.getByText('2');
-    const textClass = pending.className
+    const meta = screen.getByText('校正紙 / 首次设置');
+    const textClass = meta.className
       .split(/\s+/)
-      .find(name => name.startsWith('text-slate-'))
+      .find(name => name.replace('text-', '') in PALETTE)
       ?.replace('text-', '');
     expect(textClass).toBeDefined();
     const ratio = contrast(
-      slateColor(textClass as string),
-      overWhite5(slateColor('slate-900'))
+      paletteColor(textClass as string),
+      paletteColor('paper')
     );
     expect(ratio).toBeGreaterThanOrEqual(4.5);
+  });
+
+  it('步骤条上只有当前一步是朱红', () => {
+    render(<OnboardingApp />);
+
+    // 第一步是当前步骤：两条规则线里第一条必须是朱红，第二条不得冒充当前。
+    const rules = screen
+      .getAllByRole('presentation')
+      .flatMap(el => Array.from(el.querySelectorAll('[aria-hidden="true"]')))
+      .filter(el => el.className.includes('h-[2px]'));
+    expect(rules.length).toBeGreaterThanOrEqual(2);
+    expect(rules[0]?.className).toContain('bg-vermilion');
+    expect(rules[1]?.className).not.toContain('bg-vermilion');
   });
 });

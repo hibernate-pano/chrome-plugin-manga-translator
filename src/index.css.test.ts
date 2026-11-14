@@ -26,7 +26,18 @@ const css = readFileSync(cssPath, 'utf8');
 
 /** The colour a CSS variable resolves to, for the `H S% L%` variables. */
 function variableColor(name: string): [number, number, number] {
-  const value = cssDeclaration(cssBlock(css, ':root'), name);
+  const root = cssBlock(css, ':root');
+  let value = cssDeclaration(root, name);
+  // `--primary: var(--vermilion)` and `--focus-ring: var(--primary)` chain
+  // the tokens; follow the indirection until the value is a colour, so the
+  // test reads the colour the browser actually paints.
+  for (let depth = 0; depth < 4; depth += 1) {
+    const alias = /^var\((--[a-z-]+)\)$/.exec(value);
+    if (!alias) {
+      break;
+    }
+    value = cssDeclaration(root, alias[1] ?? '');
+  }
   const { h, s, l } = parseHslTriple(value);
   return hslToRgb(h, s, l);
 }
@@ -60,59 +71,62 @@ function mediaBlock(query: string): string {
 }
 
 describe('全局主题变量', () => {
-  it('声明了 color-scheme: dark', () => {
+  it('声明了 color-scheme: light', () => {
     // Without it the computed value stays "normal" and the native controls
-    // — scrollbars, select popups, date pickers — are drawn for a light
-    // page inside a dark settings screen.
-    expect(cssDeclaration(cssBlock(css, ':root'), 'color-scheme')).toBe('dark');
+    // — scrollbars, select popups, date pickers — are drawn for a dark
+    // page inside a paper settings screen.
+    expect(cssDeclaration(cssBlock(css, ':root'), 'color-scheme')).toBe(
+      'light'
+    );
   });
 
-  it('把深色调色板放在 :root 上', () => {
-    // The palette used to live on a `.dark` class that React adds after the
-    // first paint, so the pages flashed white before the theme settled.
+  it('把校正纸调色板放在 :root 上', () => {
+    // The palette lives on :root, not on a class React adds after the first
+    // paint, so the first frame is already paper.
     expect(cssDeclaration(cssBlock(css, ':root'), '--background')).toBe(
-      '222.2 47.4% 3.9%'
+      'var(--paper)'
     );
     expect(cssDeclaration(cssBlock(css, ':root'), '--foreground')).toBe(
-      '0 0% 98%'
+      'var(--ink)'
     );
   });
 
-  it('页面底色就是 popup 与设置页用的 slate-950', () => {
-    // The page is painted `bg-slate-950`; the switch thumb and the slider
-    // thumb are painted `--background`. With the old neutral grey the thumb
-    // was a different colour from the surface it sits on.
+  it('页面底色就是 popup 与设置页用的纸面', () => {
+    // The shells are painted `bg-paper`; card and popover point at the same
+    // surface so a popover cannot open as a different colour.
     expect(cssDeclaration(cssBlock(css, ':root'), '--card')).toBe(
-      '222.2 47.4% 3.9%'
+      'var(--paper)'
     );
     expect(cssDeclaration(cssBlock(css, ':root'), '--popover')).toBe(
-      '222.2 47.4% 3.9%'
+      'var(--paper)'
     );
   });
 
-  it('没有浅色调色板可以再把页面刷成一半白一半黑', () => {
-    expect(cssBlock(css, '.light')).toBe('');
+  it('没有深色调色板可以再把页面刷成一半黑一半白', () => {
+    expect(cssBlock(css, '.dark')).toBe('');
   });
 });
 
 describe('强调色', () => {
-  it('--primary 是 cyan-400，和焦点环同一个颜色', () => {
-    // `--primary` was pure white, so the switch track and the slider fill
-    // were white in a cyan product, and the switch thumb measured 1.02:1
-    // against the page.
+  it('--primary 是朱红，和焦点环同一个颜色', () => {
+    // The accent is the vermilion correction pen: every action, the current
+    // item and the error state share one colour. White on it measured 4.76:1.
     expect(cssDeclaration(cssBlock(css, ':root'), '--primary')).toBe(
-      '187.9 85.7% 53.3%'
+      'var(--vermilion)'
     );
-    expect(variableColor('--primary')).toEqual([34, 211, 238]);
+    expect(variableColor('--primary')).toEqual([211, 58, 44]);
     expect(variableColor('--primary')).toEqual(variableColor('--focus-ring'));
   });
 
-  it('开关手柄在轨道上至少 3:1', () => {
-    // The thumb is painted `--background`, the checked track `--primary`.
+  it('控件边界在纸面上至少 3:1', () => {
+    // The switch is painted `--rule` (unchecked) and `--ink` (checked).
     // WCAG 1.4.11: a control boundary has to be visible against what it
     // sits on.
     expect(
-      contrastRatio(variableColor('--background'), variableColor('--primary'))
+      contrastRatio(variableColor('--rule'), variableColor('--background'))
+    ).toBeGreaterThanOrEqual(3);
+    expect(
+      contrastRatio(variableColor('--ink'), variableColor('--background'))
     ).toBeGreaterThanOrEqual(3);
   });
 
@@ -136,13 +150,10 @@ describe('焦点指示器', () => {
     );
   });
 
-  it('焦点颜色是 cyan-400', () => {
-    // rgb(34,211,238) — the colour the content-script overlays use, so the
-    // ring does not change colour halfway through the page.
-    const { h, s, l } = parseHslTriple(
-      cssDeclaration(cssBlock(css, ':root'), '--focus-ring')
-    );
-    expect(hslToRgb(h, s, l)).toEqual([34, 211, 238]);
+  it('焦点颜色是朱红', () => {
+    // rgb(211,58,44) — the colour the content-script overlays hard-code, so
+    // the ring does not change colour halfway through the page.
+    expect(variableColor('--focus-ring')).toEqual([211, 58, 44]);
   });
 
   it('全局焦点环使用这个变量', () => {

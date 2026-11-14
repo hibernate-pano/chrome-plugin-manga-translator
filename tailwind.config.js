@@ -4,12 +4,32 @@ export default {
   content: ['./src/**/*.{js,jsx,ts,tsx}', './*.html'],
   theme: {
     extend: {
+      fontFamily: {
+        sans: [
+          '-apple-system',
+          'BlinkMacSystemFont',
+          'PingFang SC',
+          'Hiragino Sans GB',
+          'Noto Sans SC',
+          'Microsoft YaHei',
+          'sans-serif',
+        ],
+        display: ['Songti SC', 'Noto Serif SC', 'Georgia', 'serif'],
+        mono: ['SF Mono', 'Menlo', 'Consolas', 'monospace'],
+      },
       borderRadius: {
         lg: 'var(--radius)',
         md: 'calc(var(--radius) - 2px)',
         sm: 'calc(var(--radius) - 4px)',
       },
       colors: {
+        paper: 'hsl(var(--paper))',
+        ink: 'hsl(var(--ink))',
+        'ink-muted': 'hsl(var(--ink-muted))',
+        vermilion: 'hsl(var(--vermilion))',
+        blueprint: 'hsl(var(--blueprint))',
+        rule: 'hsl(var(--rule))',
+        'rule-soft': 'hsl(var(--rule-soft))',
         background: 'hsl(var(--background))',
         foreground: 'hsl(var(--foreground))',
         card: {

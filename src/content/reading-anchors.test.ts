@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { ReadingAnchors } from './reading-anchors';
+import { cssBlock, cssDeclaration } from '@/test/contrast';
 
 function makeImage(
   width = 200,
@@ -189,5 +190,80 @@ describe('ReadingAnchors', () => {
     const shadow = (anchors as unknown as { shadow: ShadowRoot }).shadow;
     expect(shadow.querySelectorAll('.badge').length).toBe(0);
     anchors.destroy();
+  });
+});
+
+// The badges sit on someone else's artwork, so they have to look like a mark
+// made on the page: a square of paper, an ink frame, a serif numeral. The
+// old cyan circle with a soft shadow belonged to the overlay palette that is
+// gone.
+describe('锚点校正紙样式', () => {
+  function stylesheet(): string {
+    const shadow = document.querySelector(
+      '[data-manga-translator-reading-anchors]'
+    )?.shadowRoot;
+    if (!shadow) {
+      throw new Error('anchor host has no shadow root');
+    }
+    return shadow.querySelector('style')?.textContent ?? '';
+  }
+
+  function declaration(selector: string, property: string): string {
+    return cssDeclaration(cssBlock(stylesheet(), selector), property);
+  }
+
+  it('徽章是纸底墨框的方块', () => {
+    const anchors = new ReadingAnchors();
+    try {
+      expect(declaration('.badge', 'background')).toBe('#E9E9E2');
+      expect(declaration('.badge', 'color')).toBe('#161616');
+      expect(declaration('.badge', 'border')).toBe('1px solid #161616');
+      expect(declaration('.badge', 'border-radius')).toBe('0');
+    } finally {
+      anchors.destroy();
+    }
+  });
+
+  it('编号用衬线数字', () => {
+    const anchors = new ReadingAnchors();
+    try {
+      expect(declaration('.badge', 'font-family')).toContain('Songti SC');
+      expect(Number.parseFloat(declaration('.badge', 'font-size'))).toBe(12);
+    } finally {
+      anchors.destroy();
+    }
+  });
+
+  it('悬停/按下反色成墨底纸字', () => {
+    const anchors = new ReadingAnchors();
+    try {
+      expect(declaration('.badge:hover', 'background')).toBe('#161616');
+      expect(declaration('.badge:hover', 'color')).toBe('#E9E9E2');
+    } finally {
+      anchors.destroy();
+    }
+  });
+
+  it('焦点环是朱红', () => {
+    const anchors = new ReadingAnchors();
+    try {
+      expect(declaration('.badge:focus-visible', 'outline')).toBe(
+        '2px solid #D33A2C'
+      );
+    } finally {
+      anchors.destroy();
+    }
+  });
+
+  it('不再使用青色或石板灰', () => {
+    const anchors = new ReadingAnchors();
+    try {
+      const css = stylesheet().toLowerCase();
+      for (const colour of ['22d3ee', '67e8f9', '0f172a', '94a3b8']) {
+        expect(css).not.toContain(colour);
+      }
+    } finally {
+      anchors.destroy();
+    }
   });
 });
