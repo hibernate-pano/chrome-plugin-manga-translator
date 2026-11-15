@@ -967,7 +967,7 @@ const PopupApp: React.FC = () => {
   }
 
   return (
-    <div className='flex h-full w-[360px] flex-col overflow-hidden bg-paper text-sm text-ink'>
+    <div className='mt-shell flex h-full w-[360px] flex-col overflow-hidden bg-paper text-sm text-ink'>
       {/*
         读屏用户和眼睛看到的应该是同一件事。
 
