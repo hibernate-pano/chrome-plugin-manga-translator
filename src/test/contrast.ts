@@ -106,6 +106,57 @@ export function surfaceColor(background: string, backdrop: Rgb): Rgb {
   return composite(rgb, alpha, backdrop);
 }
 
+/**
+ * Resolve `var(--mt-x)` and `rgb(var(--mt-x-rgb) / 18%)` against a palette.
+ *
+ * The overlays used to hard-code hex values, so a test could read a rule and
+ * parse the colour straight out of it. They now read `--mt-*` custom
+ * properties, because the same sheet has to render three themes. That is the
+ * point of the change, but it left the assertions unable to see a colour.
+ *
+ * This does the substitution the browser would do, for the two forms the
+ * overlays use:
+ *
+ *   var(--mt-ink)                      -> #F2F0EA
+ *   rgb(var(--mt-ink-rgb) / 18%)       -> rgb(242 240 234 / 18%)
+ *
+ * `palette` maps a token to its hex value, e.g. `--mt-ink` -> `#F2F0EA`.
+ * An unresolvable reference is left as-is, so a missing token still fails the
+ * parse instead of silently comparing against nothing.
+ */
+export function resolveVars(
+  value: string,
+  palette: Record<string, string>
+): string {
+  return value
+    .replace(
+      /rgb\(\s*var\((--[a-z-]+)\)\s*\/\s*([0-9.]+%)\s*\)/gi,
+      (whole, token: string, alpha: string) => {
+        const hex = palette[token];
+        if (!hex) {
+          return whole;
+        }
+        const channels = hexToChannels(hex);
+        return channels ? `rgb(${channels} / ${alpha})` : whole;
+      }
+    )
+    .replace(/var\((--[a-z-]+)\)/gi, (whole, token: string) => {
+      return palette[token] ?? whole;
+    });
+}
+
+/** `#RRGGBB` to `R G B`, for the space-separated `rgb()` form. */
+function hexToChannels(hex: string): string | null {
+  const match = /^#([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!match) {
+    return null;
+  }
+  const digits = match[1] ?? '';
+  return [0, 2, 4]
+    .map(offset => Number.parseInt(digits.slice(offset, offset + 2), 16))
+    .join(' ');
+}
+
 /** The body of the rule that targets `selector`, or '' when there is none. */
 export function cssBlock(css: string, selector: string): string {
   const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');

@@ -22,6 +22,8 @@ import {
   describeRetryFailedCost,
   describeRetryFee,
 } from '@/shared/cost-wording';
+import { applyOverlayTheme } from './overlay-theme';
+import { DEFAULT_THEME, type ThemeName } from '@/shared/theme';
 
 export type HudState =
   | { status: 'hidden' }
@@ -222,6 +224,7 @@ export class FloatingHud {
 
     this.shadow = this.container.attachShadow({ mode: 'open' });
     this.shadow.innerHTML = `${this.buildStyles()}<div id="hud" style="display:none"></div>`;
+    applyOverlayTheme(this.shadow, DEFAULT_THEME);
 
     document.body.appendChild(this.container);
 
@@ -377,6 +380,17 @@ export class FloatingHud {
    */
   setActions(actions: HudActions): void {
     this.actions = actions;
+  }
+
+  /**
+   * Repaint with a different theme.
+   *
+   * The shadow root inherits nothing from the document, so the palette has to
+   * be rewritten into its own sheet. Only the `<style data-mt-theme>` element
+   * is touched: the DOM, scroll position and focus stay where they were.
+   */
+  setTheme(theme: ThemeName): void {
+    applyOverlayTheme(this.shadow, theme);
   }
 
   /**
@@ -736,9 +750,9 @@ export class FloatingHud {
              around it, and the page can be black or white.
              The 1px ink edge is 14.8:1 against the paper and clears 3:1
              against both black and white pages. */
-          background: #E9E9E2;
-          border: 1px solid rgb(22, 22, 22);
-          box-shadow: 4px 4px 0 rgba(22, 22, 22, 0.18);
+          background: var(--mt-paper);
+          border: 1px solid var(--mt-ink);
+          box-shadow: 4px 4px 0 rgb(var(--mt-ink-rgb) / 18%);
           padding: 14px 16px;
           min-width: 220px;
           max-width: 300px;
@@ -747,7 +761,7 @@ export class FloatingHud {
             'PingFang SC', sans-serif;
           font-size: 14px;
           line-height: 1.4;
-          color: #161616;
+          color: var(--mt-ink);
           /* Room for the 收起/close control in the top-right corner. */
           position: relative;
         }
@@ -771,7 +785,7 @@ export class FloatingHud {
           background: transparent;
           /* Ink on paper is 14.8:1; the old 0.65-alpha white on the red card
              managed 3.08:1. */
-          color: #161616;
+          color: var(--mt-ink);
           font-family: 'Songti SC', 'Noto Serif SC', serif;
           font-size: 18px;
           line-height: 1;
@@ -779,11 +793,11 @@ export class FloatingHud {
           transition: background 0.15s, color 0.15s;
         }
         .hud-close:hover {
-          background: #161616;
-          color: #E9E9E2;
+          background: var(--mt-ink);
+          color: var(--mt-paper);
         }
         .hud-close:focus-visible {
-          outline: 2px solid #D33A2C;
+          outline: 2px solid var(--mt-vermilion);
           outline-offset: 1px;
         }
 
@@ -807,7 +821,7 @@ export class FloatingHud {
           padding: 4px 8px;
           border: 1px solid transparent;
           background: transparent;
-          color: #55554F;
+          color: var(--mt-ink-muted);
           font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 11px;
           letter-spacing: 0.04em;
@@ -817,12 +831,12 @@ export class FloatingHud {
         }
 
         .hud-collapse:hover {
-          color: #161616;
-          border-color: rgba(22, 22, 22, 0.35);
+          color: var(--mt-ink);
+          border-color: rgb(var(--mt-ink-rgb) / 35%);
         }
 
         .hud-collapse:focus-visible {
-          outline: 2px solid #D33A2C;
+          outline: 2px solid var(--mt-vermilion);
           outline-offset: 1px;
         }
 
@@ -833,7 +847,7 @@ export class FloatingHud {
           min-height: 28px;
           padding: 6px 10px;
           gap: 6px;
-          color: #161616;
+          color: var(--mt-ink);
         }
 
         .hud-card--collapsed .hud-collapse::before {
@@ -842,38 +856,38 @@ export class FloatingHud {
           flex: none;
           width: 3px;
           height: 12px;
-          background: #D33A2C;
+          background: var(--mt-vermilion);
         }
 
         /* 出错时是一张带朱红左边栏的纸，不是一整块暗红。 */
         .hud-card--error {
-          background: #E9E9E2;
-          border-left: 3px solid rgb(211, 58, 44);
+          background: var(--mt-paper);
+          border-left: 3px solid var(--mt-vermilion);
         }
 
         .hud-title {
-          color: #161616;
+          color: var(--mt-ink);
           font-family: 'Songti SC', 'Noto Serif SC', 'Songti TC', serif;
           font-size: 15px;
           font-weight: 600;
           line-height: 1.35;
           padding-bottom: 6px;
           margin-bottom: 8px;
-          border-bottom: 1px solid rgba(22, 22, 22, 0.22);
+          border-bottom: 1px solid rgb(var(--mt-ink-rgb) / 22%);
           /* Leaves the corner control its own space. */
           padding-right: 44px;
         }
 
         /* 纸上的标签：mono 小字。墨色 14.8:1，次要说明 6.15:1（11px 也够）。 */
         .hud-sub {
-          color: #161616;
+          color: var(--mt-ink);
           font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 12px;
           line-height: 1.5;
           font-variant-numeric: tabular-nums;
         }
         .hud-sub-muted {
-          color: #55554F;
+          color: var(--mt-ink-muted);
           font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 11px;
           line-height: 1.5;
@@ -885,18 +899,18 @@ export class FloatingHud {
            rather than tinted vermilion: the accent is 3.90:1 on paper, and a
            11px line owes 4.5:1. */
         .hud-sub-error {
-          color: #161616;
+          color: var(--mt-ink);
           font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 11px;
           margin-top: 6px;
           padding-left: 6px;
-          border-left: 2px solid rgb(211, 58, 44);
+          border-left: 2px solid var(--mt-vermilion);
           line-height: 1.5;
           word-break: break-word;
         }
 
         .hud-message {
-          color: #161616;
+          color: var(--mt-ink);
           font-size: 12px;
           line-height: 1.5;
           margin-top: 4px;
@@ -907,12 +921,12 @@ export class FloatingHud {
            what to do next, so it is ink on paper (14.8:1) and never smaller
            than 12px. */
         .hud-suggestion {
-          color: #161616;
+          color: var(--mt-ink);
           font-size: 12px;
           line-height: 1.5;
           margin-top: 8px;
           padding-top: 8px;
-          border-top: 1px solid rgba(22, 22, 22, 0.22);
+          border-top: 1px solid rgb(var(--mt-ink-rgb) / 22%);
           word-break: break-word;
         }
 
@@ -923,9 +937,9 @@ export class FloatingHud {
           margin-top: 10px;
           padding: 6px 12px;
           min-height: 24px;
-          background: #E9E9E2;
-          color: #161616;
-          border: 1px solid rgb(22, 22, 22);
+          background: var(--mt-paper);
+          color: var(--mt-ink);
+          border: 1px solid var(--mt-ink);
           font-family: inherit;
           font-size: 12px;
           cursor: pointer;
@@ -934,14 +948,14 @@ export class FloatingHud {
         }
 
         .hud-action:hover {
-          background: #161616;
-          color: #E9E9E2;
+          background: var(--mt-ink);
+          color: var(--mt-paper);
         }
 
         .hud-progress-track {
           /* 墨色 12%：15% 复合出来的轨道与朱红填充只有 2.87:1，指示器至少
              要 3:1。 */
-          background: rgba(22, 22, 22, 0.12);
+          background: rgb(var(--mt-ink-rgb) / 12%);
           height: 4px;
           margin: 10px 0 6px;
           overflow: hidden;
@@ -952,7 +966,7 @@ export class FloatingHud {
            uses). It reads against the ink track at 3.06:1; the old fill
            measured 1.56:1. */
         .hud-progress-bar {
-          background: #D33A2C;
+          background: var(--mt-vermilion);
           height: 100%;
           transition: width 0.3s ease;
         }
@@ -966,8 +980,8 @@ export class FloatingHud {
           margin-top: 10px;
           background: none;
           border: none;
-          border-bottom: 1px solid rgb(211, 58, 44);
-          color: #161616;
+          border-bottom: 1px solid var(--mt-vermilion);
+          color: var(--mt-ink);
           font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
           font-size: 12px;
           cursor: pointer;
@@ -979,17 +993,17 @@ export class FloatingHud {
         }
 
         .hud-cancel:hover {
-          background: #161616;
-          border-bottom-color: #161616;
-          color: #E9E9E2;
+          background: var(--mt-ink);
+          border-bottom-color: var(--mt-ink);
+          color: var(--mt-paper);
         }
 
         /* The primary action is the one solid vermilion block on the sheet:
-           a white label on #D33A2C is 4.76:1. It stays vermilion on hover —
+           a white label on var(--mt-vermilion) is 4.76:1. It stays vermilion on hover —
            the underline is the feedback, not a lighter fill. */
         .hud-retry {
           margin-top: 10px;
-          background: #D33A2C;
+          background: var(--mt-vermilion);
           border: none;
           color: #ffffff;
           font-family: 'SF Mono', 'Menlo', 'Roboto Mono', monospace;
@@ -1003,7 +1017,7 @@ export class FloatingHud {
         }
 
         .hud-retry:hover {
-          background: #D33A2C;
+          background: var(--mt-vermilion);
           color: #ffffff;
           text-decoration: underline;
         }
@@ -1011,7 +1025,7 @@ export class FloatingHud {
         .hud-cancel:focus-visible,
         .hud-retry:focus-visible,
         .hud-action:focus-visible {
-          outline: 2px solid #D33A2C;
+          outline: 2px solid var(--mt-vermilion);
           outline-offset: 2px;
         }
       </style>

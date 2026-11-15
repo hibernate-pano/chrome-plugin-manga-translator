@@ -16,6 +16,9 @@
  * 的按钮——它得先问一次，而卡片上已经有「重新翻译失败的 N 张」这个入口了。
  */
 
+import { applyOverlayTheme } from './overlay-theme';
+import { DEFAULT_THEME, type ThemeName } from '@/shared/theme';
+
 interface FailureBadge {
   badge: HTMLElement;
   image: HTMLImageElement;
@@ -58,7 +61,7 @@ export class FailureBadges {
      * 是另一件事，得一眼能分开——读者扫一眼页面就知道哪张坏了，不需要读
      * 文字。纸面上的校对标：方形、墨框、朱红底。
      */
-    background: #d33a2c;
+    background: var(--mt-vermilion);
     color: #fff;
     font-family: 'SF Mono', Menlo, monospace;
     font-size: 14px;
@@ -67,13 +70,14 @@ export class FailureBadges {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 2px 2px 0 rgba(22, 22, 22, 0.25);
-    border: 1px solid #161616;
+    box-shadow: 2px 2px 0 rgb(var(--mt-ink-rgb) / 25%);
+    border: 1px solid var(--mt-ink);
     user-select: none;
   }
 </style>
 <div id="container"></div>
 `;
+    applyOverlayTheme(this.shadow, DEFAULT_THEME);
 
     document.body.appendChild(this.host);
   }
@@ -148,6 +152,17 @@ export class FailureBadges {
    */
   isAttached(): boolean {
     return this.host.isConnected;
+  }
+
+  /**
+   * Repaint with a different theme.
+   *
+   * The shadow root inherits nothing from the document, so the palette has to
+   * be rewritten into its own sheet. Only the `<style data-mt-theme>` element
+   * is touched: the DOM, scroll position and focus stay where they were.
+   */
+  setTheme(theme: ThemeName): void {
+    applyOverlayTheme(this.shadow, theme);
   }
 
   /** Keep the badges where their images are. Called on scroll and resize. */

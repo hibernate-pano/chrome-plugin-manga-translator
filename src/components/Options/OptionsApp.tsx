@@ -53,6 +53,7 @@ import {
 } from '@/shared/env-backends';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { OnboardingApp } from '@/components/Onboarding/OnboardingApp';
+import { ThemePicker } from '@/components/theme-picker';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { describeAutoTranslateCost } from '@/components/Popup/popup-state';
@@ -282,22 +283,21 @@ const PRIMARY_BUTTON =
 
 /** 破坏性动作：朱红描边，悬停时整块填朱红。 */
 const DANGER_BUTTON =
-  'inline-flex h-11 items-center justify-center gap-2 border border-vermilion bg-transparent px-4 text-sm text-vermilion transition hover:bg-vermilion hover:text-paper disabled:cursor-not-allowed disabled:opacity-40';
+  'inline-flex h-11 items-center justify-center gap-2 border border-vermilion bg-transparent px-4 text-sm text-vermilion transition hover:bg-vermilion hover:text-on-accent disabled:cursor-not-allowed disabled:opacity-40';
 
 /** 分区抬头：11px 编号 + 衬线标题，下面压一条墨线。 */
 const SECTION_HEADER =
   'flex flex-wrap items-baseline justify-between gap-x-4 gap-y-2 border-b border-ink pb-2';
 
 /** 分区标题：衬线 23px。 */
-const SECTION_TITLE =
-  'scroll-mt-6 font-display text-[23px] leading-tight text-ink';
+const SECTION_TITLE = 'scroll-mt-6 mt-title text-ink';
 
 /** 分区编号：11px 等宽，和左栏同一套数字。 */
 const SECTION_INDEX =
   'font-mono text-[11px] leading-none tracking-[0.08em] text-ink-muted';
 
 /** 元信息标签：11px 等宽。 */
-const META_LABEL = 'font-mono text-[11px] tracking-[0.08em] text-ink-muted';
+const META_LABEL = 'mt-label text-ink-muted';
 
 /** 表单里的字段名：12px。 */
 const FIELD_LABEL = 'mb-1 block text-xs leading-none text-ink-muted';
@@ -1545,9 +1545,7 @@ const OptionsApp: React.FC = () => {
                 <span className='font-display text-[26px] leading-none tracking-[0.12em] text-ink'>
                   设置
                 </span>
-                <span className='font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-                  校正紙
-                </span>
+                <span className='mt-label text-ink-muted'>校正紙</span>
               </div>
               <ol className='flex flex-wrap border-t border-rule md:block md:border-t-0'>
                 {RAIL_GROUPS.map(renderRailItem)}
@@ -1561,7 +1559,7 @@ const OptionsApp: React.FC = () => {
           <div className='min-w-0 flex-1 px-5 pb-20 pt-6 sm:px-8 lg:px-10'>
             <header className='flex flex-wrap items-start justify-between gap-x-6 gap-y-3 border-b border-ink pb-5'>
               <div className='min-w-0'>
-                <h1 className='font-display text-[30px] leading-tight text-ink'>
+                <h1 className='mt-title mt-title-giant text-ink'>
                   漫画翻译助手 · 设置
                 </h1>
                 <p className='mt-2 text-sm text-ink-muted'>
@@ -1957,9 +1955,7 @@ const OptionsApp: React.FC = () => {
                       <span aria-hidden='true' className={SECTION_INDEX}>
                         02.5
                       </span>
-                      <span className='font-display text-[23px] leading-tight text-ink'>
-                        覆盖层样式
-                      </span>
+                      <span className='mt-title text-ink'>覆盖层样式</span>
                     </span>
                     {/* 副标题只是重复面板里的内容，不要混进按钮（和标题）的
                         可访问名称里，否则读屏会念成"覆盖层样式背景色、文字颜色、
@@ -2152,6 +2148,28 @@ const OptionsApp: React.FC = () => {
                 </div>
               </section>
 
+              {/* 界面主题 --------------------------------------------------- */}
+              <section aria-labelledby='section-theme' className='mt-10'>
+                <div className={SECTION_HEADER}>
+                  <div className='flex items-baseline gap-3'>
+                    <span aria-hidden='true' className={SECTION_INDEX}>
+                      02.6
+                    </span>
+                    <h2 id='section-theme' className={SECTION_TITLE}>
+                      界面主题
+                    </h2>
+                  </div>
+                </div>
+                <p className={`mt-2 ${NOTE_NOTE}`}>
+                  三个主题是同一套界面换了材质：按钮、分区、字号层级都不变，
+                  变的是纸、墨与那个用来提醒你「这一步会花钱」的颜色。
+                  选择只保存在本机，不会跟着你的 Google 账号同步。
+                </p>
+                <div className='mt-4 max-w-[34rem]'>
+                  <ThemePicker />
+                </div>
+              </section>
+
               {renderGroupRule('03', '花费与用量')}
 
               <section aria-labelledby='section-usage' className='mt-6'>
@@ -2196,12 +2214,8 @@ const OptionsApp: React.FC = () => {
                       key={label}
                       className='border-b border-rule-soft px-3 py-3 sm:border-b-0 sm:border-l sm:first:border-l-0'
                     >
-                      <div className='font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-                        {label}
-                      </div>
-                      <div className='mt-1 font-display text-[28px] tabular-nums leading-none text-ink'>
-                        {value}
-                      </div>
+                      <div className='mt-label text-ink-muted'>{label}</div>
+                      <div className='mt-figure mt-1 text-ink'>{value}</div>
                     </div>
                   ))}
                 </div>
@@ -2237,8 +2251,8 @@ const OptionsApp: React.FC = () => {
                   */}
                   <div className='flex shrink-0 items-baseline gap-2'>
                     <span
-                      className={`font-display tabular-nums leading-none text-ink ${
-                        costFigure.numeric ? 'text-[52px]' : 'text-[26px]'
+                      className={`mt-figure-xl text-ink ${
+                        costFigure.numeric ? '' : 'text-[26px]'
                       }`}
                     >
                       {costFigure.amount}
@@ -2503,9 +2517,7 @@ const OptionsApp: React.FC = () => {
                         <span aria-hidden='true' className={SECTION_INDEX}>
                           04.3
                         </span>
-                        <span className='font-display text-[23px] leading-tight text-ink'>
-                          高级
-                        </span>
+                        <span className='mt-title text-ink'>高级</span>
                       </span>
                       <span
                         aria-hidden='true'

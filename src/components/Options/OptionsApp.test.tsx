@@ -19,6 +19,7 @@ import {
 import userEvent from '@testing-library/user-event';
 
 import OptionsApp from './OptionsApp';
+import { ThemeProvider } from '@/components/theme-provider';
 import { useAppConfigStore } from '@/stores/config-v2';
 import { useTranslationCacheStore } from '@/stores/cache-v2';
 import { createProvider } from '@/providers';
@@ -89,7 +90,13 @@ async function renderOptions(backgroundColor?: string) {
     await Promise.resolve();
   });
   resetStore(backgroundColor);
-  const view = render(<OptionsApp />);
+  // The page carries a theme picker, and the picker reads the theme from the
+  // provider. Wrapping here keeps every existing test on the real tree.
+  const view = render(
+    <ThemeProvider defaultTheme='proof' storageKey='options-test-theme'>
+      <OptionsApp />
+    </ThemeProvider>
+  );
   await act(async () => {
     await Promise.resolve();
   });

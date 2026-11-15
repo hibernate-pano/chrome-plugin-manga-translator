@@ -8,6 +8,9 @@
  * 实现：原生 DOM + Shadow DOM，类比 ReadingPanel。
  */
 
+import { applyOverlayTheme } from './overlay-theme';
+import { DEFAULT_THEME, type ThemeName } from '@/shared/theme';
+
 interface Anchor {
   badge: HTMLElement;
   image: HTMLImageElement;
@@ -47,9 +50,9 @@ export class ReadingAnchors {
     height: 22px;
     padding: 0;
     border-radius: 0;
-    background: #E9E9E2;
-    color: #161616;
-    border: 1px solid #161616;
+    background: var(--mt-paper);
+    color: var(--mt-ink);
+    border: 1px solid var(--mt-ink);
     font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
     font-size: 12px;
     font-weight: 600;
@@ -58,7 +61,7 @@ export class ReadingAnchors {
     display: flex;
     align-items: center;
     justify-content: center;
-    box-shadow: 2px 2px 0 rgba(22, 22, 22, 0.85);
+    box-shadow: 2px 2px 0 rgb(var(--mt-ink-rgb) / 85%);
     pointer-events: auto;
     cursor: pointer;
     transition: background-color 0.12s, color 0.12s;
@@ -67,9 +70,9 @@ export class ReadingAnchors {
   /* Hover and press invert to ink, the same rule the panel's controls use. */
   .badge:hover,
   .badge:active {
-    background: #161616;
-    color: #E9E9E2;
-    box-shadow: 2px 2px 0 rgba(22, 22, 22, 0.35);
+    background: var(--mt-ink);
+    color: var(--mt-paper);
+    box-shadow: 2px 2px 0 rgb(var(--mt-ink-rgb) / 35%);
   }
   /* The badge is 22px of paper on the artwork, but a finger needs 44px.
      The ::after pseudo-element widens the button's hit area without
@@ -83,7 +86,7 @@ export class ReadingAnchors {
     /* The content script lives in the host page's DOM, so it cannot read the
        extension's CSS variables — the vermilion has to be spelled out here.
        It is a ring, never text: vermilion on paper is 3.9:1. */
-    outline: 2px solid #D33A2C;
+    outline: 2px solid var(--mt-vermilion);
     outline-offset: 2px;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -92,6 +95,7 @@ export class ReadingAnchors {
 </style>
 <div id="container"></div>
 `;
+    applyOverlayTheme(this.shadow, DEFAULT_THEME);
 
     document.body.appendChild(this.host);
 
@@ -155,6 +159,17 @@ export class ReadingAnchors {
    */
   isAttached(): boolean {
     return this.host.isConnected;
+  }
+
+  /**
+   * Repaint with a different theme.
+   *
+   * The shadow root inherits nothing from the document, so the palette has to
+   * be rewritten into its own sheet. Only the `<style data-mt-theme>` element
+   * is touched: the DOM, scroll position and focus stay where they were.
+   */
+  setTheme(theme: ThemeName): void {
+    applyOverlayTheme(this.shadow, theme);
   }
 
   /**

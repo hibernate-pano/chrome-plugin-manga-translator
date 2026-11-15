@@ -22,6 +22,8 @@
  */
 
 import { describeForceRetranslate } from '@/shared/cost-wording';
+import { applyOverlayTheme } from './overlay-theme';
+import { DEFAULT_THEME, type ThemeName } from '@/shared/theme';
 
 /** 一次确认请求。 */
 export interface ForceRetranslateConfirmRequest {
@@ -89,6 +91,7 @@ export class ForceRetranslateConfirm {
   </div>
 </div>
 `;
+    applyOverlayTheme(this.shadow, DEFAULT_THEME);
 
     this.shadow.getElementById('cancel')?.addEventListener('click', () => {
       this.settle(false);
@@ -241,6 +244,14 @@ export class ForceRetranslateConfirm {
     }
   }
 
+  /**
+   * Repaint with a different theme. Same contract as the other overlays: only
+   * the palette sheet is rewritten, never the DOM.
+   */
+  setTheme(theme: ThemeName): void {
+    applyOverlayTheme(this.shadow, theme);
+  }
+
   private buildStyles(): string {
     return `
       :host {
@@ -254,7 +265,7 @@ export class ForceRetranslateConfirm {
         align-items: center;
         justify-content: center;
         padding: 16px;
-        background: rgba(22, 22, 22, 0.45);
+        background: rgb(var(--mt-ink-rgb) / 45%);
         font-family: system-ui, -apple-system, 'PingFang SC', 'Microsoft YaHei', sans-serif;
       }
 
@@ -264,10 +275,10 @@ export class ForceRetranslateConfirm {
         box-sizing: border-box;
         padding: 20px;
         border-radius: 0;
-        border: 1px solid #161616;
-        background: #e9e9e2;
-        color: #161616;
-        box-shadow: 6px 6px 0 rgba(22, 22, 22, 0.18);
+        border: 1px solid var(--mt-ink);
+        background: var(--mt-paper);
+        color: var(--mt-ink);
+        box-shadow: 6px 6px 0 rgb(var(--mt-ink-rgb) / 18%);
       }
 
       #card:focus {
@@ -279,14 +290,14 @@ export class ForceRetranslateConfirm {
         font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
         font-size: 20px;
         font-weight: 700;
-        color: #161616;
+        color: var(--mt-ink);
       }
 
       p {
         margin: 0 0 16px;
         font-size: 13px;
         line-height: 1.65;
-        color: #55554f;
+        color: var(--mt-ink-muted);
       }
 
       #actions {
@@ -299,32 +310,32 @@ export class ForceRetranslateConfirm {
         min-height: 40px;
         padding: 0 16px;
         border-radius: 0;
-        border: 1px solid #161616;
+        border: 1px solid var(--mt-ink);
         background: transparent;
-        color: #161616;
+        color: var(--mt-ink);
         font-size: 13px;
         cursor: pointer;
       }
 
       button.danger {
-        border-color: #d33a2c;
-        background: #d33a2c;
+        border-color: var(--mt-vermilion);
+        background: var(--mt-vermilion);
         color: #ffffff;
         font-weight: 500;
       }
 
       button:hover {
-        background: #161616;
-        color: #e9e9e2;
+        background: var(--mt-ink);
+        color: var(--mt-paper);
       }
 
       button.danger:hover {
-        background: #161616;
-        color: #e9e9e2;
+        background: var(--mt-ink);
+        color: var(--mt-paper);
       }
 
       button:focus-visible {
-        outline: 2px solid #d33a2c;
+        outline: 2px solid var(--mt-vermilion);
         outline-offset: 2px;
       }
 

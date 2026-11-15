@@ -66,6 +66,8 @@ import { FloatingHud } from './floating-hud';
 import { FailureBadges } from './failure-badges';
 import { ReadingPanel } from './reading-panel';
 import { ReadingAnchors } from './reading-anchors';
+import { readStoredTheme, THEME_STORAGE_KEY } from './overlay-theme';
+import type { ThemeName } from '@/shared/theme';
 import { clampPageTranslationConcurrency } from './page-translation-utils';
 import {
   createDebouncedAutoTranslate,
@@ -852,6 +854,12 @@ async function ensureServicesInitialized(): Promise<void> {
     window.addEventListener('scroll', repositionBadges, { passive: true });
     window.addEventListener('resize', repositionBadges);
   }
+
+  // The panel, the anchors and the badges are created lazily, and the page
+  // may have replaced its body since they were last painted. Repainting here
+  // covers both: an overlay that already existed keeps its palette, and one
+  // that was just created gets the current one.
+  applyCurrentTheme();
 
   // 重新创建 translator 以获取最新配置
   //
@@ -2834,8 +2842,20 @@ function handleMessage(
 
 function handleStorageChange(
   changes: { [key: string]: chrome.storage.StorageChange },
-  _areaName: string
+  areaName: string
 ): void {
+  // A theme change is not a config change: it repaints the overlays and
+  // touches nothing else. Handling it before the config branch matters —
+  // falling through would reset the translator and re-read the whole
+  // configuration because somebody picked a different paper colour.
+  if (areaName === 'local' && changes[THEME_STORAGE_KEY]) {
+    const next = changes[THEME_STORAGE_KEY].newValue;
+    if (typeof next === 'string') {
+      currentTheme = next as ThemeName;
+      applyCurrentTheme();
+    }
+  }
+
   if (changes[CONFIG_STORAGE_KEY]) {
     // 配置变更时重置 translator，下次使用时重新初始化
     translator = null;
@@ -3116,6 +3136,30 @@ function checkRouteChangeOnce(): void {
   checkRouteChange();
 }
 
+// ==================== 主题 ====================
+
+/**
+ * The theme the overlays were last painted with.
+ *
+ * The overlays are shadow roots, so they cannot inherit the document's
+ * `data-theme`. This is the copy the content script keeps: it is read once at
+ * startup and updated from the storage listener, and every overlay created
+ * afterwards is painted with it.
+ */
+let currentTheme: ThemeName | null = null;
+
+/** Paint every overlay that exists with the current theme. */
+function applyCurrentTheme(): void {
+  if (!currentTheme) {
+    return;
+  }
+  const theme = currentTheme;
+  hud?.setTheme(theme);
+  readingPanel?.setTheme(theme);
+  readingAnchors?.setTheme(theme);
+  failureBadges?.setTheme(theme);
+}
+
 // ==================== 初始化 ====================
 
 async function initialize(): Promise<void> {
@@ -3124,8 +3168,14 @@ async function initialize(): Promise<void> {
   }
 
   try {
+    // The theme is read before the first overlay exists: a shadow root has to
+    // be painted with a palette at creation, and reading it later would show
+    // one frame of the default.
+    currentTheme = await readStoredTheme();
+
     // 创建 HUD
     hud = new FloatingHud();
+    applyCurrentTheme();
 
     // 设置消息监听
     chrome.runtime.onMessage.addListener(handleMessage);

@@ -25,6 +25,8 @@ import {
 } from '@/utils/error-handler';
 import type { OverlayStyle } from '@/services/renderer';
 import type { TextArea } from '@/providers/base';
+import { applyOverlayTheme } from './overlay-theme';
+import { DEFAULT_THEME, type ThemeName } from '@/shared/theme';
 
 /**
  * 一张图 + 这张图上的译文 + 覆盖层样式。
@@ -140,6 +142,7 @@ export class ImageExportDialog {
   </div>
 </div>
 `;
+    applyOverlayTheme(this.shadow, DEFAULT_THEME);
 
     this.card = this.shadow.getElementById('card') as HTMLElement;
     this.preview = this.shadow.getElementById('preview') as HTMLImageElement;
@@ -409,6 +412,14 @@ export class ImageExportDialog {
     this.status.classList.toggle('error', isError);
   }
 
+  /**
+   * Repaint with a different theme. Same contract as the other overlays: only
+   * the palette sheet is rewritten, never the DOM.
+   */
+  setTheme(theme: ThemeName): void {
+    applyOverlayTheme(this.shadow, theme);
+  }
+
   private buildStyles(): string {
     return `
 <style>
@@ -420,10 +431,10 @@ export class ImageExportDialog {
     align-items: center;
     justify-content: center;
     padding: 24px;
-    background: rgba(22, 22, 22, 0.45);
+    background: rgb(var(--mt-ink-rgb) / 45%);
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
                  'Microsoft YaHei', sans-serif;
-    color: #161616;
+    color: var(--mt-ink);
   }
   #card {
     display: flex;
@@ -434,13 +445,13 @@ export class ImageExportDialog {
     max-height: 90vh;
     padding: 18px;
     border-radius: 0;
-    background: #e9e9e2;
-    border: 1px solid #161616;
-    box-shadow: 6px 6px 0 rgba(22, 22, 22, 0.18);
+    background: var(--mt-paper);
+    border: 1px solid var(--mt-ink);
+    box-shadow: 6px 6px 0 rgb(var(--mt-ink-rgb) / 18%);
     overflow: hidden;
   }
   #card:focus { outline: none; }
-  #card:focus-visible { outline: 2px solid #d33a2c; outline-offset: 2px; }
+  #card:focus-visible { outline: 2px solid var(--mt-vermilion); outline-offset: 2px; }
   #dialog-title {
     margin: 0;
     font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
@@ -451,7 +462,7 @@ export class ImageExportDialog {
     margin: 0;
     min-height: 16px;
     font-size: 12px;
-    color: #55554f;
+    color: var(--mt-ink-muted);
   }
   #status.error { color: #b3261e; }
   #preview-area {
@@ -461,8 +472,8 @@ export class ImageExportDialog {
     min-height: 120px;
     padding: 8px;
     border-radius: 0;
-    background: #deded6;
-    border: 1px solid rgba(22, 22, 22, 0.22);
+    background: var(--mt-rule-soft);
+    border: 1px solid rgb(var(--mt-ink-rgb) / 22%);
   }
   #preview {
     display: block;
@@ -476,17 +487,17 @@ export class ImageExportDialog {
     flex-direction: column;
     gap: 4px;
   }
-  .field label { font-size: 12px; color: #55554f; }
+  .field label { font-size: 12px; color: var(--mt-ink-muted); }
   #filename {
     width: 100%;
     padding: 8px 10px;
     font-size: 13px;
-    color: #161616;
+    color: var(--mt-ink);
     background: transparent;
-    border: 1px solid #161616;
+    border: 1px solid var(--mt-ink);
     border-radius: 0;
   }
-  #filename:focus-visible { outline: 2px solid #d33a2c; outline-offset: 1px; }
+  #filename:focus-visible { outline: 2px solid var(--mt-vermilion); outline-offset: 1px; }
   #actions {
     display: flex;
     gap: 8px;
@@ -495,23 +506,23 @@ export class ImageExportDialog {
   #actions button {
     padding: 8px 14px;
     font-size: 13px;
-    color: #161616;
+    color: var(--mt-ink);
     background: transparent;
-    border: 1px solid #161616;
+    border: 1px solid var(--mt-ink);
     border-radius: 0;
     cursor: pointer;
     transition: background 0.15s, color 0.15s;
   }
-  #actions button:hover:not(:disabled) { background: #161616; color: #e9e9e2; }
-  #actions button:focus-visible { outline: 2px solid #d33a2c; outline-offset: 1px; }
+  #actions button:hover:not(:disabled) { background: var(--mt-ink); color: var(--mt-paper); }
+  #actions button:focus-visible { outline: 2px solid var(--mt-vermilion); outline-offset: 1px; }
   #actions button:disabled { opacity: 0.5; cursor: not-allowed; }
   #actions button.primary {
     color: #ffffff;
     font-weight: 600;
-    background: #d33a2c;
-    border-color: #d33a2c;
+    background: var(--mt-vermilion);
+    border-color: var(--mt-vermilion);
   }
-  #actions button.primary:hover:not(:disabled) { background: #161616; border-color: #161616; }
+  #actions button.primary:hover:not(:disabled) { background: var(--mt-ink); border-color: var(--mt-ink); }
 </style>
 `;
   }

@@ -190,7 +190,7 @@ export function ConfirmDialog({
             type='button'
             onClick={onConfirm}
             className={cn(
-              'rounded-none px-4 py-2 text-sm font-medium text-white transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
+              'rounded-none px-4 py-2 text-sm font-medium text-on-accent transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-paper',
               destructive
                 ? 'bg-vermilion hover:bg-ink focus-visible:ring-vermilion'
                 : 'bg-ink hover:bg-vermilion focus-visible:ring-vermilion'

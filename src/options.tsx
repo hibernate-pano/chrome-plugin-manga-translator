@@ -14,7 +14,7 @@ ReactDOM.createRoot(appRoot).render(
   <React.StrictMode>
     {/* Light (校正紙) for the same reason as the popup: the page surfaces are
         hard-coded paper, and the shadcn primitives follow the theme class. */}
-    <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
+    <ThemeProvider defaultTheme='proof' storageKey='manga-translator-theme'>
       <OptionsApp />
     </ThemeProvider>
   </React.StrictMode>

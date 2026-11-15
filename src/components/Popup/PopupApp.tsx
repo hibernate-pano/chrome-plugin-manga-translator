@@ -7,6 +7,7 @@ import {
   Keyboard,
   Languages,
   Loader2,
+  Palette,
   RefreshCw,
   Server,
   Settings,
@@ -21,6 +22,7 @@ import { parseTranslationError, type ErrorAction } from '@/utils/error-handler';
 import { getProviderLabel } from '@/utils/provider-label';
 import { ConfirmDialog } from '@/components/ui/confirm-dialog';
 import { Switch } from '@/components/ui/switch';
+import { ThemePicker } from '@/components/theme-picker';
 import {
   COMMAND_DESCRIPTIONS,
   COMMAND_IDS,
@@ -192,6 +194,14 @@ const PopupApp: React.FC = () => {
    * tab bar and footer. Only the face you chose scrolls.
    */
   const [activeView, setActiveView] = useState<'page' | 'settings'>('page');
+  /**
+   * Whether the theme strip is showing.
+   *
+   * The popup header has room for exactly one extra 44px target, and the
+   * three-theme picker is three of them. It lives behind this toggle so the
+   * header stays one row; the settings page shows the picker inline.
+   */
+  const [themePickerOpen, setThemePickerOpen] = useState(false);
   /**
    * Whether the page's follow-up budget ran out.
    *
@@ -940,7 +950,7 @@ const PopupApp: React.FC = () => {
              */
             void handleStopAutoTranslate();
           }}
-          className='mt-2 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-2 text-xs font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+          className='mt-2 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-2 text-xs font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
         >
           {autoTranslateStatus.action.label}
         </button>
@@ -996,6 +1006,20 @@ const PopupApp: React.FC = () => {
           </span>
           <button
             type='button'
+            onClick={() => setThemePickerOpen(open => !open)}
+            aria-label='切换界面主题'
+            aria-expanded={themePickerOpen}
+            aria-controls='popup-theme-picker'
+            className={`flex h-11 w-11 items-center justify-center transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper ${
+              themePickerOpen
+                ? 'bg-ink text-paper'
+                : 'text-ink-muted hover:bg-ink hover:text-paper'
+            }`}
+          >
+            <Palette className='h-4 w-4' />
+          </button>
+          <button
+            type='button'
             onClick={() => chrome.runtime.openOptionsPage()}
             aria-label='打开设置'
             className='flex h-11 w-11 items-center justify-center text-ink-muted transition-colors hover:bg-ink hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
@@ -1004,6 +1028,15 @@ const PopupApp: React.FC = () => {
           </button>
         </div>
       </header>
+
+      {/* 主题条：三个主题，换的是纸与墨，不是布局 */}
+      <div id='popup-theme-picker' hidden={!themePickerOpen}>
+        {themePickerOpen ? (
+          <div className='border-b border-ink px-4 py-2'>
+            <ThemePicker compact />
+          </div>
+        ) : null}
+      </div>
 
       <div
         role='tablist'
@@ -1093,7 +1126,7 @@ const PopupApp: React.FC = () => {
           {/* 主操作区：翻译当前页是用户 90% 的动作，必须最显眼 */}
           <section className='px-4 pt-4'>
             <div className='flex items-center justify-between gap-2'>
-              <h2 className='text-sm font-medium'>当前页面</h2>
+              <h2 className='mt-title-popup text-sm font-medium'>当前页面</h2>
               {contentState.status === 'complete' ? (
                 resultSummary?.tone === 'success' ? (
                   <CheckCircle2 className='h-4 w-4 text-ink' />
@@ -1117,7 +1150,7 @@ const PopupApp: React.FC = () => {
         */}
             <div className='mt-3 grid grid-cols-3 divide-x divide-rule-soft border-y border-rule-soft'>
               <div className='px-1 py-2 text-center'>
-                <div className='font-display text-[26px] leading-none text-ink'>
+                <div className='mt-figure text-ink'>
                   {pageImageCount === null ? '—' : pageImageCount}
                   {pageImageCount === null ? null : (
                     <span className='ml-0.5 font-sans text-xs text-ink-muted'>
@@ -1125,12 +1158,10 @@ const PopupApp: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-                  可翻译
-                </div>
+                <div className='mt-label mt-1 text-ink-muted'>可翻译</div>
               </div>
               <div className='px-1 py-2 text-center'>
-                <div className='font-display text-[26px] leading-none text-ink'>
+                <div className='mt-figure text-ink'>
                   {cachedImageCount === null ? '—' : cachedImageCount}
                   {cachedImageCount === null ? null : (
                     <span className='ml-0.5 font-sans text-xs text-ink-muted'>
@@ -1138,16 +1169,14 @@ const PopupApp: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-                  缓存命中
-                </div>
+                <div className='mt-label mt-1 text-ink-muted'>缓存命中</div>
               </div>
               <div
                 className='px-1 py-2 text-center'
                 title='这一页一共要计费的图片数'
               >
                 <div
-                  className={`font-display text-[26px] leading-none ${
+                  className={`mt-figure ${
                     pageImageTotal !== null &&
                     pageImageTotal > 0 &&
                     !isLocalProvider(provider)
@@ -1162,9 +1191,7 @@ const PopupApp: React.FC = () => {
                     </span>
                   )}
                 </div>
-                <div className='mt-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-                  计费张数
-                </div>
+                <div className='mt-label mt-1 text-ink-muted'>计费张数</div>
               </div>
             </div>
 
@@ -1207,7 +1234,7 @@ const PopupApp: React.FC = () => {
                 <button
                   type='button'
                   onClick={handleCancel}
-                  className='mt-3 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-4 text-sm font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                  className='mt-3 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-4 text-sm font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
                 >
                   取消当前翻译
                 </button>
@@ -1376,7 +1403,7 @@ const PopupApp: React.FC = () => {
                         void handleErrorAction(action);
                       }
                     }}
-                    className='mt-2 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-3 text-xs font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-paper focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
+                    className='mt-2 flex min-h-[44px] w-full items-center justify-center border border-vermilion px-3 text-xs font-medium text-vermilion transition-colors hover:bg-vermilion hover:text-on-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-vermilion focus-visible:ring-offset-2 focus-visible:ring-offset-paper'
                   >
                     {contentState.action.label}
                   </button>
@@ -1510,9 +1537,7 @@ const PopupApp: React.FC = () => {
               </label>
 
               <label className='block border-b border-rule-soft py-2'>
-                <div className='mb-1 font-mono text-[11px] tracking-[0.08em] text-ink-muted'>
-                  目标语言
-                </div>
+                <div className='mt-label mb-1 text-ink-muted'>目标语言</div>
                 <select
                   value={targetLanguage}
                   onChange={e => setTargetLanguage(e.target.value)}

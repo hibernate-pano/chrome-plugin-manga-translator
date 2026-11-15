@@ -16,7 +16,7 @@ ReactDOM.createRoot(appRoot).render(
         shadcn primitives read the same variables; pinning the theme keeps the
         two in step. A stored `dark` from an older build resolves to the
         pinned theme instead of repainting the page. */}
-    <ThemeProvider defaultTheme='light' storageKey='manga-translator-theme'>
+    <ThemeProvider defaultTheme='proof' storageKey='manga-translator-theme'>
       <PopupApp />
     </ThemeProvider>
   </React.StrictMode>

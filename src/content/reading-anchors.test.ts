@@ -1,6 +1,21 @@
 import { describe, expect, it, beforeEach } from 'vitest';
 import { ReadingAnchors } from './reading-anchors';
-import { cssBlock, cssDeclaration } from '@/test/contrast';
+import { cssBlock, cssDeclaration, resolveVars } from '@/test/contrast';
+import { THEME_PALETTES, hexChannels } from '@/shared/theme';
+
+/** The palette the anchors default to, resolved the way the browser would. */
+const OVERLAY_PALETTE: Record<string, string> = {};
+for (const [token, value] of Object.entries(THEME_PALETTES.proof)) {
+  OVERLAY_PALETTE[`--mt-${token}`] = value;
+  const channels = hexChannels(value);
+  if (channels) {
+    OVERLAY_PALETTE[`--mt-${token}-rgb`] = channels;
+  }
+}
+
+function resolve(value: string): string {
+  return resolveVars(value, OVERLAY_PALETTE);
+}
 
 function makeImage(
   width = 200,
@@ -205,11 +220,14 @@ describe('锚点校正紙样式', () => {
     if (!shadow) {
       throw new Error('anchor host has no shadow root');
     }
-    return shadow.querySelector('style')?.textContent ?? '';
+    // The palette sheet comes first; the badge rules are the other one.
+    return (
+      shadow.querySelector('style:not([data-mt-theme])')?.textContent ?? ''
+    );
   }
 
   function declaration(selector: string, property: string): string {
-    return cssDeclaration(cssBlock(stylesheet(), selector), property);
+    return resolve(cssDeclaration(cssBlock(stylesheet(), selector), property));
   }
 
   it('徽章是纸底墨框的方块', () => {

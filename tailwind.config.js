@@ -14,7 +14,7 @@ export default {
           'Microsoft YaHei',
           'sans-serif',
         ],
-        display: ['Songti SC', 'Noto Serif SC', 'Georgia', 'serif'],
+        display: ['var(--font-display)'],
         mono: ['SF Mono', 'Menlo', 'Consolas', 'monospace'],
       },
       borderRadius: {
@@ -28,6 +28,9 @@ export default {
         'ink-muted': 'hsl(var(--ink-muted))',
         vermilion: 'hsl(var(--vermilion))',
         blueprint: 'hsl(var(--blueprint))',
+        // The label that sits on a vermilion fill. White works on the proof
+        // and poster reds; 分镜黑's #FF3B1F needs black to clear 4.5:1.
+        'on-accent': 'hsl(var(--on-accent))',
         rule: 'hsl(var(--rule))',
         'rule-soft': 'hsl(var(--rule-soft))',
         background: 'hsl(var(--background))',

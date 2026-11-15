@@ -35,11 +35,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
     confirm and the image-export dialog all follow the same paper/ink rules.
     The HUD keeps its 3:1 border on black and white pages and its ≥4.5:1
     text contrast; every target stays at least 44px.
-  - `src/design-tokens.test.ts` pins the palette relationships; the old
-    dark-theme `surface-scale.test.ts` was deleted with the card system it
-    described. The theme provider now renders one light theme and a stored
-    `dark` from an older build resolves to it instead of repainting half the
-    page.
+  - `src/design-tokens.test.ts` pins the palette relationships for all three
+    themes; the old dark-theme `surface-scale.test.ts` was deleted with the
+    card system it described.
+  - **Three themes, switchable in the popup and the settings page.** 校正紙
+    (proof), 分镜黑 (panel) and 巨字海报 (poster) are palettes over one set of
+    components: same `bg-paper text-ink` markup, different `data-theme` on
+    <html>. 分镜黑 inverts polarity, so its `--paper` is the dark surface and
+    its `--ink` is the light type — every surface flips without a second set
+    of classes. The overlays injected into a page are shadow roots that
+    inherit nothing, so they get the palette as `--mt-*` properties and
+    `setTheme()` rewrites it in place. What a palette cannot express is four
+    per-theme variables: display face, figure size, frame weight and title
+    scale, which is what makes the three read as three designs rather than
+    three tints. The choice is stored in `chrome.storage.local` and never
+    syncs.
   - Design exploration (three directions, six candidates) is kept in
     `design-demos/` for the record.
 

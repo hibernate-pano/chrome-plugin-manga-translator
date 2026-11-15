@@ -17,6 +17,8 @@
 
 import type { TextArea } from '@/providers/base';
 import { compareImagesByDocumentOrder } from '@/services/reading-order';
+import { applyOverlayTheme } from './overlay-theme';
+import { DEFAULT_THEME, type ThemeName } from '@/shared/theme';
 
 interface ReadingPanelOptions {
   /** 关闭/展开按钮的初始状态；默认 false（首次出现时展开） */
@@ -194,6 +196,7 @@ export class ReadingPanel {
   <p id="empty">本页翻译完成后，译文会按图片顺序出现在这里。</p>
 </div>
 `;
+    applyOverlayTheme(this.shadow, DEFAULT_THEME);
 
     this.root = this.shadow.getElementById('root') as HTMLElement;
     this.list = this.shadow.getElementById('list') as HTMLElement;
@@ -423,6 +426,17 @@ export class ReadingPanel {
   }
 
   /**
+   * Repaint with a different theme.
+   *
+   * The shadow root inherits nothing from the document, so the palette has to
+   * be rewritten into its own sheet. Only the `<style data-mt-theme>` element
+   * is touched: the DOM, scroll position and focus stay where they were.
+   */
+  setTheme(theme: ThemeName): void {
+    applyOverlayTheme(this.shadow, theme);
+  }
+
+  /**
    * Show or hide the whole panel.
    *
    * Hiding is not the same as collapsing. Collapsing keeps the header bar
@@ -585,6 +599,11 @@ export class ReadingPanel {
   private flashHighlight(target: HTMLElement): void {
     const originalOutline = target.style.outline;
     const originalOffset = target.style.outlineOffset;
+    // A literal colour, not `var(--mt-vermilion)`: this outline is set on the
+    // page's own <img>, outside the shadow root, where the overlay palette
+    // does not exist. The value is the theme's accent at the moment the
+    // highlight is drawn; a 1.2s flash does not need to follow a theme change
+    // mid-flash.
     target.style.outline = '3px solid #D33A2C';
     target.style.outlineOffset = '2px';
     if (this.highlightTimer) {
@@ -760,11 +779,11 @@ export class ReadingPanel {
        shadow. */
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC',
                  'Hiragino Sans GB', 'Microsoft YaHei', sans-serif;
-    color: #161616;
-    background: #E9E9E2;
-    border: 1px solid #161616;
+    color: var(--mt-ink);
+    background: var(--mt-paper);
+    border: 1px solid var(--mt-ink);
     border-radius: 0;
-    box-shadow: 4px 4px 0 #161616;
+    box-shadow: 4px 4px 0 var(--mt-ink);
     display: flex;
     flex-direction: column;
     height: 100%;
@@ -794,7 +813,7 @@ export class ReadingPanel {
     align-items: center;
     gap: 8px;
     padding: 6px 6px 6px 12px;
-    border-bottom: 1px solid #161616;
+    border-bottom: 1px solid var(--mt-ink);
     font-size: 13px;
     flex: none;
   }
@@ -822,7 +841,7 @@ export class ReadingPanel {
     font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
     font-size: 11px;
     letter-spacing: 0.04em;
-    color: #55554F;
+    color: var(--mt-ink-muted);
     white-space: nowrap;
     max-width: 100%;
     overflow: hidden;
@@ -832,7 +851,7 @@ export class ReadingPanel {
   #mode-switch {
     display: flex;
     flex: none;
-    border: 1px solid #161616;
+    border: 1px solid var(--mt-ink);
   }
   #mode-switch button {
     appearance: none;
@@ -842,22 +861,22 @@ export class ReadingPanel {
     font-family: inherit;
     font-size: 12px;
     line-height: 1;
-    color: #161616;
-    background: #E9E9E2;
+    color: var(--mt-ink);
+    background: var(--mt-paper);
     border: 0;
     border-radius: 0;
     cursor: pointer;
     transition: background-color 0.12s, color 0.12s;
   }
   #mode-switch button + button {
-    border-left: 1px solid #161616;
+    border-left: 1px solid var(--mt-ink);
   }
   #mode-switch button[aria-pressed='true'] {
-    background: #161616;
-    color: #E9E9E2;
+    background: var(--mt-ink);
+    color: var(--mt-paper);
   }
   #mode-switch button:focus-visible {
-    outline: 2px solid #D33A2C;
+    outline: 2px solid var(--mt-vermilion);
     outline-offset: 2px;
   }
   #header-actions {
@@ -867,9 +886,9 @@ export class ReadingPanel {
   }
   #collapse-btn, #hide-btn {
     appearance: none;
-    border: 1px solid #161616;
-    background: #E9E9E2;
-    color: #161616;
+    border: 1px solid var(--mt-ink);
+    background: var(--mt-paper);
+    color: var(--mt-ink);
     font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
     font-size: 15px;
     line-height: 1;
@@ -881,11 +900,11 @@ export class ReadingPanel {
     transition: background-color 0.12s, color 0.12s;
   }
   #collapse-btn:hover, #hide-btn:hover {
-    background: #161616;
-    color: #E9E9E2;
+    background: var(--mt-ink);
+    color: var(--mt-paper);
   }
   #collapse-btn:focus-visible, #hide-btn:focus-visible {
-    outline: 2px solid #D33A2C;
+    outline: 2px solid var(--mt-vermilion);
     outline-offset: 2px;
   }
   #list {
@@ -899,20 +918,20 @@ export class ReadingPanel {
        the panel grows instead of scrolling. */
     min-height: 0;
     scrollbar-width: thin;
-    scrollbar-color: rgba(22, 22, 22, 0.3) transparent;
+    scrollbar-color: rgb(var(--mt-ink-rgb) / 30%) transparent;
   }
   #list::-webkit-scrollbar { width: 6px; }
   #list::-webkit-scrollbar-thumb {
-    background: rgba(22, 22, 22, 0.3);
+    background: rgb(var(--mt-ink-rgb) / 30%);
     border-radius: 0;
   }
   #empty {
     padding: 24px 16px;
     text-align: center;
     font-size: 12px;
-    /* #55554F measures 6.15:1 on the paper surface — comfortably over the
+    /* var(--mt-ink-muted) measures 6.15:1 on the paper surface — comfortably over the
        4.5:1 that 12px text owes. */
-    color: #55554F;
+    color: var(--mt-ink-muted);
     line-height: 1.6;
     margin: 0;
   }
@@ -921,7 +940,7 @@ export class ReadingPanel {
     border-radius: 0;
     padding: 12px 14px 12px 16px;
     cursor: pointer;
-    border-top: 1px solid rgba(22, 22, 22, 0.18);
+    border-top: 1px solid rgb(var(--mt-ink-rgb) / 18%);
     /* Reserved so the current entry can be marked with a vermilion rule
        without the text shifting when the mark comes and goes. */
     border-left: 2px solid transparent;
@@ -931,15 +950,15 @@ export class ReadingPanel {
     border-top: 0;
   }
   .entry:hover {
-    background: rgba(22, 22, 22, 0.045);
+    background: rgb(var(--mt-ink-rgb) / 4%);
   }
   .entry:focus-visible {
-    outline: 2px solid #D33A2C;
+    outline: 2px solid var(--mt-vermilion);
     outline-offset: -2px;
   }
   /* The current entry is marked with a rule, not with a filled card. */
   .entry.flash {
-    border-left-color: #D33A2C;
+    border-left-color: var(--mt-vermilion);
   }
   .entry-head { display: flex; gap: 8px; align-items: flex-start; }
   .entry-num {
@@ -952,8 +971,8 @@ export class ReadingPanel {
     align-items: center;
     justify-content: center;
     background: transparent;
-    color: #161616;
-    border: 1px solid #161616;
+    color: var(--mt-ink);
+    border: 1px solid var(--mt-ink);
     border-radius: 0;
     font-family: 'Songti SC', 'Noto Serif SC', Georgia, serif;
     font-size: 12px;
@@ -966,7 +985,7 @@ export class ReadingPanel {
        one-line teaser keeps the list scannable. */
     font-size: 15px;
     line-height: 1.6;
-    color: #161616;
+    color: var(--mt-ink);
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -984,7 +1003,7 @@ export class ReadingPanel {
   }
   .entry-body li {
     font-size: 15px;
-    color: #161616;
+    color: var(--mt-ink);
     line-height: 1.7;
     padding: 2px 0;
   }
@@ -992,7 +1011,7 @@ export class ReadingPanel {
     margin-top: 4px;
     padding-left: 28px;
     font-size: 12px;
-    color: #55554F;
+    color: var(--mt-ink-muted);
     font-style: italic;
   }
   /* The other language, one click away. The summary is a real <summary>, so
@@ -1011,7 +1030,7 @@ export class ReadingPanel {
     font-family: 'SF Mono', 'JetBrains Mono', ui-monospace, Menlo, monospace;
     font-size: 11px;
     letter-spacing: 0.06em;
-    color: #55554F;
+    color: var(--mt-ink-muted);
     transition: color 0.12s;
   }
   .entry-original-summary::before {
@@ -1024,12 +1043,12 @@ export class ReadingPanel {
     display: none;
   }
   .entry-original-summary:hover {
-    color: #161616;
+    color: var(--mt-ink);
     text-decoration: underline;
     text-underline-offset: 2px;
   }
   .entry-original-summary:focus-visible {
-    outline: 2px solid #D33A2C;
+    outline: 2px solid var(--mt-vermilion);
     outline-offset: 2px;
   }
   .entry-original-list {
@@ -1037,7 +1056,7 @@ export class ReadingPanel {
     margin: 4px 0 0;
     /* A thin rule sets the source text apart as a margin note under the
        translation it belongs to. */
-    border-left: 1px solid rgba(31, 79, 168, 0.35);
+    border-left: 1px solid rgb(var(--mt-blueprint-rgb) / 35%);
     padding: 0 0 0 8px;
   }
   .entry-original-list li {
@@ -1045,16 +1064,16 @@ export class ReadingPanel {
     line-height: 1.6;
     padding: 1px 0;
     /* The source text is structure, not a call to action: blueprint blue. */
-    color: #1F4FA8;
+    color: var(--mt-blueprint);
   }
   /* In 「原文」 mode the disclosure holds the translation instead, and the
      translation is not the structural text — ink-muted keeps the blue for
      actual source lines. */
   #root.mode-original .entry-original-list {
-    border-left-color: rgba(22, 22, 22, 0.18);
+    border-left-color: rgb(var(--mt-ink-rgb) / 18%);
   }
   #root.mode-original .entry-original-list li {
-    color: #55554F;
+    color: var(--mt-ink-muted);
   }
   /* Reduced motion: the flash still paints (it is a state, not an
      animation), it just arrives without a transition. */

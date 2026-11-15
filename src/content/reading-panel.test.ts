@@ -5,10 +5,29 @@ import {
   WHITE_PAGE,
   cssBlock,
   cssDeclaration,
+  resolveVars,
   surfaceColor,
   textContrast,
 } from '@/test/contrast';
 import type { Rgb } from '@/test/contrast';
+import { THEME_PALETTES, hexChannels } from '@/shared/theme';
+
+/**
+ * The palette the overlays default to, as `--mt-*` values, including the
+ * channel triples the translucent rules use.
+ */
+const OVERLAY_PALETTE: Record<string, string> = {};
+for (const [token, value] of Object.entries(THEME_PALETTES.proof)) {
+  OVERLAY_PALETTE[`--mt-${token}`] = value;
+  const channels = hexChannels(value);
+  if (channels) {
+    OVERLAY_PALETTE[`--mt-${token}-rgb`] = channels;
+  }
+}
+
+function resolve(value: string): string {
+  return resolveVars(value, OVERLAY_PALETTE);
+}
 
 function makeImage(width = 200, height = 100): HTMLImageElement {
   const img = document.createElement('img');
@@ -733,22 +752,25 @@ describe('阅读顺序在插入的那一刻就成立', () => {
 describe('阅读面板的对比度预算', () => {
   function stylesheet(panel: ReadingPanel): string {
     const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
-    return shadow.querySelector('style')?.textContent ?? '';
+    // The shadow root holds the palette sheet first (`data-mt-theme`), then
+    // the panel's own rules. These assertions read declarations, so they want
+    // the rules sheet.
+    return (
+      shadow.querySelector('style:not([data-mt-theme])')?.textContent ?? ''
+    );
   }
 
   /** The colour the panel paints, once it is composited over the page. */
   function panelSurface(panel: ReadingPanel): Rgb {
-    const background = cssDeclaration(
-      cssBlock(stylesheet(panel), '#root'),
-      'background'
+    const background = resolve(
+      cssDeclaration(cssBlock(stylesheet(panel), '#root'), 'background')
     );
     return surfaceColor(background, WHITE_PAGE);
   }
 
   function contrastOf(panel: ReadingPanel, selector: string): number {
-    const color = cssDeclaration(
-      cssBlock(stylesheet(panel), selector),
-      'color'
+    const color = resolve(
+      cssDeclaration(cssBlock(stylesheet(panel), selector), 'color')
     );
     return textContrast(color, panelSurface(panel));
   }
@@ -984,7 +1006,12 @@ describe('滚动方式', () => {
 describe('译文字号不能比旁边的说明还小', () => {
   function stylesheet(panel: ReadingPanel): string {
     const shadow = (panel as unknown as { shadow: ShadowRoot }).shadow;
-    return shadow.querySelector('style')?.textContent ?? '';
+    // The shadow root holds the palette sheet first (`data-mt-theme`), then
+    // the panel's own rules. These assertions read declarations, so they want
+    // the rules sheet.
+    return (
+      shadow.querySelector('style:not([data-mt-theme])')?.textContent ?? ''
+    );
   }
 
   function fontSize(panel: ReadingPanel, selector: string): number {

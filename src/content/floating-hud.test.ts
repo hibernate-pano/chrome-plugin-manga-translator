@@ -18,10 +18,12 @@ import {
   hslToRgb,
   parseColor,
   parseHslTriple,
+  resolveVars,
   surfaceColor,
   textContrast,
 } from '@/test/contrast';
 import type { Rgb } from '@/test/contrast';
+import { THEME_PALETTES, hexChannels } from '@/shared/theme';
 import { SKIPPED_IMAGES_REASON } from '@/shared/cost-wording';
 
 // ==================== 辅助函数 ====================
@@ -31,9 +33,43 @@ function getHudHost(): Element | null {
 }
 
 /** The stylesheet the HUD injects into its shadow root. */
+/**
+ * The 校正紙 palette as `--mt-*` values.
+ *
+ * The overlays read their colours from custom properties now, so a test that
+ * wants a colour has to resolve the reference first. This is the same
+ * substitution the browser performs, against the theme the overlays default
+ * to.
+ */
+const OVERLAY_PALETTE: Record<string, string> = Object.fromEntries(
+  Object.entries(THEME_PALETTES.proof).map(([token, value]) => [
+    `--mt-${token}`,
+    value,
+  ])
+);
+// `rgb(var(--mt-ink-rgb) / 12%)` is the translucent form; the channel triple
+// is what `resolveVars` needs to turn it into a parseable colour.
+for (const [token, value] of Object.entries(THEME_PALETTES.proof)) {
+  const channels = hexChannels(value);
+  if (channels) {
+    OVERLAY_PALETTE[`--mt-${token}-rgb`] = channels;
+  }
+}
+
+/** Resolve `var(--mt-*)` references in a declaration value. */
+function resolve(value: string): string {
+  return resolveVars(value, OVERLAY_PALETTE);
+}
+
 function hudStylesheet(): string {
   const host = getHudHost() as HTMLElement;
-  return host.shadowRoot?.querySelector('style')?.textContent ?? '';
+  // The shadow root now holds two sheets: the palette (`data-mt-theme`) and
+  // the HUD's own rules. These assertions read declarations, so they want the
+  // rules sheet; the contrast block below resolves the palette itself.
+  return (
+    host.shadowRoot?.querySelector('style:not([data-mt-theme])')?.textContent ??
+    ''
+  );
 }
 
 /**
@@ -73,13 +109,22 @@ function productAccent(): Rgb {
   return hslToRgb(h, s, l);
 }
 
-/** The colour out of a `1px solid rgba(...)` border shorthand. */
+/**
+ * The colour out of a `1px solid <colour>` border shorthand.
+ *
+ * The shorthands used to spell the colour as `rgba(...)`; the overlays now
+ * read it from a palette, so a resolved value can also be `#RRGGBB`.
+ */
 function borderColor(value: string): string {
-  const match = /rgba?\([^)]*\)/.exec(value);
-  if (!match) {
-    throw new Error(`边框里没有颜色: ${value}`);
+  const functional = /rgba?\([^)]*\)/.exec(value);
+  if (functional) {
+    return functional[0];
   }
-  return match[0];
+  const hex = /#[0-9a-f]{6}/i.exec(value);
+  if (hex) {
+    return hex[0];
+  }
+  throw new Error(`边框里没有颜色: ${value}`);
 }
 
 // ==================== 测试用例 ====================
@@ -1200,21 +1245,33 @@ describe('HUD 的对比度预算', () => {
 
   function stylesheet(): string {
     const host = getHudHost() as HTMLElement;
-    return host.shadowRoot?.querySelector('style')?.textContent ?? '';
+    const shadow = host.shadowRoot;
+    if (!shadow) {
+      return '';
+    }
+    // The palette is a separate sheet, written into the shadow root so the
+    // rules below can read `--mt-*`. Both are concatenated: the assertions
+    // want the colours the browser would end up with, and `resolveVars`
+    // does the substitution.
+    const theme =
+      shadow.querySelector('style[data-mt-theme]')?.textContent ?? '';
+    const rules = shadow.querySelector('style:not([data-mt-theme])');
+    return `${theme}\n${rules?.textContent ?? ''}`;
   }
 
   /** The colour a card paints, once it is composited over the page. */
   function cardSurface(selector: string): Rgb {
-    const background = cssDeclaration(
-      cssBlock(stylesheet(), selector),
-      'background'
+    const background = resolve(
+      cssDeclaration(cssBlock(stylesheet(), selector), 'background')
     );
     return surfaceColor(background, WHITE_PAGE);
   }
 
   /** The contrast of a rule's text colour against a surface. */
   function contrastOf(selector: string, surface: Rgb): number {
-    const color = cssDeclaration(cssBlock(stylesheet(), selector), 'color');
+    const color = resolve(
+      cssDeclaration(cssBlock(stylesheet(), selector), 'color')
+    );
     return textContrast(color, surface);
   }
 
@@ -1267,12 +1324,13 @@ describe('HUD 的对比度预算', () => {
     // A translucent white plate under a white label measured 4.05:1.
     const errorCard = cardSurface('.hud-card--error');
     const button = surfaceColor(
-      cssDeclaration(cssBlock(stylesheet(), '.hud-action'), 'background'),
+      resolve(
+        cssDeclaration(cssBlock(stylesheet(), '.hud-action'), 'background')
+      ),
       errorCard
     );
-    const label = cssDeclaration(
-      cssBlock(stylesheet(), '.hud-action'),
-      'color'
+    const label = resolve(
+      cssDeclaration(cssBlock(stylesheet(), '.hud-action'), 'color')
     );
     expect(textContrast(label, button)).toBeGreaterThanOrEqual(4.5);
   });
@@ -1281,15 +1339,16 @@ describe('HUD 的对比度预算', () => {
     // #3b82f6 on the track measured 1.56:1 — the progress was unreadable.
     const card = cardSurface('.hud-card');
     const track = surfaceColor(
-      cssDeclaration(
-        cssBlock(stylesheet(), '.hud-progress-track'),
-        'background'
+      resolve(
+        cssDeclaration(
+          cssBlock(stylesheet(), '.hud-progress-track'),
+          'background'
+        )
       ),
       card
     );
-    const fill = cssDeclaration(
-      cssBlock(stylesheet(), '.hud-progress-bar'),
-      'background'
+    const fill = resolve(
+      cssDeclaration(cssBlock(stylesheet(), '.hud-progress-bar'), 'background')
     );
     expect(contrastRatio(parseColor(fill).rgb, track)).toBeGreaterThanOrEqual(
       3
@@ -1393,34 +1452,38 @@ describe('HUD 用产品的主色', () => {
   });
 
   it('进度条是产品的主色', () => {
-    const fill = cssDeclaration(
-      cssBlock(hudStylesheet(), '.hud-progress-bar'),
-      'background'
+    const fill = resolve(
+      cssDeclaration(
+        cssBlock(hudStylesheet(), '.hud-progress-bar'),
+        'background'
+      )
     );
     expect(parseColor(fill).rgb).toEqual(productAccent());
   });
 
   it('重试按钮是产品的主色配深色文字', () => {
     const block = cssBlock(hudStylesheet(), '.hud-retry');
-    const background = cssDeclaration(block, 'background');
+    const background = resolve(cssDeclaration(block, 'background'));
     expect(parseColor(background).rgb).toEqual(productAccent());
 
     // White on this cyan was 1.81:1. The label has to be readable.
     const card = surfaceColor(
-      cssDeclaration(cssBlock(hudStylesheet(), '.hud-card'), 'background'),
+      resolve(
+        cssDeclaration(cssBlock(hudStylesheet(), '.hud-card'), 'background')
+      ),
       WHITE_PAGE
     );
     const button = surfaceColor(background, card);
     expect(
-      textContrast(cssDeclaration(block, 'color'), button)
+      textContrast(resolve(cssDeclaration(block, 'color')), button)
     ).toBeGreaterThanOrEqual(4.5);
   });
 
   it('悬停时还是主色', () => {
     const hover = cssBlock(hudStylesheet(), '.hud-retry:hover');
-    expect(parseColor(cssDeclaration(hover, 'background')).rgb).toEqual(
-      productAccent()
-    );
+    expect(
+      parseColor(resolve(cssDeclaration(hover, 'background'))).rgb
+    ).toEqual(productAccent());
   });
 
   it('样式表里没有遗留的蓝色', () => {
@@ -1498,9 +1561,12 @@ describe('深色页面上 HUD 也要有边', () => {
 
   it('深色页面上卡片的边缘看得出来', () => {
     const block = cssBlock(hudStylesheet(), '.hud-card');
-    const card = surfaceColor(cssDeclaration(block, 'background'), DARK_PAGE);
+    const card = surfaceColor(
+      resolve(cssDeclaration(block, 'background')),
+      DARK_PAGE
+    );
     const edge = surfaceColor(
-      borderColor(cssDeclaration(block, 'border')),
+      borderColor(resolve(cssDeclaration(block, 'border'))),
       DARK_PAGE
     );
     // 无边框时是 1.00:1；白 14% 的边框实测 1.35:1，仍然看不见。
@@ -1513,9 +1579,12 @@ describe('深色页面上 HUD 也要有边', () => {
     // 它叠在卡片自己的底色上（CSS 的 background 默认铺到 border-box），
     // 所以这里要把边框合到卡片底色上再比。
     const block = cssBlock(hudStylesheet(), '.hud-card');
-    const card = surfaceColor(cssDeclaration(block, 'background'), WHITE_PAGE);
+    const card = surfaceColor(
+      resolve(cssDeclaration(block, 'background')),
+      WHITE_PAGE
+    );
     const edge = surfaceColor(
-      borderColor(cssDeclaration(block, 'border')),
+      borderColor(resolve(cssDeclaration(block, 'border'))),
       card
     );
     expect(contrastRatio(edge, card)).toBeGreaterThanOrEqual(3);
