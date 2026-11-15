@@ -239,7 +239,7 @@ To report a security problem, please do not open a public issue — see
 
 | Version | Status | Highlights |
 |---|---|---|
-| v2.3.0 | unreleased | 校正紙 UI: paper/ink/vermilion proof-sheet surfaces across the popup, settings, onboarding, HUD and reading panel |
+| v2.3.0 | in review (submitted 2026-11-15) | 校正紙 UI: paper/ink/vermilion proof-sheet surfaces across the popup, settings, onboarding, HUD and reading panel |
 | v2.2.1 | shipped (Chrome Web Store, 2026-11-14; `store:verify` exit 0) | Security patch: the HUD no longer offers a page a forgeable path to a cache-bypassing, billable retranslate, and provider endpoints are redacted from page-readable errors. Same cost panel as 2.2.0 |
 | v2.2.0 | superseded by 2.2.1 | The settings page estimates the month's spend from rates **you** enter — it shows 「未设置单价」 rather than a number when a cloud provider has no rate, because a total that silently omits half the month is worse than none |
 | v2.1.1 | shipped (Chrome Web Store, 2026-10-27) | The store listing's title and summary now come from the manifest, in Chinese — the dashboard has no input box for either |

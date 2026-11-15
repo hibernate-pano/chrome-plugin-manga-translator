@@ -13,6 +13,47 @@
 | 公开页 `Version` 变了 | **已上架** |
 | 公开页抓不到版本号 | **还没上架**，不许说已上架 |
 
+## v2.3.0 — 2026-11-15 — 已提交审核（**待审核**）
+
+校正紙 UI 的第一版。相对 2.2.1 只改界面与文案，不动译文管线、缓存键和配置格式。
+版本号升到 2.3.0 是因为字节全变了 —— 新界面绝不能顶着 2.2.1 的版本号发出，
+否则又是一次「版本号对、包不对」。
+
+| 项 | 值 |
+| --- | --- |
+| item id | `llicfmiagjiknidigpdcnogfeheogpfd` |
+| 包 | `release/manga-translator-v2.3.0-public.zip`（2 782 324 字节） |
+| 包 sha256 | `d6cac40a01b7cbf92cf32183d175d56c8f223140fd9fbfeafc6311b68307773e` |
+| 包内核对 | `content.js` 185 193 字节；`setActions` ×2；`hud-retry-failed` ×0；manifest `2.3.0` / 名称 19 字 |
+| 构建 | `pnpm package:public` 全链路：`--public-build` 注入 → 三项 source-only gate → `tsc` → `vite build`（`content.js` 180.9 KB / 200 KB）→ 事后 `check-public-build`（25 个文件无凭据）、`check-release-consistency`、`record-source-fingerprint`（178 个输入） |
+| 上传前核对 | `publish-to-store.mjs --dry-run`：包无凭据、token 有效、`2.3.0 > 2.2.1`（`live version 2.2.1`） |
+| 上传 | `{"crxVersion":"2.3.0","uploadState":"SUCCEEDED"}` |
+| 提交审核 | `POST :publish` → `{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
+| 回读状态 | `published=PUBLISHED (2.2.1), submitted=PENDING_REVIEW (2.3.0)` |
+| 自证 | 再发一次 publish → **HTTP 400**「You may not edit or publish an item that is in review.」（`NOT_UPDATEABLE`） |
+| 线上（2026-11-15） | 仍是 2.2.1（已 `store:verify` 通过）⇒ **未上架** |
+
+**结论：已提交审核，未上架。** 过审前对外只能说「已提交审核」。
+
+### 过审后必须做的一步
+
+```bash
+pnpm store:verify            # 默认就会找 2.3.0 的包
+```
+
+必须 exit 0 才能把这一行改成「已上架」。2.2.0 的教训：公开页的版本号不是证据，
+线上 CRX 的逐文件哈希才是。
+
+### 这一版还欠着的事
+
+| 事 | 谁做 | 怎么改 |
+| --- | --- | --- |
+| 审核结果 | 商店 | 过审后公开页出现 `Version 2.3.0` |
+| **线上包核对** | 开发者 | `pnpm store:verify` 必须 exit 0 再改台账 |
+| **商店截图与宣传图** | 开发者 | Dashboard 手动换成校正紙版：`store/listing/screenshot-*.png`、`promo-small-440x280.png`、`promo-large-1400x560.png`（API 没有 listing 资产端点） |
+| 宣传视频 | 开发者 | 可选，需要能连通模型服务的机器 |
+
+
 ## v2.2.0 — 2026-11-11 — **已上架**（线上包早于安全修复，已由 2.2.1 接替提审）
 
 第一版带「本月估算花费」的包。只改了设置页与文档，不动译文管线。
