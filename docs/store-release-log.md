@@ -13,7 +13,7 @@
 | 公开页 `Version` 变了 | **已上架** |
 | 公开页抓不到版本号 | **还没上架**，不许说已上架 |
 
-## v2.3.0 — 2026-11-15 — 已提交审核（**待审核**）
+## v2.3.0 — 2026-11-15 提审 / 2026-11-15 **已上架**
 
 校正紙 UI 的第一版。相对 2.2.1 只改界面与文案，不动译文管线、缓存键和配置格式。
 版本号升到 2.3.0 是因为字节全变了 —— 新界面绝不能顶着 2.2.1 的版本号发出，
@@ -31,25 +31,16 @@
 | 提交审核 | `POST :publish` → `{"publishType":"DEFAULT_PUBLISH","skipReview":false,"blockOnWarnings":false}` |
 | 回读状态 | `published=PUBLISHED (2.2.1), submitted=PENDING_REVIEW (2.3.0)` |
 | 自证 | 再发一次 publish → **HTTP 400**「You may not edit or publish an item that is in review.」（`NOT_UPDATEABLE`） |
-| 线上（2026-11-15） | 仍是 2.2.1（已 `store:verify` 通过）⇒ **未上架** |
+| 线上（2026-11-15 复核） | 公开页 `Version 2.3.0` · `Updated November 15, 2026`；`pnpm store:verify` → **exit 0**：`files differing 0 / missing 0 / extra 0` ⇒ **已上架** |
 
-**结论：已提交审核，未上架。** 过审前对外只能说「已提交审核」。
-
-### 过审后必须做的一步
-
-```bash
-pnpm store:verify            # 默认就会找 2.3.0 的包
-```
-
-必须 exit 0 才能把这一行改成「已上架」。2.2.0 的教训：公开页的版本号不是证据，
-线上 CRX 的逐文件哈希才是。
+**结论：已上架，且线上包逐文件核对通过。**
 
 ### 这一版还欠着的事
 
 | 事 | 谁做 | 怎么改 |
 | --- | --- | --- |
-| 审核结果 | 商店 | 过审后公开页出现 `Version 2.3.0` |
-| **线上包核对** | 开发者 | `pnpm store:verify` 必须 exit 0 再改台账 |
+| ~~审核结果~~ | 商店 | 已过：公开页 `Version 2.3.0` |
+| ~~线上包核对~~ | 开发者 | 已做：verify exit 0，见上表 |
 | **商店截图与宣传图** | 开发者 | Dashboard 手动换成校正紙版：`store/listing/screenshot-*.png`、`promo-small-440x280.png`、`promo-large-1400x560.png`（API 没有 listing 资产端点） |
 | 宣传视频 | 开发者 | 可选，需要能连通模型服务的机器 |
 
