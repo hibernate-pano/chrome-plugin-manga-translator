@@ -136,6 +136,29 @@ function isReaderFacingMessage(message: string): boolean {
 }
 
 /**
+ * Does a 429/402 body say "you are out of quota" rather than "slow down"?
+ *
+ * OpenAI returns 429 for both. The body is the only thing that separates
+ * them, and the difference decides whether the reader waits or tops up.
+ */
+function looksLikeQuotaExhausted(message: string): boolean {
+  return (
+    message.includes('insufficient_quota') ||
+    message.includes('insufficient quota') ||
+    message.includes('quota exceeded') ||
+    message.includes('exceeded your current quota') ||
+    message.includes('billing') ||
+    message.includes('余额不足') ||
+    message.includes('余额已用完') ||
+    message.includes('额度已用完') ||
+    message.includes('额度用完') ||
+    message.includes('额度或余额') ||
+    message.includes('账户额度') ||
+    message.includes('欠费')
+  );
+}
+
+/**
  * Replace any endpoint address in a reader-facing message with a placeholder.
  *
  * The message the reader sees is rendered inside a shadow root the page can
@@ -172,6 +195,13 @@ export enum TranslationErrorCode {
   NETWORK_ERROR = 'NETWORK_ERROR', // 网络连接失败
   TIMEOUT_ERROR = 'TIMEOUT_ERROR', // 请求超时
   RATE_LIMIT = 'RATE_LIMIT', // 请求过于频繁
+  /**
+   * 额度用完了。和 RATE_LIMIT 分开：限流等一会儿会恢复，额度不会。
+   *
+   * 两者都常以 429 返回，但给读者的下一步完全不同 —— 一个说"稍后再试"，
+   * 一个说"去充值/换 key"。以前它们共用一句话，用户等了一天也没好。
+   */
+  QUOTA_EXHAUSTED = 'QUOTA_EXHAUSTED', // 额度/余额用完
   CONNECTION_REFUSED = 'CONNECTION_REFUSED', // 连接被拒绝
 
   // Ollama 错误
@@ -226,14 +256,38 @@ export interface ErrorAction {
 }
 
 /**
+ * 谁该为这次失败负责。
+ *
+ * 这不是给用户看的分类学，而是决定"下一步做什么"的那一维：
+ * - `model`：模型输出不合约、能力不够、上下文超限；
+ * - `provider`：密钥、限流、额度、5xx、网络；
+ * - `site`：图片所在的站点（防盗链、登录墙、尺寸）；
+ * - `extension`：扩展自己的配置/管线。
+ *
+ * HUD 和诊断包都需要它：同一个「失败 3 张」，四类的下一步完全不同。
+ */
+export type ErrorCategory = 'model' | 'provider' | 'site' | 'extension';
+
+/**
  * 友好错误接口（符合设计文档）
  */
 export interface FriendlyError {
   code: TranslationErrorCode;
+  category: ErrorCategory;
   message: string; // 用户友好的中文消息
   retryable: boolean;
   suggestion?: string; // 解决建议
   action?: ErrorAction; // 可执行的修复入口
+  /**
+   * provider 的原始错误文本，已脱敏、截断。
+   *
+   * 它不直接显示在 HUD 主行（那是 `message` 的位置），而是折叠在"技术
+   * 详情"里、并进入诊断包。没有它，"翻译结果解析失败"和"请求参数超出
+   * 模型限制"就没法区分到底是纯文本、截断，还是缺 textAreas。
+   *
+   * 只收英文/协议原文；中文的读者向消息已经进 `message` 了，不重复。
+   */
+  detail?: string;
   /**
    * The HTTP status behind this error, when there was one.
    *
@@ -317,6 +371,13 @@ const ERROR_MESSAGES: Record<
     suggestion: '请等待一段时间后再继续使用',
     retryable: true,
   },
+  [TranslationErrorCode.QUOTA_EXHAUSTED]: {
+    message: '账户额度或余额已用完',
+    suggestion:
+      '这不是限流，等一会儿不会恢复。请到服务商后台充值，或换一个 API Key / 服务商；已经翻译好的图片不受影响。',
+    retryable: false,
+    action: { type: 'open-settings', label: '打开设置' },
+  },
   [TranslationErrorCode.OLLAMA_NOT_RUNNING]: {
     message: '请先启动 Ollama 服务',
     suggestion: '在终端运行 ollama serve 启动本地 Ollama，然后刷新本页',
@@ -381,6 +442,31 @@ const ERROR_MESSAGES: Record<
   },
 };
 
+/**
+ * 每个错误码归到四类里的一类。`Record` 是故意的：新增错误码时 TypeScript
+ * 会在这里报错，逼着作者想清楚"这到底该怪谁、下一步做什么"。
+ */
+const ERROR_CATEGORIES: Record<TranslationErrorCode, ErrorCategory> = {
+  [TranslationErrorCode.CONFIG_MISSING]: 'extension',
+  [TranslationErrorCode.AUTH_ERROR]: 'provider',
+  [TranslationErrorCode.INVALID_API_KEY_FORMAT]: 'provider',
+  [TranslationErrorCode.NETWORK_ERROR]: 'provider',
+  [TranslationErrorCode.TIMEOUT_ERROR]: 'provider',
+  [TranslationErrorCode.RATE_LIMIT]: 'provider',
+  [TranslationErrorCode.QUOTA_EXHAUSTED]: 'provider',
+  [TranslationErrorCode.CONNECTION_REFUSED]: 'provider',
+  [TranslationErrorCode.OLLAMA_NOT_RUNNING]: 'extension',
+  [TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED]: 'extension',
+  [TranslationErrorCode.MODEL_NOT_FOUND]: 'model',
+  [TranslationErrorCode.SERVER_ERROR]: 'provider',
+  [TranslationErrorCode.IMAGE_FETCH_ERROR]: 'site',
+  [TranslationErrorCode.PARAM_ERROR]: 'model',
+  [TranslationErrorCode.MODEL_INCOMPATIBLE]: 'model',
+  [TranslationErrorCode.PARSE_ERROR]: 'model',
+  [TranslationErrorCode.CONTENT_BLOCKED]: 'provider',
+  [TranslationErrorCode.UNKNOWN_ERROR]: 'extension',
+};
+
 // ============================================================================
 // 漫画翻译助手 v2 错误处理 API（符合设计文档）
 // ============================================================================
@@ -415,6 +501,25 @@ export class TranslationErrorHandler {
 
     // 根据状态码判断
     if (statusCode) {
+      /*
+       * 429 有两种完全不同的意思，而服务商都用 429 返回。
+       *
+       * `insufficient_quota` / 余额不足是"不会自己好"的那一种；把它说成
+       * 「请求过于频繁，请稍后重试」，读者会等一天，然后发现还是不能用。
+       * 所以在按状态码归类之前，先看消息体里有没有额度的证据。
+       */
+      if (
+        (statusCode === 429 || statusCode === 402) &&
+        looksLikeQuotaExhausted(errorMessage)
+      ) {
+        return {
+          ...TranslationErrorHandler.createFriendlyError(
+            TranslationErrorCode.QUOTA_EXHAUSTED
+          ),
+          status: statusCode,
+        };
+      }
+
       const codeFromStatus =
         TranslationErrorHandler.getCodeFromStatusCode(statusCode);
       if (codeFromStatus) {
@@ -432,20 +537,27 @@ export class TranslationErrorHandler {
       ...(statusCode !== undefined ? { status: statusCode } : {}),
     };
 
-    if (
-      code === TranslationErrorCode.UNKNOWN_ERROR &&
-      messageWithoutMarker.trim() &&
-      messageWithoutMarker !== friendlyError.message
-    ) {
-      const detail = messageWithoutMarker.trim();
-      if (isReaderFacingMessage(detail)) {
+    const rawDetail = messageWithoutMarker.trim();
+    if (rawDetail && rawDetail !== friendlyError.message) {
+      if (isReaderFacingMessage(rawDetail)) {
+        /*
+         * 中文的、读者能直接行动的消息（通常是我们自己写的）接在 friendly
+         * message 后面；英文协议原文不往这里放，它进 `detail`。
+         */
+        if (code === TranslationErrorCode.UNKNOWN_ERROR) {
+          return {
+            ...friendlyError,
+            message: `${friendlyError.message}：${rawDetail}`,
+          };
+        }
+      } else {
+        // 协议原文只留一份，脱敏后截断。它是诊断包和"技术详情"的内容。
+        console.error('[Translation] 未分类错误原文:', rawDetail);
         return {
           ...friendlyError,
-          message: `${friendlyError.message}：${detail}`,
+          detail: redactEndpointAddresses(rawDetail).slice(0, 240),
         };
       }
-      // A protocol payload is for the console, not for the reader.
-      console.error('[Translation] 未分类错误原文:', detail);
     }
 
     return friendlyError;
@@ -528,10 +640,27 @@ export class TranslationErrorHandler {
       message.includes('failed to fetch image') ||
       message.includes('图片获取失败') ||
       message.includes('blocked image url') ||
+      /*
+       * The background proxy's sender check writes its own sentence
+       * ("Image fetch not allowed for this page") and that string used to
+       * fall through to the generic `fetch` rule below — which told the
+       * reader to check their Wi-Fi when the site, not the network, had
+       * refused the image.
+       */
+      message.includes('image fetch not allowed') ||
+      message.includes('not allowed for this page') ||
       message.includes('image too large') ||
       message.includes('response is not an image')
     ) {
       return TranslationErrorCode.IMAGE_FETCH_ERROR;
+    }
+
+    /*
+     * 额度用完排在限流之前：`quota exceeded` 里也含 "rate limit" 的同义词，
+     * 但它的下一步不是等。
+     */
+    if (looksLikeQuotaExhausted(message)) {
+      return TranslationErrorCode.QUOTA_EXHAUSTED;
     }
 
     // API 密钥相关
@@ -677,7 +806,17 @@ export class TranslationErrorHandler {
       message.includes('does not follow instruction') ||
       message.includes('not support structured') ||
       message.includes('当前模型不支持翻译任务') ||
-      message.includes('模型不支持翻译任务')
+      message.includes('模型不支持翻译任务') ||
+      /*
+       * 纯文本模型在收到图片请求时通常会回 400，正文里带这些词。把它归成
+       * "模型不兼容"而不是"参数错误"，读者才知道要换模型，而不是调参数。
+       */
+      message.includes('image_url') ||
+      message.includes('does not support image') ||
+      message.includes('unsupported image') ||
+      message.includes('not a vision') ||
+      message.includes('vision model') ||
+      message.includes('multimodal')
     ) {
       return TranslationErrorCode.MODEL_INCOMPATIBLE;
     }
@@ -737,6 +876,7 @@ export class TranslationErrorHandler {
     const errorInfo = ERROR_MESSAGES[code];
     return {
       code,
+      category: ERROR_CATEGORIES[code],
       message: errorInfo.message,
       retryable: errorInfo.retryable,
       suggestion: errorInfo.suggestion,

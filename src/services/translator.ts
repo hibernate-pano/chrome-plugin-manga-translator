@@ -62,8 +62,12 @@ import {
 import {
   extractErrorStatus,
   parseHttpStatusFromMessage,
+  parseTranslationError,
   retryWithBackoff,
   stripHttpStatusMarker,
+  TranslationErrorCode,
+  type FriendlyError,
+  type HttpStatusError,
 } from '@/utils/error-handler';
 import { getErrorMessage } from '@/utils/error-message';
 import type { TranslationStylePreset } from '@/utils/translation-style';
@@ -262,6 +266,39 @@ const TILE_OVERLAP = 96;
 /** Keep tiles inside this many original pixels so text stays legible. */
 const TILE_MAX_DIMENSION = 1600;
 
+/**
+ * How long an answer of "this image has no text" is trusted.
+ *
+ * It is the cheapest answer to produce and the easiest one to produce by
+ * accident (truncated response, model that ignored the image, prompt that
+ * broke). Keeping it forever means such a page is never asked about again;
+ * a day limits the loss to one re-ask while still sparing the user a repeat
+ * request for a page that is genuinely blank.
+ */
+const EMPTY_ANSWER_TTL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Failures where a second, full-image request cannot possibly help.
+ *
+ * The fallback is a *different* request, so it can rescue a parse failure or
+ * a timeout. It cannot rescue a wrong key, an empty account, a model that
+ * does not accept images, a content-policy block, or a CDN that refuses to
+ * serve the image. Those used to fall through to the full-image path anyway,
+ * which billed one more request against the same wall.
+ */
+const NO_FULL_IMAGE_FALLBACK: ReadonlySet<TranslationErrorCode> = new Set([
+  TranslationErrorCode.AUTH_ERROR,
+  TranslationErrorCode.CONFIG_MISSING,
+  TranslationErrorCode.QUOTA_EXHAUSTED,
+  TranslationErrorCode.MODEL_NOT_FOUND,
+  TranslationErrorCode.MODEL_INCOMPATIBLE,
+  TranslationErrorCode.PARAM_ERROR,
+  TranslationErrorCode.INVALID_API_KEY_FORMAT,
+  TranslationErrorCode.CONTENT_BLOCKED,
+  TranslationErrorCode.IMAGE_FETCH_ERROR,
+  TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED,
+]);
+
 interface TileSpec {
   top: number;
   height: number;
@@ -336,7 +373,7 @@ export function filterOverlapDuplicates(areas: TextArea[]): TextArea[] {
   const ratioEpsilon = 1e-9;
 
   for (const area of areas) {
-    const duplicated = kept.some(other => {
+    const duplicateIndex = kept.findIndex(other => {
       const areaHeight = area.height ?? 0;
       const otherHeight = other.height ?? 0;
       const ay0 = area.y,
@@ -358,8 +395,28 @@ export function filterOverlapDuplicates(areas: TextArea[]): TextArea[] {
       const cxB = other.x + (other.width ?? 0) / 2;
       return Math.abs(cxA - cxB) < toleranceX;
     });
-    if (!duplicated) {
+
+    if (duplicateIndex === -1) {
       kept.push(area);
+      continue;
+    }
+
+    /*
+     * Keep the larger of the two detections.
+     *
+     * The same bubble seen by two overlapping tiles is not seen identically:
+     * the tile whose seam cuts through it reports a shorter box, and keeping
+     * the first (the upper tile) clipped the bubble's bottom line — the
+     * translation then covered only half the original text. The larger box
+     * is the one that contains the whole bubble.
+     */
+    const existing = kept[duplicateIndex];
+    if (existing) {
+      const areaSize = (area.width ?? 0) * (area.height ?? 0);
+      const existingSize = (existing.width ?? 0) * (existing.height ?? 0);
+      if (areaSize > existingSize) {
+        kept[duplicateIndex] = area;
+      }
     }
   }
   return kept;
@@ -577,7 +634,14 @@ export class TranslatorService {
           if (this.config.cacheEnabled && tiledCacheable) {
             useTranslationCacheStore
               .getState()
-              .set(cacheKey, result, this.config.provider);
+              .set(
+                cacheKey,
+                result,
+                this.config.provider,
+                tiledRealCount === 0
+                  ? { ttlMs: EMPTY_ANSWER_TTL_MS }
+                  : undefined
+              );
           }
           return result;
         }
@@ -611,7 +675,12 @@ export class TranslatorService {
         }
         useTranslationCacheStore
           .getState()
-          .set(cacheKey, result, this.config.provider);
+          .set(
+            cacheKey,
+            result,
+            this.config.provider,
+            realTextCount === 0 ? { ttlMs: EMPTY_ANSWER_TTL_MS } : undefined
+          );
       } else if (isDevelopment && result.success && !cacheable) {
         _logError('翻译成功但无文字区域，跳过缓存（假成功）');
       }
@@ -804,6 +873,26 @@ export class TranslatorService {
   }
 
   /**
+   * Classify a tile failure from the shape the tile pipeline keeps.
+   *
+   * `translateTile` stores the message and the numeric status separately, so
+   * the Error has to be rebuilt to ask the classifier — with the status
+   * attached, or a 401 would be read as an unknown message.
+   */
+  private tileFailure(
+    result: TileTranslationResult | undefined
+  ): FriendlyError | null {
+    if (!result?.error) {
+      return null;
+    }
+    const error = new Error(result.error) as HttpStatusError;
+    if (typeof result.errorStatus === 'number') {
+      error.status = result.errorStatus;
+    }
+    return parseTranslationError(error);
+  }
+
+  /**
    * Tiled (sliding-window) pipeline for long webtoon strips.
    *
    * Splits the original image into overlapping horizontal tiles, translates
@@ -899,17 +988,32 @@ export class TranslatorService {
       }
     });
 
-    if (failedIndexes.length > 0 && failedIndexes.length < tiles.length) {
+    /*
+     * Retry only failures that can plausibly succeed on a second attempt.
+     *
+     * The old code retried every failed tile. A 401, a 404, a content-policy
+     * 422, or an image the CDN refuses to serve fails identically every time
+     * — the retry bought the same error again, and on a paid provider it
+     * bought it twice. Rate limits/timeouts/5xx/parse failures are worth one
+     * more ask; the rest are not.
+     */
+    const retryableIndexes = failedIndexes.filter(index =>
+      Boolean(this.tileFailure(perTileResults[index])?.retryable)
+    );
+
+    if (retryableIndexes.length > 0 && failedIndexes.length < tiles.length) {
       if (isDevelopment) {
         _log(
-          `${failedIndexes.length}/${tiles.length} 个切片失败，重试失败的切片（不回退整图）`
+          `${retryableIndexes.length}/${failedIndexes.length} 个可重试的切片失败，重试它们（不回退整图）`
         );
       }
-      const failedTiles = failedIndexes.map(index => tiles[index] as TileSpec);
+      const failedTiles = retryableIndexes.map(
+        index => tiles[index] as TileSpec
+      );
       const retried = await processInParallel(
         failedTiles,
         (tile, retryIndex) => {
-          const originalIndex = failedIndexes[retryIndex] as number;
+          const originalIndex = retryableIndexes[retryIndex] as number;
           return this.translateTile(
             image,
             tile,
@@ -929,7 +1033,7 @@ export class TranslatorService {
       );
 
       retried.forEach((result, retryIndex) => {
-        const originalIndex = failedIndexes[retryIndex];
+        const originalIndex = retryableIndexes[retryIndex];
         if (originalIndex === undefined) {
           return;
         }
@@ -980,14 +1084,25 @@ export class TranslatorService {
       ).length;
       const unanswered = perTileResults.length - answered;
 
-      // Every tile failed → the full-image path is the last resort.
+      // Every tile failed → the full-image path may still help. It is
+      // skipped only when the reason is one that a different request cannot
+      // change: a bad key, a missing model, an image the provider refuses.
+      // An unclassified failure is not proof of anything, and the whole point
+      // of the fallback is the case where the tiles went wrong for a reason
+      // nobody anticipated.
       if (answered === 0) {
+        const tileFailures = perTileResults
+          .map(result => this.tileFailure(result))
+          .filter((failure): failure is FriendlyError => failure !== null);
+        const blocked = tileFailures.some(failure =>
+          NO_FULL_IMAGE_FALLBACK.has(failure.code)
+        );
         return {
           success: false,
           textAreas: [],
           error: `所有切片翻译请求均失败${reasonSuffix}`,
           errorStatus: sharedErrorStatus,
-          allowFullImageFallback: true,
+          allowFullImageFallback: !blocked,
         };
       }
 
@@ -1315,6 +1430,8 @@ export class TranslatorService {
     const dataUrl = base64ToDataUrl(processed.base64, processed.mimeType);
     const detection = await detectTextRegions(dataUrl, {
       minConfidence: 0.25,
+      imageWidth: processed.width,
+      imageHeight: processed.height,
     });
     const mergedRegions = this.prepareTextRegions(detection.regions);
 

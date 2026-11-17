@@ -60,8 +60,14 @@ import {
   findWorkerRefusal,
 } from '@/shared/runtime-contracts';
 import { isTranslatableImage } from './image-filter';
-import { getForceRetranslateConfirm } from './force-retranslate-confirm';
-import { getImageExportDialog } from './image-export-dialog';
+import {
+  getForceRetranslateConfirm,
+  setForceRetranslateConfirmTheme,
+} from './force-retranslate-confirm';
+import {
+  getImageExportDialog,
+  setImageExportDialogTheme,
+} from './image-export-dialog';
 import { FloatingHud } from './floating-hud';
 import { FailureBadges } from './failure-badges';
 import { ReadingPanel } from './reading-panel';
@@ -88,30 +94,36 @@ const PROCESSED_CLASS = 'manga-translator-processed';
 const CONFIG_STORAGE_KEY = 'manga-translator-config-v2';
 
 /**
- * Error signatures that mean "this whole run is doomed", not "this one image
- * failed".
+ * Errors that mean "this whole run is doomed", not "this one image failed".
  *
- * A 401/403 means the API key is wrong; a 429 means the provider is
- * throttling. Running the remaining 19 images in that state costs the user
- * money and time to produce the same failure 19 more times. Abort the run and
- * show the root cause instead.
+ * The previous version matched raw strings (`/\b403\b/`, `/rate limit/`). That
+ * was wrong in both directions: a **CDN** 403 while fetching an image — an
+ * everyday event on sites with hotlink protection — aborted the whole page,
+ * while a provider error whose sentence did not contain one of the magic
+ * words did not abort anything. The decision now uses the classified error
+ * code, not the text.
+ *
+ * A 401/403 from the provider means the key is wrong; a quota error will not
+ * recover by waiting. Those abort on the first image. Model/parameter errors
+ * abort after the second, because one image is not yet proof that every
+ * image will fail. Rate limits abort after three, because the retry helper
+ * has already waited twice for each.
  */
-const FATAL_ERROR_PATTERNS: RegExp[] = [
-  /\b401\b/,
-  /\b403\b/,
-  /\b429\b/,
-  /unauthorized/i,
-  /forbidden/i,
-  /invalid[\s_-]*(api[\s_-]*)?key/i,
-  /api[\s_-]*key[\s_-]*invalid/i,
-  /incorrect[\s_-]*api[\s_-]*key/i,
-  /rate[\s_-]*limit/i,
-  /too[\s_-]*many[\s_-]*requests/i,
-  /请求过于频繁/,
-  /限流/,
-  /密钥无效/,
-  /api\s*密钥\s*无效/i,
-];
+const ABORT_IMMEDIATELY: ReadonlySet<TranslationErrorCode> = new Set([
+  TranslationErrorCode.AUTH_ERROR,
+  TranslationErrorCode.CONFIG_MISSING,
+  TranslationErrorCode.QUOTA_EXHAUSTED,
+  TranslationErrorCode.OLLAMA_ORIGIN_NOT_ALLOWED,
+]);
+
+const ABORT_AFTER_TWO: ReadonlySet<TranslationErrorCode> = new Set([
+  TranslationErrorCode.MODEL_NOT_FOUND,
+  TranslationErrorCode.MODEL_INCOMPATIBLE,
+  TranslationErrorCode.PARAM_ERROR,
+  TranslationErrorCode.INVALID_API_KEY_FORMAT,
+]);
+
+const RATE_LIMIT_ABORT_AFTER = 3;
 
 /**
  * 用户在弹窗里把"启用扩展"关掉时，正在跑的那批翻译必须停下来。
@@ -466,9 +478,21 @@ const pageFailures: Map<HTMLImageElement, ImageFailure> = new Map();
 function rememberImageFailure(
   img: HTMLImageElement,
   index: number,
-  reason: string
+  reason: string,
+  friendly?: FriendlyError | null
 ): void {
-  pageFailures.set(img, { index, reason });
+  pageFailures.set(img, {
+    index,
+    reason,
+    ...(friendly
+      ? {
+          code: friendly.code,
+          category: friendly.category,
+          suggestion: friendly.suggestion,
+          status: friendly.status,
+        }
+      : {}),
+  });
   failureBadges?.mark(img, reason);
 }
 
@@ -795,6 +819,7 @@ async function ensureServicesInitialized(): Promise<void> {
       style: activeRenderer.getStyle(),
       index: entry?.index ?? 1,
       trigger,
+      theme: currentTheme ?? undefined,
     });
   });
 
@@ -1641,20 +1666,42 @@ async function isMasterSwitchEnabled(): Promise<boolean> {
 /**
  * Does this error mean the whole run should stop?
  *
- * A wrong API key or a throttled provider fails identically for every image
- * on the page. Running the rest of the queue burns the user's money to
- * collect the same error 19 more times.
+ * A wrong API key, an exhausted quota, or a model that cannot take images
+ * fails identically for every image on the page. Running the rest of the
+ * queue burns the user's money to collect the same error 19 more times.
  *
- * The worker's own refusals belong here too. A provider that is not set up
- * fails the same way for every image left: the remaining twenty would each
- * ask the worker something it has already said it cannot do, and each would
- * be reported to the reader as another failed image.
+ * `counts` is per-run: one model-not-found is not yet proof, two in one run
+ * are. Rate limits get three chances because the retry helper has already
+ * waited twice inside each request; aborting on the first one threw away
+ * the remaining images of a page that only needed a pause.
+ *
+ * Image-fetch failures are deliberately absent. They belong to one image's
+ * CDN, not to the run, and the previous string-matching version treated
+ * their `403` as a dead API key — stopping the whole page because one
+ * thumbnail was hotlink-protected.
  */
-function isFatalTranslationError(message: string): boolean {
-  if (findWorkerRefusal(message)) {
+function shouldAbortRun(
+  error: Error,
+  friendly: FriendlyError,
+  counts: Map<TranslationErrorCode, number>
+): boolean {
+  if (findWorkerRefusal(error.message)) {
     return true;
   }
-  return FATAL_ERROR_PATTERNS.some(pattern => pattern.test(message));
+  if (ABORT_IMMEDIATELY.has(friendly.code)) {
+    return true;
+  }
+  if (friendly.code === TranslationErrorCode.RATE_LIMIT) {
+    const seen = (counts.get(friendly.code) ?? 0) + 1;
+    counts.set(friendly.code, seen);
+    return seen >= RATE_LIMIT_ABORT_AFTER;
+  }
+  if (ABORT_AFTER_TWO.has(friendly.code)) {
+    const seen = (counts.get(friendly.code) ?? 0) + 1;
+    counts.set(friendly.code, seen);
+    return seen >= 2;
+  }
+  return false;
 }
 
 /**
@@ -2024,6 +2071,12 @@ async function runTranslation(
      * root cause ("API key invalid", "rate limited") ever surfaces.
      */
     let firstErrorMessage: string | undefined;
+    /**
+     * Per-run tally of *why* images failed. Two model-not-found errors in a
+     * row are a configuration problem; one is a flake. Rate limits get three
+     * chances before the run stops.
+     */
+    const failureCodeCounts = new Map<TranslationErrorCode, number>();
 
     setState({
       status: 'translating',
@@ -2095,14 +2148,15 @@ async function runTranslation(
          * 以前只留**第一张**的：三张图以三种原因失败，读者只被告知其中一种，
          * 而那一种很可能不是让这一轮卡住的那一种。
          */
-        const reason =
+        const friendly =
           error instanceof ArtworkChangedError
-            ? ARTWORK_CHANGED_MESSAGE
-            : parseTranslationError(error).message;
+            ? null
+            : parseTranslationError(error);
+        const reason = friendly ? friendly.message : ARTWORK_CHANGED_MESSAGE;
 
         if (img) {
           failedImages.add(img);
-          rememberImageFailure(img, index + 1, reason);
+          rememberImageFailure(img, index + 1, reason, friendly);
         }
         if (!firstErrorMessage) {
           firstErrorMessage = reason;
@@ -2127,7 +2181,11 @@ async function runTranslation(
           });
         }
 
-        if (!fatalError && isFatalTranslationError(error.message)) {
+        if (
+          !fatalError &&
+          friendly &&
+          shouldAbortRun(error, friendly, failureCodeCounts)
+        ) {
           fatalError = error;
           // Stop the remaining images: they would fail the same way.
           abortController?.abort();
@@ -2781,6 +2839,7 @@ function handleMessage(
             void forceRetranslatePage();
           },
           onCancel: () => undefined,
+          theme: currentTheme ?? undefined,
         });
         sendResponse({ success: true, pendingConfirmation: true });
         return true;
@@ -3158,6 +3217,10 @@ function applyCurrentTheme(): void {
   readingPanel?.setTheme(theme);
   readingAnchors?.setTheme(theme);
   failureBadges?.setTheme(theme);
+  // The two money dialogs are created on demand; repaint them only if they
+  // already exist.
+  setImageExportDialogTheme(theme);
+  setForceRetranslateConfirmTheme(theme);
 }
 
 // ==================== 初始化 ====================
@@ -3313,5 +3376,4 @@ export {
   handleRetryFailed,
   handleRouteChange,
   checkRouteChangeOnce,
-  isFatalTranslationError,
 };

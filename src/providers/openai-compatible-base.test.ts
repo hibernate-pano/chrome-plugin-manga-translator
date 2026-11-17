@@ -423,3 +423,105 @@ describe('OpenAICompatibleProvider billing on an unreadable answer', () => {
     expect(summary().billableCalls).toBe(0);
   });
 });
+
+describe('OpenAICompatibleProvider JSON mode', () => {
+  beforeEach(() => {
+    vi.mocked(httpRequest).mockReset();
+  });
+
+  function mockAnswer(): void {
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data: {
+        choices: [
+          {
+            message: {
+              content:
+                '{"textAreas":[{"x":0.1,"y":0.1,"width":0.2,"height":0.1,"originalText":"a","translatedText":"b"}]}',
+            },
+          },
+        ],
+      },
+    });
+  }
+
+  it('asks the service to enforce JSON output', async () => {
+    mockAnswer();
+    const provider = new TestProvider();
+    await provider.initialize({ apiKey: 'sk-'.padEnd(24, 'x') });
+
+    await provider.analyzeAndTranslate(base64Image, 'zh-CN');
+
+    const body = vi.mocked(httpRequest).mock.calls[0]?.[1]?.body as Record<
+      string,
+      unknown
+    >;
+    expect(body['response_format']).toEqual({ type: 'json_object' });
+  });
+
+  it('retries once without the field when the gateway does not know it', async () => {
+    // A gateway that rejects `response_format` must not cost the user a
+    // failed image on every page: one retry, then remember the endpoint.
+    vi.mocked(httpRequest)
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        statusText: 'Bad Request',
+        error: 'Unsupported parameter: response_format',
+      })
+      .mockImplementationOnce(async () => {
+        return {
+          ok: true,
+          status: 200,
+          statusText: 'OK',
+          data: {
+            choices: [{ message: { content: '{"textAreas":[]}' } }],
+          },
+        };
+      });
+
+    const provider = new TestProvider();
+    await provider.initialize({
+      apiKey: 'sk-'.padEnd(24, 'x'),
+      baseUrl: 'https://json-mode-reject.example/v1',
+    });
+
+    await expect(
+      provider.analyzeAndTranslate(base64Image, 'zh-CN')
+    ).resolves.toBeTruthy();
+
+    expect(httpRequest).toHaveBeenCalledTimes(2);
+    const retryBody = vi.mocked(httpRequest).mock.calls[1]?.[1]?.body as Record<
+      string,
+      unknown
+    >;
+    expect(retryBody['response_format']).toBeUndefined();
+  });
+
+  it('warns when the configured model is missing from /models', async () => {
+    // "已连接" on its own sent the reader into translating, where the first
+    // image failed with a model-not-found the settings page had the answer
+    // to all along.
+    vi.mocked(httpRequest).mockResolvedValue({
+      ok: true,
+      status: 200,
+      statusText: 'OK',
+      data: { data: [{ id: 'some-other-model' }] },
+    });
+
+    const provider = new TestProvider();
+    await provider.initialize({
+      apiKey: 'sk-'.padEnd(24, 'x'),
+      model: 'my-model',
+      baseUrl: 'https://models.example/v1',
+    });
+
+    const result = await provider.testConnection();
+
+    expect(result.valid).toBe(true);
+    expect(result.message).toContain('my-model');
+    expect(result.message).toContain('不在');
+  });
+});

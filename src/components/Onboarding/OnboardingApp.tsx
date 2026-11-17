@@ -264,7 +264,7 @@ export const OnboardingApp: React.FC<OnboardingAppProps> = ({
         aria-labelledby='onboarding-title'
         aria-describedby={STEP_DESCRIPTION_ID[step]}
         ref={dialogRef}
-        className='relative w-full max-w-[520px] border border-ink bg-paper p-8 shadow-[8px_8px_0_0_#161616]'
+        className='relative max-h-[calc(100vh-2rem)] w-full max-w-[520px] overflow-y-auto border border-ink bg-paper p-8 shadow-[8px_8px_0_0_#161616]'
       >
         <button
           type='button'

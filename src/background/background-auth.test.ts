@@ -553,13 +553,42 @@ describe('image proxy sender scoping', () => {
     fetchSpy.mockRestore();
   });
 
-  it('refuses a cross-origin URL that is not shaped like an image', async () => {
-    // Without the image-shape rule the worker is a general fetch proxy for any
-    // page the user visits.
+  it('allows a cross-origin URL with no image extension', async () => {
+    // Real CDNs serve `/image?id=…` and `/proxy/abc` all the time. The old
+    // extension whitelist refused those before the request was even made,
+    // and the failure reached the reader as "network error" on a page that
+    // was perfectly reachable. What actually stops the worker from being a
+    // general fetch proxy is the response check below, not the URL shape.
     await loadWorker();
-    const fetchSpy = vi
-      .spyOn(globalThis, 'fetch')
-      .mockResolvedValue(new Response('ok'));
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response(new Uint8Array([1]), {
+        headers: { 'content-type': 'image/webp' },
+      })
+    );
+
+    const response = await harness.sendToMessage(
+      {
+        type: 'FETCH_IMAGE_BYTES',
+        imageUrl: 'https://cdn.example.com/image?id=42',
+      },
+      { tab: { id: 5 }, url: 'https://manga.example/ch1/' }
+    );
+
+    expect(fetchSpy).toHaveBeenCalled();
+    expect(response['success']).toBe(true);
+    fetchSpy.mockRestore();
+  });
+
+  it('refuses a response that is not an image', async () => {
+    // This is the guard that makes the URL-shape rule unnecessary: a page
+    // cannot turn the worker into a fetch proxy by dressing a document up as
+    // an image URL, because the bytes have to come back as an image.
+    await loadWorker();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+      new Response('<html></html>', {
+        headers: { 'content-type': 'text/html' },
+      })
+    );
 
     const response = await harness.sendToMessage(
       {
@@ -570,8 +599,7 @@ describe('image proxy sender scoping', () => {
     );
 
     expect(response['success']).toBe(false);
-    expect(String(response['error'])).toContain('not allowed for this page');
-    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(String(response['error'])).toContain('not an image');
     fetchSpy.mockRestore();
   });
 

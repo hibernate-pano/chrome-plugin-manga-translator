@@ -84,6 +84,61 @@ export const DEFAULT_OPTIONS: FilledOptions = {
   cropRegion: undefined,
 };
 
+/**
+ * One download per image, not one per tile.
+ *
+ * A cross-origin image cannot be read from the page's canvas (taint), so the
+ * worker proxies its bytes. The tiled pipeline then asked for the *same*
+ * image once per tile — a 8000px strip was downloaded, decoded and base64'd
+ * eight or nine times, and every copy crossed the message channel. The bytes
+ * are identical each time.
+ *
+ * The cache holds a blob URL, not a decoded bitmap: the compressed bytes are
+ * what is expensive to fetch, while decoding a blob is local and cheap. TTL
+ * and a small cap keep a chapter's worth of strips from pinning tens of
+ * megabytes forever.
+ */
+const BACKGROUND_IMAGE_TTL_MS = 60_000;
+const MAX_CACHED_BACKGROUND_IMAGES = 4;
+const backgroundImageUrls = new Map<
+  string,
+  { objectUrl: string; expiresAt: number }
+>();
+
+function evictBackgroundImages(now: number): void {
+  for (const [key, value] of backgroundImageUrls) {
+    if (value.expiresAt <= now) {
+      URL.revokeObjectURL(value.objectUrl);
+      backgroundImageUrls.delete(key);
+    }
+  }
+  while (backgroundImageUrls.size > MAX_CACHED_BACKGROUND_IMAGES) {
+    const oldest = backgroundImageUrls.keys().next().value;
+    if (oldest === undefined) {
+      break;
+    }
+    const value = backgroundImageUrls.get(oldest);
+    if (value) {
+      URL.revokeObjectURL(value.objectUrl);
+    }
+    backgroundImageUrls.delete(oldest);
+  }
+}
+
+function base64ToBlob(base64: string, mimeType: string): Blob {
+  // The worker sends bare base64, but accepting a full data URL costs one
+  // slice and removes a way for the fallback to die on a payload it could
+  // have decoded.
+  const commaIndex = base64.startsWith('data:') ? base64.indexOf(',') : -1;
+  const payload = commaIndex === -1 ? base64 : base64.slice(commaIndex + 1);
+  const binary = atob(payload);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i += 1) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return new Blob([bytes], { type: mimeType });
+}
+
 export function shouldPreserveTallMangaPage(
   width: number,
   height: number,
@@ -363,12 +418,56 @@ export async function processImage(
       getErrorMessage(error)
     );
     return processImageViaBackground(
-      image.src,
+      image.currentSrc || image.src,
       originalWidth,
       originalHeight,
       options
     );
   }
+}
+
+/**
+ * Fetch an image's bytes through the worker, once per URL.
+ *
+ * Returns a blob URL rather than a data URL: a blob URL is same-origin, so
+ * the caller's canvas is not tainted and the tiled pipeline can reuse the
+ * same bytes without re-crossing the message channel. The cache is bounded
+ * by `MAX_CACHED_BACKGROUND_IMAGES` and `BACKGROUND_IMAGE_TTL_MS`;
+ * `evictBackgroundImages` revokes the URLs it drops.
+ */
+async function getBackgroundImageSource(imageUrl: string): Promise<string> {
+  const now = Date.now();
+  evictBackgroundImages(now);
+  const cached = backgroundImageUrls.get(imageUrl);
+  if (cached) {
+    return cached.objectUrl;
+  }
+
+  const response = await chrome.runtime.sendMessage({
+    action: 'fetchImage',
+    url: imageUrl,
+    // The background worker verifies this against the sending tab's URL, so a
+    // page cannot borrow the proxy to fetch arbitrary third-party URLs.
+    referrerPageUrl:
+      typeof window !== 'undefined' ? window.location.href : undefined,
+  });
+
+  if (!response?.success || !response.imageBase64) {
+    throw new Error(
+      `Failed to fetch image via background: ${response?.error || 'Unknown error'}`
+    );
+  }
+
+  const mimeType: string = response.mimeType || 'image/jpeg';
+  const objectUrl = URL.createObjectURL(
+    base64ToBlob(response.imageBase64, mimeType)
+  );
+  backgroundImageUrls.set(imageUrl, {
+    objectUrl,
+    expiresAt: now + BACKGROUND_IMAGE_TTL_MS,
+  });
+  evictBackgroundImages(now);
+  return objectUrl;
 }
 
 /**
@@ -393,23 +492,7 @@ async function processImageViaBackground(
 ): Promise<ProcessedImage> {
   const opts = { ...DEFAULT_OPTIONS, ...options };
 
-  const response = await chrome.runtime.sendMessage({
-    action: 'fetchImage',
-    url: imageUrl,
-    // The background worker verifies this against the sending tab's URL, so a
-    // page cannot borrow the proxy to fetch arbitrary third-party URLs.
-    referrerPageUrl:
-      typeof window !== 'undefined' ? window.location.href : undefined,
-  });
-
-  if (!response?.success || !response.imageBase64) {
-    throw new Error(
-      `Failed to fetch image via background: ${response?.error || 'Unknown error'}`
-    );
-  }
-
-  const mimeType: string = response.mimeType || 'image/jpeg';
-  const source = `data:${mimeType};base64,${response.imageBase64}`;
+  const source = await getBackgroundImageSource(imageUrl);
   const image = await loadImage(source);
 
   try {
@@ -442,25 +525,17 @@ async function processImageViaBackground(
       cropHeight,
     };
   } catch (error) {
-    // Re-compress failed (e.g. corrupt bytes) — fall back to the raw fetched
-    // bytes rather than dropping the translation.
+    // The bytes now live only behind a blob URL, so there is no raw base64 to
+    // return. Sending bytes we could not decode would cost a model request to
+    // produce a parse error, so fail this image instead and let the caller
+    // report it.
     console.log(
-      '[ImageProcessor] Background re-compress failed, returning raw bytes:',
+      '[ImageProcessor] Background re-compress failed:',
       getErrorMessage(error)
     );
-    const hash = await calculateHash(response.imageBase64);
-    return {
-      base64: response.imageBase64,
-      mimeType,
-      originalWidth,
-      originalHeight,
-      width: originalWidth,
-      height: originalHeight,
-      wasCompressed: false,
-      hash,
-      cropY: 0,
-      cropHeight: originalHeight,
-    };
+    throw new Error(
+      `图片重新编码失败：${getErrorMessage(error) || '未知原因'}`
+    );
   }
 }
 

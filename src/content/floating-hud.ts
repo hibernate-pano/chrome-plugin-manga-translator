@@ -659,12 +659,19 @@ export class FloatingHud {
     const listed = failures.slice(0, MAX_LISTED);
     const rest = failures.length - listed.length;
 
-    const lines = listed.map(
-      failure =>
-        `<div class="hud-sub hud-sub-error">第 ${failure.index} 张：${escapeHtml(
-          failure.reason
-        )}</div>`
-    );
+    const lines = listed.flatMap(failure => {
+      const reason = `<div class="hud-sub hud-sub-error">第 ${failure.index} 张：${escapeHtml(
+        failure.reason
+      )}</div>`;
+      // 「为什么坏」和「现在怎么办」是两句话。三张图因为同一个额度问题
+      // 失败时，读者需要的不是三遍原因，而是那一句能照做的事。
+      const suggestion = failure.suggestion
+        ? `<div class="hud-sub hud-sub-muted">↳ ${escapeHtml(
+            failure.suggestion
+          )}</div>`
+        : '';
+      return [reason, suggestion].filter(Boolean);
+    });
 
     if (rest > 0) {
       lines.push(

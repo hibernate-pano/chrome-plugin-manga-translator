@@ -236,15 +236,20 @@ Return ONLY valid JSON: {"textAreas":[{"x":0.1,"y":0.2,"width":0.3,"height":0.1,
 RULES:
 1. Find ALL text: bubbles, narration, signs, SFX, tiny side text, faint small captions. Don't miss small text.
 2. x,y,width,height are 0.0-1.0 ratios relative to image. x,y = top-left corner. The box MUST fully CONTAIN every character of the text — the translation is drawn on top of this box and covers the original, so any character outside the box stays visible next to the translation. Leave a small margin (about 5% of the text size) around the glyphs. Do NOT clip a character, and do NOT shrink the box to the first line of a multi-line bubble: ALL lines of the bubble must be inside the box.
-3. Merge multi-line text in one bubble into ONE item — one box covering all of its lines.
+3. Merge multi-line text in one bubble into ONE item — one box covering all of its lines. One bubble is one item: never split a bubble into several items, and never merge two separate bubbles.
 4. SFX: use target language onomatopoeia.
 5. Keep original speaker tone (formal/casual).
-6. Use \\\\n for line breaks in translatedText.
+6. Use \\n for line breaks in translatedText.
 7. No text found: {"textAreas":[]}
 8. If two text blocks are separate, return separate items. Avoid giant boxes that overlap unrelated text.
 9. Output ONLY the JSON.
 10. Source language may be KOREAN (webtoon), Japanese, or English. For Korean: translate casual 반말 as the casual register of the target language, honorific -요/-습니다 as its polite register, and keep Korean webtoon netspeak idiomatic in the target language rather than literal.
 11. Do NOT invent text — only return areas for text you can actually read. If the image is unreadable or empty, return {"textAreas":[]} EXACTLY, never hallucinate bubbles.
+12. translatedText must be the translation ONLY. Never repeat the source text, add romaji, or explain the joke. If a name or term has no translation, transliterate it.
+13. Vertical Japanese reads top-to-bottom, right-to-left. Keep each bubble's internal order; do not reorder bubbles.
+14. Ignore furigana (ruby) and tiny pronunciation guides; translate the main text line.
+15. Do NOT translate page numbers, watermarks, scanlation credits, chapter labels from the site UI, or advertising outside the artwork.
+16. Every field is a JSON string, and every box is four finite numbers. Never omit x, y, width or height — an item without a box cannot be drawn and will be discarded.
 
 ${styleInstruction}`;
 }
@@ -369,53 +374,44 @@ function validateAndNormalize(
 
   for (const area of rawAreas) {
     if (typeof area !== 'object' || area === null) {
+      unusableBoxes += 1;
       continue;
     }
     const a = area as Record<string, unknown>;
-    const hasTranslatedText = typeof a['translatedText'] === 'string';
-    const isXValid = a['x'] === undefined || typeof a['x'] === 'number';
-    const isYValid = a['y'] === undefined || typeof a['y'] === 'number';
-    const isWValid = a['width'] === undefined || typeof a['width'] === 'number';
-    const isHValid =
-      a['height'] === undefined || typeof a['height'] === 'number';
-    if (
-      !hasTranslatedText ||
-      !isXValid ||
-      !isYValid ||
-      !isWValid ||
-      !isHValid
-    ) {
-      continue;
-    }
-
-    const x = clampRatio(a['x']);
-    const y = clampRatio(a['y']);
-    const width = clampRatio(a['width']);
-    const height = clampRatio(a['height']);
-
-    /*
-     * 没有框的翻译不能画。
-     *
-     * 以前的做法是把缺失的坐标当成 0，于是模型忘了给坐标时，这句译文会
-     * 以最小字号被画成左上角一列单字 —— 盖在画面上，而真正的气泡还留着
-     * 日文。这种"画出来了"的假成功比"没画"更糟。
-     *
-     * 拼图条那条路以前有个例外：模型只给编号不给框时，编号被拿来认位置。
-     * 现在那条路的提示词也要坐标（拼图条是一张真图，位置本来就有），编号
-     * 是模型自己编的，认它反而会把译文画到别的块上去。例外取消：没有框
-     * 的条目一律丢掉，并且记进"没翻出来"的数字里，用户看得见。
-     */
-    if (width <= 0 || height <= 0) {
+    if (typeof a['translatedText'] !== 'string') {
       unusableBoxes += 1;
       continue;
     }
 
+    /*
+     * 四个坐标都是必填的有限数字。
+     *
+     * 以前缺坐标会被当成 0 —— 模型忘了给框，这句译文就以最小字号画成
+     * 左上角一列单字，盖在画面上，而真正的气泡还留着原文。字符串坐标
+     * 则被静默丢掉，用户既看不到译文，也看不到数目对不上。两种都记账。
+     */
+    const box = readBox(a);
+    if (!box) {
+      unusableBoxes += 1;
+      continue;
+    }
+
+    if (box.width <= 0 || box.height <= 0) {
+      unusableBoxes += 1;
+      continue;
+    }
+
+    const original = a['originalText'];
+
     textAreas.push({
-      x,
-      y,
-      width,
-      height,
-      originalText: (a['originalText'] as string) || '',
+      ...box,
+      // 渲染器会对原文调用 `.trim()`；模型偶尔回数字或 null。
+      originalText:
+        typeof original === 'string'
+          ? original
+          : original === undefined || original === null
+            ? ''
+            : String(original),
       translatedText: a['translatedText'] as string,
     });
   }
@@ -441,6 +437,49 @@ function validateAndNormalize(
   });
 
   return { textAreas: clamped, rawResponse, unplacedCount: unusableBoxes };
+}
+
+/**
+ * Read a model's bounding box, or `null` when it did not give a usable one.
+ *
+ * Models occasionally answer in percent (`x: 45` for 45%) instead of ratios.
+ * That is a unit mistake, not a missing box, so it is corrected here instead
+ * of being clamped into the top-left corner. Anything else that is not four
+ * finite numbers is rejected — the caller counts it and tells the reader.
+ */
+function readBox(
+  a: Record<string, unknown>
+): { x: number; y: number; width: number; height: number } | null {
+  const values = [a['x'], a['y'], a['width'], a['height']];
+  if (
+    values.some(value => typeof value !== 'number' || !Number.isFinite(value))
+  ) {
+    return null;
+  }
+
+  let x = values[0] as number;
+  let y = values[1] as number;
+  let width = values[2] as number;
+  let height = values[3] as number;
+  /*
+   * Percent answers are only worth correcting when the numbers look like
+   * percent. A box that merely overshoots the edge (`width: 2`) is a bad
+   * ratio, and dividing it by 100 would turn it into a two-pixel smudge.
+   */
+  const largest = Math.max(x, y, width, height);
+  if (largest >= 4 && largest <= 100) {
+    x /= 100;
+    y /= 100;
+    width /= 100;
+    height /= 100;
+  }
+
+  return {
+    x: clampRatio(x),
+    y: clampRatio(y),
+    width: clampRatio(width),
+    height: clampRatio(height),
+  };
 }
 
 /**

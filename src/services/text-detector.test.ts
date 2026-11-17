@@ -7,29 +7,35 @@ import {
 import { createWorker } from 'tesseract.js';
 
 vi.mock('tesseract.js', () => {
+  const hello = {
+    bbox: { x0: 100, y0: 200, x1: 200, y1: 300 },
+    text: 'Hello',
+    confidence: 90,
+  };
+  const world = {
+    bbox: { x0: 110, y0: 210, x1: 210, y1: 310 },
+    text: 'World',
+    confidence: 80,
+  };
+  const lowConf = {
+    bbox: { x0: 400, y0: 500, x1: 500, y1: 600 },
+    text: 'LowConf',
+    confidence: 10,
+  };
+
   const mockWorker = {
     setParameters: vi.fn().mockResolvedValue(null),
+    // tesseract.js 7's real shape: word boxes live under
+    // `blocks[].paragraphs[].lines[].words`, and there is no top-level
+    // `words`. Mimicking that here is the point of the mock — the previous
+    // one had the v5 shape and hid the fact that the reader was broken.
     recognize: vi.fn().mockResolvedValue({
       data: {
+        text: 'Hello World\nLowConf',
         confidence: 85,
-        imageWidth: 800,
-        imageHeight: 1200,
-        words: [
-          {
-            bbox: { x0: 100, y0: 200, x1: 200, y1: 300 },
-            text: 'Hello',
-            confidence: 90,
-          },
-          {
-            bbox: { x0: 110, y0: 210, x1: 210, y1: 310 },
-            text: 'World',
-            confidence: 80,
-          },
-          {
-            bbox: { x0: 400, y0: 500, x1: 500, y1: 600 },
-            text: 'LowConf',
-            confidence: 10,
-          },
+        blocks: [
+          { paragraphs: [{ lines: [{ words: [hello, world] }] }] },
+          { paragraphs: [{ lines: [{ words: [lowConf] }] }] },
         ],
       },
     }),
@@ -45,6 +51,22 @@ describe('text-detector', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
+
+  /**
+   * Queue one recognition result.
+   *
+   * The real `Page` type is enormous and mostly irrelevant here: these tests
+   * are about how the detector reads the fields it needs, so the payload is
+   * intentionally partial.
+   */
+  async function queueRecognition(
+    data: Record<string, unknown>
+  ): Promise<void> {
+    const worker = await createWorker();
+    vi.mocked(worker.recognize).mockResolvedValueOnce({
+      data,
+    } as unknown as Awaited<ReturnType<typeof worker.recognize>>);
+  }
 
   it('detects regions and applies psm parameter and confidence threshold filter', async () => {
     const result = await detectTextRegions('mocked_image_base64', {
@@ -79,6 +101,60 @@ describe('text-detector', () => {
     expect(result.regions[0]?.y).toBe(190);
     expect(result.regions[0]?.width).toBe(120);
     expect(result.regions[0]?.height).toBe(120);
+  });
+
+  it('falls back to the dimensions the caller supplies', async () => {
+    // tesseract.js 7 no longer reports imageWidth/imageHeight, so the caller
+    // passes the post-processing size it already knows.
+    const result = await detectTextRegions('mocked_image_base64', {
+      imageWidth: 640,
+      imageHeight: 960,
+    });
+
+    expect(result.imageWidth).toBe(640);
+    expect(result.imageHeight).toBe(960);
+  });
+
+  it('fails loudly when tesseract returns no word boxes at all', async () => {
+    // Neither `words` nor `blocks` means the installed tesseract.js does not
+    // match what this code reads. Reporting "no text" here would cache an
+    // empty page, which is the failure this whole shape check exists for.
+    await queueRecognition({ text: '' });
+
+    await expect(detectTextRegions('mocked_image_base64')).rejects.toThrow(
+      /OCR 输出形状不匹配/
+    );
+  });
+
+  it('fails loudly when tesseract reports text but no word boxes', async () => {
+    await queueRecognition({ text: 'こんにちは', blocks: [] });
+
+    await expect(detectTextRegions('mocked_image_base64')).rejects.toThrow(
+      /有文本，但读不出任何词框/
+    );
+  });
+
+  it('still reads the legacy flat words shape', async () => {
+    await queueRecognition({
+      confidence: 90,
+      words: [
+        {
+          bbox: { x0: 0, y0: 0, x1: 100, y1: 50 },
+          text: 'Legacy',
+          confidence: 90,
+        },
+      ],
+    });
+
+    const result = await detectTextRegions('mocked_image_base64');
+    expect(result.regions.map(region => region.text)).toEqual(['Legacy']);
+  });
+
+  it('treats an empty result with no text as a genuine empty page', async () => {
+    await queueRecognition({ text: '', blocks: [] });
+
+    const result = await detectTextRegions('mocked_image_base64');
+    expect(result.regions).toEqual([]);
   });
 
   describe('mergeOverlappingRegions', () => {

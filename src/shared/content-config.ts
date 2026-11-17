@@ -194,7 +194,6 @@ export function buildContentConfigSnapshot(
     };
   }
 
-  const pipeline = state['translationPipeline'];
   const stylePreset = state['translationStylePreset'];
 
   return {
@@ -229,10 +228,20 @@ export function buildContentConfigSnapshot(
       state['regionBatchSize'],
       DEFAULT_CONFIG.regionBatchSize
     ),
-    translationPipeline:
-      pipeline === 'hybrid-regions' || pipeline === 'full-image-vlm'
-        ? pipeline
-        : DEFAULT_CONFIG.translationPipeline,
+    /*
+     * `hybrid-regions` is retired.
+     *
+     * It was the default before `full-image-vlm`, and the value is persisted,
+     * so anyone who saved settings under the old default still reads it back
+     * here. That pipeline's OCR fallback reads `data.words`, which
+     * tesseract.js 7 no longer returns — every image paid for a failed OCR
+     * attempt (and, on a first run, a language-pack download from jsdelivr)
+     * before falling back. Mapping the old value onto the current default is
+     * cheaper, faster, and removes a whole class of failures for existing
+     * users. The pipeline is not exposed in the UI, so no new user can pick
+     * it; the OCR path itself is fixed separately for tests and future use.
+     */
+    translationPipeline: DEFAULT_CONFIG.translationPipeline,
     fallbackToFullImage: readBoolean(
       state['fallbackToFullImage'],
       DEFAULT_CONFIG.fallbackToFullImage

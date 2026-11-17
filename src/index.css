@@ -27,8 +27,17 @@ body {
  * frame, and `.proof-scroll` is the only thing that moves.
  */
 .popup-body {
-  width: 360px;
-  height: 600px;
+  /*
+   * A fixed 360x600 sheet, capped by the window.
+   *
+   * Chrome sizes the popup in *physical* pixels, so at 125% zoom the page
+   * only gets ~288x480 CSS pixels. A hard 360px width then overflowed the
+   * window and the right-hand column of every row was cut off. `min()`
+   * keeps the design size where there is room and shrinks where there is
+   * not.
+   */
+  width: min(360px, 100vw);
+  height: min(600px, 100vh);
   margin: 0;
   overflow: hidden;
 }

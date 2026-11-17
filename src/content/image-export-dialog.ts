@@ -42,6 +42,13 @@ export interface ImageExportRequest {
   index?: number;
   /** 打开弹窗的按钮；关闭时焦点回到它。 */
   trigger?: HTMLElement | null;
+  /**
+   * 当前主题。
+   *
+   * 弹窗是懒创建的：用户切主题时它可能还不存在。只靠"切主题时通知"
+   * 会让后来创建的弹窗用默认配色，所以打开时也要带一份。
+   */
+  theme?: ThemeName;
 }
 
 /**
@@ -259,6 +266,9 @@ export class ImageExportDialog {
    */
   open(request: ImageExportRequest): void {
     this.request = request;
+    if (request.theme) {
+      this.setTheme(request.theme);
+    }
 
     // 关掉焦点回到哪儿：优先用触发按钮，没有就用当前焦点。
     this.opener =
@@ -540,4 +550,14 @@ export function getImageExportDialog(): ImageExportDialog {
     dialogInstance = new ImageExportDialog();
   }
   return dialogInstance;
+}
+
+/**
+ * Repaint the dialog if it exists. Does not create one: a theme change is
+ * not a reason to put a hidden dialog into the page.
+ */
+export function setImageExportDialogTheme(theme: ThemeName): void {
+  if (dialogInstance && !dialogInstance.isDestroyed()) {
+    dialogInstance.setTheme(theme);
+  }
 }

@@ -76,6 +76,19 @@ describe('filterOverlapDuplicates', () => {
     expect(result).toHaveLength(1);
   });
 
+  it('keeps the larger detection when a seam cuts a bubble in half', () => {
+    // The upper tile sees only the top of the bubble; the lower tile sees the
+    // whole thing. Keeping the first detection drew the translation over half
+    // the original text.
+    const clipped = area(0.2, 0.4, 0.3, 0.04);
+    const whole = area(0.2, 0.4, 0.3, 0.1);
+
+    const result = filterOverlapDuplicates([clipped, whole]);
+
+    expect(result).toHaveLength(1);
+    expect(result[0]?.height).toBe(0.1);
+  });
+
   it('keeps distinct bubbles that only slightly touch vertically', () => {
     const areas = [area(0.1, 0.1, 0.2, 0.02), area(0.1, 0.15, 0.2, 0.1)];
     expect(filterOverlapDuplicates(areas)).toHaveLength(2);

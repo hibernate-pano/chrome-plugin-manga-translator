@@ -960,14 +960,14 @@ const PopupApp: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className='flex h-[220px] w-[360px] items-center justify-center bg-paper text-ink'>
+      <div className='flex h-[220px] w-full max-w-[360px] items-center justify-center bg-paper text-ink'>
         <Loader2 className='h-5 w-5 animate-spin' />
       </div>
     );
   }
 
   return (
-    <div className='mt-shell flex h-full w-[360px] flex-col overflow-hidden bg-paper text-sm text-ink'>
+    <div className='mt-shell flex h-full w-full max-w-[360px] flex-col overflow-hidden bg-paper text-sm text-ink'>
       {/*
         读屏用户和眼睛看到的应该是同一件事。
 

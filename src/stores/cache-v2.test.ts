@@ -196,7 +196,8 @@ type CacheStore = {
     set: (
       hash: string,
       result: TranslationResult,
-      provider: 'openai-compatible'
+      provider: 'openai-compatible',
+      options?: { ttlMs?: number }
     ) => void;
     get: (hash: string) => TranslationResult | null;
     has: (hash: string) => boolean;
@@ -274,6 +275,36 @@ describe('translation cache store', () => {
 
     expect(state.has('hash-1')).toBe(true);
     expect(state.get('hash-1')?.textAreas[0]?.translatedText).toBe('hello');
+  });
+
+  it('stops trusting a no-text answer once its TTL passes', async () => {
+    const store = await loadTab();
+    const empty = {
+      textAreas: [],
+      pipeline: 'full-image-vlm',
+    } as unknown as TranslationResult;
+
+    store
+      .getState()
+      .set('empty-page', empty, 'openai-compatible', { ttlMs: 5 });
+    expect(store.getState().get('empty-page')).not.toBeNull();
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // The page gets asked about again instead of staying silently untranslated
+    // for the life of the cache.
+    expect(store.getState().get('empty-page')).toBeNull();
+  });
+
+  it('keeps a real translation with no expiry', async () => {
+    const store = await loadTab();
+    store.getState().set('hash-real', makeResult('hello'), 'openai-compatible');
+
+    await new Promise(resolve => setTimeout(resolve, 20));
+
+    // A TTL is for "no text", which is the weak answer. A real translation is
+    // the thing the cache exists to keep.
+    expect(store.getState().get('hash-real')?.textAreas).toHaveLength(1);
   });
 
   it('get returns null for unknown hashes', async () => {

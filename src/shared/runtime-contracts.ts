@@ -224,6 +224,24 @@ export interface ImageFailure {
    * 归一化之后的、给读者看的原因。
    */
   reason: string;
+  /**
+   * 错误码。卡片按它判断"同一类失败"和下一步动作；不给读者看。
+   */
+  code?: string;
+  /**
+   * 失败该怪谁：模型、服务商、站点，还是插件自己。
+   */
+  category?: 'model' | 'provider' | 'site' | 'extension';
+  /**
+   * 读者现在能做的事。
+   *
+   * `reason` 回答"为什么坏"，这一句回答"那我怎么办"。三张图都因为额度
+   * 用完而失败时，只写三遍原因等于让读者读三遍同一句话，却始终不知道
+   * 要去充值。
+   */
+  suggestion?: string;
+  /** HTTP 状态码，有的话。诊断包用它。 */
+  status?: number;
 }
 
 /**

@@ -92,14 +92,10 @@ import {
   setState,
   autoTranslateMode,
   handleRouteChange,
-  isFatalTranslationError,
 } from './content';
 import { useAppConfigStore } from '@/stores/config-v2';
 import type { ContentResponse, ContentState } from '@/shared/runtime-contracts';
-import {
-  MASTER_SWITCH_OFF_MESSAGE,
-  PROVIDER_NOT_READY_MESSAGE,
-} from '@/shared/runtime-contracts';
+import { PROVIDER_NOT_READY_MESSAGE } from '@/shared/runtime-contracts';
 import { buildContentConfigSnapshot } from '@/shared/content-config';
 
 // ================================================================
@@ -256,11 +252,15 @@ beforeEach(() => {
 // ================================================================
 
 describe('content page translation settings', () => {
-  it('clamps concurrency into stable range 2-3', () => {
-    expect(clampPageTranslationConcurrency(1)).toBe(2);
+  it('honours the concurrency the settings page offers', () => {
+    // The settings page offers 1, 3 and 5. Clamping to 2–3 meant two of the
+    // three choices did something other than what they said.
+    expect(clampPageTranslationConcurrency(1)).toBe(1);
     expect(clampPageTranslationConcurrency(2)).toBe(2);
     expect(clampPageTranslationConcurrency(3)).toBe(3);
-    expect(clampPageTranslationConcurrency(9)).toBe(3);
+    expect(clampPageTranslationConcurrency(5)).toBe(5);
+    expect(clampPageTranslationConcurrency(9)).toBe(5);
+    expect(clampPageTranslationConcurrency(0)).toBe(1);
   });
 
   it('falls back to default for invalid values', () => {
@@ -879,27 +879,49 @@ describe('F6: failure reasons are surfaced', () => {
     expect(translateImageMock.mock.calls.length).toBeLessThan(3);
   });
 
-  it('recognises the fatal error signatures', () => {
-    expect(isFatalTranslationError('401 Unauthorized')).toBe(true);
-    expect(isFatalTranslationError('HTTP 429 Too Many Requests')).toBe(true);
-    expect(isFatalTranslationError('Invalid API key provided')).toBe(true);
-    expect(isFatalTranslationError('rate limit exceeded')).toBe(true);
-    expect(isFatalTranslationError('网络连接失败，请检查网络')).toBe(false);
-    expect(isFatalTranslationError('解析失败')).toBe(false);
+  it('keeps going when one image cannot be downloaded', async () => {
+    // A CDN that refuses one image says nothing about the model, the key or
+    // the next image. This used to abort the whole run: one 403 left the rest
+    // of the page untranslated and charged the reader a "network" message
+    // that described their connection, not the site.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: 'Failed to fetch image via background: Failed to fetch image: 403',
+    });
+    makeComicImage('https://cdn.example.com/a.webp');
+    makeComicImage('https://cdn.example.com/b.webp');
+    makeComicImage('https://cdn.example.com/c.webp');
+
+    await translatePage();
+
+    const state = lastState();
+    expect(translateImageMock).toHaveBeenCalledTimes(3);
+    expect(state.status).toBe('complete');
+    expect(state).toMatchObject({ failedCount: 3 });
   });
 
-  it('stops the run when the worker refuses the job', () => {
-    // A provider that is not set up fails identically for every image left
-    // on the page, so the rest of the run must not start. Without this the
-    // reader watches twenty images fail one by one against a setting they
-    // can fix in the same place.
-    expect(isFatalTranslationError(PROVIDER_NOT_READY_MESSAGE)).toBe(true);
-    expect(isFatalTranslationError(MASTER_SWITCH_OFF_MESSAGE)).toBe(true);
-    // The refusal is matched inside a longer message: the transport appends
-    // its own note to what the worker wrote.
-    expect(
-      isFatalTranslationError(`${PROVIDER_NOT_READY_MESSAGE}（重试 2 次后）`)
-    ).toBe(true);
+  it('stops a run that keeps hitting the rate limit', async () => {
+    // The first 429 is worth waiting out; the third in one run means the
+    // account or the provider is throttling hard, and every further image is
+    // a request that will be refused too.
+    await writeConfig({ enabled: true });
+    translateImageMock.mockResolvedValue({
+      success: false,
+      textAreas: [],
+      error: '[HTTP 429] Too Many Requests',
+    });
+    for (let index = 0; index < 5; index++) {
+      makeComicImage(`https://cdn.example.com/rate-${index}.webp`);
+    }
+
+    await translatePage();
+
+    const state = lastState();
+    expect(state.status).toBe('error');
+    expect(translateImageMock.mock.calls.length).toBeGreaterThanOrEqual(3);
+    expect(translateImageMock.mock.calls.length).toBeLessThan(5);
   });
 
   it('shows the worker its own sentence when it refuses the job', async () => {

@@ -148,6 +148,79 @@ describe('parseVisionResponse', () => {
     expect(result.unplacedCount).toBe(1);
   });
 
+  it('counts boxes it had to throw away, so the page can say so', () => {
+    const response = JSON.stringify({
+      textAreas: [
+        // Coordinates a model sometimes writes as strings.
+        {
+          x: '0.1',
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          translatedText: '字符串坐标',
+        },
+        // Half a box: the old code placed this at the top-left corner.
+        { x: 0.1, y: 0.2, width: 0.3, translatedText: '缺高度' },
+        // A real one, so the result is not empty for the wrong reason.
+        {
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          translatedText: '有效',
+        },
+      ],
+    });
+
+    const result = parseVisionResponse(response);
+
+    expect(result.textAreas).toHaveLength(1);
+    expect(result.textAreas[0]?.translatedText).toBe('有效');
+    expect(result.unplacedCount).toBe(2);
+  });
+
+  it('reads a box given in percent as percent, not as a giant box', () => {
+    // x:45 is 45% of the width. Clamping it to 1 would paint the whole page.
+    const response = JSON.stringify({
+      textAreas: [
+        {
+          x: 45,
+          y: 10,
+          width: 20,
+          height: 8,
+          originalText: '原文',
+          translatedText: '译文',
+        },
+      ],
+    });
+
+    const result = parseVisionResponse(response);
+    const area = result.textAreas[0];
+
+    expect(area?.x).toBeCloseTo(0.45);
+    expect(area?.y).toBeCloseTo(0.1);
+    expect(area?.width).toBeCloseTo(0.2);
+    expect(area?.height).toBeCloseTo(0.08);
+  });
+
+  it('survives a non-string originalText', () => {
+    const response = JSON.stringify({
+      textAreas: [
+        {
+          x: 0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.1,
+          originalText: 42,
+          translatedText: '译文',
+        },
+      ],
+    });
+
+    const result = parseVisionResponse(response);
+    expect(result.textAreas[0]?.originalText).toBe('42');
+  });
+
   it('pulls a box that runs past the edge back into the picture', () => {
     // x=0.9、width=0.5 的框有四成在图外。以前渲染器会把面板往左挪，
     // 译文于是画在模型没有指的地方；缩小框至少让它留在模型说的位置。

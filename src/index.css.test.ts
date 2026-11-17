@@ -183,10 +183,13 @@ describe('焦点指示器', () => {
 });
 
 describe('popup frame', () => {
-  it('is a fixed 360x600 frame that does not scroll', () => {
+  it('is a 360x600 frame capped by the window, and does not scroll', () => {
     const block = cssBlock(css, '.popup-body');
-    expect(cssDeclaration(block, 'width')).toBe('360px');
-    expect(cssDeclaration(block, 'height')).toBe('600px');
+    // `min()` keeps the design size at 100% zoom and shrinks at 125%, where
+    // Chrome gives the popup ~288x480 CSS pixels. A hard 360px clipped the
+    // right-hand column instead of adapting.
+    expect(cssDeclaration(block, 'width')).toBe('min(360px, 100vw)');
+    expect(cssDeclaration(block, 'height')).toBe('min(600px, 100vh)');
     expect(cssDeclaration(block, 'overflow')).toBe('hidden');
   });
 

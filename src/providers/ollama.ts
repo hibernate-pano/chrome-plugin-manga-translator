@@ -71,6 +71,14 @@ interface OllamaGenerateRequest {
   prompt: string;
   images?: string[];
   stream?: boolean;
+  /**
+   * Constrain the completion to valid JSON.
+   *
+   * The prompt already asks for JSON, and small local models still wrap it in
+   * prose or forget a brace. `format: 'json'` is enforced by the runtime, not
+   * by the model, and costs nothing.
+   */
+  format?: 'json';
   options?: {
     temperature?: number;
     num_predict?: number;
@@ -95,6 +103,35 @@ interface OllamaTagsResponse {
   }>;
 }
 
+/**
+ * The last successful validation, shared by every provider instance.
+ *
+ * A provider object is created per translation job, so an instance field
+ * would be cold every time. `validateConfig` makes two `/api/tags` calls, and
+ * a tiled chapter therefore asked Ollama "are you running?" twice per tile —
+ * hundreds of local round-trips for one page. Only successes are cached: a
+ * failure is what the user is in the middle of fixing, and keeping it for a
+ * minute would keep failing after they fixed it.
+ */
+let lastSuccessfulValidation: {
+  key: string;
+  expiresAt: number;
+  result: ValidationResult;
+} | null = null;
+
+const VALIDATION_CACHE_MS = 60_000;
+
+/**
+ * Forget the cached health result.
+ *
+ * The settings page calls `validateConfig` directly when the user presses
+ * 「测试连接」, so this exists for tests that need each scenario to start
+ * from a cold cache.
+ */
+export function clearOllamaValidationCache(): void {
+  lastSuccessfulValidation = null;
+}
+
 export class OllamaProvider implements VisionProvider {
   readonly name = 'Ollama';
   readonly type = 'ollama' as const;
@@ -115,7 +152,7 @@ export class OllamaProvider implements VisionProvider {
     translationStylePreset?: TranslationStylePreset,
     isHybridRegions?: boolean
   ): Promise<VisionResponse> {
-    const validation = await this.validateConfig();
+    const validation = await this.validateForRequest();
     if (!validation.valid) {
       throw new Error(validation.message);
     }
@@ -141,6 +178,7 @@ export class OllamaProvider implements VisionProvider {
       prompt,
       images: [base64Data],
       stream: false,
+      format: 'json',
       options: {
         temperature: 0.1,
         num_predict: 4096,
@@ -203,6 +241,34 @@ export class OllamaProvider implements VisionProvider {
 
     const usage = normalizeOllamaUsage(data);
     return usage ? { ...parsed, usage } : parsed;
+  }
+
+  /**
+   * Validate once per minute, not once per tile.
+   *
+   * The settings page's 「测试连接」 calls `validateConfig` directly and
+   * still gets a live answer.
+   */
+  private async validateForRequest(): Promise<ValidationResult> {
+    const key = `${this.config.baseUrl}|${this.config.model}`;
+    const now = Date.now();
+    if (
+      lastSuccessfulValidation &&
+      lastSuccessfulValidation.key === key &&
+      now < lastSuccessfulValidation.expiresAt
+    ) {
+      return lastSuccessfulValidation.result;
+    }
+
+    const result = await this.validateConfig();
+    if (result.valid) {
+      lastSuccessfulValidation = {
+        key,
+        expiresAt: now + VALIDATION_CACHE_MS,
+        result,
+      };
+    }
+    return result;
   }
 
   async validateConfig(): Promise<ValidationResult> {

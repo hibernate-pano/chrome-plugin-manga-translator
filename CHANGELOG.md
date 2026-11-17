@@ -5,6 +5,62 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.1] - 2026-11-17
+
+### Fixed
+
+- **A single image's CDN failure no longer aborts the page.** The fatal-error
+  check now uses the classified error code instead of matching raw strings.
+  Bad keys, missing configuration, exhausted quota and Ollama origin blocks
+  stop the run immediately; model/parameter errors stop after the second
+  occurrence; rate limits stop after the third. Image-fetch errors never stop
+  the run.
+- **Extension-less CDN URLs are fetched again.** The image proxy used to
+  require an image file extension on cross-origin URLs, so `/image?id=…` and
+  signed CDN paths failed with 「网络连接失败」 while the browser displayed
+  them fine. The response `Content-Type`, size cap and private-network checks
+  remain the actual guards.
+- **OCR works with tesseract.js 7.** Word boxes live under
+  `blocks[].paragraphs[].lines[].words`; the old top-level `words` no longer
+  exists, so every OCR run returned zero regions and was cached as "this page
+  has no text". The detector now reads the real shape and fails loudly on a
+  shape mismatch instead of reporting an empty page. Persisted
+  `hybrid-regions` settings migrate to `full-image-vlm`.
+- **"No text" answers expire after 24 hours** instead of being cached forever;
+  real translations are still cached indefinitely.
+- **Bounding boxes are validated before drawing.** All four coordinates must
+  be finite numbers; missing or string coordinates are dropped and counted in
+  `unplacedCount` instead of being painted in the top-left corner. Percent
+  coordinates are normalized.
+- **Tile seam duplicates keep the larger box**, so a bubble cut by a tile seam
+  is not covered by a translation drawn over only half of it.
+- **Only retryable tile failures are retried**, and a full-image fallback is
+  skipped for permanent errors, so a 401/404/422 no longer buys the same error
+  twice.
+
+### Changed
+
+- **Cross-origin images are downloaded once per URL, not once per tile.** The
+  fetched bytes are cached as a blob URL for 60 seconds, so a tall strip no
+  longer crosses the message channel N+1 times.
+- **Ollama health checks are cached for 60 seconds** instead of running two
+  `/api/tags` requests before every tile.
+- **The concurrency setting now means what it says.** The clamp was 2–3 while
+  the settings page offered 1, 3 and 5; it is now 1–5. The default stays 3.
+- **Structured output:** OpenAI-compatible requests ask for
+  `response_format: json_object`, with one automatic retry without the field
+  for gateways that reject it; Ollama requests use `format: 'json'`.
+- **Prompt hardening:** no source-text repetition or romaji, vertical
+  right-to-left reading, furigana ignored, page numbers/watermarks/site UI
+  excluded, one bubble per item, required coordinates.
+- **Failure feedback:** each failed image now carries its error code, category
+  and a suggestion; the HUD shows what the reader can do next. Quota
+  exhaustion is its own error instead of "try again later". Diagnostics carry
+  the real job duration and detected-region count.
+- **Popup and onboarding survive zoomed windows:** the popup is capped by the
+  viewport, the onboarding dialog scrolls, and both money dialogs follow the
+  active theme.
+
 ## [2.3.0] - 2026-11-15
 
 ### Changed

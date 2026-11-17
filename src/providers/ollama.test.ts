@@ -8,13 +8,20 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { summarizeUsageForMonth, useUsageStore } from '@/stores/usage-store';
-import { OllamaProvider } from './ollama';
+import { OllamaProvider, clearOllamaValidationCache } from './ollama';
 
 const baseConfig = {
   apiKey: '',
   baseUrl: 'http://localhost:11434',
   model: 'llava',
 };
+
+beforeEach(() => {
+  // The validation cache is module-level (it is shared by every provider
+  // instance in the worker), so a test that reaches a healthy service would
+  // otherwise make the next test skip its own fetch mocks.
+  clearOllamaValidationCache();
+});
 
 describe('OllamaProvider.checkHealth', () => {
   afterEach(() => {
@@ -263,6 +270,33 @@ describe('OllamaProvider.analyzeAndTranslate', () => {
     ];
     expect(generateCall[1].signal).toBeDefined();
     expect(generateCall[1].signal?.aborted).toBe(false);
+  });
+
+  it('checks the service once, not once per tile', async () => {
+    // A tiled chapter is many requests against the same local service.
+    // Asking "are you running?" twice before every one of them is pure
+    // latency: two extra round-trips per tile, hundreds per page.
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+      .mockResolvedValueOnce(makeTagsResponse(['llava']))
+      .mockImplementation(async () =>
+        makeGenerateResponse({
+          response: JSON.stringify({ textAreas: [] }),
+          done: true,
+        })
+      );
+
+    const provider = new OllamaProvider();
+    await provider.initialize(baseConfig);
+
+    await provider.analyzeAndTranslate('QUJD', 'zh-CN');
+    const afterFirst = fetchSpy.mock.calls.length;
+
+    await provider.analyzeAndTranslate('QUJD', 'zh-CN');
+
+    expect(afterFirst).toBe(3);
+    expect(fetchSpy.mock.calls.length - afterFirst).toBe(1);
   });
 });
 

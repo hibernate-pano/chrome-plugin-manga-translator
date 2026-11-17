@@ -55,6 +55,8 @@ export interface ForceRetranslateConfirmRequest {
   onConfirm: () => void;
   /** 用户点了「取消」，或者按了 Esc。 */
   onCancel: () => void;
+  /** 当前主题；确认框是懒创建的，打开时要带上。 */
+  theme?: ThemeName;
 }
 
 const HOST_ATTRIBUTE = 'data-manga-translator-confirm';
@@ -142,6 +144,9 @@ export class ForceRetranslateConfirm {
   /** 打开确认框。 */
   open(request: ForceRetranslateConfirmRequest): void {
     this.request = request;
+    if (request.theme) {
+      this.setTheme(request.theme);
+    }
 
     this.opener =
       document.activeElement instanceof HTMLElement
@@ -356,4 +361,12 @@ export function getForceRetranslateConfirm(): ForceRetranslateConfirm {
     instance = new ForceRetranslateConfirm();
   }
   return instance;
+}
+
+/**
+ * Repaint the confirm box if it has been created. A theme change is not a
+ * reason to put a hidden dialog into the page.
+ */
+export function setForceRetranslateConfirmTheme(theme: ThemeName): void {
+  instance?.setTheme(theme);
 }

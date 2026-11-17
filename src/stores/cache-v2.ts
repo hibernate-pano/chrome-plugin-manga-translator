@@ -86,6 +86,16 @@ interface CacheEntry {
   timestamp: number;
   /** Provider used for this translation */
   provider: ProviderType;
+  /**
+   * When this entry stops being an answer.
+   *
+   * Only set for results that found no text. "This page has no text" is the
+   * weakest answer the model can give: it is also what a broken prompt, a
+   * truncated response or a model that never looked at the image produces.
+   * Caching it forever means such a page is never translated again. A TTL
+   * bounds the damage to one re-ask per day instead.
+   */
+  expiresAt?: number;
 }
 
 /**
@@ -122,11 +132,13 @@ interface TranslationCacheActions {
    * @param imageHash Hash of the image
    * @param result Translation result
    * @param provider Provider used for translation
+   * @param options.ttlMs How long the entry stays valid (omit for no expiry)
    */
   set: (
     imageHash: string,
     result: TranslationResult,
-    provider: ProviderType
+    provider: ProviderType,
+    options?: { ttlMs?: number }
   ) => void;
 
   /**
@@ -694,6 +706,16 @@ export const useTranslationCacheStore = create<
         if (!entry) {
           return null;
         }
+        if (
+          typeof entry.expiresAt === 'number' &&
+          Date.now() >= entry.expiresAt
+        ) {
+          // Ask again rather than keep saying "no text" from a stale answer.
+          // `remove` records a tombstone, otherwise the next merge would bring
+          // the expired entry back from another context's copy.
+          state.remove(imageHash);
+          return null;
+        }
         // Refresh the access time so the entry survives the next eviction.
         // The refreshed timestamp is persisted with the next write, which is
         // also what keeps the eviction order identical in every context.
@@ -709,7 +731,7 @@ export const useTranslationCacheStore = create<
       },
 
       // Store result in cache
-      set: (imageHash, result, provider) => {
+      set: (imageHash, result, provider, options) => {
         set(state => {
           const newEntry: CacheEntry = {
             imageHash,
@@ -719,6 +741,9 @@ export const useTranslationCacheStore = create<
             },
             timestamp: nextTimestamp(),
             provider,
+            ...(typeof options?.ttlMs === 'number' && options.ttlMs > 0
+              ? { expiresAt: Date.now() + options.ttlMs }
+              : {}),
           };
 
           const entries = toEntryMap(state.cache);

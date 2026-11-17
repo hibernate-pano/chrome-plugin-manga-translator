@@ -64,6 +64,67 @@ interface ChatResponse {
 const MINIMAX_M3_MODEL_PATTERN = /^minimax-m3(?:$|[-.:/])/i;
 
 /**
+ * Base URLs that answered `response_format` with a rejection.
+ *
+ * JSON mode is enforced by the service, not requested from the model, so it
+ * removes a whole class of "model answered prose instead of JSON" failures.
+ * Not every OpenAI-compatible gateway implements it, though, and a 400 is a
+ * request the user did not pay for — but one they would pay again for on
+ * every image. Remembering the rejection per endpoint means the retry costs
+ * exactly one extra request per session, not one per image.
+ */
+const jsonModeUnsupported = new Set<string>();
+
+function isJsonModeRejection(
+  status: number,
+  error: string | undefined
+): boolean {
+  if (status < 400 || status >= 500) {
+    return false;
+  }
+  const text = (error ?? '').toLowerCase();
+  return (
+    text.includes('response_format') ||
+    text.includes('json_object') ||
+    text.includes('json mode') ||
+    text.includes('unsupported')
+  );
+}
+
+/**
+ * The model ids in a `/models` answer, or an empty list when the shape is
+ * not one we recognise.
+ *
+ * OpenAI and most gateways return `{ data: [{ id }] }`; a few return a bare
+ * array. Anything else is treated as "the endpoint did not tell us", which
+ * means the caller must not conclude that a model is missing.
+ */
+function readModelIds(data: unknown): string[] {
+  if (!data || typeof data !== 'object') {
+    return [];
+  }
+  const list = Array.isArray(data)
+    ? data
+    : Array.isArray((data as { data?: unknown }).data)
+      ? (data as { data: unknown[] }).data
+      : [];
+  const ids: string[] = [];
+  for (const item of list) {
+    if (typeof item === 'string') {
+      ids.push(item);
+      continue;
+    }
+    if (item && typeof item === 'object') {
+      const id = (item as { id?: unknown }).id;
+      if (typeof id === 'string' && id) {
+        ids.push(id);
+      }
+    }
+  }
+  return ids;
+}
+
+/**
  * The token counts, in the shape the usage store records them.
  *
  * A service that reports no usage at all returns null, and the caller
@@ -180,15 +241,30 @@ export abstract class OpenAICompatibleProvider
       body['max_tokens'] = REQUEST_LIMITS.MAX_TOKENS;
     }
 
-    const httpResponse = await httpRequest<ChatResponse>(
-      `${this.config.baseUrl}/chat/completions`,
-      {
+    const endpoint = `${this.config.baseUrl}/chat/completions`;
+    const send = (jsonMode: boolean) =>
+      httpRequest<ChatResponse>(endpoint, {
         method: 'POST',
         headers,
-        body,
+        body: jsonMode
+          ? { ...body, response_format: { type: 'json_object' } }
+          : body,
         timeout: this.getRequestTimeoutMs(),
-      }
-    );
+      });
+
+    const tryJsonMode = !jsonModeUnsupported.has(endpoint);
+    let httpResponse = await send(tryJsonMode);
+
+    if (
+      tryJsonMode &&
+      !httpResponse.ok &&
+      isJsonModeRejection(httpResponse.status, httpResponse.error)
+    ) {
+      // The gateway does not know the field. Ask again without it; the model
+      // still gets the prompt that asks for JSON.
+      jsonModeUnsupported.add(endpoint);
+      httpResponse = await send(false);
+    }
 
     if (!httpResponse.ok) {
       // The status is what turns "翻译失败" into "API 密钥无效" (401),
@@ -298,6 +374,26 @@ export abstract class OpenAICompatibleProvider
     );
 
     if (response.ok) {
+      /*
+       * A 200 on `/models` says the endpoint is reachable and the key works.
+       * It does not say the configured model exists — a typo in the model
+       * name still gets "已连接", and the first image then fails with a 404
+       * that the reader has no way to connect back to this check. When the
+       * gateway lists its models, the name is checked against that list. It
+       * is a warning, not a failure: gateways alias model names, and a false
+       * "wrong model" would send the user chasing a working setup.
+       */
+      const ids = readModelIds(response.data);
+      if (
+        ids.length > 0 &&
+        this.config.model &&
+        !ids.includes(this.config.model)
+      ) {
+        return {
+          valid: true,
+          message: `已连接 ${this.name}，但模型「${this.config.model}」不在该端点返回的列表里（共 ${ids.length} 个）。请核对模型名，否则翻译会失败。`,
+        };
+      }
       return { valid: true, message: `已连接 ${this.name}` };
     }
 

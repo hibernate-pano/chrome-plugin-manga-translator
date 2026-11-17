@@ -906,6 +906,7 @@ async function enqueueTranslationJob(
     // silently returns the result it was meant to replace.
     forceRefresh: request.forceRefresh,
     run: async () => {
+      const startedAt = Date.now();
       // The master switch, checked again at the last moment before the
       // request.
       //
@@ -999,11 +1000,15 @@ async function enqueueTranslationJob(
         actualCapabilityUsed,
         state: 'succeeded',
         diagnostics: {
-          detectedRegions: 0,
+          // These used to be literal zeros. The job's real duration is the
+          // number a reader quotes when they say "this page took forever",
+          // and a diagnostics bundle full of zeros cannot be used to tell a
+          // slow provider from a slow queue.
+          detectedRegions: (response.textAreas ?? []).length,
           fallbackRegions: 0,
           ocrMs: 0,
-          translateMs: 0,
-          totalMs: 0,
+          translateMs: Date.now() - startedAt,
+          totalMs: Date.now() - startedAt,
           retryCount: 0,
           cacheStatus: response.cached ? 'hit' : 'miss',
         },
@@ -1092,13 +1097,22 @@ async function fetchImageBytesResponse(
 /**
  * Decide whether a sender may proxy this image.
  *
- * The image URL is only trustworthy when it belongs to the page asking for
- * it. Without this check, any page the user visits could ask the worker to
- * retrieve an arbitrary URL and read the bytes back — a fetch proxy. Same
- * origin is always allowed. A cross-origin URL is allowed only when it looks
- * like an image, which keeps the common cases working (a comic CDN, a
- * same-origin asset path) while removing the open-proxy primitive; the
- * internal-network checks in `fetchImageBytes` still apply either way.
+ * The sender is a content script running on a page the user chose to
+ * translate; page scripts cannot call `chrome.runtime.sendMessage`, so the
+ * only caller is our own scanner. The useful boundaries are therefore:
+ *
+ * - a tab must be involved (extension pages have no `tab.id`);
+ * - the URL must be http(s);
+ * - the fetched response must be an image, under the size cap, and not on a
+ *   private address (`fetchImageBytes` enforces all three).
+ *
+ * The old rule also required a `.jpg/.png/...` suffix on cross-origin URLs.
+ * It was meant to keep this from becoming an open proxy, but `Content-Type`
+ * is the stronger check and the suffix rule rejected a large share of real
+ * CDNs (`/image?id=...`, signed URLs, `/img/abc123`). Those images failed
+ * with 「网络连接失败」 while the browser displayed them fine. The proxy is
+ * still image-only; what changed is that the URL no longer has to *look*
+ * like an image to be fetched.
  *
  * Extension pages are refused outright: they never legitimately proxy images.
  */
@@ -1117,23 +1131,7 @@ function isImageFetchAllowedForSender(
     return false;
   }
 
-  const senderUrl = sender.url ?? sender.tab.url;
-  if (senderUrl) {
-    try {
-      if (new URL(senderUrl).origin === parsed.origin) {
-        return true;
-      }
-    } catch {
-      // Unparseable sender URL: fall through to the cross-origin rule.
-    }
-  }
-
-  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return false;
-  }
-  return /\.(?:jpe?g|png|webp|gif|avif|bmp)(?:$|\?)/i.test(
-    parsed.pathname + parsed.search
-  );
+  return parsed.protocol === 'http:' || parsed.protocol === 'https:';
 }
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {

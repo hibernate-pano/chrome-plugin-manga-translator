@@ -464,7 +464,7 @@ describe('image-processor', () => {
 
         vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
           success: true,
-          imageBase64: 'proxy_base64',
+          imageBase64: 'cHJveHk=',
           mimeType: 'image/png',
         });
 
@@ -534,7 +534,7 @@ describe('image-processor', () => {
 
         vi.mocked(chrome.runtime.sendMessage).mockResolvedValue({
           success: true,
-          imageBase64: 'proxy_base64',
+          imageBase64: 'cHJveHk=',
           mimeType: 'image/png',
         });
 

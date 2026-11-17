@@ -47,6 +47,38 @@ interface TextDetectionOptions {
   minConfidence?: number;
   /** Tesseract Page Segmentation Mode (PSM) */
   psm?: string;
+  /**
+   * Dimensions of the image being recognised.
+   *
+   * tesseract.js 7 stopped copying `imageWidth`/`imageHeight` onto the result,
+   * so the caller — which already knows them from image processing — supplies
+   * them instead of the detector guessing.
+   */
+  imageWidth?: number;
+  imageHeight?: number;
+}
+
+/** One recognised word, as tesseract.js reports it. */
+interface OcrWord {
+  bbox: { x0: number; y0: number; x1: number; y1: number };
+  text: string;
+  confidence: number;
+}
+
+/** The slice of tesseract.js 7's block tree this module reads. */
+interface OcrBlock {
+  paragraphs?: Array<{ lines?: Array<{ words?: OcrWord[] }> }>;
+}
+
+interface OcrData {
+  text?: string;
+  confidence?: number;
+  imageWidth?: number;
+  imageHeight?: number;
+  /** Legacy tesseract.js (v5 and earlier) flattened words. */
+  words?: OcrWord[];
+  /** tesseract.js 7 word tree, emitted only when `output.blocks` is true. */
+  blocks?: OcrBlock[] | null;
 }
 
 // ==================== Configuration ====================
@@ -59,6 +91,8 @@ const DEFAULT_OPTIONS: Required<TextDetectionOptions> = {
   expandMargin: 0.05, // Expand by 5% to capture full text
   minConfidence: 0.3,
   psm: '11', // Sparse text: Find as much text as possible in no particular order
+  imageWidth: 0,
+  imageHeight: 0,
 };
 
 // ==================== Cached Worker ====================
@@ -168,29 +202,40 @@ export async function detectTextRegions(
       console.log(`[TextDetector] 开始检测文字区域 (PSM: ${opts.psm})...`);
     }
 
-    // Recognize text
-    const result = await tesseractWorker.recognize(base64);
-    const data = result.data;
+    // Recognize text.
+    //
+    // tesseract.js 7 returns only `text` by default. The word boxes — the
+    // whole point of this call — live under
+    // `blocks[].paragraphs[].lines[].words`, and are only emitted when
+    // `blocks: true` is requested. The old code read a top-level `data.words`
+    // that v7 does not produce, so every OCR run returned zero regions and
+    // the caller read that as "this page has no text".
+    const recognize = tesseractWorker.recognize.bind(tesseractWorker) as (
+      image: string,
+      options: Record<string, unknown>,
+      output: Record<string, unknown>
+    ) => Promise<{ data: unknown }>;
+    const result = await recognize(base64, {}, { text: true, blocks: true });
+    const data = result.data as OcrData;
 
     const processingTime = performance.now() - startTime;
 
+    const words = collectOcrWords(data);
+    if (words === undefined) {
+      throw new Error(
+        'OCR 输出形状不匹配：既没有 words 也没有 blocks（tesseract.js 版本不受支持）'
+      );
+    }
+    if (words.length === 0 && (data.text ?? '').trim().length > 0) {
+      throw new Error('OCR 输出形状不匹配：有文本，但读不出任何词框');
+    }
+
     if (import.meta.env.DEV) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const wordsCount = (data as any).words?.length || 0;
       console.log(
-        `[TextDetector] 检测完成, 耗时: ${processingTime.toFixed(0)}ms, 文字区域数: ${wordsCount}`
+        `[TextDetector] 检测完成, 耗时: ${processingTime.toFixed(0)}ms, 文字区域数: ${words.length}`
       );
     }
 
-    // Convert words to regions
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const words = (data as any).words as
-      | Array<{
-          bbox: { x0: number; y0: number; x1: number; y1: number };
-          text: string;
-          confidence: number;
-        }>
-      | undefined;
     const regions = convertToRegions(
       words,
       data.confidence ?? 0,
@@ -200,10 +245,8 @@ export async function detectTextRegions(
 
     return {
       regions,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      imageWidth: (data as any).imageWidth ?? 0,
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      imageHeight: (data as any).imageHeight ?? 0,
+      imageWidth: data.imageWidth ?? opts.imageWidth,
+      imageHeight: data.imageHeight ?? opts.imageHeight,
       processingTime,
     };
   } catch (error) {
@@ -214,16 +257,31 @@ export async function detectTextRegions(
 }
 
 /**
+ * Pull the word boxes out of a recognition result.
+ *
+ * Returns `undefined` when the result carries neither shape — that is a
+ * version mismatch, not "no text", and the caller must not treat it as an
+ * empty page. An empty array means the shapes were present and tesseract
+ * genuinely found nothing.
+ */
+function collectOcrWords(data: OcrData): OcrWord[] | undefined {
+  if (Array.isArray(data.words)) {
+    return data.words;
+  }
+  if (Array.isArray(data.blocks)) {
+    return data.blocks
+      .flatMap(block => block.paragraphs ?? [])
+      .flatMap(paragraph => paragraph.lines ?? [])
+      .flatMap(line => line.words ?? []);
+  }
+  return undefined;
+}
+
+/**
  * Convert Tesseract words to TextRegion format with optional expansion
  */
 function convertToRegions(
-  words:
-    | Array<{
-        bbox: { x0: number; y0: number; x1: number; y1: number };
-        text: string;
-        confidence: number;
-      }>
-    | undefined,
+  words: OcrWord[] | undefined,
   overallConfidence: number,
   expandMargin: number,
   minConfidence: number
