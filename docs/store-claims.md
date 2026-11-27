@@ -13,15 +13,18 @@
 | 列 | 含义 |
 | --- | --- |
 | 承诺 | 对外做出这句承诺的事实本身（人读） |
-| 代码锚点 | 支撑它的代码位置，格式 `文件路径:符号名`、`文件路径:!符号名` 或 `文件路径:行号`；多个锚点用 `;` 分隔 |
+| 代码锚点 | 支撑它的代码位置，格式 `文件路径:符号名`、`文件路径:符号名==代码片段`、`文件路径:!符号名` 或 `文件路径:行号`；多个锚点用 `;` 分隔 |
 | 文案 | 这条承诺在哪些文档里出现，以及它们必须包含的原文片段。格式 `文档: 原文片段`，多个用 `;` 分隔。片段 `yes` 表示"直接用承诺列的原文" |
 
 脚本做两件事：
 
 1. **正向**：每个锚点的文件必须存在，锚点指向的符号（或那一行）必须还在，
    而且必须在**代码**里 —— 只活在注释里的符号不算。`!符号名` 表示这条承诺
-   靠的是这个符号**没有被赋值**（比如 OCR 语言包走 jsdelivr，正因为
-   `langPath` 从不设置）；它一旦被赋值，构建就失败。
+   靠的是这个符号**没有被赋值**（比如某个默认值必须保持未设置）；它一旦被
+   赋值，构建就失败。`符号名==代码片段` 表示这个符号必须在同一条语句里被
+   赋成含该片段的值（忽略空白），用于「值指向哪里」类承诺 —— 例如
+   `langPath==chrome.runtime.getURL('tesseract/lang')`：符号还在、但路径被
+   改回远程主机时，构建失败。
    符号被改名或删掉 → 这条承诺失去支撑 → 构建失败。
 2. **反向**：每个标记了文档的承诺，其原文片段必须仍出现在那份文档里。
    文档删掉了这句话 → 文案与事实脱节 → 构建失败。
@@ -39,7 +42,7 @@
 | 覆盖层底色可在设置里调整 | `src/components/Options/OptionsApp.tsx:setOverlayStyle` | listing: 覆盖层底色可在设置里调整 |
 | 长条条漫（webtoon）切片处理 | `src/services/translator.ts:translateImageTiled`; `src/services/translator.ts:computeTiles`; `src/services/translator.ts:translateTile` | listing: 长条条漫（webtoon）会切片处理; release: for the tiled pipeline |
 | 视觉模型零文字时用内置 Tesseract OCR 兜底（Ollama 除外） | `src/services/translator.ts:translateWithHybridPipeline`; `src/services/translator.ts:this.config.provider !== 'ollama'`; `src/services/translator.ts:translateRegionsWithHybrid` | listing: 内置 Tesseract OCR 可继续工作（使用 Ollama 时不启用该兜底） |
-| OCR 语言包从 jsdelivr 公开 CDN 下载 | `src/services/text-detector.ts:!langPath`; `src/services/text-detector.ts:workerPath`; `src/services/text-detector.ts:corePath` | listing: OCR 语言包在首次使用 OCR 兜底时从 jsdelivr 公开 CDN 下载; privacy: the official `@tesseract.js-data` package on jsdelivr |
+| OCR 引擎与四种语言包随扩展打包，运行时从扩展本地目录读取，不访问 CDN | `src/services/text-detector.ts:langPath==chrome.runtime.getURL('tesseract/lang')`; `src/services/text-detector.ts:workerPath==chrome.runtime.getURL('tesseract/worker.min.js')`; `src/services/text-detector.ts:corePath==chrome.runtime.getURL('tesseract/tesseract-core-simd-lstm.wasm.js')`; `scripts/check-release-consistency.mjs:checkTesseractAssetsLocal`; `scripts/check-release-consistency.mjs:checkNoRemoteCode`; `scripts/lib/tesseract-assets.mjs:TESSERACT_LANGUAGES`; `scripts/lib/tesseract-assets.mjs:4.0.0_best_int` | listing: OCR 引擎与韩/日/英/简中四种语言包随扩展打包，OCR 兜底完全在本地运行，不下载远程代码或语言模型; privacy: The Tesseract worker script, the SIMD WASM core and the language models (`.traineddata`) for Korean, Japanese, English and Simplified Chinese ship inside the extension package; review: OCR 兜底所用的 Tesseract worker、WASM 核心与韩/日/英/简中四种语言包均随扩展打包，运行时从扩展本地目录读取，不产生任何网络请求 |
 | 翻译缓存：翻译成功的图片不重复请求 | `src/services/translator.ts:buildCacheKey`; `src/stores/cache-v2.ts:CACHE_STORAGE_KEY` | listing: 翻译缓存：翻译成功的图片不重复请求; review: 启用缓存 |
 | 画质与并发可在设置页调整 | `src/components/Options/OptionsApp.tsx:setMaxImageSize`; `src/components/Options/OptionsApp.tsx:setParallelLimit`; `src/stores/config-v2.ts:maxImageSize` | listing: 画质与并发可调 |
 | 目标语言可选，所选语言真正传给模型 | `src/utils/translation-style.ts:STYLE_LOCALIZATION`; `src/utils/translation-style.ts:getTargetLanguageName`; `src/providers/base.ts:getMangaTranslationPrompt` | listing: 目标语言可选 |
@@ -63,7 +66,7 @@
 | 密钥是 XOR 混淆，不是加密 | `src/utils/crypto.ts:obfuscateApiKey`; `src/utils/crypto.ts:SALT` | privacy: obfuscation, not encryption; review: 这是混淆而非加密; readme: obfuscated, not encrypted |
 | 开发者不收集、不接收、不存储任何用户数据 | `src/stores/config-v2.ts:chrome.storage.local`; `src/stores/cache-v2.ts:chrome.storage.local`; `src/stores/usage-store.ts:chrome.storage.local` | listing: 开发者不收集、不接收、不存储任何用户数据; privacy: The extension developer does not collect, receive, or store any user data; review: 本扩展的开发者不收集、不接收、不存储任何用户数据 |
 | 没有统计、遥测、崩溃上报与广告 SDK | `src/stores/usage-store.ts:chrome.storage.local`; `src/stores/usage-store.ts:accumulator` | listing: 没有统计、没有遥测、没有崩溃上报，没有广告 SDK; privacy: no analytics, no tracking scripts, no telemetry, and no crash reporting; review: 无统计、无遥测、无崩溃上报、无广告 SDK |
-| 出站请求只有三类 | `src/utils/http-client.ts:httpRequest`; `src/background/image-fetch-guard.ts:fetch`; `src/services/text-detector.ts:!langPath` | privacy: The extension makes outbound requests to exactly three kinds of destination; review: 出站请求仅三类 |
+| 出站请求只有两类 | `src/utils/http-client.ts:httpRequest`; `src/background/image-fetch-guard.ts:fetch`; `src/services/text-detector.ts:!cdn.jsdelivr.net`; `scripts/check-release-consistency.mjs:checkNoRemoteCode` | privacy: The extension makes outbound requests to exactly two kinds of destination; review: 出站请求仅两类 |
 | 页面图片由浏览器直连该页自己的图床 GET，不带 Cookie | `src/background/image-fetch-guard.ts:credentials: 'omit'` | listing: 页面图片由浏览器直接向该页自己的图床发起 GET 请求（不携带你的 Cookie），不是开发者架设的代理; privacy: sent with `credentials: 'omit'`; review: 使用 credentials: 'omit' |
 | 取图只允许 http/https 并拒绝内网地址 | `src/background/image-fetch-guard.ts:parsed.protocol !== 'http:'`; `src/background/image-fetch-guard.ts:metadata.google.internal` | review: 协议只允许 http/https; privacy: `metadata.google.internal` and private/loopback IPv4 and IPv6 literals are refused |
 | 重定向后的最终地址要过同一道校验，不合格就丢弃响应 | `src/background/image-fetch-guard.ts:isSafeImageUrl(finalUrl)`; `src/background/image-fetch-guard.ts:Blocked image URL after redirect` | review: 重定向后的最终地址同样要过上面这道校验; privacy: The same check is applied to the URL the response finally came from |

@@ -1593,11 +1593,10 @@ describe('a page with no text is cached like any other answer', () => {
 // "this image has no text".
 //
 // The full-image path asks the model, gets nothing, and then asks
-// Tesseract to look instead. When Tesseract itself fails — the language
-// pack downloads from cdn.jsdelivr.net, which is not reachable
-// everywhere — the old code swallowed the error and returned
-// `success: true` with zero areas. That image counted as translated, the
-// HUD said 译文已直接覆盖在原图上 over an untouched page, and the empty
+// Tesseract to look instead. When Tesseract itself fails — a corrupt
+// install, a missing language file — the old code swallowed the error and
+// returned `success: true` with zero areas. That image counted as translated,
+// the HUD said 译文已直接覆盖在原图上 over an untouched page, and the empty
 // answer was written to the cache, so opening the page again never asked
 // a second time. The reader paid and got nothing, permanently.
 // ================================================================
@@ -1649,7 +1648,7 @@ describe('an OCR fallback that failed is a failed image, not an empty answer', (
     mockProcessing();
     // The model saw nothing, and the fallback could not run.
     detectTextRegionsMock.mockRejectedValue(
-      new Error('Failed to load language pack from cdn.jsdelivr.net')
+      new Error('Failed to load the bundled language pack')
     );
 
     const translateImage = vi.fn(async () => ({

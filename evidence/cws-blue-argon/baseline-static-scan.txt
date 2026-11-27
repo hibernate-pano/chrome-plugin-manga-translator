@@ -1,0 +1,49 @@
+[scan] root: /Users/panbo/orca/workspaces/chrome-plugin-manga-translator/cws-blue-argon/dist
+[scan] scanned 24 file(s); 41 distinct remote URL(s)
+  URL commands-DcgzgVrr.js: http://*/*
+  URL commands-DcgzgVrr.js: https://*/*
+  URL content.js: http://localhost:11434
+  URL content.js: http://localhost:11434/api/tags
+  URL content.js: http://localhost:1234/v1
+  URL content.js: https://api.minimaxi.com/v1
+  URL content.js: https://cdn.jsdelivr.net/npm/tesseract.js@v${ra}/dist/worker.min.js
+  URL content.js: https://github.com/pmndrs/zustand/discussions/1937
+  URL index-CbuPjTo5.js: http://www.w3.org/2000/svg
+  URL index-CbuPjTo5.js: https://${t}
+  URL index-Cxca7a85.js: http://localhost:11434
+  URL index-Cxca7a85.js: http://localhost:1234/v1
+  URL index-Cxca7a85.js: https://api.openai.com/v1
+  URL local-providers-8xk73gjs.js: http://localhost:11434
+  URL local-providers-8xk73gjs.js: http://localhost:11434/api/tags
+  URL local-providers-8xk73gjs.js: http://localhost:1234/v1
+  URL local-providers-8xk73gjs.js: https://${r}
+  URL local-providers-8xk73gjs.js: https://${t}
+  URL local-providers-8xk73gjs.js: https://api.minimaxi.com/v1
+  URL options.js: https://aistudio.google.com/app/apikey
+  URL options.js: https://api.minimaxi.com/v1
+  URL options.js: https://api.openai.com/v1
+  URL options.js: https://api.siliconflow.cn/v1
+  URL options.js: https://cloud.siliconflow.cn/account/ak
+  URL options.js: https://generativelanguage.googleapis.com/v1beta/openai
+  URL options.js: https://github.com/hibernate-pano/chrome-plugin-manga-translator/releases
+  URL options.js: https://lmstudio.ai/download
+  URL options.js: https://ollama.com/download
+  URL options.js: https://openrouter.ai/api/v1
+  URL options.js: https://openrouter.ai/keys
+  URL options.js: https://platform.minimaxi.com/user-center/basic-information/interface-key
+  URL options.js: https://platform.openai.com/api-keys
+  URL react-dom-vendor-BE9G4YoE.js: http://www.w3.org/1998/Math/MathML
+  URL react-dom-vendor-BE9G4YoE.js: http://www.w3.org/1999/xhtml
+  URL react-dom-vendor-BE9G4YoE.js: http://www.w3.org/1999/xlink
+  URL react-dom-vendor-BE9G4YoE.js: http://www.w3.org/2000/svg
+  URL react-dom-vendor-BE9G4YoE.js: http://www.w3.org/XML/1998/namespace
+  URL react-dom-vendor-BE9G4YoE.js: https://reactjs.org/docs/error-decoder.html?invariant=
+  URL state-vendor-6LVtU4WP.js: https://github.com/pmndrs/zustand/discussions/1937
+  URL worker.min.js: https://cdn.jsdelivr.net/npm/@tesseract.js-data/
+  URL worker.min.js: https://cdn.jsdelivr.net/npm/tesseract.js-core@v
+[scan] remote code vectors: 3 (in 24 scanned file(s))
+  VECTOR content.js: remote code URL — https://cdn.jsdelivr.net/npm/tesseract.js@v${ra}/dist/worker.min.js
+  VECTOR worker.min.js: tesseract CDN default — https://cdn.jsdelivr.net/npm/@tesseract.js-data/
+  VECTOR worker.min.js: tesseract CDN default — https://cdn.jsdelivr.net/npm/tesseract.js-core@v
+[scan] FAIL: the package still contains loadable remote code
+EXIT:1

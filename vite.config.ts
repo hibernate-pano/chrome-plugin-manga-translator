@@ -3,6 +3,7 @@ import react from '@vitejs/plugin-react';
 import { crx } from '@crxjs/vite-plugin';
 import path from 'path';
 import manifest from './public/manifest.json';
+import { localizeTesseractClientDefaults } from './scripts/lib/tesseract-client-defaults.mjs';
 
 /**
  * Vite plugin: 构建后将 content.js 重新打包为自包含脚本
@@ -269,7 +270,12 @@ function collectRuntimeGetUrlTargets(
 
 // https://vitejs.dev/config/
 export default defineConfig({
-  plugins: [react(), crx({ manifest }), contentScriptRebundler()],
+  plugins: [
+    localizeTesseractClientDefaults(),
+    react(),
+    crx({ manifest }),
+    contentScriptRebundler(),
+  ],
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),

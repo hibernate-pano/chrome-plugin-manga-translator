@@ -104,23 +104,20 @@ have not chosen to translate.
 
 ## OCR Language Data
 
-The extension ships the Tesseract worker script and the SIMD WASM core locally
-in the bundle, so the OCR engine itself needs no download. When the OCR fallback
-path is used — that is, when the configured vision model returns no text, and
-only for providers other than Ollama — Tesseract downloads the language model
-(`.traineddata`) for the languages it is set up to recognize (Korean, Japanese,
-English, Simplified Chinese) from the official `@tesseract.js-data` package on
-jsdelivr.
+The Tesseract worker script, the SIMD WASM core and the language models
+(`.traineddata`) for Korean, Japanese, English and Simplified Chinese ship
+inside the extension package. The OCR fallback reads them from the extension's
+own files; it makes no network request and downloads nothing.
 
-- No image content, page content, or user data is included in that request.
-- The request is a plain download of a public language model file.
-- The download is cached by the browser after the first use.
+- No image content, page content, or user data is included in any OCR request,
+  because there is no OCR request.
+- The language models are public data files that ship with the extension.
 
 ## Every Network Request the Extension Makes
 
-The extension makes outbound requests to exactly three kinds of destination. No
-others exist; there is no analytics endpoint, no update ping, and no
-developer-operated server.
+The extension makes outbound requests to exactly two kinds of destination. No
+others exist; there is no analytics endpoint, no update ping, no OCR download,
+and no developer-operated server.
 
 1. **The vision provider you configure.** Image bytes are uploaded here when a
    translation runs.
@@ -134,11 +131,10 @@ developer-operated server.
    to translate (or that an allowlisted site auto-translates), never during
    browsing. The extension operates no proxy of its own — the request goes from
    your browser to that host.
-3. **jsdelivr**, for the OCR language model described above.
 
-The first is directed at a service you chose. The second and third are requests
-to third-party hosts you did not explicitly configure, which is why they are
-called out here. On the second path the scheme is restricted to `http`/`https`,
+The first is directed at a service you chose. The second is a request to a
+third-party host you did not explicitly configure, which is why it is called
+out here. On the second path the scheme is restricted to `http`/`https`,
 and `localhost`, `*.localhost`, `metadata.google.internal` and private/loopback
 IPv4 and IPv6 literals are refused, so a page cannot aim the extension at an
 internal service by address. The same check is applied to the URL the response

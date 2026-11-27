@@ -85,8 +85,9 @@ interface OcrData {
 
 const DEFAULT_OPTIONS: Required<TextDetectionOptions> = {
   // jpn/eng/chi_sim cover the classic manga set; kor is required for the
-  // Korean manhwa (webtoon) target audience this extension serves. Tesseract
-  // lazily downloads traineddata, so extra langs only add a first-run delay.
+  // Korean manhwa (webtoon) target audience this extension serves. All four
+  // traineddata files ship inside the extension, so the language list costs
+  // package size rather than a first-run download.
   languages: ['kor', 'jpn', 'eng', 'chi_sim'],
   expandMargin: 0.05, // Expand by 5% to capture full text
   minConfidence: 0.3,
@@ -141,21 +142,31 @@ async function getWorker(languages: string[]): Promise<Worker> {
     workerOptions['corePath'] = chrome.runtime.getURL(
       'tesseract/tesseract-core-simd-lstm.wasm.js'
     );
-    // `langPath` is deliberately NOT set.
+    // The language data ships inside the extension. `scripts/copy-tesseract.js`
+    // copies the pinned `@tesseract.js-data` files into `tesseract/lang`, and
+    // the worker reads `<langPath>/<lang>.traineddata.gz` from there.
     //
-    // It used to point at npm.elemecdn.com, an unofficial third-party npm
-    // mirror. That is a supply-chain dependency on infrastructure this project
-    // does not control, it is an undisclosed third-party request in a
-    // local-first product, and it fails outright wherever that host is
-    // unreachable. Leaving it unset makes tesseract.js use its own canonical
-    // data source (the @tesseract.js-data package on jsdelivr), which is what
-    // every other tesseract.js integration uses and what the library
-    // maintains.
-    //
-    // The OCR path is a fallback, not the default pipeline, so this download
-    // only happens when a page needs it. It is disclosed in
-    // docs/privacy-policy.md.
-    workerOptions['workerBlobURL'] = false;
+    // This used to be left unset, which made tesseract.js download the data
+    // from jsdelivr on first use. That was an undisclosed third-party request
+    // in a local-first product, it failed wherever jsdelivr was unreachable,
+    // and the library's default URL stayed in the built bundle — the Chrome
+    // Web Store's Blue Argon review treats a remotely hosted script as a
+    // Manifest V3 violation even when the runtime overrides it. The worker
+    // and core defaults are localized the same way: by the build, not by a
+    // runtime option that leaves the remote string in the package.
+    workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');
+    // The packaged files are gzipped; pin the flag instead of relying on the
+    // library's default.
+    workerOptions['gzip'] = true;
+    // Chrome refuses a direct `new Worker(chrome-extension://...)` from a
+    // content script: the constructor compares the script URL's origin with
+    // the page's and reports "cannot be accessed from origin", even though
+    // the worker is listed as a web-accessible resource. Bootstrapping the
+    // worker from a blob whose only statement is `importScripts(<packaged
+    // worker>)` keeps the script local and passes the extension-resource
+    // check. Verified end-to-end by
+    // evidence/cws-blue-argon/runtime-offline-ocr.mjs.
+    workerOptions['workerBlobURL'] = true;
   }
 
   worker = await createWorker(langKey, 1, workerOptions);

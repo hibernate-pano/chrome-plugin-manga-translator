@@ -41,6 +41,16 @@
 import { readFileSync, readdirSync, statSync, existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import {
+  TESSERACT_CORE_FILES,
+  TESSERACT_DATA_VERSION,
+  TESSERACT_LANGUAGES,
+  trainedDataPackage,
+} from './lib/tesseract-assets.mjs';
+import {
+  formatRemoteCodeFinding,
+  scanTreeForRemoteCode,
+} from './lib/remote-code-scan.mjs';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const packageJson = JSON.parse(
@@ -518,6 +528,200 @@ function checkNoCredentialsInContentScript() {
 }
 
 /**
+ * The local OCR asset contract, checked before the build.
+ *
+ * The language models are copied out of pinned `@tesseract.js-data/*`
+ * packages. Pinning the package version in package.json is what makes the
+ * bytes reproducible: `4.0.0_best_int` is the variant tesseract.js selects
+ * for `createWorker(lang, 1)`, and a caret range would let a later install
+ * ship different data under the same path.
+ *
+ * The detector half is checked here as well because it is knowable without
+ * an artifact. If `langPath` disappears, tesseract.js silently falls back to
+ * its jsdelivr default — which is the exact behaviour 2.3.2 exists to remove.
+ */
+function checkTesseractSourceAssets() {
+  const devDependencies = packageJson.devDependencies ?? {};
+  const problems = [];
+
+  for (const lang of TESSERACT_LANGUAGES) {
+    const name = trainedDataPackage(lang);
+    if (devDependencies[name] !== TESSERACT_DATA_VERSION) {
+      problems.push(
+        `${name} must be pinned to ${TESSERACT_DATA_VERSION} in devDependencies ` +
+          `(found ${devDependencies[name] ?? 'nothing'})`
+      );
+    }
+  }
+
+  const detectorPath = join(projectRoot, 'src', 'services', 'text-detector.ts');
+  if (!existsSync(detectorPath)) {
+    problems.push('src/services/text-detector.ts is missing');
+  } else {
+    const detector = readFileSync(detectorPath, 'utf8');
+    for (const expected of [
+      "workerOptions['langPath']",
+      "chrome.runtime.getURL('tesseract/lang')",
+      "workerOptions['gzip']",
+    ]) {
+      if (!detector.includes(expected)) {
+        problems.push(
+          `src/services/text-detector.ts no longer contains ${expected}`
+        );
+      }
+    }
+    if (detector.includes('cdn.jsdelivr.net')) {
+      problems.push(
+        'src/services/text-detector.ts still contains cdn.jsdelivr.net'
+      );
+    }
+  }
+
+  if (problems.length > 0) {
+    console.error('[release-check] the local OCR asset contract is broken:');
+    for (const problem of problems) {
+      console.error(`  - ${problem}`);
+    }
+    console.error(
+      '[release-check] the OCR fallback must read its language data from the extension. ' +
+        'Pin the @tesseract.js-data packages, point langPath at chrome.runtime.getURL("tesseract/lang"), ' +
+        'and do not restore a CDN default.'
+    );
+    process.exit(1);
+  }
+
+  return (
+    `local OCR source contract holds (${TESSERACT_LANGUAGES.length} languages, ` +
+    `@tesseract.js-data@${TESSERACT_DATA_VERSION})`
+  );
+}
+
+/**
+ * Refuse a build that still contains loadable remote code.
+ *
+ * This is the check the Chrome Web Store performs, done here first. The Blue
+ * Argon review of 2.3.1 quoted tesseract.js's default `workerPath` and core
+ * URL: the extension overrode both at runtime, but the strings were still in
+ * the package, and a static review does not run the code.
+ *
+ * `scanTreeForRemoteCode` reports URLs ending in `.js`/`.mjs`/`.wasm`, remote
+ * arguments to `importScripts`/`new Worker`/dynamic `import()`, and the
+ * tesseract CDN prefixes (including the language-data directory, which is
+ * data rather than code but is still a remote default). Provider endpoints
+ * are not code and are not reported.
+ */
+function checkNoRemoteCode() {
+  const distDir = join(projectRoot, 'dist');
+  if (!existsSync(join(distDir, 'manifest.json'))) {
+    fail(
+      'dist/manifest.json is missing — the build produced no manifest, so there is nothing to release'
+    );
+  }
+
+  const { scannedFiles, findings } = scanTreeForRemoteCode(distDir);
+  if (findings.length > 0) {
+    console.error(
+      `[release-check] ${findings.length} remote code vector(s) in ${scannedFiles} built file(s):`
+    );
+    for (const finding of findings) {
+      console.error(`  - ${formatRemoteCodeFinding(finding)}`);
+    }
+    console.error(
+      '[release-check] Chrome Web Store review rejects a package that contains remotely hosted code, ' +
+        'even when the runtime overrides the default. Bundle the script and rewrite the library default in the build.'
+    );
+    process.exit(1);
+  }
+
+  return `no remote code in ${scannedFiles} built file(s)`;
+}
+
+/**
+ * Refuse a build whose OCR assets are not self-contained.
+ *
+ * `checkNoRemoteCode` proves the package does not name a remote script. This
+ * proves the local replacement is actually there: the worker, the SIMD-LSTM
+ * core pair, and one gzipped traineddata file per language. A missing file
+ * would not fail until a user's OCR fallback ran — and the failure would look
+ * like a broken page, not like a packaging mistake.
+ */
+function checkTesseractAssetsLocal() {
+  const distDir = join(projectRoot, 'dist');
+  if (!existsSync(join(distDir, 'manifest.json'))) {
+    fail(
+      'dist/manifest.json is missing — the build produced no manifest, so there is nothing to release'
+    );
+  }
+
+  const required = [
+    'tesseract/worker.min.js',
+    ...TESSERACT_CORE_FILES.map(file => `tesseract/${file}`),
+    ...TESSERACT_LANGUAGES.map(lang => `tesseract/lang/${lang}.traineddata.gz`),
+  ];
+  const problems = [];
+  let totalBytes = 0;
+
+  for (const relativePath of required) {
+    const fullPath = join(distDir, relativePath);
+    if (!existsSync(fullPath)) {
+      problems.push(`${relativePath} is missing`);
+      continue;
+    }
+    const bytes = readFileSync(fullPath);
+    totalBytes += bytes.length;
+    if (bytes.length === 0) {
+      problems.push(`${relativePath} is empty`);
+      continue;
+    }
+    if (relativePath.endsWith('.traineddata.gz')) {
+      if (bytes.length < 2 || bytes[0] !== 0x1f || bytes[1] !== 0x8b) {
+        problems.push(`${relativePath} is not a gzip file`);
+      }
+    }
+  }
+
+  const workerPath = join(distDir, 'tesseract', 'worker.min.js');
+  if (existsSync(workerPath)) {
+    const worker = readFileSync(workerPath, 'utf8');
+    if (/https?:\/\//.test(worker)) {
+      problems.push('dist/tesseract/worker.min.js still contains a remote URL');
+    }
+  }
+
+  const contentPath = join(distDir, 'content.js');
+  if (existsSync(contentPath)) {
+    const content = readFileSync(contentPath, 'utf8');
+    if (!content.includes('tesseract/lang')) {
+      problems.push(
+        'dist/content.js does not point langPath at tesseract/lang'
+      );
+    }
+    if (content.includes('cdn.jsdelivr.net')) {
+      problems.push('dist/content.js still contains cdn.jsdelivr.net');
+    }
+  }
+
+  if (problems.length > 0) {
+    console.error(
+      '[release-check] the packaged OCR assets are not self-contained:'
+    );
+    for (const problem of problems) {
+      console.error(`  - ${problem}`);
+    }
+    console.error(
+      '[release-check] the OCR fallback would fail on a user page. Run scripts/copy-tesseract.js ' +
+        'before Vite, and keep the four traineddata files in the package.'
+    );
+    process.exit(1);
+  }
+
+  return (
+    `local OCR assets ${required.length} file(s), ` +
+    `${(totalBytes / 1024 / 1024).toFixed(2)} MB`
+  );
+}
+
+/**
  * Chrome Web Store field limits, from
  * https://developer.chrome.com/docs/extensions/reference/manifest
  * ("Keys required by Chrome Web Store") and the Web Store title rules.
@@ -575,6 +779,7 @@ if (packageJson.version !== manifest.version) {
 
 const fieldNote = checkStoreFieldLimits();
 const boundaryNote = checkCredentialBoundary();
+const tesseractSourceNote = checkTesseractSourceAssets();
 
 if (sourceOnly) {
   // The artifact has not been built yet (or is a leftover from a previous
@@ -582,7 +787,7 @@ if (sourceOnly) {
   // pass by accident, so the artifact checks are deferred to the post-build
   // invocation instead.
   console.log(
-    `[release-check] version ${packageJson.version} is consistent; ${fieldNote}; ${boundaryNote}; artifact checks deferred to the post-build pass`
+    `[release-check] version ${packageJson.version} is consistent; ${fieldNote}; ${boundaryNote}; ${tesseractSourceNote}; artifact checks deferred to the post-build pass`
   );
   process.exit(0);
 }
@@ -591,7 +796,9 @@ const sizeNote = checkContentScriptSize();
 const resourceNote = checkWebAccessibleIntegrity();
 const exposureNote = checkNoSecretsExposed();
 const credentialNote = checkNoCredentialsInContentScript();
+const remoteCodeNote = checkNoRemoteCode();
+const tesseractAssetsNote = checkTesseractAssetsLocal();
 
 console.log(
-  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}; ${exposureNote}; ${boundaryNote}; ${credentialNote}; ${fieldNote}`
+  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}; ${exposureNote}; ${boundaryNote}; ${credentialNote}; ${remoteCodeNote}; ${tesseractAssetsNote}; ${fieldNote}`
 );

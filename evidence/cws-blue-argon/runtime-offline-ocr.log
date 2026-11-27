@@ -1,0 +1,92 @@
+  ✓ the extension loads on a clean profile
+  ✓ the service worker starts
+  ✓ the extension is configured against the local fake provider — {"enabled":true,"provider":"openai-compatible","baseUrl":"http://127.0.0.1:56679/v1","version":4}
+  ✓ the fixture page is open in a tab
+  ✓ the content script is alive on the page
+[runtime] page text: 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 📌 ✕ ⬇
+[runtime] content state: {"status":"complete","count":1,"failedCount":0,"cachedCount":0,"missingCount":0,"candidateCount":1,"skippedCount":0,"skippedDuplicateCount":0,"pendingCount":0,"autoContinueArmed":false,"autoContinueBudgetExhausted":false,"retryTargetCount":0,"failures":[],"overlayCount":1,"readingPanelVisible":true}
+[runtime] console:
+  [warning] [Translator] 初始化 Provider: openai-compatible, Model: offline-vision
+  [warning] [Translator] 初始化 Provider: openai-compatible, Model: offline-vision
+  [error] Warning: Parameter not found: language_model_ngram_on
+  [error] Warning: Parameter not found: segsearch_max_char_wh_ratio
+  [error] Warning: Parameter not found: language_model_ngram_space_delimited_language
+  [error] Warning: Parameter not found: language_model_use_sigmoidal_certainty
+  [error] Warning: Parameter not found: language_model_ngram_nonmatch_score
+  [error] Warning: Parameter not found: classify_integer_matcher_multiplier
+  [error] Warning: Parameter not found: assume_fixed_pitch_char_segment
+  [error] Warning: Parameter not found: allow_blob_division
+  [error] Estimating resolution as 450
+[runtime] targets:
+  page about:blank (42A43AEA)
+  browser_ui chrome://omnibox-popup.top-chrome/ (43C89303)
+  service_worker chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js (36FA52E5)
+  service_worker chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js (E0DE15AF)
+  service_worker chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js (59BC3701)
+  service_worker chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/service-worker-loader.js (F0074C01)
+  page about:blank (4DC54788)
+  page about:blank (63C98C6B)
+  worker blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114 (CBC5C0DC)
+[runtime] all network requests:
+  Other GET chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/tts_extension.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/background.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/local-providers-8xk73gjs.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/usage-store-D1JBxrGJ.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/runtime-contracts-CF9vJaeP.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/index-Cxca7a85.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/commands-DcgzgVrr.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/state-vendor-6LVtU4WP.js
+  Document GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/src/options.html
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/modulepreload-polyfill-YP0FEG5d.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/state-vendor-6LVtU4WP.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/react-dom-vendor-BE9G4YoE.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/local-providers-8xk73gjs.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/usage-store-D1JBxrGJ.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/theme-DUlAYnUH.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/utils-vendor-BeLtu-UY.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/index-CbuPjTo5.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/index-Cxca7a85.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/cache-v2-sjp09VOw.js
+  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/options.js
+  Stylesheet GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/assets/index-DOw59cCO.css
+  Document GET http://127.0.0.1:56679/
+  Document GET http://127.0.0.1:56679/
+  Image GET http://127.0.0.1:56679/page.png
+  Image GET http://127.0.0.1:56679/page.png
+  Other GET http://127.0.0.1:56679/favicon.ico
+  Other GET http://127.0.0.1:56679/favicon.ico
+  Fetch POST http://127.0.0.1:56679/v1/chat/completions
+  Script GET blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114
+  Script GET blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114
+  Other GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/worker.min.js
+  Other GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/tesseract-core-simd-lstm.wasm.js
+  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/chi_sim.traineddata.gz
+  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/eng.traineddata.gz
+  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/jpn.traineddata.gz
+  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/kor.traineddata.gz
+  Image GET data:image/jpeg;base64,… (11791 chars)
+  Image GET data:image/jpeg;base64,… (11791 chars)
+  Image GET data:image/png;base64,… (4950 chars)
+  Image GET data:image/png;base64,… (5078 chars)
+  Image GET data:image/png;base64,… (5026 chars)
+  Image GET data:image/png;base64,… (4950 chars)
+  Image GET data:image/png;base64,… (5078 chars)
+  Image GET data:image/png;base64,… (5026 chars)
+  Fetch POST http://127.0.0.1:56679/v1/chat/completions
+  ✓ the OCR fallback draws a translation overlay — overlays=12 processed=1 text=等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 
+  ✓ the overlay carries the model translation — 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 
+  ✓ the model answered the full image with zero text, then the OCR strip was translated — full-image=1 hybrid=1
+  ✓ the provider request carried the configured key — Bearer offline-fixture-key-000000000000000000000000, Bearer offline-fixture-key-000000000000000000000000
+  ✓ every Tesseract asset was loaded from the extension, not the network
+  ✓ the translation made zero requests outside the local fixture server
+  ✓ no CDN request reached the blocking proxy
+  ✓ external hosts are unreachable in this browser (jsdelivr control) — blocked:Failed to fetch
+  ✓ no extension exception was thrown during the run
+  ✓ no error-level console output during the run
+[runtime] api requests:
+  #1 full-image bytes=15432 auth=Bearer offline-fixture-key-000000000000000000000000
+  #2 hybrid-strip bytes=16045 auth=Bearer offline-fixture-key-000000000000000000000000
+[runtime] network during translation:
+  http://127.0.0.1:56679: 4
+  null: 14
+[runtime] 15/15 checks passed

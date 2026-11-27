@@ -159,6 +159,10 @@ function stripComments(source) {
   return out;
 }
 
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 /**
  * Does `token` appear in `source` as a standalone token?
  *
@@ -169,7 +173,7 @@ function stripComments(source) {
  */
 function tokenPresent(source, token) {
   if (/^[A-Za-z_$][A-Za-z0-9_$]*$/.test(token)) {
-    const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = escapeRegExp(token);
     return new RegExp(`(^|[^A-Za-z0-9_$])${escaped}($|[^A-Za-z0-9_$])`).test(
       source
     );
@@ -182,13 +186,19 @@ function tokenPresent(source, token) {
  *
  * `path:symbol`  — the file must exist and the symbol must still be in its
  *                  code (not merely in a comment).
+ * `path:symbol==literal` — the symbol must be assigned a value containing
+ *                  `literal` in the same statement. This is for promises
+ *                  that rest on *where* a value points, not merely on the
+ *                  name existing: `langPath==chrome.runtime.getURL('tesseract/lang')`
+ *                  fails if the path is moved back to a remote host, even
+ *                  though `langPath` is still assigned.
  * `path:!symbol` — the symbol must NOT be in its code. Some promises rest on
- *                  an absence: the OCR language data comes from jsdelivr
- *                  precisely because `langPath` is never assigned. An absence
- *                  cannot be anchored any other way, and without this form
- *                  the only anchor available for such a promise would be the
- *                  comment explaining it — which is the defect this guard
- *                  exists to prevent.
+ *                  an absence: a default that must not be overridden is only
+ *                  true while the override does not exist. An absence cannot
+ *                  be anchored any other way, and without this form the only
+ *                  anchor available for such a promise would be the comment
+ *                  explaining it — which is the defect this guard exists to
+ *                  prevent.
  * `path:123`     — the file must exist and still have that many lines.
  */
 function checkAnchor(anchor) {
@@ -239,6 +249,46 @@ function checkAnchor(anchor) {
       };
     }
     return { ok: true };
+  }
+
+  /*
+   * `symbol==literal` — the value matters, not just the name.
+   *
+   * A promise such as "the OCR language data is read from the extension" is
+   * not supported by `langPath` merely existing: it is supported by
+   * `langPath` pointing at `chrome.runtime.getURL('tesseract/lang')`. The
+   * check finds each occurrence of the symbol, takes the statement it sits
+   * in (up to the next semicolon), and compares the whitespace-stripped
+   * statement to the whitespace-stripped literal. Formatting changes are
+   * therefore free; changing the destination is not.
+   */
+  const assignment = /^([A-Za-z_$][A-Za-z0-9_$]*)==(.+)$/.exec(token);
+  if (assignment) {
+    const symbol = assignment[1];
+    const expectedRaw = assignment[2];
+    const expected = normalizeWhitespace(expectedRaw).replace(/\s+/g, '');
+    const pattern = new RegExp(
+      `(?:^|[^A-Za-z0-9_$])${escapeRegExp(symbol)}(?=$|[^A-Za-z0-9_$])`,
+      'g'
+    );
+
+    let match;
+    while ((match = pattern.exec(code))) {
+      const semicolon = code.indexOf(';', match.index);
+      const end =
+        semicolon === -1
+          ? Math.min(code.length, match.index + 500)
+          : semicolon + 1;
+      const statement = code.slice(match.index, end).replace(/\s+/g, '');
+      if (statement.includes(expected)) {
+        return { ok: true };
+      }
+    }
+
+    return {
+      ok: false,
+      reason: `"${symbol}" is not assigned "${expectedRaw}" in "${relativePath}"`,
+    };
   }
 
   if (!tokenPresent(code, token)) {

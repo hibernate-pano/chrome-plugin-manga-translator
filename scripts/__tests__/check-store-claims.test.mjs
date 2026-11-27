@@ -211,9 +211,9 @@ describe('store claims guard', () => {
   });
 
   it('fails when a symbol a promise rests on being absent is assigned', () => {
-    // `!symbol` anchors a promise about an absence — the OCR language data
-    // comes from jsdelivr because `langPath` is never set. If someone sets it,
-    // the request goes somewhere else and the listing says the wrong thing.
+    // `!symbol` anchors a promise about an absence: a default that must not
+    // be overridden is only true while the override does not exist. If
+    // someone sets it, the behaviour the listing describes changes.
     const workdir = makeWorkdir({
       claims: CLAIMS_DOC.replace(
         '`src/services/renderer.ts:OverlayRenderer`',
@@ -250,6 +250,103 @@ describe('store claims guard', () => {
       const result = runGuard(workdir);
       expect(result.code).toBe(0);
       expect(result.output).toContain('promise(s) verified');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts a symbol assigned the literal the promise names', () => {
+    // `symbol==literal` is for promises about a destination, not just about
+    // a name existing. `langPath` is still assigned either way; what matters
+    // is that it points at the extension's own directory.
+    const workdir = makeWorkdir({
+      claims: CLAIMS_DOC.replace(
+        '`src/services/renderer.ts:OverlayRenderer`',
+        "`src/services/renderer.ts:langPath==chrome.runtime.getURL('tesseract/lang')`"
+      ),
+    });
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        "workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');\n"
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain('promise(s) verified');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('accepts the assignment when Prettier wraps it across lines', () => {
+    const workdir = makeWorkdir({
+      claims: CLAIMS_DOC.replace(
+        '`src/services/renderer.ts:OverlayRenderer`',
+        "`src/services/renderer.ts:langPath==chrome.runtime.getURL('tesseract/lang')`"
+      ),
+    });
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        [
+          "workerOptions['langPath'] = chrome.runtime.getURL(",
+          "  'tesseract/lang'",
+          ');',
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain('promise(s) verified');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the symbol is assigned a different literal', () => {
+    const workdir = makeWorkdir({
+      claims: CLAIMS_DOC.replace(
+        '`src/services/renderer.ts:OverlayRenderer`',
+        "`src/services/renderer.ts:langPath==chrome.runtime.getURL('tesseract/lang')`"
+      ),
+    });
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        "workerOptions['langPath'] = chrome.runtime.getURL('tesseract/other');\n"
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('is not assigned');
+      expect(result.output).toContain('tesseract/lang');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('does not accept the assignment when it exists only in a comment', () => {
+    const workdir = makeWorkdir({
+      claims: CLAIMS_DOC.replace(
+        '`src/services/renderer.ts:OverlayRenderer`',
+        "`src/services/renderer.ts:langPath==chrome.runtime.getURL('tesseract/lang')`"
+      ),
+    });
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'renderer.ts'),
+        [
+          "// workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');",
+          'export class OverlayRenderer {}',
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('is not assigned');
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
