@@ -103,6 +103,47 @@ describe('text-detector', () => {
     expect(result.regions[0]?.height).toBe(120);
   });
 
+  it('passes extension-local paths, including langPath, in the extension context', async () => {
+    /*
+     * The OCR fallback runs from the content script. In the extension every
+     * asset must resolve inside the package: the worker, the SIMD-LSTM core
+     * and the language data. The Chrome Web Store rejects remote defaults
+     * even when they are overridden, so this pins the override and the local
+     * language directory together.
+     */
+    vi.stubGlobal('chrome', {
+      runtime: {
+        getURL: (resource: string) => `chrome-extension://test-id/${resource}`,
+      },
+    });
+
+    try {
+      await detectTextRegions('mocked_image_base64', { languages: ['eng'] });
+
+      const calls = vi.mocked(createWorker).mock.calls;
+      const lastCall = calls[calls.length - 1];
+      expect(lastCall).toBeDefined();
+      const options = lastCall?.[2] as Record<string, unknown>;
+
+      expect(options['workerPath']).toBe(
+        'chrome-extension://test-id/tesseract/worker.min.js'
+      );
+      expect(options['corePath']).toBe(
+        'chrome-extension://test-id/tesseract/tesseract-core-simd-lstm.wasm.js'
+      );
+      expect(options['langPath']).toBe(
+        'chrome-extension://test-id/tesseract/lang'
+      );
+      expect(options['gzip']).toBe(true);
+      // Chrome 158 refuses `new Worker(chrome-extension://...)` from a
+      // content script, so the worker is bootstrapped from a blob that
+      // importScripts the packaged file. Keep the packaged path above.
+      expect(options['workerBlobURL']).toBe(true);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
   it('falls back to the dimensions the caller supplies', async () => {
     // tesseract.js 7 no longer reports imageWidth/imageHeight, so the caller
     // passes the post-processing size it already knows.

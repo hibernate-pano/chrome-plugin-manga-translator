@@ -31,6 +31,14 @@ const scriptPath = resolve(
 );
 
 /**
+ * The guard's helper modules. They are copied alongside the script so the
+ * copy resolves them from the throwaway tree, exactly as it resolves
+ * `package.json` and `dist/`.
+ */
+const libDir = resolve(dirname(fileURLToPath(import.meta.url)), '..', 'lib');
+const GUARD_LIBRARIES = ['tesseract-assets.mjs', 'remote-code-scan.mjs'];
+
+/**
  * The script resolves `dist/` and `public/manifest.json` from the repository
  * root, which is derived from the script's own location. The guard is
  * therefore exercised by copying the script itself into a throwaway tree, so
@@ -61,14 +69,21 @@ function makeWorkdir() {
   const workdir = mkdtempSync(join(tmpdir(), 'mt-release-consistency-'));
   mkdirSync(join(workdir, 'public'), { recursive: true });
   mkdirSync(join(workdir, 'dist'), { recursive: true });
-  mkdirSync(join(workdir, 'scripts'), { recursive: true });
+  mkdirSync(join(workdir, 'scripts', 'lib'), { recursive: true });
   mkdirSync(join(workdir, 'src', 'content'), { recursive: true });
+  mkdirSync(join(workdir, 'src', 'services'), { recursive: true });
   mkdirSync(join(workdir, 'src', 'shared'), { recursive: true });
   mkdirSync(join(workdir, 'src', 'utils'), { recursive: true });
   copyFileSync(
     scriptPath,
     join(workdir, 'scripts', 'check-release-consistency.mjs')
   );
+  for (const library of GUARD_LIBRARIES) {
+    copyFileSync(
+      join(libDir, library),
+      join(workdir, 'scripts', 'lib', library)
+    );
+  }
 
   const manifest = {
     manifest_version: 3,
@@ -86,7 +101,20 @@ function makeWorkdir() {
   );
   writeFileSync(
     join(workdir, 'package.json'),
-    JSON.stringify({ name: 'x', version: '2.0.3' }, null, 2)
+    JSON.stringify(
+      {
+        name: 'x',
+        version: '2.0.3',
+        devDependencies: {
+          '@tesseract.js-data/eng': '1.0.0',
+          '@tesseract.js-data/jpn': '1.0.0',
+          '@tesseract.js-data/chi_sim': '1.0.0',
+          '@tesseract.js-data/kor': '1.0.0',
+        },
+      },
+      null,
+      2
+    )
   );
   // The built manifest is what the resource and exposure checks read.
   writeFileSync(
@@ -97,8 +125,35 @@ function makeWorkdir() {
   // "every runtime-loaded path must be exposed" rule is satisfied.
   writeFileSync(
     join(workdir, 'dist', 'content.js'),
-    'chrome.runtime.getURL("tesseract/worker.min.js");'
+    [
+      'chrome.runtime.getURL("tesseract/worker.min.js");',
+      'chrome.runtime.getURL("tesseract/lang");',
+      '',
+    ].join('\n')
   );
+
+  // The local OCR layout the artifact checks require. The worker carries no
+  // remote default; the language files start with the gzip magic bytes.
+  mkdirSync(join(workdir, 'dist', 'tesseract', 'lang'), { recursive: true });
+  writeFileSync(
+    join(workdir, 'dist', 'tesseract', 'worker.min.js'),
+    'importScripts("tesseract-core-simd-lstm.wasm.js");\n'
+  );
+  writeFileSync(
+    join(workdir, 'dist', 'tesseract', 'tesseract-core-simd-lstm.wasm.js'),
+    '/* local core */\n'
+  );
+  writeFileSync(
+    join(workdir, 'dist', 'tesseract', 'tesseract-core-simd-lstm.wasm'),
+    Buffer.from([0x00, 0x61, 0x73, 0x6d])
+  );
+  for (const lang of ['eng', 'jpn', 'chi_sim', 'kor']) {
+    writeFileSync(
+      join(workdir, 'dist', 'tesseract', 'lang', `${lang}.traineddata.gz`),
+      Buffer.from([0x1f, 0x8b, 0x08, 0x00])
+    );
+  }
+
   writeSourceTree(workdir);
   return workdir;
 }
@@ -166,6 +221,17 @@ function writeSourceTree(workdir) {
       'export function deobfuscate(key: string): string {',
       '  return key.split("").map((c, i) => c).join("") + SALT.length;',
       '}',
+    ].join('\n')
+  );
+  // The detector's local OCR paths, in the shape the source check reads.
+  writeFileSync(
+    join(workdir, 'src', 'services', 'text-detector.ts'),
+    [
+      "workerOptions['workerPath'] = chrome.runtime.getURL('tesseract/worker.min.js');",
+      "workerOptions['corePath'] = chrome.runtime.getURL('tesseract/tesseract-core-simd-lstm.wasm.js');",
+      "workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');",
+      "workerOptions['gzip'] = true;",
+      '',
     ].join('\n')
   );
 }
@@ -244,6 +310,176 @@ describe('release consistency guard', () => {
       expect(result.output).toContain(
         'no key-obfuscation code is web-accessible'
       );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * Remote code and local OCR assets.
+ *
+ * The Blue Argon finding was not "OCR loads from a CDN at runtime" — the
+ * runtime had been overridden. It was "the package contains a remote script
+ * URL", which is what the store scans for. Both directions are pinned here:
+ * a remote vector must fail, and the local replacement must actually be in
+ * the package.
+ */
+describe('release consistency guard: remote code and local OCR assets', () => {
+  it('accepts a package whose OCR assets are all local', () => {
+    const workdir = makeWorkdir();
+    try {
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain('no remote code in');
+      expect(result.output).toContain('local OCR assets 7 file(s)');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when content.js carries a remote workerPath default', () => {
+    const workdir = makeWorkdir();
+    try {
+      // The exact string the store quoted. It is unreachable at runtime
+      // because text-detector.ts passes an explicit workerPath, and that is
+      // precisely why a runtime test would not catch it.
+      writeFileSync(
+        join(workdir, 'dist', 'content.js'),
+        [
+          'chrome.runtime.getURL("tesseract/worker.min.js");',
+          'chrome.runtime.getURL("tesseract/lang");',
+          'var workerPath = "https://cdn.jsdelivr.net/npm/tesseract.js@v7.0.0/dist/worker.min.js";',
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('remote code vector');
+      expect(result.output).toContain('cdn.jsdelivr.net');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the worker carries a remote core default', () => {
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'dist', 'tesseract', 'worker.min.js'),
+        'importScripts("https://cdn.jsdelivr.net/npm/tesseract.js-core@v7.0.0/tesseract-core-simd-lstm.wasm.js");\n'
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('remote code vector');
+      expect(result.output).toContain('worker.min.js');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a traineddata file is missing from the package', () => {
+    const workdir = makeWorkdir();
+    try {
+      rmSync(join(workdir, 'dist', 'tesseract', 'lang', 'jpn.traineddata.gz'), {
+        force: true,
+      });
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(
+        'tesseract/lang/jpn.traineddata.gz is missing'
+      );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a traineddata file is not gzip', () => {
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'dist', 'tesseract', 'lang', 'jpn.traineddata.gz'),
+        'not a gzip file\n'
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('is not a gzip file');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the content script does not point at tesseract/lang', () => {
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'dist', 'content.js'),
+        'chrome.runtime.getURL("tesseract/worker.min.js");\n'
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(
+        'does not point langPath at tesseract/lang'
+      );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when langPath disappears from the source', () => {
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'text-detector.ts'),
+        [
+          "workerOptions['workerPath'] = chrome.runtime.getURL('tesseract/worker.min.js');",
+          "workerOptions['corePath'] = chrome.runtime.getURL('tesseract/tesseract-core-simd-lstm.wasm.js');",
+          "workerOptions['gzip'] = true;",
+          '',
+        ].join('\n')
+      );
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('local OCR asset contract is broken');
+      expect(result.output).toContain('langPath');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a language data package is not pinned exactly', () => {
+    const workdir = makeWorkdir();
+    try {
+      const packagePath = join(workdir, 'package.json');
+      const pkg = JSON.parse(readFileSync(packagePath, 'utf8'));
+      pkg.devDependencies['@tesseract.js-data/kor'] = '^1.0.0';
+      writeFileSync(packagePath, JSON.stringify(pkg, null, 2));
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('must be pinned to 1.0.0');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('source-only mode still enforces the local OCR source contract', () => {
+    const workdir = makeWorkdir();
+    try {
+      writeFileSync(
+        join(workdir, 'src', 'services', 'text-detector.ts'),
+        "workerOptions['gzip'] = true;\n"
+      );
+
+      const result = runGuard(workdir, ['--source-only']);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('local OCR asset contract is broken');
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }

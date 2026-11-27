@@ -5,6 +5,32 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.2] - 2026-11-27
+
+### Fixed
+
+- **Chrome Web Store "remote hosted code" rejection (Blue Argon).** The
+  packaged extension no longer contains a loadable remote script URL. The two
+  strings the review quoted — tesseract.js's default `workerPath` in
+  `content.js` and its default core URL in `tesseract/worker.min.js` — are
+  rewritten at build time to extension-local paths by
+  `scripts/lib/tesseract-client-defaults.mjs` (Vite) and
+  `scripts/lib/tesseract-assets.mjs` (worker copy). Overriding both at runtime,
+  which 2.3.1 already did, is invisible to a static review.
+- **OCR language data is bundled.** The Korean, Japanese, English and
+  Simplified Chinese `4.0.0_best_int` traineddata files ship inside the
+  extension (from the pinned `@tesseract.js-data/*` packages), and `langPath`
+  points at `chrome.runtime.getURL('tesseract/lang')`. OCR makes no network
+  request; the privacy policy now lists two kinds of outbound request instead
+  of three.
+- **New release gates.** `pnpm release:check` fails on any remote code vector
+  in `dist/` — URLs ending in `.js`/`.mjs`/`.wasm`, remote `importScripts`,
+  `new Worker`, dynamic `import()`, and the tesseract CDN defaults — and on a
+  missing or non-gzip language file. The store-claims guard learned the
+  `symbol==literal` anchor, so the claim that `langPath` points at
+  `tesseract/lang` is checked against the assignment, not merely against a
+  name that still exists.
+
 ## [2.3.1] - 2026-11-17
 
 ### Fixed

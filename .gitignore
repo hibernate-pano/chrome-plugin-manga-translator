@@ -20,6 +20,11 @@ src/shared/env-credentials.generated.ts
 # Test coverage reports
 coverage/
 
+# OCR language data: copied out of the pinned @tesseract.js-data packages by
+# scripts/copy-tesseract.js on every build. The worker and WASM core next to
+# it stay tracked; the traineddata files are 8 MB of generated data.
+public/tesseract/lang/
+
 # Store listing assets: the demo pages and the recording are build outputs.
 # Rebuild them with `node scripts/build-demo-page.mjs` and
 # `node scripts/capture-store-assets.mjs`. The artwork and the screenshots

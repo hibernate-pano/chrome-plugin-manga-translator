@@ -265,6 +265,16 @@ page-context load:
   if the resource is web-accessible for that page. Hence `<all_urls>` rather
   than a host list: the pages needing it are not known in advance.
 
+  The same declaration covers `tesseract/lang/*.traineddata.gz`. The Korean,
+  Japanese, English and Simplified Chinese language models are copied out of
+  the pinned `@tesseract.js-data/*` packages by `scripts/copy-tesseract.js`,
+  and `langPath` points at `chrome.runtime.getURL('tesseract/lang')`, so the
+  OCR fallback makes no network request. `pnpm release:check` fails if a
+  language file is missing, if `content.js` stops pointing at that directory,
+  or if any built file still contains a remote code URL — the Blue Argon
+  finding that 2.3.2 fixes. `scripts/lib/remote-code-scan.mjs` is the scanner
+  both the build gate and the evidence log use.
+
 The content script itself is **not** web-accessible, and that is deliberate.
 CRXJS cannot register a content script directly: for every file in
 `content_scripts[].js` it emits a loader asset whose whole body is

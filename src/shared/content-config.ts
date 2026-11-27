@@ -235,7 +235,7 @@ export function buildContentConfigSnapshot(
      * so anyone who saved settings under the old default still reads it back
      * here. That pipeline's OCR fallback reads `data.words`, which
      * tesseract.js 7 no longer returns — every image paid for a failed OCR
-     * attempt (and, on a first run, a language-pack download from jsdelivr)
+     * attempt (and, on a first run, loading the bundled language packs)
      * before falling back. Mapping the old value onto the current default is
      * cheaper, faster, and removes a whole class of failures for existing
      * users. The pipeline is not exposed in the UI, so no new user can pick

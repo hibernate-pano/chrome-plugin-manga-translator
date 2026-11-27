@@ -1,6 +1,6 @@
 {
   "name": "chrome-plugin-manga-translator",
-  "version": "2.3.1",
+  "version": "2.3.2",
   "description": "Chrome插件，用于翻译漫画中的文字，并保持原有样式",
   "type": "module",
   "scripts": {
@@ -70,6 +70,10 @@
   "devDependencies": {
     "@crxjs/vite-plugin": "^2.4.0",
     "@eslint/js": "9.39.0",
+    "@tesseract.js-data/chi_sim": "1.0.0",
+    "@tesseract.js-data/eng": "1.0.0",
+    "@tesseract.js-data/jpn": "1.0.0",
+    "@tesseract.js-data/kor": "1.0.0",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^13.4.0",
     "@testing-library/user-event": "^14.6.1",
