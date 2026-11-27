@@ -48,6 +48,16 @@ content script 本身以普通静态文件方式注册（content_scripts 直接�
 密钥只存在于 service worker 与扩展自有页面，明文密钥不进入 content script 的导入闭包。构建流程有两道断言：content script 的导入图一旦能到达持有密钥的模块即失败；产物 dist/content.js 里一旦出现密钥即失败。内容脚本拿不到明文密钥，只拿到端点、模型名以及「是否已配置密钥」这一个布尔值（以及翻译本身要用到的目标语言、风格、画质等设置）。
 ```
 
+## OCR worker 的加载方式与已知限制
+
+```
+OCR worker 的加载方式：内容脚本不能直接 new Worker(chrome-extension://...)，因此扩展先创建 blob，blob 的内容只有一行 importScripts("chrome-extension://<扩展 ID>/tesseract/worker.min.js")（该地址由 chrome.runtime.getURL('tesseract/worker.min.js') 生成），再用这个 blob URL 构造 Worker。被加载的 worker.min.js、WASM 核心与语言包全部随扩展包分发，执行的代码 100% 来自扩展自身，没有任何远程代码。
+
+已知限制：blob worker 受页面 CSP 约束。若页面 CSP 的 worker-src（或回退到的 script-src）不允许 blob:，例如 script-src 'self'，blob worker 无法创建，OCR 兜底随之失败。此时该图按失败处理、不写入翻译缓存，也不会静默降级为「没有文字」的空结果；用户可以在重试列表里看到它，并在允许 blob: 的页面或稍后重试。
+
+后续计划（不在当前版本范围）：把 OCR worker 移到扩展自己的 origin（offscreen document 或扩展 origin 的 iframe），使其不再受页面 CSP 影响。当前版本仍使用上述 blob 方案。
+```
+
 ## 数据收集声明
 
 ```
