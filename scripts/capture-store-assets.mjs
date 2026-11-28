@@ -659,8 +659,14 @@ async function captureOptions({ cdp, extensionId, outDir }) {
  * 弹窗截图。
  *
  * 商店建议 3~5 张截图，现有两张拍的都是"译文盖在页面上"。弹窗是产品
- * 的门面，也是唯一一处写着"这次要花多少钱"的地方 —— 它值得第三张，而且
- * 这一张不需要模型：页面不翻译，只让弹窗自己去数。
+ * 的门面，也是唯一一处把「这次要花几张」写在按钮前面的地方 —— 它值得
+ * 第三张，而且这一张不需要模型：页面不翻译，只让弹窗自己去数。
+ *
+ * 文案只写弹窗上真有的东西：三格计数（可翻译 / 缓存命中 / 计费张数）、
+ * 「一张图可能变成多次请求」那段说明、底部的本月调用次数。**不写"多少钱"** ——
+ * 弹窗报的是张数，金额取决于用户自己选的模型单价，产品刻意不替用户编一个数
+ * （见 `src/shared/cost-wording.ts`）。标题此前写的是「要花多少钱」，与画面
+ * 不符，2026-11-28 改掉。
  *
  * 弹窗并不知道"当前标签页"是谁：它问浏览器
  * `chrome.tabs.query({active:true, currentWindow:true})`。把它当普通标签页
@@ -939,12 +945,12 @@ async function composePopupListing({
   <div class="stage">
     <div class="copy">
       <span class="eyebrow">Chrome 扩展</span>
-      <h1>要花多少钱<br />按下之前就知道</h1>
-      <p class="sub">弹窗先数出这一页有<b>多少张图</b>、<b>多少张还没加载完</b>，<br />再让你按下那个会花钱的按钮。</p>
+      <h1>按下之前<br />先看清计费张数</h1>
+      <p class="sub">弹窗先数出：<b>几张要翻</b>、<b>几张已有译文</b>，<br />再让你按下那个会花钱的按钮。</p>
       <ul>
-        <li><span class="tick">✓</span><span>翻译前先看价格，确认了再扣费</span></li>
-        <li><span class="tick">✓</span><span>「忽略缓存重翻」会先告诉你重翻要重新计费</span></li>
-        <li><span class="tick">✓</span><span>本站是否在自动翻译名单里，弹窗直接写明</span></li>
+        <li><span class="tick">✓</span><span>一张图可能变成多次请求，这个差额就写在按钮上方</span></li>
+        <li><span class="tick">✓</span><span>已有译文的图算「缓存命中」，不重复计费</span></li>
+        <li><span class="tick">✓</span><span>数据只保存在本机，本月调用了几次写在弹窗底部</span></li>
       </ul>
     </div>
     <div class="popup">
