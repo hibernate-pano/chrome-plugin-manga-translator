@@ -126,13 +126,46 @@ The alarm period is 0.5 minutes, Chrome's documented floor: a smaller value is
 silently clamped, so an authored 0.34 would never have delivered the ~20s cadence
 it was written to describe.
 
-## Tesseract core selection
+## Tesseract core selection and the OCR transport
 
 `text-detector.ts` passes an explicit `corePath` ending in `.js`. tesseract.js
 uses such a path verbatim instead of selecting a variant by feature detection,
 which means:
 
-- only the SIMD core pair is reachable, and only that pair ships;
-- `minimum_chrome_version` is pinned to 110 in the manifest for SIMD support;
-- `langPath` is intentionally unset so language data comes from the library's
-  own canonical source rather than a third-party mirror.
+- only the single-file SIMD-LSTM core ships (`tesseract-core-simd-lstm.wasm.js`,
+  which embeds the WebAssembly binary as base64). The sibling `.wasm` file is
+  never fetched; it was dead weight until 2.3.3, which removed it and the
+  gate that kept requiring it;
+- `minimum_chrome_version` is pinned to 110 in the manifest for SIMD support.
+  The offscreen API exists since Chrome 109, but its `WORKERS` reason only
+  since Chrome 113 — that gap is why OCR keeps an in-page fallback on 110–112;
+- `langPath` points at `chrome.runtime.getURL('tesseract/lang')`, filled by
+  `scripts/copy-tesseract.js` from the pinned `@tesseract.js-data/*` packages,
+  so language data never comes from a CDN.
+
+The worker does not run in the page if it can be avoided. A content script's
+worker inherits the hosting page's CSP, so a site with `worker-src 'none'`
+would otherwise disable OCR. `src/offscreen/ocr-protocol.ts` defines the
+transports and the messages between them; `text-detector.ts` tries them in
+`OCR_TRANSPORT_ORDER` and keeps the first that runs for the rest of the
+session:
+
+1. `offscreen` — the service worker creates `offscreen.html` with
+   `chrome.offscreen` (reason `WORKERS`) and drives it over a `runtime.Port`.
+   `runtime.sendMessage` would be broadcast to content scripts too, and their
+   `{success:false}` replies race the real one.
+2. `local` — the original in-page blob worker, kept so OCR still works where
+   the offscreen document cannot be created (Chrome 110–112 reject the
+   `WORKERS` reason). This path is subject to the page's CSP, as before.
+
+There is deliberately no extension-origin iframe transport: embedding an
+extension page in the host page hands that page a handle into extension-origin
+code, and the token that scoped it lived in the frame's URL fragment, where
+page script could read it.
+
+Only `transport`/`unsupported` failures advance the chain; an `ocr` failure
+means the recogniser ran and failed, and would fail identically on the next
+transport. On the extension origin the packaged worker is same-origin and is
+created directly; `workerBlobURL` is enabled only for the page transport,
+where Chrome refuses a direct `chrome-extension://` worker and the extension
+CSP does not admit `blob:`.

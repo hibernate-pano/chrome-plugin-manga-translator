@@ -1,4 +1,4 @@
-import { vi, describe, expect, it, beforeEach } from 'vitest';
+import { vi, describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
   detectTextRegions,
   mergeOverlappingRegions,
@@ -293,5 +293,242 @@ describe('mergeOverlappingRegions', () => {
     expect(merged).toHaveLength(2);
     expect(merged[0]?.x).toBe(0);
     expect(merged[0]?.confidence).toBe(0);
+  });
+});
+
+/**
+ * The OCR transport chain.
+ *
+ * The ordering is the feature: the offscreen document exists so a page's CSP
+ * cannot take OCR down, and the in-page worker remains the last resort. The
+ * extension-origin iframe that used to sit between them is gone — it gave
+ * the host page a handle into extension origin code — so these tests also
+ * pin that falling back never puts an extension frame (or a token) in the
+ * page.
+ *
+ * The chain caches the transport that worked, which is module state. Each
+ * test re-imports the module (with `vi.resetModules`) so one test's choice
+ * cannot decide the next one's starting point.
+ */
+describe('OCR transport fallback chain', () => {
+  const EXTENSION_ORIGIN = 'chrome-extension://test-extension-id';
+
+  function stubChromeRuntime(
+    sendMessage: (message: unknown) => Promise<unknown>
+  ): void {
+    vi.stubGlobal('chrome', {
+      runtime: {
+        id: 'test-extension-id',
+        getURL: (resource: string) =>
+          `${EXTENSION_ORIGIN}/${resource.replace(/^\//, '')}`,
+        sendMessage,
+      },
+    });
+  }
+
+  async function loadFreshDetector(): Promise<{
+    detector: typeof import('./text-detector');
+    tesseract: typeof import('tesseract.js');
+  }> {
+    vi.resetModules();
+    const tesseract = await import('tesseract.js');
+    const detector = await import('./text-detector');
+    return { detector, tesseract };
+  }
+
+  function wireResult(text: string): Record<string, unknown> {
+    return {
+      regions: [{ x: 1, y: 2, width: 3, height: 4, text, confidence: 0.9 }],
+      imageWidth: 640,
+      imageHeight: 960,
+      processingTime: 12,
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('pins the fallback order: offscreen, then the in-page worker', async () => {
+    const { OCR_TRANSPORT_ORDER } = await import('@/offscreen/ocr-protocol');
+    expect([...OCR_TRANSPORT_ORDER]).toEqual(['offscreen', 'local']);
+  });
+
+  it('uses the offscreen document and starts no worker in the page', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: true,
+      result: wireResult('Offscreen'),
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    const result = await detector.detectTextRegions('mocked_image_base64', {
+      languages: ['eng'],
+    });
+
+    expect(result.regions.map(region => region.text)).toEqual(['Offscreen']);
+    expect(result.imageWidth).toBe(640);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      type: 'OCR_RECOGNIZE',
+      image: 'mocked_image_base64',
+      options: { languages: ['eng'], psm: '11' },
+    });
+    expect(tesseract.createWorker).not.toHaveBeenCalled();
+    expect(document.querySelector('iframe')).toBeNull();
+  });
+
+  it('falls back to the in-page blob worker without embedding an extension frame', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: false,
+      kind: 'unsupported',
+      error: 'chrome.offscreen unavailable',
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    const result = await detector.detectTextRegions('mocked_image_base64');
+
+    expect(result.regions.map(region => region.text)).toEqual([
+      'Hello',
+      'World',
+    ]);
+    // One attempt on the offscreen path, then the page-local worker; no
+    // third channel in between.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(tesseract.createWorker).toHaveBeenCalledTimes(1);
+    const workerCalls = vi.mocked(tesseract.createWorker).mock.calls;
+    const workerOptions = workerCalls[workerCalls.length - 1]?.[2] as Record<
+      string,
+      unknown
+    >;
+    expect(workerOptions['workerBlobURL']).toBe(true);
+
+    // The page gets no handle into the extension: no extension-origin
+    // iframe, and no token in the URL fragment or DOM.
+    expect(document.querySelector('iframe')).toBeNull();
+    expect(document.body.innerHTML).not.toContain(EXTENSION_ORIGIN);
+    expect(window.location.hash).not.toContain('ocr-frame');
+  });
+
+  it('reports an OCR failure instead of re-running it on another transport', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: false,
+      kind: 'ocr',
+      error: 'language data is missing',
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await expect(
+      detector.detectTextRegions('mocked_image_base64')
+    ).rejects.toThrow(/language data is missing/);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(tesseract.createWorker).not.toHaveBeenCalled();
+    expect(document.querySelector('iframe')).toBeNull();
+  });
+
+  it('creates a direct (non-blob) worker on the extension origin', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: {
+        getURL: (resource: string) => `${EXTENSION_ORIGIN}/${resource}`,
+      },
+    });
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await detector.recognizeWithLocalWorker(
+      'mocked_image_base64',
+      { languages: ['eng'] },
+      'extension'
+    );
+
+    const workerCalls = vi.mocked(tesseract.createWorker).mock.calls;
+    const workerOptions = workerCalls[workerCalls.length - 1]?.[2] as Record<
+      string,
+      unknown
+    >;
+    expect(workerOptions['workerPath']).toBe(
+      `${EXTENSION_ORIGIN}/tesseract/worker.min.js`
+    );
+    // The extension origin does not need the blob bootstrap, and the
+    // extension pages CSP (`script-src 'self'`) does not allow blob:.
+    expect(workerOptions['workerBlobURL']).toBe(false);
+  });
+});
+
+/**
+ * Worker reuse.
+ *
+ * The worker is expensive to build — four traineddata files — and stateful,
+ * so it is cached. Two failure modes are pinned here: the cache key must not
+ * depend on the caller's language order (it used to, so the cache never hit
+ * and every recognition tore the worker down and rebuilt it), and two calls
+ * that start together must not each build one and leak the loser.
+ */
+describe('OCR worker reuse', () => {
+  async function loadFreshDetector(): Promise<{
+    detector: typeof import('./text-detector');
+    tesseract: typeof import('tesseract.js');
+  }> {
+    vi.resetModules();
+    const tesseract = await import('tesseract.js');
+    const detector = await import('./text-detector');
+    return { detector, tesseract };
+  }
+
+  async function createdWorker(
+    tesseract: typeof import('tesseract.js')
+  ): Promise<{ terminate: ReturnType<typeof vi.fn> }> {
+    const results = vi.mocked(tesseract.createWorker).mock.results;
+    return (await results[0]?.value) as {
+      terminate: ReturnType<typeof vi.fn>;
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('reuses the default worker across calls', async () => {
+    // The regression: the stored languages kept the caller's order while the
+    // comparison key was sorted, so this second call always rebuilt.
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await detector.recognizeWithLocalWorker('image-1');
+    await detector.recognizeWithLocalWorker('image-2');
+
+    expect(tesseract.createWorker).toHaveBeenCalledTimes(1);
+    expect((await createdWorker(tesseract)).terminate).not.toHaveBeenCalled();
+  });
+
+  it('reuses the worker when the same languages arrive in another order', async () => {
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await detector.recognizeWithLocalWorker('image-1', {
+      languages: ['jpn', 'eng'],
+    });
+    await detector.recognizeWithLocalWorker('image-2', {
+      languages: ['eng', 'jpn'],
+    });
+
+    expect(tesseract.createWorker).toHaveBeenCalledTimes(1);
+    expect(tesseract.createWorker).toHaveBeenCalledWith(
+      'eng+jpn',
+      1,
+      expect.anything()
+    );
+    expect((await createdWorker(tesseract)).terminate).not.toHaveBeenCalled();
+  });
+
+  it('builds one worker when two first calls arrive together', async () => {
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await Promise.all([
+      detector.recognizeWithLocalWorker('image-1'),
+      detector.recognizeWithLocalWorker('image-2'),
+    ]);
+
+    expect(tesseract.createWorker).toHaveBeenCalledTimes(1);
+    expect((await createdWorker(tesseract)).terminate).not.toHaveBeenCalled();
   });
 });

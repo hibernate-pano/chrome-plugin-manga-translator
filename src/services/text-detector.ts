@@ -4,11 +4,41 @@
  * Uses Tesseract.js to detect text regions in images.
  * This enables sending only cropped text regions to VLM for translation,
  * significantly reducing token usage.
+ *
+ * The recogniser is not run in the page if it can be avoided. A content
+ * script's worker inherits the hosting page's CSP, and a site that ships
+ * `worker-src 'none'` (or a `script-src 'self'` with no `blob:`) takes the
+ * in-page worker down with it. So detection tries two transports, in order,
+ * and the first one that runs wins for the rest of the session:
+ *
+ *   1. `offscreen` — the service worker's offscreen document, at the
+ *      extension's own origin (see `src/offscreen/offscreen.ts`);
+ *   2. `local` — the original in-page blob worker, so OCR keeps working where
+ *      the offscreen document cannot be created (Chrome 110–112 predate the
+ *      `WORKERS` offscreen reason) or fails.
+ *
+ * Only `transport`/`unsupported` failures advance the chain. An `ocr`
+ * failure means the recogniser ran and failed, and would fail identically
+ * on the next transport.
+ *
+ * There is deliberately no extension-origin iframe transport: embedding an
+ * extension page in the host page hands that page a handle into extension
+ * origin code, and the token that scoped it lived in the frame's URL
+ * fragment, where page script could read it.
  */
 
 import { createWorker } from 'tesseract.js';
 import type { Worker } from 'tesseract.js';
 import { getErrorMessage } from '@/utils/error-message';
+import {
+  OCR_RECOGNIZE,
+  OCR_TRANSPORT_ORDER,
+  isOcrRecognizeResponse,
+  type OcrRecognizeRequest,
+  type OcrTransport,
+  type OcrWireOptions,
+  type OcrWireResult,
+} from '@/offscreen/ocr-protocol';
 
 // ==================== Type Definitions ====================
 
@@ -27,7 +57,7 @@ export interface TextRegion {
   confidence: number;
 }
 
-interface TextDetectionResult {
+export interface TextDetectionResult {
   /** Array of detected text regions */
   regions: TextRegion[];
   /** Original image dimensions */
@@ -98,86 +128,398 @@ const DEFAULT_OPTIONS: Required<TextDetectionOptions> = {
 
 // ==================== Cached Worker ====================
 
+/**
+ * Which origin the worker is being created from.
+ *
+ * `page` is the in-page fallback (content script), where Chrome refuses a
+ * direct extension-origin worker and the worker is bootstrapped from a
+ * blob. `extension` is the offscreen document, where the packaged worker is
+ * same-origin and needs no blob.
+ */
+export type OcrWorkerOrigin = 'page' | 'extension';
+
 let worker: Worker | null = null;
-let workerLanguages: string[] = [];
+/** Canonical key (sorted, `+`-joined) of the languages `worker` was built for. */
+let workerLanguageKey: string | null = null;
+let workerOrigin: OcrWorkerOrigin | null = null;
+
+/**
+ * Tail of the worker-creation chain.
+ *
+ * Two calls that both find no worker used to each build one, and the loser
+ * was leaked. Creation goes through this promise one at a time; the second
+ * caller then re-checks the cache and reuses what the first built.
+ */
+let workerCreation: Promise<void> = Promise.resolve();
+
+/**
+ * The one spelling of a language set.
+ *
+ * The stored key and the comparison must both come from this function.
+ * Storing the caller's array and comparing it against a sorted key meant the
+ * comparison never matched — every recognition terminated the worker and
+ * rebuilt it, paying the four-language load each time.
+ */
+function canonicalLanguageKey(languages: string[]): string {
+  return [...languages].sort().join('+');
+}
 
 /**
  * Get or create a Tesseract worker with specified languages
  */
-async function getWorker(languages: string[]): Promise<Worker> {
-  // 排序的是副本，不是调用方的那份数组。
-  //
-  // `opts.languages` 是 `DEFAULT_OPTIONS.languages` 的同一个对象（展开是
-  // 浅拷贝），所以就地排序会把模块级的默认值改掉 —— 第一次调用之后，
-  // 全局默认的语言顺序就变了。
-  const langKey = [...languages].sort().join('+');
+async function getWorker(
+  languages: string[],
+  origin: OcrWorkerOrigin
+): Promise<Worker> {
+  const langKey = canonicalLanguageKey(languages);
 
-  // Reuse existing worker if languages match
-  if (worker && workerLanguages.join('+') === langKey) {
+  if (worker && workerOrigin === origin && workerLanguageKey === langKey) {
     return worker;
   }
 
-  // Terminate existing worker if languages changed
-  if (worker) {
-    await worker.terminate();
-    worker = null;
+  // Serialise creation. `previous` always resolves (the only promise stored
+  // in `workerCreation` is `mine`, which `release` resolves), so this wait
+  // cannot reject.
+  let release = (): void => undefined;
+  const mine = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const previous = workerCreation;
+  workerCreation = mine;
+  await previous;
+
+  try {
+    // Another call may have built the worker this call needs while it
+    // waited for the chain.
+    if (worker && workerOrigin === origin && workerLanguageKey === langKey) {
+      return worker;
+    }
+
+    // Terminate existing worker if languages or the origin changed. No job
+    // is in flight here: the offscreen document serialises recognitions,
+    // and the in-page worker is only ever driven through this same cache.
+    if (worker) {
+      await worker.terminate();
+      worker = null;
+      workerLanguageKey = null;
+      workerOrigin = null;
+    }
+
+    // Create new worker with local scripts in Chrome Extension env
+    const isExtension =
+      typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
+    const workerOptions: Record<string, unknown> = {
+      logger: (m: { status: string; progress: number }) => {
+        if (import.meta.env.DEV && m.status === 'recognizing text') {
+          console.log(
+            `[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`
+          );
+        }
+      },
+    };
+
+    if (isExtension) {
+      workerOptions['workerPath'] = chrome.runtime.getURL(
+        'tesseract/worker.min.js'
+      );
+      workerOptions['corePath'] = chrome.runtime.getURL(
+        'tesseract/tesseract-core-simd-lstm.wasm.js'
+      );
+      // The language data ships inside the extension. `scripts/copy-tesseract.js`
+      // copies the pinned `@tesseract.js-data` files into `tesseract/lang`, and
+      // the worker reads `<langPath>/<lang>.traineddata.gz` from there.
+      //
+      // This used to be left unset, which made tesseract.js download the data
+      // from jsdelivr on first use. That was an undisclosed third-party request
+      // in a local-first product, it failed wherever jsdelivr was unreachable,
+      // and the library's default URL stayed in the built bundle — the Chrome
+      // Web Store's Blue Argon review treats a remotely hosted script as a
+      // Manifest V3 violation even when the runtime overrides it. The worker
+      // and core defaults are localized the same way: by the build, not by a
+      // runtime option that leaves the remote string in the package.
+      workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');
+      // The packaged files are gzipped; pin the flag instead of relying on the
+      // library's default.
+      workerOptions['gzip'] = true;
+      // Chrome refuses a direct `new Worker(chrome-extension://...)` from a
+      // content script: the constructor compares the script URL's origin with
+      // the page's and reports "cannot be accessed from origin", even though
+      // the worker is listed as a web-accessible resource. Bootstrapping the
+      // worker from a blob whose only statement is `importScripts(<packaged
+      // worker>)` keeps the script local and passes the extension-resource
+      // check. Verified end-to-end by
+      // evidence/cws-blue-argon/runtime-offline-ocr.mjs.
+      //
+      // The blob is only needed in the page. On the extension's own origin
+      // (the offscreen document) the packaged worker is same-origin, and the
+      // extension CSP's `script-src 'self'` does not admit `blob:` anyway —
+      // so the direct worker is both allowed and the only thing that works
+      // there.
+      workerOptions['workerBlobURL'] = origin === 'page';
+    }
+
+    const created = await createWorker(langKey, 1, workerOptions);
+    worker = created;
+    workerLanguageKey = langKey;
+    workerOrigin = origin;
+
+    if (import.meta.env.DEV) {
+      console.log(
+        `[TextDetector] Tesseract worker 已初始化, 语言: ${langKey}, origin: ${origin}`
+      );
+    }
+
+    return created;
+  } finally {
+    release();
   }
+}
 
-  // Create new worker with local scripts in Chrome Extension env
-  const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
-  const workerOptions: Record<string, unknown> = {
-    logger: (m: { status: string; progress: number }) => {
-      if (import.meta.env.DEV && m.status === 'recognizing text') {
-        console.log(
-          `[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`
-        );
-      }
-    },
-  };
+/**
+ * Run Tesseract on this context's own origin.
+ *
+ * The offscreen page calls this directly (with `origin: 'extension'`) so it
+ * never re-enters the transport chain, and `detectTextRegions` uses it as
+ * the last transport.
+ */
+export async function recognizeWithLocalWorker(
+  imageBase64: string,
+  options: TextDetectionOptions = {},
+  origin: OcrWorkerOrigin = 'page'
+): Promise<TextDetectionResult> {
+  const opts = { ...DEFAULT_OPTIONS, ...options };
+  const startTime = performance.now();
 
-  if (isExtension) {
-    workerOptions['workerPath'] = chrome.runtime.getURL(
-      'tesseract/worker.min.js'
-    );
-    workerOptions['corePath'] = chrome.runtime.getURL(
-      'tesseract/tesseract-core-simd-lstm.wasm.js'
-    );
-    // The language data ships inside the extension. `scripts/copy-tesseract.js`
-    // copies the pinned `@tesseract.js-data` files into `tesseract/lang`, and
-    // the worker reads `<langPath>/<lang>.traineddata.gz` from there.
-    //
-    // This used to be left unset, which made tesseract.js download the data
-    // from jsdelivr on first use. That was an undisclosed third-party request
-    // in a local-first product, it failed wherever jsdelivr was unreachable,
-    // and the library's default URL stayed in the built bundle — the Chrome
-    // Web Store's Blue Argon review treats a remotely hosted script as a
-    // Manifest V3 violation even when the runtime overrides it. The worker
-    // and core defaults are localized the same way: by the build, not by a
-    // runtime option that leaves the remote string in the package.
-    workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');
-    // The packaged files are gzipped; pin the flag instead of relying on the
-    // library's default.
-    workerOptions['gzip'] = true;
-    // Chrome refuses a direct `new Worker(chrome-extension://...)` from a
-    // content script: the constructor compares the script URL's origin with
-    // the page's and reports "cannot be accessed from origin", even though
-    // the worker is listed as a web-accessible resource. Bootstrapping the
-    // worker from a blob whose only statement is `importScripts(<packaged
-    // worker>)` keeps the script local and passes the extension-resource
-    // check. Verified end-to-end by
-    // evidence/cws-blue-argon/runtime-offline-ocr.mjs.
-    workerOptions['workerBlobURL'] = true;
-  }
+  // Get Tesseract worker
+  const tesseractWorker = await getWorker(opts.languages, origin);
 
-  worker = await createWorker(langKey, 1, workerOptions);
-
-  workerLanguages = languages;
+  // 配置页面分割模式 (PSM). tesseract.js 的 setParameters 接受 PSM 枚举值。
+  await tesseractWorker.setParameters({
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    tessedit_pageseg_mode: opts.psm as any,
+  });
 
   if (import.meta.env.DEV) {
-    console.log(`[TextDetector] Tesseract worker 已初始化, 语言: ${langKey}`);
+    console.log(`[TextDetector] 开始检测文字区域 (PSM: ${opts.psm})...`);
   }
 
-  return worker;
+  // Recognize text.
+  //
+  // tesseract.js 7 returns only `text` by default. The word boxes — the
+  // whole point of this call — live under
+  // `blocks[].paragraphs[].lines[].words`, and are only emitted when
+  // `blocks: true` is requested. The old code read a top-level `data.words`
+  // that v7 does not produce, so every OCR run returned zero regions and
+  // the caller read that as "this page has no text".
+  const recognize = tesseractWorker.recognize.bind(tesseractWorker) as (
+    image: string,
+    options: Record<string, unknown>,
+    output: Record<string, unknown>
+  ) => Promise<{ data: unknown }>;
+  const result = await recognize(imageBase64, {}, { text: true, blocks: true });
+  const data = result.data as OcrData;
+
+  const processingTime = performance.now() - startTime;
+
+  const words = collectOcrWords(data);
+  if (words === undefined) {
+    throw new Error(
+      'OCR 输出形状不匹配：既没有 words 也没有 blocks（tesseract.js 版本不受支持）'
+    );
+  }
+  if (words.length === 0 && (data.text ?? '').trim().length > 0) {
+    throw new Error('OCR 输出形状不匹配：有文本，但读不出任何词框');
+  }
+
+  if (import.meta.env.DEV) {
+    console.log(
+      `[TextDetector] 检测完成, 耗时: ${processingTime.toFixed(0)}ms, 文字区域数: ${words.length}`
+    );
+  }
+
+  const regions = convertToRegions(
+    words,
+    data.confidence ?? 0,
+    opts.expandMargin,
+    opts.minConfidence
+  );
+
+  return {
+    regions,
+    imageWidth: data.imageWidth ?? opts.imageWidth,
+    imageHeight: data.imageHeight ?? opts.imageHeight,
+    processingTime,
+  };
+}
+
+// ==================== Transport chain ====================
+
+/**
+ * The transport that worked last, if any.
+ *
+ * Negotiation is sticky in one direction: a working path is reused, and a
+ * path that failed is not retried this session. Re-negotiating per image
+ * would pay a failed probe on every page — and the fallbacks exist for
+ * environments where a path is missing, not for transient failures.
+ */
+let activeTransport: OcrTransport | null = null;
+
+/** A failure that means "this path is unavailable", not "OCR failed". */
+class OcrTransportError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'OcrTransportError';
+  }
+}
+
+function hasExtensionRuntime(): boolean {
+  return (
+    typeof chrome !== 'undefined' &&
+    typeof chrome.runtime?.getURL === 'function' &&
+    typeof chrome.runtime?.sendMessage === 'function'
+  );
+}
+
+function isTransportAvailable(transport: OcrTransport): boolean {
+  switch (transport) {
+    case 'offscreen':
+      return hasExtensionRuntime();
+    case 'local':
+      return true;
+  }
+}
+
+function toWireOptions(
+  options: Required<TextDetectionOptions>
+): OcrWireOptions {
+  return {
+    languages: options.languages,
+    psm: options.psm,
+    expandMargin: options.expandMargin,
+    minConfidence: options.minConfidence,
+    imageWidth: options.imageWidth,
+    imageHeight: options.imageHeight,
+  };
+}
+
+async function recognizeThroughTransportChain(
+  image: string,
+  options: OcrWireOptions
+): Promise<OcrWireResult> {
+  const startIndex = activeTransport
+    ? OCR_TRANSPORT_ORDER.indexOf(activeTransport)
+    : 0;
+  let lastError: unknown = null;
+
+  for (
+    let index = Math.max(0, startIndex);
+    index < OCR_TRANSPORT_ORDER.length;
+    index++
+  ) {
+    const transport = OCR_TRANSPORT_ORDER[index];
+    if (!transport || !isTransportAvailable(transport)) continue;
+    try {
+      const result = await runTransport(transport, image, options);
+      activeTransport = transport;
+      return result;
+    } catch (error) {
+      if (!(error instanceof OcrTransportError)) {
+        // The recogniser itself failed. Repeating the same work on the
+        // next transport would fail the same way.
+        throw error;
+      }
+      lastError = error;
+      if (import.meta.env.DEV) {
+        console.warn(
+          `[TextDetector] ${transport} 通道不可用，尝试下一条: ${getErrorMessage(error)}`
+        );
+      }
+    }
+  }
+
+  throw lastError ?? new Error('没有可用的 OCR 执行通道');
+}
+
+function runTransport(
+  transport: OcrTransport,
+  image: string,
+  options: OcrWireOptions
+): Promise<OcrWireResult> {
+  switch (transport) {
+    case 'offscreen':
+      return recognizeInOffscreen(image, options);
+    case 'local':
+      return recognizeWithLocalWorker(image, options, 'page');
+  }
+}
+
+/** A four-language run on a manga page can take tens of seconds. */
+const OCR_JOB_TIMEOUT_MS = 180000;
+
+function withTimeout<T>(
+  promise: Promise<T>,
+  timeoutMs: number,
+  message: string
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new OcrTransportError(message));
+    }, timeoutMs);
+    promise.then(
+      value => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      error => {
+        clearTimeout(timer);
+        reject(error);
+      }
+    );
+  });
+}
+
+async function recognizeInOffscreen(
+  image: string,
+  options: OcrWireOptions
+): Promise<OcrWireResult> {
+  const request: OcrRecognizeRequest = {
+    type: OCR_RECOGNIZE,
+    image,
+    options,
+  };
+
+  let response: unknown;
+  try {
+    response = await withTimeout(
+      chrome.runtime.sendMessage(request),
+      OCR_JOB_TIMEOUT_MS,
+      'offscreen OCR 超时'
+    );
+  } catch (error) {
+    throw new OcrTransportError(
+      `offscreen 通道不可用: ${getErrorMessage(error)}`
+    );
+  }
+
+  return unwrapResponse(response, 'offscreen');
+}
+
+/**
+ * Turn a wire response into a result, or throw the error the response
+ * describes. Transport-shaped failures become `OcrTransportError` so the
+ * chain moves on; recogniser failures are thrown as they are.
+ */
+function unwrapResponse(response: unknown, transport: string): OcrWireResult {
+  if (!isOcrRecognizeResponse(response)) {
+    throw new OcrTransportError(`${transport} 通道返回了无法识别的响应`);
+  }
+  if (response.success) {
+    return response.result;
+  }
+  if (response.kind === 'ocr') {
+    throw new Error(response.error);
+  }
+  throw new OcrTransportError(response.error);
 }
 
 // ==================== Core Functions ====================
@@ -200,65 +542,14 @@ export async function detectTextRegions(
   const base64 = await ensureBase64(imageSource);
 
   try {
-    // Get Tesseract worker
-    const tesseractWorker = await getWorker(opts.languages);
-
-    // 配置页面分割模式 (PSM). tesseract.js 的 setParameters 接受 PSM 枚举值。
-    await tesseractWorker.setParameters({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      tessedit_pageseg_mode: opts.psm as any,
-    });
-
-    if (import.meta.env.DEV) {
-      console.log(`[TextDetector] 开始检测文字区域 (PSM: ${opts.psm})...`);
-    }
-
-    // Recognize text.
-    //
-    // tesseract.js 7 returns only `text` by default. The word boxes — the
-    // whole point of this call — live under
-    // `blocks[].paragraphs[].lines[].words`, and are only emitted when
-    // `blocks: true` is requested. The old code read a top-level `data.words`
-    // that v7 does not produce, so every OCR run returned zero regions and
-    // the caller read that as "this page has no text".
-    const recognize = tesseractWorker.recognize.bind(tesseractWorker) as (
-      image: string,
-      options: Record<string, unknown>,
-      output: Record<string, unknown>
-    ) => Promise<{ data: unknown }>;
-    const result = await recognize(base64, {}, { text: true, blocks: true });
-    const data = result.data as OcrData;
-
-    const processingTime = performance.now() - startTime;
-
-    const words = collectOcrWords(data);
-    if (words === undefined) {
-      throw new Error(
-        'OCR 输出形状不匹配：既没有 words 也没有 blocks（tesseract.js 版本不受支持）'
-      );
-    }
-    if (words.length === 0 && (data.text ?? '').trim().length > 0) {
-      throw new Error('OCR 输出形状不匹配：有文本，但读不出任何词框');
-    }
-
-    if (import.meta.env.DEV) {
-      console.log(
-        `[TextDetector] 检测完成, 耗时: ${processingTime.toFixed(0)}ms, 文字区域数: ${words.length}`
-      );
-    }
-
-    const regions = convertToRegions(
-      words,
-      data.confidence ?? 0,
-      opts.expandMargin,
-      opts.minConfidence
+    const result = await recognizeThroughTransportChain(
+      base64,
+      toWireOptions(opts)
     );
 
     return {
-      regions,
-      imageWidth: data.imageWidth ?? opts.imageWidth,
-      imageHeight: data.imageHeight ?? opts.imageHeight,
-      processingTime,
+      ...result,
+      processingTime: performance.now() - startTime,
     };
   } catch (error) {
     const errorMessage = getErrorMessage(error);

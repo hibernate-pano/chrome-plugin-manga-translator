@@ -33,11 +33,17 @@ export const TESSERACT_DATA_VERSION = '1.0.0';
  */
 export const TESSERACT_DATA_VARIANT = '4.0.0_best_int';
 
-/** The core pair `text-detector.ts` loads explicitly. */
-export const TESSERACT_CORE_FILES = [
-  'tesseract-core-simd-lstm.wasm.js',
-  'tesseract-core-simd-lstm.wasm',
-];
+/**
+ * The core file `text-detector.ts` loads explicitly.
+ *
+ * Only the `.wasm.js` single-file build ships. It embeds the WebAssembly
+ * binary as base64 and never fetches the sibling `.wasm`: the recorded OCR run
+ * in `evidence/cws-blue-argon/runtime-network.json` shows
+ * `tesseract-core-simd-lstm.wasm.js` being loaded and no `.wasm` request at
+ * all. Copying the separate 2.86 MB binary put a file in `dist/` and in the
+ * store ZIP that nothing could load, so it is deliberately absent here.
+ */
+export const TESSERACT_CORE_FILES = ['tesseract-core-simd-lstm.wasm.js'];
 
 /** Where the worker script comes from inside node_modules. */
 export const TESSERACT_WORKER_SOURCE = 'tesseract.js/dist/worker.min.js';
@@ -50,6 +56,35 @@ export function trainedDataPackage(lang) {
 /** The traineddata file inside that package. */
 export function trainedDataRelativePath(lang) {
   return `${trainedDataPackage(lang)}/${TESSERACT_DATA_VARIANT}/${lang}.traineddata.gz`;
+}
+
+/**
+ * Does a URL recorded at runtime name exactly this packaged asset?
+ *
+ * A substring test is not enough, and its failure mode is silent:
+ * `.../tesseract-core-simd-lstm.wasm.js` contains
+ * `.../tesseract-core-simd-lstm.wasm`, so an `includes` check reported the
+ * separate `.wasm` as loaded whenever only the `.js` glue had been. That is
+ * how the runtime acceptance script kept passing while the file it required
+ * was dead weight.
+ *
+ * The scheme is checked too, so a remote URL that happens to end with the
+ * same path cannot satisfy a check whose name says "from the extension".
+ *
+ * @param {string} url
+ * @param {string} asset path relative to the extension root, e.g. `tesseract/worker.min.js`
+ * @returns {boolean}
+ */
+export function urlLoadsExtensionAsset(url, asset) {
+  if (typeof url !== 'string' || !url.startsWith('chrome-extension://')) {
+    return false;
+  }
+  const pathname = url.split('#')[0].split('?')[0];
+  const pathStart = pathname.indexOf('/', 'chrome-extension://'.length);
+  if (pathStart === -1) {
+    return false;
+  }
+  return pathname.slice(pathStart + 1) === asset;
 }
 
 /**

@@ -1,0 +1,211 @@
+{
+  "label": "final-head-chrome110",
+  "startedAt": "2026-11-28T09:07:17.398Z",
+  "chrome": "/Users/panbo/Library/Caches/ms-playwright/chromium-1045/chrome-mac/Chromium.app/Contents/MacOS/Chromium",
+  "dist": "/Users/panbo/orca/workspaces/chrome-plugin-manga-translator/manga-233-integration/dist",
+  "load": "flag",
+  "extensionId": "gcdfcjemobohjngkkgpbfdiiogfdalcn",
+  "createDocumentProbe": {
+    "resolved": false,
+    "name": "TypeError",
+    "message": "Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC.",
+    "toString": "TypeError: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+  },
+  "serviceWorkerConsole": [
+    {
+      "sessionId": "EA043AC5211238D720449203CC6BC646",
+      "target": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "type": "warning",
+      "text": "[OcrOffscreen] 创建 offscreen 文档失败: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+    },
+    {
+      "sessionId": "B0F4DAD93615E99BD2E9F06A35A6BC5A",
+      "target": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "type": "warning",
+      "text": "[OcrOffscreen] 创建 offscreen 文档失败: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+    },
+    {
+      "sessionId": "8D60A044ADEFB079279E4A4231C021A5",
+      "target": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "type": "warning",
+      "text": "[OcrOffscreen] 创建 offscreen 文档失败: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+    }
+  ],
+  "serviceWorkerWarnings": [
+    {
+      "sessionId": "EA043AC5211238D720449203CC6BC646",
+      "target": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "type": "warning",
+      "text": "[OcrOffscreen] 创建 offscreen 文档失败: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+    },
+    {
+      "sessionId": "B0F4DAD93615E99BD2E9F06A35A6BC5A",
+      "target": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "type": "warning",
+      "text": "[OcrOffscreen] 创建 offscreen 文档失败: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+    },
+    {
+      "sessionId": "8D60A044ADEFB079279E4A4231C021A5",
+      "target": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "type": "warning",
+      "text": "[OcrOffscreen] 创建 offscreen 文档失败: Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC."
+    }
+  ],
+  "exceptions": [],
+  "logErrors": [
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_ngram_on"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_ngram_on"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: segsearch_max_char_wh_ratio"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: segsearch_max_char_wh_ratio"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_ngram_space_delimited_language"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_ngram_space_delimited_language"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_use_sigmoidal_certainty"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_use_sigmoidal_certainty"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_ngram_nonmatch_score"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: language_model_ngram_nonmatch_score"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: classify_integer_matcher_multiplier"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: classify_integer_matcher_multiplier"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: assume_fixed_pitch_char_segment"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: assume_fixed_pitch_char_segment"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: allow_blob_division"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Warning: Parameter not found: allow_blob_division"
+    },
+    {
+      "sessionId": "57B288329F18613808EB19C0CA976992",
+      "url": "about:blank",
+      "text": "Estimating resolution as 504"
+    },
+    {
+      "sessionId": "6E5BBE63434C6D846E27DCB6C94C14BA",
+      "url": "about:blank",
+      "text": "Estimating resolution as 504"
+    }
+  ],
+  "pipeline": {
+    "elapsedMs": 3020,
+    "overlays": 36,
+    "processed": 1,
+    "overlayText": "等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！",
+    "providerRequests": [
+      {
+        "hybrid": false,
+        "bytes": 111948
+      },
+      {
+        "hybrid": true,
+        "bytes": 50997
+      },
+      {
+        "hybrid": true,
+        "bytes": 34149
+      },
+      {
+        "hybrid": true,
+        "bytes": 7285
+      }
+    ]
+  },
+  "malicious": null,
+  "jobs": null,
+  "targets": [
+    {
+      "id": "5D37EFB6D7485EC3A0C26436ECADD131",
+      "type": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js"
+    },
+    {
+      "id": "5D0D41F6B2AAE96DBC3A37079FB3F5EC",
+      "type": "page",
+      "url": "http://127.0.0.1:61445/"
+    },
+    {
+      "id": "4E1A4BF2547D9847C72806202BF56A44",
+      "type": "page",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html"
+    },
+    {
+      "id": "03EFF4A11DCEC557AD03E1786CAA56F6",
+      "type": "page",
+      "url": "about:blank"
+    },
+    {
+      "id": "E4A1F193A945D39861263029999FB64A",
+      "type": "worker",
+      "url": "blob:http://127.0.0.1:61445/a438a4a2-15e6-42d5-8a2c-d2fb9968859b"
+    }
+  ],
+  "workers": [],
+  "notes": [
+    "config persisted: {\"baseUrl\":\"http://127.0.0.1:61445/v1\",\"version\":4} (stable=3)"
+  ],
+  "finishedAt": "2026-11-28T09:07:24.342Z"
+}

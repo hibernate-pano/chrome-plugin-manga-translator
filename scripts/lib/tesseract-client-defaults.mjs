@@ -19,6 +19,13 @@
  * tesseract.js is upgraded and the template literal changes,
  * `patchClientDefaultOptions` throws instead of bundling the CDN default back
  * in.
+ *
+ * tesseract.js and tesseract.js-core are pinned to exact versions in
+ * package.json for that reason: upgrading either one must re-run the
+ * remote-code gate (`pnpm release:check`) and the OCR acceptance run on a
+ * real browser (`evidence/cws-blue-argon/runtime-offline-ocr.mjs`). A caret
+ * range would let a new upstream default reach the package without this
+ * rewrite or those checks ever being revisited.
  */
 
 const DEFAULT_OPTIONS_MODULE =

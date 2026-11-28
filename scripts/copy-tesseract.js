@@ -27,7 +27,9 @@ const langDir = path.join(targetDir, 'lang');
  *      paths inside this directory. Copying it verbatim is what produced the
  *      Blue Argon finding: the defaults stayed in the package even though the
  *      extension overrode them at runtime, and the store reviews the package.
- *   2. The SIMD-LSTM core pair. `text-detector.ts` names the `.js` file
+ *   2. The SIMD-LSTM core. Only the single-file `.wasm.js` build is shipped:
+ *      it embeds the WebAssembly binary, so the sibling `.wasm` is never
+ *      fetched and is not copied. `text-detector.ts` names the `.js` file
  *      explicitly, so tesseract.js never auto-selects another variant.
  *   3. The four traineddata files, pinned through the `@tesseract.js-data/*`
  *      packages in package.json. They are the `4.0.0_best_int` variant that
@@ -43,6 +45,17 @@ fs.mkdirSync(targetDir, { recursive: true });
 // TESSERACT_LANGUAGES must not survive in the package as a stale file.
 fs.rmSync(langDir, { recursive: true, force: true });
 fs.mkdirSync(langDir, { recursive: true });
+
+// Drop core files that are no longer in the asset list. `public/tesseract/` is
+// tracked and Vite copies it wholesale, so a file left behind by an older
+// checkout would still be packaged even though nothing loads it — the separate
+// `.wasm` sibling of the single-file core was exactly that.
+for (const entry of fs.readdirSync(targetDir)) {
+  if (!entry.startsWith('tesseract-core-')) continue;
+  if (TESSERACT_CORE_FILES.includes(entry)) continue;
+  fs.rmSync(path.join(targetDir, entry), { force: true });
+  console.log(`[CopyTesseract] 清理废弃核心文件: ${entry}`);
+}
 
 console.log('[CopyTesseract] 准备本地 Tesseract worker、WASM 核心与语言包...');
 

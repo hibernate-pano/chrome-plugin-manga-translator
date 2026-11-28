@@ -1,6 +1,6 @@
   ✓ the extension loads on a clean profile
   ✓ the service worker starts
-  ✓ the extension is configured against the local fake provider — {"enabled":true,"provider":"openai-compatible","baseUrl":"http://127.0.0.1:56679/v1","version":4}
+  ✓ the extension is configured against the local fake provider — {"enabled":true,"provider":"openai-compatible","baseUrl":"http://127.0.0.1:61413/v1","version":4}
   ✓ the fixture page is open in a tab
   ✓ the content script is alive on the page
 [runtime] page text: 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 等等！ 📌 ✕ ⬇
@@ -18,52 +18,78 @@
   [error] Warning: Parameter not found: allow_blob_division
   [error] Estimating resolution as 450
 [runtime] targets:
-  page about:blank (42A43AEA)
-  browser_ui chrome://omnibox-popup.top-chrome/ (43C89303)
-  service_worker chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js (36FA52E5)
-  service_worker chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js (E0DE15AF)
-  service_worker chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js (59BC3701)
-  service_worker chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/service-worker-loader.js (F0074C01)
-  page about:blank (4DC54788)
-  page about:blank (63C98C6B)
-  worker blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114 (CBC5C0DC)
+  browser_ui chrome://omnibox-popup.top-chrome/ (DB7C80C9)
+  page about:blank (AED2910D)
+  service_worker chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js (87D7217F)
+  service_worker chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js (36A701B2)
+  service_worker chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js (4502AB2D)
+  service_worker chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js (E666682E)
+  service_worker chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js (7E90B55F)
+  page about:blank (F39A39AF)
+  page about:blank (36195D10)
+  other  (AF3D73B4)
+  service_worker chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js (E2C15EDD)
+  worker chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js (7F12C3CB)
 [runtime] all network requests:
+  Script GET chrome://omnibox-popup.top-chrome/strings.m.js
+  Script GET chrome://resources/js/load_time_data.js
+  Script GET chrome://resources/lit/v3_0/lit.rollup.js
+  Script GET chrome://resources/mojo/mojo/public/js/bindings.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-webui.js
+  Script GET chrome://resources/mojo/url/mojom/url.mojom-webui.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/time.mojom-webui.js
+  Script GET chrome://resources/cr_components/color_change_listener/color_change_listener.mojom-webui.js
+  Script GET chrome://resources/js/assert.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-webui.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-converters.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/string16_converter.js
+  Script GET chrome://resources/mojo/url/mojom/url.mojom-converters.js
+  Script GET chrome://resources/mojo/url/mojom/url_converter.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/time.mojom-converters.js
+  Script GET chrome://resources/mojo/mojo/public/mojom/base/time_converters.js
   Other GET chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/tts_extension.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/background.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/local-providers-8xk73gjs.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/usage-store-D1JBxrGJ.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/runtime-contracts-CF9vJaeP.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/index-Cxca7a85.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/commands-DcgzgVrr.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/state-vendor-6LVtU4WP.js
-  Document GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/src/options.html
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/modulepreload-polyfill-YP0FEG5d.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/state-vendor-6LVtU4WP.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/react-dom-vendor-BE9G4YoE.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/local-providers-8xk73gjs.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/usage-store-D1JBxrGJ.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/theme-DUlAYnUH.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/utils-vendor-BeLtu-UY.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/index-CbuPjTo5.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/index-Cxca7a85.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/chunks/cache-v2-sjp09VOw.js
-  Script GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/options.js
-  Stylesheet GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/assets/index-DOw59cCO.css
-  Document GET http://127.0.0.1:56679/
-  Document GET http://127.0.0.1:56679/
-  Image GET http://127.0.0.1:56679/page.png
-  Image GET http://127.0.0.1:56679/page.png
-  Other GET http://127.0.0.1:56679/favicon.ico
-  Other GET http://127.0.0.1:56679/favicon.ico
-  Fetch POST http://127.0.0.1:56679/v1/chat/completions
-  Script GET blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114
-  Script GET blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114
-  Other GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/worker.min.js
-  Other GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/tesseract-core-simd-lstm.wasm.js
-  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/chi_sim.traineddata.gz
-  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/eng.traineddata.gz
-  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/jpn.traineddata.gz
-  Fetch GET chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/kor.traineddata.gz
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/background.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/local-providers-8xk73gjs.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/usage-store-D1JBxrGJ.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/runtime-contracts-CaNKDfmo.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/ocr-protocol-CZw8MbQQ.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/index-Cxca7a85.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/commands-DcgzgVrr.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/state-vendor-6LVtU4WP.js
+  Stylesheet GET chrome://theme/colors.css?sets=ui%2Cchrome&version=1795856820670
+  Image GET data:image/png;base64,… (30462 chars)
+  Document GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html
+  Stylesheet GET chrome://theme/colors.css?sets=ui%2Cchrome&version=1795856820688
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/modulepreload-polyfill-YP0FEG5d.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/state-vendor-6LVtU4WP.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/react-dom-vendor-BE9G4YoE.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/local-providers-8xk73gjs.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/usage-store-D1JBxrGJ.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/theme-DUlAYnUH.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/utils-vendor-BeLtu-UY.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/index-CbuPjTo5.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/index-Cxca7a85.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/cache-v2-sjp09VOw.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/options.js
+  Stylesheet GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/assets/index-DOw59cCO.css
+  Document GET http://127.0.0.1:61413/
+  Document GET http://127.0.0.1:61413/
+  Image GET http://127.0.0.1:61413/page.png
+  Image GET http://127.0.0.1:61413/page.png
+  Other GET http://127.0.0.1:61413/favicon.ico
+  Other GET http://127.0.0.1:61413/favicon.ico
+  Fetch POST http://127.0.0.1:61413/v1/chat/completions
+  Fetch POST http://127.0.0.1:61413/v1/chat/completions
+  Document GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/ocr-protocol-CZw8MbQQ.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/text-detector-iZIfL-dY.js
+  Script GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js
+  Other GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/tesseract-core-simd-lstm.wasm.js
+  Fetch GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/chi_sim.traineddata.gz
+  Fetch GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/eng.traineddata.gz
+  Fetch GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/jpn.traineddata.gz
+  Fetch GET chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/kor.traineddata.gz
   Image GET data:image/jpeg;base64,… (11791 chars)
   Image GET data:image/jpeg;base64,… (11791 chars)
   Image GET data:image/png;base64,… (4950 chars)
@@ -72,7 +98,9 @@
   Image GET data:image/png;base64,… (4950 chars)
   Image GET data:image/png;base64,… (5078 chars)
   Image GET data:image/png;base64,… (5026 chars)
-  Fetch POST http://127.0.0.1:56679/v1/chat/completions
+  Fetch POST http://127.0.0.1:61413/v1/chat/completions
+  Fetch POST http://127.0.0.1:61413/v1/chat/completions
+  Fetch POST http://127.0.0.1:61413/v1/chat/completions
   ✓ the OCR fallback draws a translation overlay — overlays=12 processed=1 text=等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 
   ✓ the overlay carries the model translation — 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 
   ✓ the model answered the full image with zero text, then the OCR strip was translated — full-image=1 hybrid=1
@@ -83,10 +111,26 @@
   ✓ external hosts are unreachable in this browser (jsdelivr control) — blocked:Failed to fetch
   ✓ no extension exception was thrown during the run
   ✓ no error-level console output during the run
+  ✓ no bare tesseract-core-*.wasm binary was requested (.wasm.js is the only core) — 82 URLs checked; 1 .wasm.js core request(s)
+  ✓ the OCR ran in the extension offscreen document (chrome-extension://…/offscreen.html) — type=background_page topLevel=true firstSeen=2026-11-28T09:07:03.919Z via=attachedToTarget+targetCreated+targetInfoChanged+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  ✓ no page-origin blob: worker was created during the run — worker targets seen: 5, none blob:
+[runtime] target ledger:
+  browser_ui chrome://omnibox-popup.top-chrome/ firstSeen=2026-11-28T09:07:00.592Z sources=attachedToTarget+targetCreated+getTargets:extension-loaded+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  page chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html firstSeen=2026-11-28T09:07:00.592Z sources=attachedToTarget+targetCreated+getTargets:extension-loaded+targetInfoChanged+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  service_worker chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js firstSeen=2026-11-28T09:07:00.605Z sources=targetCreated+targetInfoChanged+attachedToTarget+getTargets:extension-loaded+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  service_worker chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js firstSeen=2026-11-28T09:07:00.620Z sources=targetCreated+targetInfoChanged+attachedToTarget+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  service_worker chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js firstSeen=2026-11-28T09:07:00.632Z sources=targetCreated+targetInfoChanged+attachedToTarget+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  service_worker chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js firstSeen=2026-11-28T09:07:00.639Z sources=targetCreated+targetInfoChanged+attachedToTarget+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  page http://127.0.0.1:61413/ firstSeen=2026-11-28T09:07:02.326Z sources=attachedToTarget+targetCreated+targetInfoChanged+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  background_page chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html firstSeen=2026-11-28T09:07:03.919Z sources=attachedToTarget+targetCreated+targetInfoChanged+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  worker chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js firstSeen=2026-11-28T09:07:03.930Z sources=targetCreated+targetInfoChanged+attachedToTarget+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end
+  page about:blank firstSeen=2026-11-28T09:07:06.916Z sources=attachedToTarget+targetCreated+targetInfoChanged+getTargets:end
 [runtime] api requests:
   #1 full-image bytes=15432 auth=Bearer offline-fixture-key-000000000000000000000000
   #2 hybrid-strip bytes=16045 auth=Bearer offline-fixture-key-000000000000000000000000
 [runtime] network during translation:
-  http://127.0.0.1:56679: 4
-  null: 14
-[runtime] 15/15 checks passed
+  http://127.0.0.1:61413: 5
+  null: 18
+[runtime] transport=offscreen
+[runtime] transport basis: 1 target(s) with url chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html (type=background_page, topLevel=true); 0 blob: worker target(s); 0 bare .wasm request(s)
+[runtime] 18/18 checks passed

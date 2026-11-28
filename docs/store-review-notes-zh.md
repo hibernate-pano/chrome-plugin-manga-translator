@@ -31,6 +31,8 @@ contextMenus —— 在页面右键菜单中提供两个入口：「翻译当前
 
 alarms —— 在翻译开启期间每 30 秒唤醒一次后台 service worker，使被 Chrome 回收后重启的 worker 能重新从 storage 读取配置，而不是靠内存里的旧值继续跑。该定时器不读取也不上传任何页面数据。两点如实说明：(a) 并发数可以在设置页的「画质与并发」中调整（默认 3），所以"重读并发配置"在用户改过设置时并非幂等操作；(b) 该定时器不阻止 Chrome 回收 worker，长章节翻译不中断靠的是内容脚本尚未返回的消息通道。
 
+offscreen —— 创建一个隐藏的扩展页面（offscreen.html），让 OCR 的 Tesseract worker 在扩展自身 origin 上运行，使宿主页面的 CSP（例如 worker-src 'none'）不能阻止本地 OCR。该页面只加载随扩展打包的 OCR 资源（worker、WASM 核心、四种语言包），不读取页面内容、不发起任何网络请求；首次使用 OCR 时创建，之后复用。WORKERS 这个 reason 自 Chrome 113 起提供；扩展的最低版本是 Chrome 110，110–112 上 createDocument 会因 reason 无效被拒绝，OCR 自动改走页内兜底（见「OCR worker 的加载方式与已知限制」）。
+
 host_permissions: <all_urls> —— 有两个原因：
 1) 需要翻译的漫画/条漫站点无法预先枚举，用户访问的是任意网站；
 2) 页面上漫画图片的 <img> 元素常被 CORS 限制、降采样或懒加载，直接在页面内把图片绘制到 canvas 无法可靠取得视觉模型所需的原始字节。后台 service worker 因此需要以 GET 方式直接向该页面自己的图床/CDN 取图。
@@ -41,7 +43,8 @@ content_security_policy: script-src 'self' 'wasm-unsafe-eval'
 'wasm-unsafe-eval' 仅用于实例化随扩展打包的 Tesseract OCR WebAssembly 核心（本地运行，不下载远程代码）。除扩展自身的打包文件外，不允许加载任何其他脚本来源；object-src 锁定为 'self'。扩展不执行任何远程代码。
 
 web_accessible_resources 仅声明 tesseract/*：
-- tesseract/* ：内容脚本在页面上下文中通过 chrome.runtime.getURL() 创建 OCR Web Worker，页面上下文只能加载被声明为 web-accessible 的扩展资源。
+- tesseract/*：最后兜底的页内 blob worker 需要它——内容脚本在页面上下文中通过 chrome.runtime.getURL('tesseract/worker.min.js') 拼出 blob 内的 importScripts 地址，而页面上下文只能加载被声明为 web-accessible 的扩展资源。
+- offscreen.html 不在其中：该页面只由扩展自己的 service worker 通过 chrome.offscreen 创建，网页既不需要、也无法嵌入它。
 content script 本身以普通静态文件方式注册（content_scripts 直接指向 content.js），由浏览器直接注入，不经过网页，因此无需声明为 web-accessible。
 其余内部模块（含密钥混淆模块）均未暴露：扩展包中不含任何可供网页读取的密钥混淆代码，构建流程会对此做断言并在违规时使构建失败。
 
@@ -51,11 +54,16 @@ content script 本身以普通静态文件方式注册（content_scripts 直接�
 ## OCR worker 的加载方式与已知限制
 
 ```
-OCR worker 的加载方式：内容脚本不能直接 new Worker(chrome-extension://...)，因此扩展先创建 blob，blob 的内容只有一行 importScripts("chrome-extension://<扩展 ID>/tesseract/worker.min.js")（该地址由 chrome.runtime.getURL('tesseract/worker.min.js') 生成），再用这个 blob URL 构造 Worker。被加载的 worker.min.js、WASM 核心与语言包全部随扩展包分发，执行的代码 100% 来自扩展自身，没有任何远程代码。
+OCR 默认在扩展自身 origin 的 offscreen 文档中运行（Chrome 113 及以上），宿主页的 CSP 不能阻止本地 OCR；Chrome 110–112 退回页内 blob。内容脚本按以下顺序尝试两种传输方式，第一个成功者在本次会话内固定：
 
-已知限制：blob worker 受页面 CSP 约束。若页面 CSP 的 worker-src（或回退到的 script-src）不允许 blob:，例如 script-src 'self'，blob worker 无法创建，OCR 兜底随之失败。此时该图按失败处理、不写入翻译缓存，也不会静默降级为「没有文字」的空结果；用户可以在重试列表里看到它，并在允许 blob: 的页面或稍后重试。
+1) offscreen 文档（默认）：后台 service worker 通过 chrome.offscreen（reason: WORKERS）创建一个隐藏的扩展页面 offscreen.html，并通过 runtime.Port 把识别任务发给它。该页面在扩展自身 origin 上用 chrome.runtime.getURL('tesseract/worker.min.js') 直接创建 Web Worker，宿主页的 CSP（worker-src、script-src）不适用于扩展 origin。
+2) 页内 blob worker（兜底）：offscreen 文档不可用时，退回 2.3.2 的方案——内容脚本创建 blob，blob 内容只有一行 importScripts("chrome-extension://<扩展 ID>/tesseract/worker.min.js")，再用 blob URL 构造 Worker。此路径受宿主页 CSP 约束。
 
-后续计划（不在当前版本范围）：把 OCR worker 移到扩展自己的 origin（offscreen document 或扩展 origin 的 iframe），使其不再受页面 CSP 影响。当前版本仍使用上述 blob 方案。
+没有扩展 origin iframe 通道：把扩展页面嵌进宿主页，等于把扩展 origin 的入口交到页面脚本手里；原先用于限定该通道的每会话令牌放在 iframe 的 URL fragment 里，页面脚本读得到。该通道已删除，offscreen.html 也不再是 web-accessible。
+
+只有「传输方式本身不可用」（transport/unsupported）才降级；识别本身失败的图片按失败处理、不写入翻译缓存，也不会静默降级为「没有文字」的空结果。Chrome 113 起默认走 offscreen 路径，worker-src 'none' 的站点因此不再导致 OCR 不可用。Chrome 110–112 尚未提供 WORKERS 这个 offscreen reason，createDocument 会被拒绝，这三个版本上 OCR 始终走页内 blob：页面 CSP 依然生效，worker-src 'none' 这类严格 CSP 的站点在这三个版本上仍无法使用 OCR。
+
+被加载的 worker.min.js、WASM 核心（单文件 tesseract-core-simd-lstm.wasm.js，内嵌 WebAssembly 二进制）与韩/日/英/简中四种语言包全部随扩展包分发，执行的代码 100% 来自扩展自身，没有任何远程代码。
 ```
 
 ## 数据收集声明
@@ -104,6 +112,7 @@ API Key 仅保存在本机 chrome.storage.local，以固定盐值 XOR 混淆后�
 | 问题 | 回答 |
 | --- | --- |
 | 为什么需要 `<all_urls>`？ | 目标站点无法预先枚举，且需从页面自身的图床取图。见「权限与理由」。 |
+| 为什么要 `offscreen` 权限？ | OCR 的 Tesseract worker 需要在扩展自身 origin 运行，才不受宿主页 CSP 限制（Chrome 113 及以上；110–112 上该 reason 不可用，OCR 走页内兜底）。该 offscreen 文档只加载随包的 OCR 资源，不读取页面内容、不联网。见「权限与理由」。 |
 | 为什么不只申请用户主动点击时的 `activeTab`？ | `activeTab` 只授予当前标签页的一次性权限，不足以在自动翻译模式下于页面加载后取图。 |
 | 是否会远程加载代码？ | 不会。`'wasm-unsafe-eval'` 仅用于本地打包的 WASM 核心，其余脚本来源锁定为 `'self'`。 |
 | 是否上传浏览历史？ | 不会。只有用户请求翻译的图片会发往其自行配置的服务商。 |

@@ -243,6 +243,13 @@ returned translation on the source page.
   general; and the alarm does **not** keep the worker alive — the outstanding
   content-script message channel does that. See the comment above
   `KEEPALIVE_ALARM` in `src/background/background.ts`.
+- `offscreen`: Create the hidden extension page `offscreen.html` that hosts the
+  Tesseract worker at the extension's own origin, so a page's CSP cannot
+  disable OCR. The document loads only packaged OCR assets and makes no network
+  request; it is created on first OCR use (reason `WORKERS`) and reused
+  afterwards. The `WORKERS` reason exists since Chrome 113; on Chrome 110–112
+  (the extension's floor, pinned for SIMD) `createDocument` rejects it as an
+  invalid reason and OCR uses the in-page fallback instead.
 
 `activeTab` was removed in v2.0.2: nothing referenced it. The content script is
 injected via `host_permissions` on every page, and the popup reads tab metadata
@@ -256,14 +263,17 @@ is worse than dropping it.
 The content script is injected on normal web pages but performs no image
 processing until the user enables the extension and starts translation.
 
-`web_accessible_resources` declares exactly one thing, and it is needed by a
-page-context load:
+`web_accessible_resources` declares exactly one thing, needed by the
+page-context fallback:
 
-- `tesseract/*` — the OCR fallback builds a Web Worker from
-  `chrome.runtime.getURL('tesseract/worker.min.js')` inside the content script,
-  and a worker created from an extension URL in a page context is only loadable
-  if the resource is web-accessible for that page. Hence `<all_urls>` rather
-  than a host list: the pages needing it are not known in advance.
+- `tesseract/*` — the fallback OCR transport is the in-page blob worker:
+  the content script builds a blob whose only statement is
+  `importScripts(chrome.runtime.getURL('tesseract/worker.min.js'))`, and a
+  worker created from an extension URL in a page context is only loadable if
+  the resource is web-accessible for that page. The primary transport (the
+  offscreen document) runs at the extension origin and is loaded by the
+  extension itself, not by the page. Hence `<all_urls>` rather than a host
+  list: the pages that may need the fallback are not known in advance.
 
   The same declaration covers `tesseract/lang/*.traineddata.gz`. The Korean,
   Japanese, English and Simplified Chinese language models are copied out of
@@ -274,6 +284,13 @@ page-context load:
   or if any built file still contains a remote code URL — the Blue Argon
   finding that 2.3.2 fixes. `scripts/lib/remote-code-scan.mjs` is the scanner
   both the build gate and the evidence log use.
+
+The offscreen document is **not** web-accessible, deliberately: only the
+extension's own service worker creates it through `chrome.offscreen`, and no
+page ever loads or embeds it. An earlier 2.3.3 draft did embed the same page
+as an iframe in the host page; that transport was removed because it handed
+page script a handle into extension-origin code, with the per-session token
+readable from the frame's URL fragment.
 
 The content script itself is **not** web-accessible, and that is deliberate.
 CRXJS cannot register a content script directly: for every file in
