@@ -152,6 +152,23 @@ function makeWorkdir() {
     );
   }
 
+  // The offscreen OCR host. Nothing in the manifest names either file — the
+  // worker opens the page by path — so their presence is checked directly.
+  writeFileSync(
+    join(workdir, 'dist', 'offscreen.html'),
+    [
+      '<!doctype html>',
+      '<html>',
+      '<body><script type="module" src="./offscreen.js"></script></body>',
+      '</html>',
+      '',
+    ].join('\n')
+  );
+  writeFileSync(
+    join(workdir, 'dist', 'offscreen.js'),
+    '/* offscreen OCR host: opened by chrome.offscreen, never embedded by a page */\n'
+  );
+
   writeSourceTree(workdir);
   return workdir;
 }
@@ -793,6 +810,135 @@ describe('release consistency guard: the credential boundary', () => {
       expect(result.output).toContain(
         'dist/content.js contains a build-time API key'
       );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * The offscreen OCR document.
+ *
+ * `dist/offscreen.html` and `dist/offscreen.js` are not named by any manifest
+ * field: the service worker opens the page by path through
+ * `chrome.offscreen.createDocument`. A build that stops emitting them would
+ * therefore pass every manifest-shaped check and fail only when a user's OCR
+ * fallback tries to open the page — the wrong time and the wrong machine.
+ *
+ * The page must also stay out of `web_accessible_resources`. It was exposed
+ * while the `extension-frame` transport embedded it in host pages; 2.3.3
+ * removed that transport, and an exposed extension-origin page reachable
+ * through `contentWindow`/`postMessage` is exactly what it removed.
+ */
+describe('release consistency guard: the offscreen document', () => {
+  it('accepts a build whose offscreen page and script are present and private', () => {
+    const workdir = makeWorkdir();
+    try {
+      const result = runGuard(workdir);
+      expect(result.code).toBe(0);
+      expect(result.output).toContain(
+        'offscreen document present (offscreen.html, offscreen.js)'
+      );
+      expect(result.output).toContain('offscreen.html is not web-accessible');
+      expect(result.output).toContain(
+        'web_accessible_resources pattern(s) resolve in dist'
+      );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the build produced no offscreen page', () => {
+    const workdir = makeWorkdir();
+    try {
+      rmSync(join(workdir, 'dist', 'offscreen.html'), { force: true });
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('dist/offscreen.html is missing');
+      expect(result.output).toContain(
+        'the offscreen OCR transport has no page to load'
+      );
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the offscreen page has no script to load', () => {
+    const workdir = makeWorkdir();
+    try {
+      rmSync(join(workdir, 'dist', 'offscreen.js'), { force: true });
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('dist/offscreen.js is missing');
+      expect(result.output).toContain('no script to run');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when the offscreen document is web-accessible again', () => {
+    const workdir = makeWorkdir();
+    try {
+      // The regression this guards: the page is put back into the manifest so
+      // a host page can embed it, which is the transport 2.3.3 removed.
+      setWar(workdir, ['tesseract/*', 'offscreen.html']);
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(
+        'web_accessible_resources exposes offscreen.html'
+      );
+      expect(result.output).toContain('pattern: offscreen.html');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a wildcard entry would expose the offscreen document', () => {
+    const workdir = makeWorkdir();
+    try {
+      // A pattern, not a literal: `*.html` covers `offscreen.html`. Comparing
+      // entry strings would call this one safe.
+      setWar(workdir, ['tesseract/*', '*.html']);
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(
+        'web_accessible_resources exposes offscreen.html'
+      );
+      expect(result.output).toContain('pattern: *.html');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when an exact entry names a file the build did not produce', () => {
+    const workdir = makeWorkdir();
+    try {
+      setWar(workdir, ['tesseract/*', 'chunks/old-name.js']);
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain(
+        'web_accessible_resources entries match no built file'
+      );
+      expect(result.output).toContain('chunks/old-name.js');
+    } finally {
+      rmSync(workdir, { recursive: true, force: true });
+    }
+  });
+
+  it('fails when a directory entry matches nothing in the build', () => {
+    const workdir = makeWorkdir();
+    try {
+      setWar(workdir, ['tesseract/*', 'assets/*']);
+
+      const result = runGuard(workdir);
+      expect(result.code).not.toBe(0);
+      expect(result.output).toContain('assets/*');
+      expect(result.output).toContain('match no built file');
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
