@@ -124,6 +124,7 @@ async function tick(): Promise<void> {
 
 describe('OffscreenOcrClient', () => {
   afterEach(() => {
+    vi.restoreAllMocks();
     vi.unstubAllGlobals();
   });
 
@@ -200,6 +201,42 @@ describe('OffscreenOcrClient', () => {
     });
 
     await expect(pending).resolves.toEqual({ success: true, result: RESULT });
+  });
+
+  it('reports the Chrome 110–112 invalid WORKERS reason as a transport failure', async () => {
+    // Verbatim from Chromium 110.0.5481.38. The WORKERS reason was added in
+    // Chrome 113, so on 110–112 createDocument rejects with the list of
+    // reasons that browser does accept. That is the offscreen path being
+    // unavailable — it must fall through to the in-page worker, never be
+    // read as "the document is already open" (which would leave the caller
+    // waiting on a document that was never created).
+    const rejection =
+      "Error in invocation of offscreen.createDocument(offscreen.CreateParameters parameters, function callback): Error at parameter 'parameters': Error at property 'reasons': Error at index 0: Value must be one of AUDIO_PLAYBACK, BLOBS, CLIPBOARD, DISPLAY_MEDIA, DOM_PARSER, DOM_SCRAPING, IFRAME_SCRIPTING, TESTING, USER_MEDIA, WEB_RTC.";
+    const createDocument = vi.fn(async () => {
+      throw new TypeError(rejection);
+    });
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    const harness = createEnv({ createDocument });
+    const client = new OffscreenOcrClient(harness.env, {
+      portWaitMs: 20,
+      jobMs: 100,
+    });
+    client.register();
+
+    const response = await client.recognize(makeRequest());
+
+    expect(response).toEqual({
+      success: false,
+      kind: 'transport',
+      error: rejection,
+    });
+    // The rejection is logged verbatim so the degradation is diagnosable.
+    expect(warn).toHaveBeenCalledWith(
+      '[OcrOffscreen] 创建 offscreen 文档失败:',
+      rejection
+    );
+    // It never waited for, or poked, a document it did not create.
+    expect(harness.sendMessage).not.toHaveBeenCalled();
   });
 
   it('reports a real createDocument failure as a transport failure', async () => {

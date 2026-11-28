@@ -1,20 +1,23 @@
 /**
  * Extension-origin OCR host.
  *
- * One page serves two roles, decided by how it was opened:
+ * This page has exactly one role: it is the extension's offscreen document,
+ * opened by `chrome.offscreen.createDocument` and reached by the service
+ * worker over a `runtime.Port`. It runs `recognizeWithLocalWorker` with
+ * `origin: 'extension'`, so the Tesseract worker is constructed from
+ * packaged `chrome-extension://` files on the extension's own origin and the
+ * hosting page's CSP has no say in it.
  *
- *   - **Offscreen document** (`chrome.offscreen.createDocument`): a hidden
- *     extension page, reached by the service worker over a `runtime.Port`.
- *     This is the primary path.
- *   - **Embedded iframe** on the host page: the fallback for builds or
- *     profiles where the offscreen document cannot be created. It speaks
- *     `postMessage` with a per-session token to the content script that
- *     created it.
+ * It is never embedded in a web page. An extension-origin iframe is still an
+ * extension context the host page can reach, and the token that used to
+ * scope that channel sat in the frame's URL fragment where page script could
+ * read it; that channel was removed rather than repaired.
  *
- * Both roles run the same Tesseract invocation — `recognizeWithLocalWorker`
- * with `origin: 'extension'` — which is the point: the worker is constructed
- * from packaged `chrome-extension://` files on the extension's own origin,
- * so the hosting page's CSP has no say in it.
+ * Jobs are serialised. The document can be handed a second job while the
+ * first is still recognising — a reader scrolling a chapter — and a
+ * Tesseract worker is stateful: a second `recognize` while one is running,
+ * or a language change that terminates the worker mid-job, corrupts both
+ * answers. One promise chain, one recognition at a time.
  *
  * This page contains no OCR logic of its own and no remote URL. Every asset
  * Tesseract loads (worker, WASM core, language data) is resolved by
@@ -24,16 +27,10 @@
 import { getErrorMessage } from '@/utils/error-message';
 import { recognizeWithLocalWorker } from '@/services/text-detector';
 import {
-  OCR_FRAME_READY,
-  OCR_FRAME_RESULT,
   OCR_OFFSCREEN_PORT,
   OCR_OFFSCREEN_RESULT,
   OCR_OFFSCREEN_WAKE,
-  isOcrFrameJob,
   isOcrOffscreenJob,
-  type OcrFrameJob,
-  type OcrFrameResult,
-  type OcrFrameReady,
   type OcrOffscreenJob,
   type OcrOffscreenResult,
   type OcrRecognizeResponse,
@@ -120,12 +117,37 @@ export function startOffscreenDocument(): void {
   connect();
 }
 
+/**
+ * The chain every job runs on.
+ *
+ * One recognition at a time: the worker is stateful, and a second
+ * `recognize` (or the language-change teardown that a second job with other
+ * options triggers) while the first is running corrupts both answers.
+ */
+let jobQueue: Promise<void> = Promise.resolve();
+
+function enqueueJob(job: () => Promise<void>): void {
+  jobQueue = jobQueue.then(job).catch(error => {
+    // A job must not poison the chain for the next one. `runOffscreenJob`
+    // turns recogniser failures into a response, so reaching this is a bug —
+    // but it still must not wedge every later job behind a rejected promise.
+    console.error('[OffscreenOcr] job 队列异常:', getErrorMessage(error));
+  });
+}
+
 async function handleOffscreenJob(
   message: unknown,
   port: chrome.runtime.Port
 ): Promise<void> {
   if (!isOcrOffscreenJob(message)) return;
   const job: OcrOffscreenJob = message;
+  enqueueJob(() => runOffscreenJob(job, port));
+}
+
+async function runOffscreenJob(
+  job: OcrOffscreenJob,
+  port: chrome.runtime.Port
+): Promise<void> {
   const response = await recognize(job.image, job.options);
   const result: OcrOffscreenResult = {
     type: OCR_OFFSCREEN_RESULT,
@@ -141,62 +163,8 @@ async function handleOffscreenJob(
   }
 }
 
-// ==================== Embedded iframe role ====================
-
-function readFrameToken(): string {
-  const hash = window.location.hash;
-  if (!hash.startsWith('#')) return '';
-  const params = new URLSearchParams(hash.slice(1));
-  return params.get('ocr-frame') ?? '';
-}
-
-export function startEmbeddedFrame(): void {
-  const token = readFrameToken();
-  // A page that embeds this document without the fragment gets a page that
-  // does nothing. Without the token it was not opened by our content
-  // script, and running OCR for arbitrary embedders would turn the
-  // extension into a free OCR service.
-  if (!token) return;
-
-  window.addEventListener('message', event => {
-    // Only the embedding frame may drive this document, and only with the
-    // token from its own fragment (unguessable, generated per session by
-    // the content script).
-    if (event.source !== window.parent) return;
-    if (!isOcrFrameJob(event.data) || event.data.token !== token) return;
-    const job: OcrFrameJob = event.data;
-    void (async () => {
-      const response = await recognize(job.image, job.options);
-      const result: OcrFrameResult = {
-        type: OCR_FRAME_RESULT,
-        token,
-        requestId: job.requestId,
-        response,
-      };
-      // The parent's origin is the host page, which this document does not
-      // know (and must not trust from `document.referrer`). The token
-      // already scopes the reply; `*` only addresses the parent frame.
-      window.parent.postMessage(result, '*');
-    })();
-  });
-
-  const ready: OcrFrameReady = { type: OCR_FRAME_READY, token };
-  window.parent.postMessage(ready, '*');
-}
-
 // ==================== Role selection ====================
 
-/** `window.top` access can throw in exotic embedding situations. */
-function isEmbedded(): boolean {
-  try {
-    return window.top !== window;
-  } catch {
-    return true;
-  }
-}
-
-if (isEmbedded()) {
-  startEmbeddedFrame();
-} else {
-  startOffscreenDocument();
-}
+// The page has one role now: it is the offscreen document. It is opened by
+// `chrome.offscreen.createDocument`, never embedded in a web page.
+startOffscreenDocument();

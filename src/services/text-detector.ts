@@ -8,33 +8,32 @@
  * The recogniser is not run in the page if it can be avoided. A content
  * script's worker inherits the hosting page's CSP, and a site that ships
  * `worker-src 'none'` (or a `script-src 'self'` with no `blob:`) takes the
- * in-page worker down with it. So detection tries three transports, in
- * order, and the first one that runs wins for the rest of the session:
+ * in-page worker down with it. So detection tries two transports, in order,
+ * and the first one that runs wins for the rest of the session:
  *
  *   1. `offscreen` — the service worker's offscreen document, at the
  *      extension's own origin (see `src/offscreen/offscreen.ts`);
- *   2. `extension-frame` — the same page embedded as an iframe, for builds
- *      or profiles where the offscreen document cannot be created;
- *   3. `local` — the original in-page blob worker, so OCR keeps working
- *      where neither extension-origin path is available.
+ *   2. `local` — the original in-page blob worker, so OCR keeps working where
+ *      the offscreen document cannot be created (Chrome 110–112 predate the
+ *      `WORKERS` offscreen reason) or fails.
  *
  * Only `transport`/`unsupported` failures advance the chain. An `ocr`
  * failure means the recogniser ran and failed, and would fail identically
  * on the next transport.
+ *
+ * There is deliberately no extension-origin iframe transport: embedding an
+ * extension page in the host page hands that page a handle into extension
+ * origin code, and the token that scoped it lived in the frame's URL
+ * fragment, where page script could read it.
  */
 
 import { createWorker } from 'tesseract.js';
 import type { Worker } from 'tesseract.js';
 import { getErrorMessage } from '@/utils/error-message';
 import {
-  OCR_FRAME_JOB,
-  OCR_FRAME_READY,
-  OCR_OFFSCREEN_DOCUMENT_PATH,
   OCR_RECOGNIZE,
   OCR_TRANSPORT_ORDER,
-  isOcrFrameResult,
   isOcrRecognizeResponse,
-  type OcrFrameJob,
   type OcrRecognizeRequest,
   type OcrTransport,
   type OcrWireOptions,
@@ -134,14 +133,36 @@ const DEFAULT_OPTIONS: Required<TextDetectionOptions> = {
  *
  * `page` is the in-page fallback (content script), where Chrome refuses a
  * direct extension-origin worker and the worker is bootstrapped from a
- * blob. `extension` is the offscreen document or embedded iframe, where the
- * packaged worker is same-origin and needs no blob.
+ * blob. `extension` is the offscreen document, where the packaged worker is
+ * same-origin and needs no blob.
  */
 export type OcrWorkerOrigin = 'page' | 'extension';
 
 let worker: Worker | null = null;
-let workerLanguages: string[] = [];
+/** Canonical key (sorted, `+`-joined) of the languages `worker` was built for. */
+let workerLanguageKey: string | null = null;
 let workerOrigin: OcrWorkerOrigin | null = null;
+
+/**
+ * Tail of the worker-creation chain.
+ *
+ * Two calls that both find no worker used to each build one, and the loser
+ * was leaked. Creation goes through this promise one at a time; the second
+ * caller then re-checks the cache and reuses what the first built.
+ */
+let workerCreation: Promise<void> = Promise.resolve();
+
+/**
+ * The one spelling of a language set.
+ *
+ * The stored key and the comparison must both come from this function.
+ * Storing the caller's array and comparing it against a sorted key meant the
+ * comparison never matched — every recognition terminated the worker and
+ * rebuilt it, paying the four-language load each time.
+ */
+function canonicalLanguageKey(languages: string[]): string {
+  return [...languages].sort().join('+');
+}
 
 /**
  * Get or create a Tesseract worker with specified languages
@@ -150,92 +171,108 @@ async function getWorker(
   languages: string[],
   origin: OcrWorkerOrigin
 ): Promise<Worker> {
-  // 排序的是副本，不是调用方的那份数组。
-  //
-  // `opts.languages` 是 `DEFAULT_OPTIONS.languages` 的同一个对象（展开是
-  // 浅拷贝），所以就地排序会把模块级的默认值改掉 —— 第一次调用之后，
-  // 全局默认的语言顺序就变了。
-  const langKey = [...languages].sort().join('+');
+  const langKey = canonicalLanguageKey(languages);
 
-  // Reuse existing worker if languages and origin match
-  if (
-    worker &&
-    workerOrigin === origin &&
-    workerLanguages.join('+') === langKey
-  ) {
+  if (worker && workerOrigin === origin && workerLanguageKey === langKey) {
     return worker;
   }
 
-  // Terminate existing worker if languages or the origin changed
-  if (worker) {
-    await worker.terminate();
-    worker = null;
+  // Serialise creation. `previous` always resolves (the only promise stored
+  // in `workerCreation` is `mine`, which `release` resolves), so this wait
+  // cannot reject.
+  let release = (): void => undefined;
+  const mine = new Promise<void>(resolve => {
+    release = resolve;
+  });
+  const previous = workerCreation;
+  workerCreation = mine;
+  await previous;
+
+  try {
+    // Another call may have built the worker this call needs while it
+    // waited for the chain.
+    if (worker && workerOrigin === origin && workerLanguageKey === langKey) {
+      return worker;
+    }
+
+    // Terminate existing worker if languages or the origin changed. No job
+    // is in flight here: the offscreen document serialises recognitions,
+    // and the in-page worker is only ever driven through this same cache.
+    if (worker) {
+      await worker.terminate();
+      worker = null;
+      workerLanguageKey = null;
+      workerOrigin = null;
+    }
+
+    // Create new worker with local scripts in Chrome Extension env
+    const isExtension =
+      typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
+    const workerOptions: Record<string, unknown> = {
+      logger: (m: { status: string; progress: number }) => {
+        if (import.meta.env.DEV && m.status === 'recognizing text') {
+          console.log(
+            `[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`
+          );
+        }
+      },
+    };
+
+    if (isExtension) {
+      workerOptions['workerPath'] = chrome.runtime.getURL(
+        'tesseract/worker.min.js'
+      );
+      workerOptions['corePath'] = chrome.runtime.getURL(
+        'tesseract/tesseract-core-simd-lstm.wasm.js'
+      );
+      // The language data ships inside the extension. `scripts/copy-tesseract.js`
+      // copies the pinned `@tesseract.js-data` files into `tesseract/lang`, and
+      // the worker reads `<langPath>/<lang>.traineddata.gz` from there.
+      //
+      // This used to be left unset, which made tesseract.js download the data
+      // from jsdelivr on first use. That was an undisclosed third-party request
+      // in a local-first product, it failed wherever jsdelivr was unreachable,
+      // and the library's default URL stayed in the built bundle — the Chrome
+      // Web Store's Blue Argon review treats a remotely hosted script as a
+      // Manifest V3 violation even when the runtime overrides it. The worker
+      // and core defaults are localized the same way: by the build, not by a
+      // runtime option that leaves the remote string in the package.
+      workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');
+      // The packaged files are gzipped; pin the flag instead of relying on the
+      // library's default.
+      workerOptions['gzip'] = true;
+      // Chrome refuses a direct `new Worker(chrome-extension://...)` from a
+      // content script: the constructor compares the script URL's origin with
+      // the page's and reports "cannot be accessed from origin", even though
+      // the worker is listed as a web-accessible resource. Bootstrapping the
+      // worker from a blob whose only statement is `importScripts(<packaged
+      // worker>)` keeps the script local and passes the extension-resource
+      // check. Verified end-to-end by
+      // evidence/cws-blue-argon/runtime-offline-ocr.mjs.
+      //
+      // The blob is only needed in the page. On the extension's own origin
+      // (the offscreen document) the packaged worker is same-origin, and the
+      // extension CSP's `script-src 'self'` does not admit `blob:` anyway —
+      // so the direct worker is both allowed and the only thing that works
+      // there.
+      workerOptions['workerBlobURL'] = origin === 'page';
+    }
+
+    const created = await createWorker(langKey, 1, workerOptions);
+    worker = created;
+    workerLanguageKey = langKey;
+    workerOrigin = origin;
+
+    if (import.meta.env.DEV) {
+      console.log(
+        `[TextDetector] Tesseract worker 已初始化, 语言: ${langKey}, origin: ${origin}`
+      );
+    }
+
+    return created;
+  } finally {
+    release();
   }
-
-  // Create new worker with local scripts in Chrome Extension env
-  const isExtension = typeof chrome !== 'undefined' && !!chrome.runtime?.getURL;
-  const workerOptions: Record<string, unknown> = {
-    logger: (m: { status: string; progress: number }) => {
-      if (import.meta.env.DEV && m.status === 'recognizing text') {
-        console.log(
-          `[TextDetector] 识别进度: ${Math.round(m.progress * 100)}%`
-        );
-      }
-    },
-  };
-
-  if (isExtension) {
-    workerOptions['workerPath'] = chrome.runtime.getURL(
-      'tesseract/worker.min.js'
-    );
-    workerOptions['corePath'] = chrome.runtime.getURL(
-      'tesseract/tesseract-core-simd-lstm.wasm.js'
-    );
-    // The language data ships inside the extension. `scripts/copy-tesseract.js`
-    // copies the pinned `@tesseract.js-data` files into `tesseract/lang`, and
-    // the worker reads `<langPath>/<lang>.traineddata.gz` from there.
-    //
-    // This used to be left unset, which made tesseract.js download the data
-    // from jsdelivr on first use. That was an undisclosed third-party request
-    // in a local-first product, it failed wherever jsdelivr was unreachable,
-    // and the library's default URL stayed in the built bundle — the Chrome
-    // Web Store's Blue Argon review treats a remotely hosted script as a
-    // Manifest V3 violation even when the runtime overrides it. The worker
-    // and core defaults are localized the same way: by the build, not by a
-    // runtime option that leaves the remote string in the package.
-    workerOptions['langPath'] = chrome.runtime.getURL('tesseract/lang');
-    // The packaged files are gzipped; pin the flag instead of relying on the
-    // library's default.
-    workerOptions['gzip'] = true;
-    // Chrome refuses a direct `new Worker(chrome-extension://...)` from a
-    // content script: the constructor compares the script URL's origin with
-    // the page's and reports "cannot be accessed from origin", even though
-    // the worker is listed as a web-accessible resource. Bootstrapping the
-    // worker from a blob whose only statement is `importScripts(<packaged
-    // worker>)` keeps the script local and passes the extension-resource
-    // check. Verified end-to-end by
-    // evidence/cws-blue-argon/runtime-offline-ocr.mjs.
-    //
-    // The blob is only needed in the page. On the extension's own origin
-    // (offscreen document / embedded iframe) the packaged worker is
-    // same-origin, and the extension CSP's `script-src 'self'` does not
-    // admit `blob:` anyway — so the direct worker is both allowed and the
-    // only thing that works there.
-    workerOptions['workerBlobURL'] = origin === 'page';
-  }
-
-  worker = await createWorker(langKey, 1, workerOptions);
-
-  workerLanguages = languages;
-  workerOrigin = origin;
-
-  if (import.meta.env.DEV) {
-    console.log(
-      `[TextDetector] Tesseract worker 已初始化, 语言: ${langKey}, origin: ${origin}`
-    );
-  }
-
-  return worker;
 }
 
 /**
@@ -343,21 +380,10 @@ function hasExtensionRuntime(): boolean {
   );
 }
 
-function extensionOrigin(): string {
-  // `new URL(...).origin` is not usable here: `chrome-extension:` is not a
-  // "special" scheme in the URL standard, so a spec-compliant parser (and
-  // jsdom, which the tests run on) serialises its origin as "null". Chrome
-  // does return the real origin, but the string is available directly and
-  // means the same thing everywhere.
-  return chrome.runtime.getURL('').replace(/\/$/, '');
-}
-
 function isTransportAvailable(transport: OcrTransport): boolean {
   switch (transport) {
     case 'offscreen':
       return hasExtensionRuntime();
-    case 'extension-frame':
-      return hasExtensionRuntime() && typeof document !== 'undefined';
     case 'local':
       return true;
   }
@@ -422,8 +448,6 @@ function runTransport(
   switch (transport) {
     case 'offscreen':
       return recognizeInOffscreen(image, options);
-    case 'extension-frame':
-      return recognizeInExtensionFrame(image, options);
     case 'local':
       return recognizeWithLocalWorker(image, options, 'page');
   }
@@ -431,9 +455,6 @@ function runTransport(
 
 /** A four-language run on a manga page can take tens of seconds. */
 const OCR_JOB_TIMEOUT_MS = 180000;
-
-/** The iframe's script must announce itself shortly after `src` is set. */
-const FRAME_READY_TIMEOUT_MS = 4000;
 
 function withTimeout<T>(
   promise: Promise<T>,
@@ -499,180 +520,6 @@ function unwrapResponse(response: unknown, transport: string): OcrWireResult {
     throw new Error(response.error);
   }
   throw new OcrTransportError(response.error);
-}
-
-// ---- extension-origin iframe -------------------------------------------
-
-interface FrameSession {
-  frame: HTMLIFrameElement;
-  token: string;
-  origin: string;
-  ready: Promise<void>;
-  /** Removes the window listener when this session is dropped. */
-  detach: () => void;
-  pending: Map<
-    string,
-    {
-      resolve: (response: unknown) => void;
-      reject: (error: Error) => void;
-    }
-  >;
-}
-
-let frameSession: FrameSession | null = null;
-let frameRequestSequence = 0;
-
-function randomToken(): string {
-  const bytes = new Uint8Array(16);
-  crypto.getRandomValues(bytes);
-  return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
-}
-
-function ensureFrameSession(): FrameSession {
-  if (frameSession && frameSession.frame.isConnected) {
-    return frameSession;
-  }
-
-  const token = randomToken();
-  const origin = extensionOrigin();
-  const frame = document.createElement('iframe');
-  frame.hidden = true;
-  frame.tabIndex = -1;
-  frame.setAttribute('aria-hidden', 'true');
-  frame.dataset['mangaOcrFrame'] = '';
-
-  let markReady: (() => void) | null = null;
-  const ready = new Promise<void>(resolve => {
-    markReady = resolve;
-  });
-
-  const session: FrameSession = {
-    frame,
-    token,
-    origin,
-    ready,
-    detach: () => window.removeEventListener('message', onMessage),
-    pending: new Map(),
-  };
-
-  const onMessage = (event: MessageEvent) => {
-    // A message from another frame — or a page script replaying the token —
-    // is not ours. The source check is the strongest signal available: the
-    // extension origin is not something a web page can forge as an iframe's
-    // source.
-    if (event.source !== frame.contentWindow) return;
-    if (!event.origin || event.origin !== origin) return;
-    const data: unknown = event.data;
-    if (typeof data !== 'object' || data === null) return;
-    const envelope = data as { type?: unknown; token?: unknown };
-    if (envelope.token !== token) return;
-
-    if (envelope.type === OCR_FRAME_READY) {
-      markReady?.();
-      return;
-    }
-    if (!isOcrFrameResult(data)) return;
-    const pending = session.pending.get(data.requestId);
-    if (!pending) return;
-    session.pending.delete(data.requestId);
-    pending.resolve(data.response);
-  };
-
-  window.addEventListener('message', onMessage);
-
-  frame.src = `${chrome.runtime.getURL(
-    OCR_OFFSCREEN_DOCUMENT_PATH
-  )}#ocr-frame=${token}`;
-  (document.body ?? document.documentElement).appendChild(frame);
-
-  frameSession = session;
-  return session;
-}
-
-async function recognizeInExtensionFrame(
-  image: string,
-  options: OcrWireOptions
-): Promise<OcrWireResult> {
-  const session = ensureFrameSession();
-
-  try {
-    await withTimeout(
-      session.ready,
-      FRAME_READY_TIMEOUT_MS,
-      '扩展 origin iframe 未在限定时间内就绪'
-    );
-  } catch (error) {
-    // A page that blocks the frame (`frame-src`) leaves an iframe that
-    // never speaks. Drop it so the next call starts clean.
-    dropFrameSession(session);
-    throw new OcrTransportError(
-      `扩展 origin iframe 不可用: ${getErrorMessage(error)}`
-    );
-  }
-
-  frameRequestSequence += 1;
-  const requestId = `frame-${frameRequestSequence}-${Date.now()}`;
-  const job: OcrFrameJob = {
-    type: OCR_FRAME_JOB,
-    token: session.token,
-    requestId,
-    image,
-    options,
-  };
-
-  const response = await new Promise<unknown>((resolve, reject) => {
-    const timer = setTimeout(() => {
-      session.pending.delete(requestId);
-      reject(new OcrTransportError('扩展 origin iframe OCR 超时'));
-    }, OCR_JOB_TIMEOUT_MS);
-
-    session.pending.set(requestId, {
-      resolve: value => {
-        clearTimeout(timer);
-        resolve(value);
-      },
-      reject: error => {
-        clearTimeout(timer);
-        reject(error);
-      },
-    });
-
-    const target = session.frame.contentWindow;
-    if (!target) {
-      clearTimeout(timer);
-      session.pending.delete(requestId);
-      reject(new OcrTransportError('扩展 origin iframe 没有可用窗口'));
-      return;
-    }
-    try {
-      target.postMessage(job, session.origin);
-    } catch (error) {
-      // A bad target origin or a torn-down frame rejects synchronously;
-      // clean up its entry and timer instead of leaving them for the
-      // timeout.
-      clearTimeout(timer);
-      session.pending.delete(requestId);
-      reject(
-        new OcrTransportError(
-          `扩展 origin iframe 发送失败: ${getErrorMessage(error)}`
-        )
-      );
-    }
-  });
-
-  return unwrapResponse(response, '扩展 origin iframe');
-}
-
-function dropFrameSession(session: FrameSession): void {
-  if (frameSession === session) {
-    frameSession = null;
-  }
-  for (const pending of session.pending.values()) {
-    pending.reject(new OcrTransportError('扩展 origin iframe 已关闭'));
-  }
-  session.pending.clear();
-  session.detach();
-  session.frame.remove();
 }
 
 // ==================== Core Functions ====================

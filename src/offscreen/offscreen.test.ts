@@ -1,28 +1,25 @@
 /**
  * The extension-origin OCR host page.
  *
- * Two roles, both exercised here against a fake `chrome` surface:
- *
- *   - offscreen document: connects to the worker over a named port, answers
- *     jobs on it, and reconnects when the worker pokes it after a restart;
- *   - embedded iframe: answers `postMessage` jobs only when the sender is
- *     the parent frame and carries the token from the page's own fragment.
+ * The page has one role: it is the offscreen document. It connects to the
+ * worker over a named port, answers jobs on it one at a time, and reconnects
+ * when the worker pokes it after a restart. The embedded-iframe role it used
+ * to have is gone — these tests also pin that a job arriving over
+ * `postMessage` does nothing.
  *
  * The recogniser itself is mocked — `text-detector.test.ts` covers the
- * worker construction, and this file is about the message plumbing.
+ * worker construction, and this file is about the message plumbing and the
+ * job queue.
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  OCR_FRAME_JOB,
-  OCR_FRAME_READY,
-  OCR_FRAME_RESULT,
   OCR_OFFSCREEN_PORT,
   OCR_OFFSCREEN_RESULT,
   OCR_OFFSCREEN_WAKE,
-  type OcrFrameResult,
   type OcrOffscreenJob,
+  type OcrOffscreenResult,
 } from './ocr-protocol';
 
 const { recognizeMock } = vi.hoisted(() => ({
@@ -87,8 +84,31 @@ function createPort(): FakePort {
   };
 }
 
+function deferred<T>(): {
+  promise: Promise<T>;
+  resolve: (value: T) => void;
+  reject: (error: unknown) => void;
+} {
+  let resolve = (_value: T): void => undefined;
+  let reject = (_error: unknown): void => undefined;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
 async function tick(): Promise<void> {
   await new Promise(resolve => setTimeout(resolve, 0));
+}
+
+function job(requestId: string): OcrOffscreenJob {
+  return {
+    type: 'OCR_OFFSCREEN_JOB',
+    requestId,
+    image: 'base64-image',
+    options: OPTIONS,
+  };
 }
 
 describe('offscreen document role', () => {
@@ -129,13 +149,7 @@ describe('offscreen document role', () => {
 
     expect(connect).toHaveBeenCalledWith({ name: OCR_OFFSCREEN_PORT });
 
-    const job: OcrOffscreenJob = {
-      type: 'OCR_OFFSCREEN_JOB',
-      requestId: 'req-1',
-      image: 'base64-image',
-      options: OPTIONS,
-    };
-    fake.emit(job);
+    fake.emit(job('req-1'));
     await tick();
 
     expect(recognizeMock).toHaveBeenCalledWith(
@@ -154,12 +168,7 @@ describe('offscreen document role', () => {
     recognizeMock.mockRejectedValue(new Error('language pack is missing'));
     await loadHost();
 
-    fake.emit({
-      type: 'OCR_OFFSCREEN_JOB',
-      requestId: 'req-2',
-      image: 'base64-image',
-      options: OPTIONS,
-    } satisfies OcrOffscreenJob);
+    fake.emit(job('req-2'));
     await tick();
 
     expect(fake.posted[0]).toEqual({
@@ -189,6 +198,53 @@ describe('offscreen document role', () => {
     expect(fake.posted).toEqual([]);
   });
 
+  it('runs one recognition at a time and answers both jobs in order', async () => {
+    // The worker is stateful: a second `recognize` while the first is
+    // running corrupts both answers, and a second job with other options
+    // would terminate the worker mid-job. Jobs queue instead.
+    const first = deferred<typeof RESULT>();
+    recognizeMock.mockReturnValueOnce(first.promise);
+    recognizeMock.mockResolvedValueOnce(RESULT);
+    await loadHost();
+
+    fake.emit(job('req-a'));
+    fake.emit(job('req-b'));
+    await tick();
+
+    // The second job is queued, not started.
+    expect(recognizeMock).toHaveBeenCalledTimes(1);
+
+    first.resolve(RESULT);
+    await tick();
+    await tick();
+
+    expect(recognizeMock).toHaveBeenCalledTimes(2);
+    const requestIds = fake.posted.map(
+      entry => (entry as OcrOffscreenResult).requestId
+    );
+    expect(requestIds).toEqual(['req-a', 'req-b']);
+  });
+
+  it('runs the next job after a recogniser failure', async () => {
+    recognizeMock.mockRejectedValueOnce(new Error('language pack is missing'));
+    recognizeMock.mockResolvedValueOnce(RESULT);
+    await loadHost();
+
+    fake.emit(job('req-fail'));
+    fake.emit(job('req-ok'));
+    await tick();
+    await tick();
+
+    const requestIds = fake.posted.map(
+      entry => (entry as OcrOffscreenResult).requestId
+    );
+    expect(requestIds).toEqual(['req-fail', 'req-ok']);
+    expect((fake.posted[1] as OcrOffscreenResult).response).toEqual({
+      success: true,
+      result: RESULT,
+    });
+  });
+
   it('reconnects when the worker pokes the page after a restart', async () => {
     vi.useFakeTimers();
     recognizeMock.mockResolvedValue(RESULT);
@@ -206,60 +262,18 @@ describe('offscreen document role', () => {
     await vi.advanceTimersByTimeAsync(1500);
     expect(connect).toHaveBeenCalledTimes(2);
   });
-});
 
-describe('embedded iframe role', () => {
-  let postMessageSpy: ReturnType<typeof vi.fn>;
-  let startEmbeddedFrame: typeof import('./offscreen').startEmbeddedFrame;
-
-  beforeEach(async () => {
-    vi.resetModules();
-    vi.clearAllMocks();
-    postMessageSpy = vi.fn();
-    vi.stubGlobal('chrome', {
-      runtime: {
-        // The module starts its offscreen-document role on import; give it
-        // a well-formed port so that path does not throw. This test is
-        // about the frame role, started explicitly below.
-        connect: vi.fn(() => createPort().port),
-        onMessage: { addListener: vi.fn() },
-      },
-    });
-    // jsdom's window is its own parent, so the frame role's
-    // `event.source === window.parent` check matches a message dispatched
-    // from the window itself.
-    Object.defineProperty(window, 'postMessage', {
-      configurable: true,
-      value: postMessageSpy,
-    });
-    ({ startEmbeddedFrame } = await import('./offscreen'));
-  });
-
-  afterEach(() => {
-    vi.unstubAllGlobals();
-    window.location.hash = '';
-  });
-
-  it('announces itself with the fragment token', () => {
-    window.location.hash = '#ocr-frame=token-abc';
-    startEmbeddedFrame();
-
-    expect(postMessageSpy).toHaveBeenCalledWith(
-      { type: OCR_FRAME_READY, token: 'token-abc' },
-      '*'
-    );
-  });
-
-  it('answers a parent job that carries the token', async () => {
+  it('answers no postMessage job: the page is not an embeddable OCR service', async () => {
     recognizeMock.mockResolvedValue(RESULT);
+    // A fragment token used to be enough to drive this document when it was
+    // embedded as an iframe. It is not read any more.
     window.location.hash = '#ocr-frame=token-abc';
-    startEmbeddedFrame();
-    postMessageSpy.mockClear();
+    await loadHost();
 
     window.dispatchEvent(
       new window.MessageEvent('message', {
         data: {
-          type: OCR_FRAME_JOB,
+          type: 'OCR_FRAME_JOB',
           token: 'token-abc',
           requestId: 'frame-1',
           image: 'base64-image',
@@ -270,37 +284,8 @@ describe('embedded iframe role', () => {
     );
     await tick();
 
-    const result = postMessageSpy.mock.calls[0]?.[0] as OcrFrameResult;
-    expect(result.type).toBe(OCR_FRAME_RESULT);
-    expect(result.token).toBe('token-abc');
-    expect(result.requestId).toBe('frame-1');
-    expect(result.response).toEqual({ success: true, result: RESULT });
-  });
-
-  it('does nothing without a token, or for a job with the wrong token', async () => {
-    window.location.hash = '';
-    startEmbeddedFrame();
-    expect(postMessageSpy).not.toHaveBeenCalled();
-
-    window.location.hash = '#ocr-frame=token-abc';
-    startEmbeddedFrame();
-    postMessageSpy.mockClear();
-
-    window.dispatchEvent(
-      new window.MessageEvent('message', {
-        data: {
-          type: OCR_FRAME_JOB,
-          token: 'a-different-token',
-          requestId: 'frame-2',
-          image: 'base64-image',
-          options: OPTIONS,
-        },
-        source: window,
-      })
-    );
-    await tick();
-
     expect(recognizeMock).not.toHaveBeenCalled();
-    expect(postMessageSpy).not.toHaveBeenCalled();
+    expect(fake.posted).toEqual([]);
+    window.location.hash = '';
   });
 });
