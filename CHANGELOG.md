@@ -5,6 +5,69 @@ All notable changes to the chrome-plugin-manga-translator are documented in this
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.3.3] - 2026-11-28
+
+### Fixed
+
+- **OCR works on sites whose CSP forbids page workers.** Tesseract now runs at
+  the extension's own origin, not in the page. A content script's worker
+  inherits the hosting page's CSP, so a site shipping `worker-src 'none'` (or a
+  `script-src 'self'` with no room for `blob:`) used to take the detector down
+  with it. Text detection now tries three transports in order and keeps the
+  first that runs for the rest of the session: an offscreen document created by
+  the service worker (`chrome.offscreen`, reason `WORKERS`, reached over a
+  `runtime.Port`); the same extension page embedded as an iframe
+  (`postMessage` with a per-session token, available when the page's
+  `frame-src` allows it); and the original in-page blob worker as the last
+  resort. Only transport failures advance the chain — an OCR failure is
+  reported instead of repeated on the next transport. On the extension origin
+  the packaged worker loads directly (`workerBlobURL` is used only in the page,
+  where the extension CSP does not admit `blob:` and Chrome refuses a direct
+  extension-origin worker anyway).
+- **The never-loaded 2.86 MB core binary is gone.** The single-file
+  `tesseract-core-simd-lstm.wasm.js` embeds the WebAssembly binary; nothing ever
+  fetched the separate `tesseract-core-simd-lstm.wasm` — the acceptance check
+  hid the mistake behind a substring test, because the `.wasm.js` URL contains
+  the `.wasm` path. The stray file is no longer copied, is no longer required by
+  the release gate, and `copy-tesseract` now removes stale `tesseract-core-*`
+  files left in `public/tesseract/`. Removed: 2,857,601 bytes.
+- **The runtime-asset check compares whole URLs.** `urlLoadsExtensionAsset`
+  requires the `chrome-extension://` scheme and an exact path match, so a
+  recorded request for the `.js` glue can no longer satisfy a requirement for
+  its `.wasm` sibling.
+
+### Changed
+
+- **The package got smaller.** The final public ZIP is 9,993,080 bytes
+  (`manga-translator-v2.3.3-public.zip`, including this release's
+  `THIRD-PARTY-NOTICES`), down 1,040,703 bytes from the 2.3.2 baseline of
+  11,033,783 bytes.
+- **`tesseract.js` and `tesseract.js-core` are pinned to exact `7.0.0`.**
+  The build rewrites two upstream defaults inside the packaged worker
+  (`patchWorkerSource`); a caret range could change the minified expression and
+  silently restore a remote URL, or ship different bytes under the same path.
+  Upgrading either package now requires re-running the remote-code gate and the
+  offline OCR acceptance run.
+- **The store package carries `THIRD-PARTY-NOTICES`.** Packaging refuses to
+  produce a ZIP without the file at the repository root and places it at the
+  ZIP root with `zip -j`. The file lists every bundled third-party package with
+  exact versions and licences — tesseract.js and tesseract.js-core
+  (Apache-2.0), the four `@tesseract.js-data` language packages (MIT; the
+  `4.0.0_best_int` data comes from `tessdata_best`), the runtime libraries
+  compiled into the extension chunks (React, React DOM, scheduler, zustand,
+  use-sync-external-store, clsx, tailwind-merge, lucide-react, Radix UI) and
+  Vite's module preload polyfill — and records the Apache-2.0 §4(b)
+  modification of `worker.min.js`.
+
+### Added
+
+- **Unit tests for the scanning library and the packaging step.**
+  `scripts/__tests__/remote-code-scan.test.mjs` covers the remote-code
+  scanner's patterns, `scripts/__tests__/package-extension.test.mjs` pins the
+  notices requirement and the ZIP layout, and the tesseract-asset and
+  release-consistency suites cover the single-core list and the whole-URL
+  matcher.
+
 ## [2.3.2] - 2026-11-27
 
 ### Fixed

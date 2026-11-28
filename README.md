@@ -136,6 +136,16 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
   `OLLAMA_ORIGINS=chrome-extension://* ollama serve`. Auth failed? Open
   Settings. The ones you cannot fix in place (the provider is down, the image
   host refused) get a sentence that says what to do instead.
+- **OCR that runs from packaged files, outside the page's CSP**: when the
+  vision model reads no text, the Tesseract fallback runs entirely from assets
+  inside the extension — the worker script, the single-file SIMD-LSTM WASM core
+  and the Korean, Japanese, English and Simplified Chinese language data — and
+  makes no network request. Since 2.3.3 it runs at the extension's own origin
+  (an offscreen document first, the same extension page embedded as an iframe
+  second, the old in-page worker only as a last resort), so a site whose CSP
+  forbids page workers (`worker-src 'none'`) no longer disables OCR. Every
+  bundled third-party package is listed in `THIRD-PARTY-NOTICES` with its exact
+  version and licence.
 - **Local-first**: user-entered config and obfuscated API keys live in
   `chrome.storage.local`. Nothing syncs to your Google account. No telemetry.
   No analytics. (The API key is obfuscated, not encrypted — the salt ships in

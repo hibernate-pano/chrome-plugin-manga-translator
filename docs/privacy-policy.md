@@ -109,6 +109,10 @@ The Tesseract worker script, the SIMD WASM core and the language models
 inside the extension package. The OCR fallback reads them from the extension's
 own files; it makes no network request and downloads nothing.
 
+The worker runs at the extension's own origin — an offscreen document by
+default, with an iframe fallback — not inside the page, so a page's
+Content-Security-Policy cannot disable it.
+
 - No image content, page content, or user data is included in any OCR request,
   because there is no OCR request.
 - The language models are public data files that ship with the extension.
