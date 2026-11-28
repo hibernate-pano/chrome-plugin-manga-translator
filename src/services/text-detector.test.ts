@@ -1,9 +1,10 @@
-import { vi, describe, expect, it, beforeEach } from 'vitest';
+import { vi, describe, expect, it, beforeEach, afterEach } from 'vitest';
 import {
   detectTextRegions,
   mergeOverlappingRegions,
   type TextRegion,
 } from './text-detector';
+import type { OcrFrameJob } from '@/offscreen/ocr-protocol';
 import { createWorker } from 'tesseract.js';
 
 vi.mock('tesseract.js', () => {
@@ -293,5 +294,273 @@ describe('mergeOverlappingRegions', () => {
     expect(merged).toHaveLength(2);
     expect(merged[0]?.x).toBe(0);
     expect(merged[0]?.confidence).toBe(0);
+  });
+});
+
+/**
+ * The OCR transport chain.
+ *
+ * The ordering is the feature: the extension-origin paths exist so a page's
+ * CSP cannot take OCR down, and the in-page worker remains the last resort.
+ * These tests drive the real `detectTextRegions` through a stubbed Chrome
+ * and a jsdom iframe, so they assert the behaviour rather than the shape of
+ * the code.
+ *
+ * The chain caches the transport that worked, which is module state. Each
+ * test re-imports the module (with `vi.resetModules`) so one test's choice
+ * cannot decide the next one's starting point.
+ */
+describe('OCR transport fallback chain', () => {
+  const EXTENSION_ORIGIN = 'chrome-extension://test-extension-id';
+
+  function stubChromeRuntime(
+    sendMessage: (message: unknown) => Promise<unknown>
+  ): void {
+    vi.stubGlobal('chrome', {
+      runtime: {
+        id: 'test-extension-id',
+        getURL: (resource: string) =>
+          `${EXTENSION_ORIGIN}/${resource.replace(/^\//, '')}`,
+        sendMessage,
+      },
+    });
+  }
+
+  async function loadFreshDetector(): Promise<{
+    detector: typeof import('./text-detector');
+    tesseract: typeof import('tesseract.js');
+  }> {
+    vi.resetModules();
+    const tesseract = await import('tesseract.js');
+    const detector = await import('./text-detector');
+    return { detector, tesseract };
+  }
+
+  function frameElement(): HTMLIFrameElement | null {
+    return document.querySelector('iframe[data-manga-ocr-frame]');
+  }
+
+  function frameToken(frame: HTMLIFrameElement): string {
+    const hash = new URL(frame.src).hash;
+    return new URLSearchParams(hash.slice(1)).get('ocr-frame') ?? '';
+  }
+
+  function postToContent(
+    frame: HTMLIFrameElement,
+    data: Record<string, unknown>
+  ): void {
+    window.dispatchEvent(
+      new window.MessageEvent('message', {
+        data,
+        origin: EXTENSION_ORIGIN,
+        source: frame.contentWindow,
+      })
+    );
+  }
+
+  function captureFrameJobs(frame: HTMLIFrameElement): unknown[] {
+    const posted: unknown[] = [];
+    const target = frame.contentWindow;
+    if (!target) throw new Error('iframe has no contentWindow');
+    // The content script talks to the iframe over postMessage; capturing it
+    // is how the test learns the request id it has to answer.
+    target.postMessage = (message: unknown) => {
+      posted.push(message);
+    };
+    return posted;
+  }
+
+  async function waitFor<T>(
+    probe: () => T | null | undefined,
+    description: string,
+    timeoutMs = 2000
+  ): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const value = probe();
+      if (value !== null && value !== undefined) return value;
+      await new Promise(resolve => setTimeout(resolve, 5));
+    }
+    throw new Error(`timed out waiting for ${description}`);
+  }
+
+  function wireResult(text: string): Record<string, unknown> {
+    return {
+      regions: [{ x: 1, y: 2, width: 3, height: 4, text, confidence: 0.9 }],
+      imageWidth: 640,
+      imageHeight: 960,
+      processingTime: 12,
+    };
+  }
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    document
+      .querySelectorAll('iframe[data-manga-ocr-frame]')
+      .forEach(frame => frame.remove());
+  });
+
+  it('pins the fallback order: offscreen, then extension iframe, then the in-page worker', async () => {
+    const { OCR_TRANSPORT_ORDER } = await import('@/offscreen/ocr-protocol');
+    expect([...OCR_TRANSPORT_ORDER]).toEqual([
+      'offscreen',
+      'extension-frame',
+      'local',
+    ]);
+  });
+
+  it('uses the offscreen document and starts no worker in the page', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: true,
+      result: wireResult('Offscreen'),
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    const result = await detector.detectTextRegions('mocked_image_base64', {
+      languages: ['eng'],
+    });
+
+    expect(result.regions.map(region => region.text)).toEqual(['Offscreen']);
+    expect(result.imageWidth).toBe(640);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(sendMessage.mock.calls[0]?.[0]).toMatchObject({
+      type: 'OCR_RECOGNIZE',
+      image: 'mocked_image_base64',
+      options: { languages: ['eng'], psm: '11' },
+    });
+    expect(tesseract.createWorker).not.toHaveBeenCalled();
+    expect(frameElement()).toBeNull();
+  });
+
+  it('falls back to an extension-origin iframe when the offscreen document is unavailable', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: false,
+      kind: 'unsupported',
+      error: 'chrome.offscreen unavailable',
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    const pending = detector.detectTextRegions('mocked_image_base64');
+    const frame = await waitFor(
+      () => frameElement(),
+      'the extension-origin OCR iframe'
+    );
+    const posted = captureFrameJobs(frame);
+    const token = frameToken(frame);
+
+    postToContent(frame, { type: 'OCR_FRAME_READY', token });
+    const job = await waitFor(
+      () => posted[0] as OcrFrameJob | undefined,
+      'the iframe job'
+    );
+
+    postToContent(frame, {
+      type: 'OCR_FRAME_RESULT',
+      token,
+      requestId: job.requestId,
+      response: { success: true, result: wireResult('Frame') },
+    });
+
+    const result = await pending;
+    expect(result.regions.map(region => region.text)).toEqual(['Frame']);
+    expect(job.token).toBe(token);
+    expect(job.image).toBe('mocked_image_base64');
+    expect(tesseract.createWorker).not.toHaveBeenCalled();
+    // The offscreen attempt happened first; no further runtime message was
+    // needed once the frame answered.
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('reaches the in-page blob worker when both extension-origin paths fail', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: false,
+      kind: 'transport',
+      error: 'Could not establish connection',
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    const pending = detector.detectTextRegions('mocked_image_base64');
+    const frame = await waitFor(
+      () => frameElement(),
+      'the extension-origin OCR iframe'
+    );
+    const posted = captureFrameJobs(frame);
+    const token = frameToken(frame);
+
+    postToContent(frame, { type: 'OCR_FRAME_READY', token });
+    const job = await waitFor(
+      () => posted[0] as OcrFrameJob | undefined,
+      'the iframe job'
+    );
+    postToContent(frame, {
+      type: 'OCR_FRAME_RESULT',
+      token,
+      requestId: job.requestId,
+      response: {
+        success: false,
+        kind: 'transport',
+        error: 'frame-src refused the extension page',
+      },
+    });
+
+    const result = await pending;
+    expect(result.regions.map(region => region.text)).toEqual([
+      'Hello',
+      'World',
+    ]);
+    expect(tesseract.createWorker).toHaveBeenCalledTimes(1);
+    const workerCalls = vi.mocked(tesseract.createWorker).mock.calls;
+    const workerOptions = workerCalls[workerCalls.length - 1]?.[2] as Record<
+      string,
+      unknown
+    >;
+    expect(workerOptions['workerBlobURL']).toBe(true);
+  });
+
+  it('reports an OCR failure instead of re-running it on another transport', async () => {
+    const sendMessage = vi.fn(async (_message: unknown) => ({
+      success: false,
+      kind: 'ocr',
+      error: 'language data is missing',
+    }));
+    stubChromeRuntime(sendMessage);
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await expect(
+      detector.detectTextRegions('mocked_image_base64')
+    ).rejects.toThrow(/language data is missing/);
+    expect(sendMessage).toHaveBeenCalledTimes(1);
+    expect(tesseract.createWorker).not.toHaveBeenCalled();
+    expect(frameElement()).toBeNull();
+  });
+
+  it('creates a direct (non-blob) worker on the extension origin', async () => {
+    vi.stubGlobal('chrome', {
+      runtime: {
+        getURL: (resource: string) => `${EXTENSION_ORIGIN}/${resource}`,
+      },
+    });
+    const { detector, tesseract } = await loadFreshDetector();
+
+    await detector.recognizeWithLocalWorker(
+      'mocked_image_base64',
+      { languages: ['eng'] },
+      'extension'
+    );
+
+    const workerCalls = vi.mocked(tesseract.createWorker).mock.calls;
+    const workerOptions = workerCalls[workerCalls.length - 1]?.[2] as Record<
+      string,
+      unknown
+    >;
+    expect(workerOptions['workerPath']).toBe(
+      `${EXTENSION_ORIGIN}/tesseract/worker.min.js`
+    );
+    // The extension origin does not need the blob bootstrap, and the
+    // extension pages CSP (`script-src 'self'`) does not allow blob:.
+    expect(workerOptions['workerBlobURL']).toBe(false);
   });
 });

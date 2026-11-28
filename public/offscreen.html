@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <title>OCR worker host</title>
+  </head>
+  <body>
+    <!--
+      Extension-origin host for the Tesseract worker.
+
+      Loaded two ways, both at the extension's origin so the hosting page's
+      CSP cannot block the worker:
+        - as an offscreen document, created by the service worker;
+        - as a hidden iframe embedded by the content script.
+
+      `offscreen.js` is a Vite entry (see `vite.config.ts`); it decides which
+      role this page is playing. Nothing here is inline script, so the
+      extension pages CSP applies unchanged.
+    -->
+    <script type="module" src="./offscreen.js"></script>
+  </body>
+</html>
