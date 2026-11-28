@@ -57,6 +57,12 @@ import {
   PROVIDER_NOT_READY_MESSAGE,
 } from '@/shared/runtime-contracts';
 import {
+  OCR_OFFSCREEN_JOB,
+  OCR_RECOGNIZE,
+  isOcrRecognizeRequest,
+} from '@/offscreen/ocr-protocol';
+import { OffscreenOcrClient } from './ocr-offscreen';
+import {
   CONTEXT_MENU_TRANSLATE_IMAGE,
   CONTEXT_MENU_TRANSLATE_PAGE,
   SUPPORTED_PAGE_URL_PATTERNS,
@@ -95,6 +101,16 @@ const translationJobQueue = new BackgroundJobQueue(
   DEFAULT_CONFIG.parallelLimit,
   500
 );
+
+/**
+ * OCR that runs at the extension's origin.
+ *
+ * The content script cannot create the offscreen document itself, so it
+ * asks this worker; the worker owns the document and the port to it. See
+ * `ocr-offscreen.ts` for why the port is a port and not `sendMessage`.
+ */
+const offscreenOcr = new OffscreenOcrClient();
+offscreenOcr.register();
 
 // The worker's refusals come from the shared protocol, not from local
 // copies. The worker says them and the page reads them back, so one file
@@ -549,6 +565,16 @@ chrome.runtime.onMessage.addListener(
     sender: chrome.runtime.MessageSender,
     sendResponse: (response: MessageResponse) => void
   ): boolean => {
+    /*
+     * The offscreen document's jobs arrive over a Port, never a runtime
+     * message — but if one is broadcast anyway, this listener must not
+     * answer it with the dispatcher's default `{received:true}`. The
+     * offscreen document is the only context that can run OCR, and a
+     * competing reply here would win the race.
+     */
+    if (request.type === OCR_OFFSCREEN_JOB) {
+      return false;
+    }
     void handleMessage(request, sender, sendResponse);
     return true;
   }
@@ -603,6 +629,29 @@ async function handleMessage(
     }
     if (request.type && !request.action) {
       switch (request.type) {
+        case OCR_RECOGNIZE: {
+          /*
+           * Text detection, moved out of the page.
+           *
+           * A content script's Tesseract worker inherits the hosting page's
+           * CSP; `worker-src 'none'` kills OCR on that site. The worker
+           * therefore runs in an offscreen document at the extension's own
+           * origin. This handler is free — it runs the user's own packaged
+           * OCR, sends nothing off the machine — so a content script is
+           * allowed to call it. The reply is the OCR result, or a failure
+           * the page turns into the next transport in its fallback chain.
+           */
+          if (!isOcrRecognizeRequest(request)) {
+            sendResponse({
+              success: false,
+              kind: 'transport',
+              error: 'OCR 请求格式不正确',
+            });
+            return;
+          }
+          sendResponse(await offscreenOcr.recognize(request));
+          return;
+        }
         case 'JOB_TRANSLATE_IMAGE':
           // Only this extension's own contexts may ask for a translation.
           // Another extension's content script shares the page but not the

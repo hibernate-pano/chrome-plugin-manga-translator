@@ -7,7 +7,8 @@
   "permissions": [
     "storage",
     "contextMenus",
-    "alarms"
+    "alarms",
+    "offscreen"
   ],
   "host_permissions": [
     "<all_urls>"
@@ -71,7 +72,7 @@
   ],
   "web_accessible_resources": [
     {
-      "resources": ["tesseract/*"],
+      "resources": ["tesseract/*", "offscreen.html"],
       "matches": ["<all_urls>"]
     }
   ]

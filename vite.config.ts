@@ -306,6 +306,18 @@ export default defineConfig({
         options: 'src/options.tsx',
         background: 'src/background/background.ts',
         content: 'src/content/content.ts',
+        /*
+         * The extension-origin OCR host.
+         *
+         * `public/offscreen.html` loads `./offscreen.js`; this entry is what
+         * produces that file at the dist root. It is deliberately not a
+         * manifest entry — the page is opened by `chrome.offscreen` at
+         * runtime and embedded as an iframe by the content script, so
+         * nothing in the manifest names it. Building it as its own entry
+         * (instead of, say, importing it from the worker) keeps Tesseract
+         * out of the service worker bundle.
+         */
+        offscreen: 'src/offscreen/offscreen.ts',
       },
       output: {
         entryFileNames: '[name].js',
