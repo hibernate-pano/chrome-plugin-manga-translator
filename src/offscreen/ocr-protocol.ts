@@ -23,17 +23,13 @@
  * unknown messages with `{success:false}` — that reply would race the
  * offscreen document's real one and occasionally win.
  *
- * The second fallback is the same page embedded as an iframe on the host
- * page. It runs at the extension origin too, so its worker is still outside
- * the page's policy (`frame-src` permitting). That path cannot use runtime
- * messaging either — it is an extension page inside a web page — so it
- * speaks `postMessage` with a per-session token:
- *
- *   content script ──OCR_FRAME_JOB────► iframe
- *   iframe ──OCR_FRAME_READY / OCR_FRAME_RESULT──► content script
- *
- * The last resort is the original in-page blob worker, kept so OCR keeps
- * working on Chrome builds where neither extension-origin path is available.
+ * There is no fallback that embeds this page in the host page. An
+ * extension-origin iframe is still an extension context the page can reach
+ * (`contentWindow`, `postMessage`), and the token that used to scope that
+ * channel was in the frame's URL fragment, readable by any page script. It
+ * was removed rather than hardened: the last resort is the original in-page
+ * blob worker, and a page that blocks that worker gets no OCR rather than a
+ * channel into the extension.
  *
  * Everything in this file is a runtime value or a type with no imports, so
  * the service worker can depend on it without dragging Tesseract (or the
@@ -65,23 +61,24 @@ export const OCR_OFFSCREEN_RESULT = 'OCR_OFFSCREEN_RESULT';
  */
 export const OCR_OFFSCREEN_WAKE = 'OCR_OFFSCREEN_WAKE';
 
-/** iframe → content script: the frame's script is listening. */
-export const OCR_FRAME_READY = 'OCR_FRAME_READY';
-
-/** content script → iframe. */
-export const OCR_FRAME_JOB = 'OCR_FRAME_JOB';
-
-/** iframe → content script. */
-export const OCR_FRAME_RESULT = 'OCR_FRAME_RESULT';
-
 /**
  * Why the offscreen document is being created.
  *
  * `WORKERS` is the reason Chrome documents for "the document needs to spawn
- * workers"; the offscreen API and this reason both exist since Chrome 109,
- * below the extension's minimum of 110. `chrome.offscreen.hasDocument()`
- * and `runtime.getContexts()` arrived in Chrome 116, so nothing here calls
- * them — see `ocr-offscreen.ts` for how "already open" is detected instead.
+ * workers". The offscreen API itself exists since Chrome 109, but this
+ * reason was only added in Chrome 113 — and this extension's floor is
+ * Chrome 110. On 110–112,
+ * `chrome.offscreen.createDocument({reasons:['WORKERS']})` therefore rejects
+ * with an invalid-reason error. That rejection is expected: it means the
+ * offscreen path does not exist on this browser, not that OCR failed, and the
+ * transport chain must treat it as unavailable and fall through to the
+ * in-page worker. It must never be mistaken for "the document is already
+ * open" — see `ocr-offscreen.ts`, which reads only
+ * "Only a single offscreen document may be created." that way.
+ *
+ * `chrome.offscreen.hasDocument()` and `runtime.getContexts()` arrived in
+ * Chrome 116, so nothing here calls them — see `ocr-offscreen.ts` for how
+ * "already open" is detected instead.
  */
 export const OCR_OFFSCREEN_REASON = 'WORKERS';
 
@@ -91,11 +88,7 @@ export const OCR_OFFSCREEN_REASON = 'WORKERS';
  * Exported as a value so a test can pin the order rather than restate it in
  * prose: the ordering is the feature.
  */
-export const OCR_TRANSPORT_ORDER = [
-  'offscreen',
-  'extension-frame',
-  'local',
-] as const;
+export const OCR_TRANSPORT_ORDER = ['offscreen', 'local'] as const;
 
 export type OcrTransport = (typeof OCR_TRANSPORT_ORDER)[number];
 
@@ -157,29 +150,6 @@ export interface OcrOffscreenJob {
 /** offscreen document → service worker. */
 export interface OcrOffscreenResult {
   type: typeof OCR_OFFSCREEN_RESULT;
-  requestId: string;
-  response: OcrRecognizeResponse;
-}
-
-/** iframe → content script. */
-export interface OcrFrameReady {
-  type: typeof OCR_FRAME_READY;
-  token: string;
-}
-
-/** content script → iframe. */
-export interface OcrFrameJob {
-  type: typeof OCR_FRAME_JOB;
-  token: string;
-  requestId: string;
-  image: string;
-  options: OcrWireOptions;
-}
-
-/** iframe → content script. */
-export interface OcrFrameResult {
-  type: typeof OCR_FRAME_RESULT;
-  token: string;
   requestId: string;
   response: OcrRecognizeResponse;
 }
@@ -281,27 +251,6 @@ export function isOcrOffscreenResult(
   return (
     isRecord(value) &&
     value['type'] === OCR_OFFSCREEN_RESULT &&
-    typeof value['requestId'] === 'string' &&
-    isOcrRecognizeResponse(value['response'])
-  );
-}
-
-export function isOcrFrameJob(value: unknown): value is OcrFrameJob {
-  return (
-    isRecord(value) &&
-    value['type'] === OCR_FRAME_JOB &&
-    typeof value['token'] === 'string' &&
-    typeof value['requestId'] === 'string' &&
-    typeof value['image'] === 'string' &&
-    isOcrWireOptions(value['options'])
-  );
-}
-
-export function isOcrFrameResult(value: unknown): value is OcrFrameResult {
-  return (
-    isRecord(value) &&
-    value['type'] === OCR_FRAME_RESULT &&
-    typeof value['token'] === 'string' &&
     typeof value['requestId'] === 'string' &&
     isOcrRecognizeResponse(value['response'])
   );

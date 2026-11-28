@@ -10,8 +10,17 @@
  *   1. Only one offscreen document may exist per extension, and Chrome 110
  *      (this extension's floor) has no `hasDocument()` to ask whether one is
  *      already open. `createDocument` rejects with "Only a single offscreen
- *      document may be created." in that case, and that rejection is the
- *      supported way to detect it — anything else is a real failure.
+ *      document may be created." in that case, and that rejection — and only
+ *      that one — is the supported way to detect it. Every other rejection
+ *      is a real failure and is reported as `transport` so the chain moves
+ *      on.
+ *
+ *      This matters on Chrome 110–112 specifically: the `WORKERS` reason
+ *      was only added in Chrome 113, so `reasons: ['WORKERS']` is rejected
+ *      there as an invalid value. That is the expected outcome on those
+ *      browsers — it means the offscreen path is unavailable, not that the
+ *      document is already open — and swallowing it would leave the chain
+ *      waiting on a document that was never created.
  *
  *   2. The document is reached over a `runtime.Port`. A `runtime.sendMessage`
  *      broadcast also lands in every content script, and the content script
@@ -179,11 +188,21 @@ export class OffscreenOcrClient {
             '在扩展自己的 origin 中运行 Tesseract OCR worker，使宿主页面的 CSP 无法阻止文字检测。',
         });
       } catch (error) {
-        if (/single offscreen document/i.test(getErrorMessage(error))) {
+        const message = getErrorMessage(error);
+        if (/only a single offscreen document may be created/i.test(message)) {
           // Already open — from an earlier job, or from before a
-          // service-worker restart. Not an error.
+          // service-worker restart. Not an error. This is the only
+          // rejection with that meaning; see the note at the top of the
+          // file about `WORKERS` on Chrome 110–112.
           return;
         }
+        // Logged verbatim: on Chrome 110–112 this is the invalid-reason
+        // rejection, and its full text (including the list of reasons that
+        // browser does accept) is what explains the fallback to the in-page
+        // worker. The error itself is rethrown so the caller reports the
+        // path as unavailable instead of waiting on a document that was
+        // never created.
+        console.warn('[OcrOffscreen] 创建 offscreen 文档失败:', message);
         throw error;
       }
     })();
