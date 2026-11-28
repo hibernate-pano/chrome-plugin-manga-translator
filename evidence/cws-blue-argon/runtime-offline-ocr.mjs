@@ -15,10 +15,22 @@
  *   4. waits for the overlay, records every request every target makes, and
  *      reports the local `chrome-extension://.../tesseract/*` assets that were
  *      actually loaded;
- *   5. proves the network is really off with a control fetch to jsdelivr.
+ *   5. proves the network is really off with a control fetch to jsdelivr;
+ *   6. pins the negative half of the story: no bare `tesseract-core-*.wasm`
+ *      binary was fetched (only the packaged `.wasm.js` core), the OCR ran
+ *      in the extension's offscreen document rather than a page-origin blob
+ *      worker, and no `blob:` worker target existed during the run.
+ *
+ * The target record is collected twice on purpose: browser-level discovery
+ * events catch targets that come and go between polls, and `Target.getTargets`
+ * snapshots are the replayable raw record. Both land in `runtime-network.json`
+ * next to the timestamped request list.
  *
  * Usage:
- *   node evidence/cws-blue-argon/runtime-offline-ocr.mjs [--dist dist]
+ *   node evidence/cws-blue-argon/runtime-offline-ocr.mjs [--dist dist] [--out dir]
+ *
+ * `--out` keeps the produced evidence outside the checkout when the run is a
+ * verification pass rather than a re-record of the committed artifacts.
  */
 
 import { spawn } from 'node:child_process';
@@ -51,9 +63,10 @@ function findChrome() {
 }
 
 function parseArgs(argv) {
-  const options = { dist: path.join(repoRoot, 'dist') };
+  const options = { dist: path.join(repoRoot, 'dist'), out: here };
   for (let i = 0; i < argv.length; i += 1) {
     if (argv[i] === '--dist') options.dist = path.resolve(argv[++i]);
+    else if (argv[i] === '--out') options.out = path.resolve(argv[++i]);
     else throw new Error(`unknown argument: ${argv[i]}`);
   }
   return options;
@@ -63,6 +76,107 @@ const results = [];
 function check(name, ok, detail = '') {
   results.push({ name, ok, detail });
   console.log(`  ${ok ? '✓' : '✗'} ${name}${detail ? ` — ${detail}` : ''}`);
+}
+
+const OFFSCREEN_DOCUMENT_PATH = 'offscreen.html';
+/**
+ * The bare WASM binary that must never be requested.
+ *
+ * tesseract.js ships two forms of the core: `tesseract-core-<variant>.wasm.js`
+ * (a JS wrapper with the binary inlined, which is what `text-detector.ts`
+ * points `corePath` at) and a bare `.wasm` binary beside it. The `.wasm.js`
+ * name deliberately does not match this expression — only a URL that ends at
+ * `.wasm` does. A hit means the package is carrying a second copy of the core
+ * and the run reached for it.
+ */
+const DEAD_WEIGHT_WASM = /tesseract-core-.*\.wasm$/;
+
+/** Target types Chrome uses for script workers. */
+function isWorkerTarget(info) {
+  return /worker/i.test(info?.type ?? '');
+}
+
+/**
+ * The target ledger: every target the browser reported, with first/last
+ * sighting and the source that reported it.
+ *
+ * A single `Target.getTargets` poll is not enough evidence. An offscreen
+ * document is auto-attached before its URL is known (the target info at
+ * attach time can be empty), and a worker can live and die between polls.
+ * Discovery events fill both gaps; the snapshots are the replayable record.
+ */
+function createTargetLedger() {
+  const targets = new Map();
+  const snapshots = [];
+
+  const record = (info, source) => {
+    if (!info || typeof info.targetId !== 'string') return;
+    const at = Date.now();
+    const existing = targets.get(info.targetId);
+    if (existing) {
+      // targetInfoChanged is how an offscreen target gains its URL after the
+      // document navigates; never overwrite a known URL with an empty one.
+      existing.url = info.url || existing.url;
+      existing.type = info.type || existing.type;
+      existing.attached = Boolean(info.attached);
+      existing.lastSeenAt = at;
+      if (!existing.sources.includes(source)) existing.sources.push(source);
+      return;
+    }
+    targets.set(info.targetId, {
+      targetId: info.targetId,
+      type: info.type ?? '',
+      url: info.url ?? '',
+      attached: Boolean(info.attached),
+      firstSeenAt: at,
+      lastSeenAt: at,
+      sources: [source],
+    });
+  };
+
+  const markDestroyed = targetId => {
+    const existing = targets.get(targetId);
+    if (existing && existing.destroyedAt === undefined) {
+      existing.destroyedAt = Date.now();
+    }
+  };
+
+  const snapshot = async (client, label) => {
+    const { targetInfos } = await client.send('Target.getTargets');
+    for (const info of targetInfos) record(info, `getTargets:${label}`);
+    const compact = targetInfos
+      .map(info => ({
+        targetId: info.targetId,
+        type: info.type,
+        url: info.url,
+        attached: Boolean(info.attached),
+      }))
+      .sort((left, right) => left.targetId.localeCompare(right.targetId));
+    const signature = JSON.stringify(
+      compact.map(info => [info.type, info.url])
+    );
+    const previous = snapshots[snapshots.length - 1];
+    if (!previous || previous.signature !== signature) {
+      snapshots.push({ at: Date.now(), label, signature, targets: compact });
+    }
+    return targetInfos;
+  };
+
+  return { targets, snapshots, record, markDestroyed, snapshot };
+}
+
+function serializeTargets(ledger) {
+  return [...ledger.targets.values()]
+    .map(target => ({
+      ...target,
+      firstSeenAtIso: new Date(target.firstSeenAt).toISOString(),
+      lastSeenAtIso: new Date(target.lastSeenAt).toISOString(),
+      destroyedAtIso:
+        target.destroyedAt === undefined
+          ? undefined
+          : new Date(target.destroyedAt).toISOString(),
+    }))
+    .sort((left, right) => left.firstSeenAt - right.firstSeenAt);
 }
 
 async function waitForDevToolsPort(userDataDir, timeoutMs = 30000) {
@@ -362,7 +476,9 @@ async function main() {
     throw new Error(`no manifest in ${options.dist}; run pnpm build:public`);
   }
 
-  await mkdir(here, { recursive: true });
+  let transportSummary = null;
+
+  await mkdir(options.out, { recursive: true });
   const userDataDir = await mkdtemp(path.join(os.tmpdir(), 'manga-offline-'));
   const png = await buildFixtureImage(userDataDir);
   const { server, port, requests: apiRequests } = await startServer(png);
@@ -399,6 +515,7 @@ async function main() {
   const consoleLog = [];
   const logEntries = [];
   const sessions = new Map();
+  const ledger = createTargetLedger();
 
   const cleanup = async () => {
     cdp?.close();
@@ -426,11 +543,23 @@ async function main() {
     );
     cdp = await Cdp.connect(version.webSocketDebuggerUrl);
 
+    cdp.on('Target.targetCreated', params => {
+      ledger.record(params.targetInfo, 'targetCreated');
+    });
+    cdp.on('Target.targetInfoChanged', params => {
+      ledger.record(params.targetInfo, 'targetInfoChanged');
+    });
+    cdp.on('Target.targetDestroyed', params => {
+      ledger.markDestroyed(params.targetId);
+    });
+
     cdp.on('Network.requestWillBeSent', (params, sessionId) => {
       const rawUrl = params.request.url;
+      const at = Date.now();
       network.push({
         sessionId,
-        at: Date.now(),
+        at,
+        atIso: new Date(at).toISOString(),
         // Data URLs carry whole images; the log only needs to know one was
         // decoded locally, not the bytes.
         url: rawUrl.startsWith('data:')
@@ -469,6 +598,7 @@ async function main() {
     cdp.on('Target.attachedToTarget', async (params, sessionId) => {
       const targetSession = params.sessionId ?? sessionId;
       sessions.set(targetSession, params.targetInfo);
+      ledger.record(params.targetInfo, 'attachedToTarget');
       try {
         await cdp.send('Network.enable', {}, targetSession);
       } catch {
@@ -484,6 +614,23 @@ async function main() {
       } catch {
         // target may have gone
       }
+      /*
+       * Auto-attach has to be re-armed on the target itself, not only on the
+       * browser. The Tesseract worker is a child of the offscreen document;
+       * without this it is never attached, so its requests for the WASM core
+       * and the traineddata files never reach the network log and the worker
+       * performance entries are never collected — the asset check then
+       * reports the packaged files as "missing" even though OCR worked.
+       */
+      try {
+        await cdp.send(
+          'Target.setAutoAttach',
+          { autoAttach: true, waitForDebuggerOnStart: true, flatten: true },
+          targetSession
+        );
+      } catch {
+        // not every target kind accepts auto-attach
+      }
       if (params.waitingForDebugger) {
         try {
           await cdp.send('Runtime.runIfWaitingForDebugger', {}, targetSession);
@@ -498,11 +645,18 @@ async function main() {
       waitForDebuggerOnStart: true,
       flatten: true,
     });
+    /*
+     * Discovery is what turns "the offscreen document exists at some point"
+     * into a record: a target that is created and destroyed between two
+     * `getTargets` polls still leaves a targetCreated/targetDestroyed pair.
+     */
+    await cdp.send('Target.setDiscoverTargets', { discover: true });
 
     const { id: extensionId } = await cdp.send('Extensions.loadUnpacked', {
       path: options.dist,
     });
     check('the extension loads on a clean profile', Boolean(extensionId));
+    await ledger.snapshot(cdp, 'extension-loaded').catch(() => undefined);
 
     // The service worker may already be attached through setAutoAttach.
     let workerSession = null;
@@ -673,6 +827,7 @@ async function main() {
           })`
         )
       );
+      await ledger.snapshot(cdp, 'during-translation').catch(() => undefined);
       if (pageInfo.overlays > 0) break;
       waitedSeconds += 1;
       if (waitedSeconds % 15 === 0) {
@@ -751,26 +906,100 @@ async function main() {
       asset => !loadedUrls.some(url => urlLoadsExtensionAsset(url, asset))
     );
 
-    // Network events from a worker can be missed if the worker exits before
-    // the event reaches us; ask each worker target what it loaded as well.
-    const workerResources = [];
+    /*
+     * Ask every attached target what it loaded. Network events from a worker
+     * can be missed when it exits before the event arrives, and the offscreen
+     * document's own loads are invisible to the page session; the performance
+     * entries are the second, independent record.
+     */
+    await ledger.snapshot(cdp, 'overlay-detected').catch(() => undefined);
+    const sessionResources = [];
     for (const [sessionId, info] of sessions) {
-      if (info.type !== 'worker') continue;
       const resources = await evaluate(
         cdp,
         sessionId,
         `JSON.stringify(performance.getEntriesByType('resource').map(entry => entry.name))`
       ).catch(() => null);
       if (typeof resources === 'string') {
-        workerResources.push({
+        sessionResources.push({
+          sessionId,
+          type: info.type,
           url: info.url,
           resources: JSON.parse(resources),
         });
       }
     }
+    const workerResources = sessionResources
+      .filter(entry => entry.type === 'worker')
+      .map(entry => ({ url: entry.url, resources: entry.resources }));
+
+    /*
+     * The offscreen document is the transport this run is supposed to use.
+     * Its target is identified by exact URL: the iframe fallback opens the
+     * same page with `#ocr-frame=<token>`, so equality separates the two
+     * roles and stays correct after the iframe channel is removed.
+     */
+    const offscreenUrl = `chrome-extension://${extensionId}/${OFFSCREEN_DOCUMENT_PATH}`;
+    const offscreenTargetInfos = await ledger
+      .snapshot(cdp, 'offscreen-probe')
+      .catch(() => []);
+    const offscreenRecord = [...ledger.targets.values()].find(
+      target => target.url === offscreenUrl
+    );
+    const offscreenTarget =
+      offscreenTargetInfos.find(info => info.url === offscreenUrl) ??
+      offscreenRecord ??
+      null;
+    /*
+     * The target was auto-attached while it was still navigating, so its
+     * session carries an empty URL in `sessions`; match on targetId instead.
+     */
+    let offscreenSession =
+      (offscreenTarget &&
+        [...sessions].find(
+          ([, info]) => info.targetId === offscreenTarget.targetId
+        )?.[0]) ||
+      null;
+    if (!offscreenSession && offscreenTarget) {
+      try {
+        const attached = await cdp.send('Target.attachToTarget', {
+          targetId: offscreenTarget.targetId,
+          flatten: true,
+        });
+        offscreenSession = attached.sessionId;
+        await cdp.send('Runtime.enable', {}, offscreenSession);
+      } catch {
+        offscreenSession = null;
+      }
+    }
+    const offscreenLive = offscreenSession
+      ? await evaluate(
+          cdp,
+          offscreenSession,
+          `JSON.stringify({
+            href: location.href,
+            isTopLevel: window.top === window,
+            visibility: document.visibilityState,
+            readyState: document.readyState
+          })`
+        )
+          .then(value => JSON.parse(value))
+          .catch(() => null)
+      : null;
+    const offscreenResources = offscreenSession
+      ? await evaluate(
+          cdp,
+          offscreenSession,
+          `JSON.stringify(performance.getEntriesByType('resource').map(entry => entry.name))`
+        )
+          .then(value => JSON.parse(value))
+          .catch(() => [])
+      : [];
     const allLoadedUrls = [
       ...loadedUrls,
       ...workerResources.flatMap(entry => entry.resources),
+      ...sessionResources.flatMap(entry => entry.resources),
+      ...offscreenResources,
     ];
     const stillMissing = missingAssets.filter(
       asset => !allLoadedUrls.some(url => urlLoadsExtensionAsset(url, asset))
@@ -869,26 +1098,158 @@ async function main() {
         .slice(0, 240)
     );
 
+    /*
+     * ---- negative assertions ----------------------------------------------
+     *
+     * Everything above proves the OCR worked. These prove it worked without
+     * the things the Blue Argon rejection was about, and on the transport
+     * this build is supposed to use:
+     *
+     *   - no bare `tesseract-core-*.wasm` binary was fetched; the packaged
+     *     `.wasm.js` core is the only core, so a `.wasm` request means a
+     *     second copy is in the package and in play;
+     *   - the extension's offscreen document existed during the run, as a
+     *     real top-level document rather than the page iframe;
+     *   - no `blob:` worker target existed — the page-origin fallback
+     *     bootstraps its worker from a blob, and that path must not run.
+     */
+    await ledger.snapshot(cdp, 'end').catch(() => undefined);
+
+    const allRunUrls = [
+      ...network.map(event => event.url),
+      ...sessionResources.flatMap(entry => entry.resources),
+      ...offscreenResources,
+    ];
+    const wasmCoreUrls = [
+      ...new Set(
+        allRunUrls.filter(url => /tesseract-core-.*\.wasm\.js$/.test(url))
+      ),
+    ];
+    const deadWeightUrls = [
+      ...new Set(allRunUrls.filter(url => DEAD_WEIGHT_WASM.test(url))),
+    ];
+    check(
+      'no bare tesseract-core-*.wasm binary was requested (.wasm.js is the only core)',
+      deadWeightUrls.length === 0,
+      deadWeightUrls.length
+        ? `requested: ${deadWeightUrls.join(', ')}`
+        : `${allRunUrls.length} URLs checked; ${wasmCoreUrls.length} .wasm.js core request(s)`
+    );
+
+    const offscreenTargets = [...ledger.targets.values()].filter(
+      target => target.url === offscreenUrl
+    );
+    const offscreenTopLevel = offscreenLive
+      ? offscreenLive.isTopLevel === true
+      : null;
+    const offscreenOk =
+      offscreenTargets.length > 0 && offscreenTopLevel !== false;
+    check(
+      'the OCR ran in the extension offscreen document (chrome-extension://…/offscreen.html)',
+      offscreenOk,
+      offscreenOk
+        ? `type=${offscreenTargets.map(target => target.type).join('+')} topLevel=${offscreenTopLevel} firstSeen=${new Date(offscreenTargets[0].firstSeenAt).toISOString()} via=${offscreenTargets[0].sources.join('+')}`
+        : `no top-level target with url ${offscreenUrl}; seen: ${[...ledger.targets.values()].map(target => `${target.type}:${target.url}`).join(', ')}`
+    );
+
+    const blobTargets = [...ledger.targets.values()].filter(target =>
+      target.url.startsWith('blob:')
+    );
+    const blobWorkerTargets = blobTargets.filter(isWorkerTarget);
+    check(
+      'no page-origin blob: worker was created during the run',
+      blobWorkerTargets.length === 0,
+      blobWorkerTargets.length
+        ? blobWorkerTargets
+            .map(target => `${target.type} ${target.url}`)
+            .join(', ')
+        : `worker targets seen: ${[...ledger.targets.values()].filter(isWorkerTarget).length}, none blob:`
+    );
+
+    const transport =
+      offscreenOk && blobWorkerTargets.length === 0
+        ? 'offscreen'
+        : blobWorkerTargets.length > 0
+          ? 'blob-worker'
+          : 'unknown';
+    transportSummary = {
+      used: transport,
+      basis: [
+        `${offscreenTargets.length} target(s) with url ${offscreenUrl} (type=${offscreenTargets.map(target => target.type).join('+') || 'none'}, topLevel=${offscreenTopLevel})`,
+        `${blobWorkerTargets.length} blob: worker target(s)`,
+        `${deadWeightUrls.length} bare .wasm request(s)`,
+      ].join('; '),
+      offscreen: {
+        url: offscreenUrl,
+        found: offscreenTargets.length > 0,
+        targets: offscreenTargets.map(target => ({
+          targetId: target.targetId,
+          type: target.type,
+          url: target.url,
+          firstSeenAt: target.firstSeenAt,
+          firstSeenAtIso: new Date(target.firstSeenAt).toISOString(),
+          lastSeenAt: target.lastSeenAt,
+          lastSeenAtIso: new Date(target.lastSeenAt).toISOString(),
+          sources: target.sources,
+        })),
+        live: offscreenLive,
+        resources: offscreenResources,
+      },
+      blobWorkerTargets: blobWorkerTargets.map(target => ({
+        targetId: target.targetId,
+        type: target.type,
+        url: target.url,
+        firstSeenAt: target.firstSeenAt,
+        firstSeenAtIso: new Date(target.firstSeenAt).toISOString(),
+        sources: target.sources,
+      })),
+      allBlobTargets: blobTargets.map(target => ({
+        type: target.type,
+        url: target.url,
+      })),
+      deadWeightWasmRequests: deadWeightUrls,
+      wasmJsCoreRequests: wasmCoreUrls,
+    };
+
+    console.log('[runtime] target ledger:');
+    for (const target of serializeTargets(ledger)) {
+      console.log(
+        `  ${target.type || '?'} ${target.url || '(no url)'} firstSeen=${target.firstSeenAtIso} sources=${target.sources.join('+')}`
+      );
+    }
+
     const screenshot = await cdp.send(
       'Page.captureScreenshot',
       { format: 'png' },
       pageSession
     );
     await writeFile(
-      path.join(here, 'runtime-offline-ocr.png'),
+      path.join(options.out, 'runtime-offline-ocr.png'),
       Buffer.from(screenshot.data, 'base64')
     );
 
-    await mkdir(here, { recursive: true });
+    await mkdir(options.out, { recursive: true });
     await writeFile(
-      path.join(here, 'runtime-network.json'),
+      path.join(options.out, 'runtime-network.json'),
       JSON.stringify(
         {
           capturedAt: new Date().toISOString(),
           extensionId,
           source: `http://127.0.0.1:${port}`,
+          transport: transportSummary,
+          targets: serializeTargets(ledger),
+          targetSnapshots: ledger.snapshots.map(snapshot => ({
+            at: snapshot.at,
+            atIso: new Date(snapshot.at).toISOString(),
+            label: snapshot.label,
+            targets: snapshot.targets,
+          })),
+          checks: results,
           requests: duringTranslation,
+          allRequests: network,
           workerResources,
+          sessionResources,
+          offscreenResources,
           apiRequests,
           proxyAttemptsDuringRun,
           proxyAttemptsAll: proxy.attempts,
@@ -921,6 +1282,11 @@ async function main() {
     }
   } finally {
     await cleanup();
+  }
+
+  if (transportSummary) {
+    console.log(`[runtime] transport=${transportSummary.used}`);
+    console.log(`[runtime] transport basis: ${transportSummary.basis}`);
   }
 
   const failed = results.filter(result => !result.ok);
