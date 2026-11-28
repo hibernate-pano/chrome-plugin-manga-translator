@@ -15,7 +15,7 @@
  */
 
 import { spawn } from 'node:child_process';
-import { mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, writeFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
@@ -275,6 +275,9 @@ function readerHtml(images) {
 }
 
 async function main() {
+  // store/demo/ 是生成物、不在版本库里；新克隆的仓库里没有这个目录，
+  // 缺了就是 ENOENT —— 重拍素材的人第一步会踩到，所以这里自己建。
+  await mkdir(outDir, { recursive: true });
   const tempDir = await mkdtemp(path.join(os.tmpdir(), 'manga-demo-'));
   try {
     const outputs = [];
