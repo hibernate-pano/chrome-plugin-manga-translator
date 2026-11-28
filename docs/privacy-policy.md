@@ -1,6 +1,6 @@
 # Privacy Policy for Manga Translator (漫画翻译助手)
 
-**Last updated: 2026-10-22**
+**Last updated: 2026-11-28**
 
 ## Summary
 
@@ -109,9 +109,11 @@ The Tesseract worker script, the SIMD WASM core and the language models
 inside the extension package. The OCR fallback reads them from the extension's
 own files; it makes no network request and downloads nothing.
 
-The worker runs at the extension's own origin — an offscreen document by
-default, with an iframe fallback — not inside the page, so a page's
-Content-Security-Policy cannot disable it.
+The worker runs at the extension's own origin, in an offscreen document
+(Chrome 113 and later) — not inside the page, so a page's
+Content-Security-Policy cannot disable it. On Chrome 110–112, which predate
+the offscreen reason this needs, the worker falls back to running inside the
+page, where the page's CSP applies.
 
 - No image content, page content, or user data is included in any OCR request,
   because there is no OCR request.

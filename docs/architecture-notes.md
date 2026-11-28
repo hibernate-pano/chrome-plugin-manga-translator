@@ -136,8 +136,9 @@ which means:
   which embeds the WebAssembly binary as base64). The sibling `.wasm` file is
   never fetched; it was dead weight until 2.3.3, which removed it and the
   gate that kept requiring it;
-- `minimum_chrome_version` is pinned to 110 in the manifest for SIMD support
-  (the offscreen API and its `WORKERS` reason exist since Chrome 109);
+- `minimum_chrome_version` is pinned to 110 in the manifest for SIMD support.
+  The offscreen API exists since Chrome 109, but its `WORKERS` reason only
+  since Chrome 113 — that gap is why OCR keeps an in-page fallback on 110–112;
 - `langPath` points at `chrome.runtime.getURL('tesseract/lang')`, filled by
   `scripts/copy-tesseract.js` from the pinned `@tesseract.js-data/*` packages,
   so language data never comes from a CDN.
@@ -153,12 +154,14 @@ session:
    `chrome.offscreen` (reason `WORKERS`) and drives it over a `runtime.Port`.
    `runtime.sendMessage` would be broadcast to content scripts too, and their
    `{success:false}` replies race the real one.
-2. `extension-frame` — the same page embedded as an iframe in the host page,
-   speaking `postMessage` with a per-session token. It runs at the extension
-   origin; whether it can load depends on the page's `frame-src`.
-3. `local` — the original in-page blob worker, kept so OCR still works where
-   neither extension-origin path exists. This path is subject to the page's
-   CSP, as before.
+2. `local` — the original in-page blob worker, kept so OCR still works where
+   the offscreen document cannot be created (Chrome 110–112 reject the
+   `WORKERS` reason). This path is subject to the page's CSP, as before.
+
+There is deliberately no extension-origin iframe transport: embedding an
+extension page in the host page hands that page a handle into extension-origin
+code, and the token that scoped it lived in the frame's URL fragment, where
+page script could read it.
 
 Only `transport`/`unsupported` failures advance the chain; an `ocr` failure
 means the recogniser ran and failed, and would fail identically on the next
