@@ -1,148 +1,148 @@
 {
-  "capturedAt": "2026-11-27T09:09:40.378Z",
-  "extensionId": "emcioegpmldpjhifdjkhhihclkiniiaj",
-  "source": "http://127.0.0.1:56679",
+  "capturedAt": "2026-11-28T07:39:38.528Z",
+  "extensionId": "gchpdaphbiohgalmahceenmaegbhjbel",
+  "source": "http://127.0.0.1:53391",
   "requests": [
     {
-      "sessionId": "F0074C01DA146254702C8537565EAAAB",
-      "at": 1795770577372,
-      "url": "http://127.0.0.1:56679/v1/chat/completions",
+      "sessionId": "54ECDD5252214E16D4AB2458ABC00E1C",
+      "at": 1795851575494,
+      "url": "http://127.0.0.1:53391/v1/chat/completions",
       "method": "POST",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "4DC547881746695BBD213BD7B8B5742D",
-      "at": 1795770577378,
-      "url": "blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114",
+      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
+      "at": 1795851575498,
+      "url": "blob:http://127.0.0.1:53391/d26927be-90f4-4f58-824a-02920b476302",
       "method": "GET",
       "type": "Script",
       "initiator": "other"
     },
     {
-      "sessionId": "63C98C6B2F8938601FEAD171CB166863",
-      "at": 1795770577378,
-      "url": "blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114",
+      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
+      "at": 1795851575498,
+      "url": "blob:http://127.0.0.1:53391/d26927be-90f4-4f58-824a-02920b476302",
       "method": "GET",
       "type": "Script",
       "initiator": "other"
     },
     {
-      "sessionId": "CBC5C0DC54AA6D7A644E49B7DB8A0489",
-      "at": 1795770577382,
-      "url": "chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/worker.min.js",
+      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
+      "at": 1795851575501,
+      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/worker.min.js",
       "method": "GET",
       "type": "Other",
       "initiator": "script"
     },
     {
-      "sessionId": "CBC5C0DC54AA6D7A644E49B7DB8A0489",
-      "at": 1795770577389,
-      "url": "chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/tesseract-core-simd-lstm.wasm.js",
+      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
+      "at": 1795851575507,
+      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/tesseract-core-simd-lstm.wasm.js",
       "method": "GET",
       "type": "Other",
       "initiator": "script"
     },
     {
-      "sessionId": "CBC5C0DC54AA6D7A644E49B7DB8A0489",
-      "at": 1795770577441,
-      "url": "chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/chi_sim.traineddata.gz",
+      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
+      "at": 1795851575555,
+      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/chi_sim.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "CBC5C0DC54AA6D7A644E49B7DB8A0489",
-      "at": 1795770577441,
-      "url": "chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/eng.traineddata.gz",
+      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
+      "at": 1795851575555,
+      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/eng.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "CBC5C0DC54AA6D7A644E49B7DB8A0489",
-      "at": 1795770577441,
-      "url": "chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/jpn.traineddata.gz",
+      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
+      "at": 1795851575555,
+      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/jpn.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "CBC5C0DC54AA6D7A644E49B7DB8A0489",
-      "at": 1795770577442,
-      "url": "chrome-extension://emcioegpmldpjhifdjkhhihclkiniiaj/tesseract/lang/kor.traineddata.gz",
+      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
+      "at": 1795851575555,
+      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/kor.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "63C98C6B2F8938601FEAD171CB166863",
-      "at": 1795770577738,
+      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
+      "at": 1795851575825,
       "url": "data:image/jpeg;base64,… (11791 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "4DC547881746695BBD213BD7B8B5742D",
-      "at": 1795770577739,
+      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
+      "at": 1795851575825,
       "url": "data:image/jpeg;base64,… (11791 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "63C98C6B2F8938601FEAD171CB166863",
-      "at": 1795770577746,
+      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
+      "at": 1795851575832,
       "url": "data:image/png;base64,… (4950 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "63C98C6B2F8938601FEAD171CB166863",
-      "at": 1795770577747,
+      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
+      "at": 1795851575833,
       "url": "data:image/png;base64,… (5078 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "63C98C6B2F8938601FEAD171CB166863",
-      "at": 1795770577747,
+      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
+      "at": 1795851575834,
       "url": "data:image/png;base64,… (5026 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "4DC547881746695BBD213BD7B8B5742D",
-      "at": 1795770577748,
+      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
+      "at": 1795851575834,
       "url": "data:image/png;base64,… (4950 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "4DC547881746695BBD213BD7B8B5742D",
-      "at": 1795770577749,
+      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
+      "at": 1795851575835,
       "url": "data:image/png;base64,… (5078 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "4DC547881746695BBD213BD7B8B5742D",
-      "at": 1795770577749,
+      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
+      "at": 1795851575835,
       "url": "data:image/png;base64,… (5026 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "F0074C01DA146254702C8537565EAAAB",
-      "at": 1795770577963,
-      "url": "http://127.0.0.1:56679/v1/chat/completions",
+      "sessionId": "54ECDD5252214E16D4AB2458ABC00E1C",
+      "at": 1795851576185,
+      "url": "http://127.0.0.1:53391/v1/chat/completions",
       "method": "POST",
       "type": "Fetch",
       "initiator": "script"
@@ -150,7 +150,7 @@
   ],
   "workerResources": [
     {
-      "url": "blob:http://127.0.0.1:56679/eaabe391-82f6-457a-8317-d95bf3556114",
+      "url": "blob:http://127.0.0.1:53391/d26927be-90f4-4f58-824a-02920b476302",
       "resources": []
     }
   ],
@@ -167,38 +167,39 @@
     }
   ],
   "proxyAttemptsDuringRun": [
-    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:diABn5itUVS5DPG4mZuf0Wn-CQ7ePnR3KcISgBiKoKw&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:xb7cdYiZpO_j1hSYqaXGSIOIV9XPFkXRabzNzNa_al0&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "CONNECT www.gstatic.com:443",
     "CONNECT www.google.com:443",
-    "CONNECT accounts.google.com:443",
-    "CONNECT www.google.com:443",
     "CONNECT update.googleapis.com:443",
-    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:Nnty7Yxy0W7xSG2989O7iPddVlE_FISvxV5hDvh0YCU&cup2hreq=14b9e061bf2c0887fdd7d23aadc52d33db65c5457be9c97763bdbb23197ca1b9",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
+    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:fzEjTa8R0rPLIiCh1nd4H-_7mBXpjpzD6hQPROeaod4&cup2hreq=8e2da17197d52d7189ca2f3b6e4f98bb4c9eb28d9d7d105c43e87d587bd39dbb",
+    "CONNECT www.google.com:443",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
     "CONNECT www.google.com:443",
     "CONNECT www.google.com:443",
-    "CONNECT update.googleapis.com:443"
+    "CONNECT www.google.com:443",
+    "CONNECT accounts.google.com:443"
   ],
   "proxyAttemptsAll": [
-    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:diABn5itUVS5DPG4mZuf0Wn-CQ7ePnR3KcISgBiKoKw&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:xb7cdYiZpO_j1hSYqaXGSIOIV9XPFkXRabzNzNa_al0&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "CONNECT www.gstatic.com:443",
     "CONNECT www.google.com:443",
-    "CONNECT accounts.google.com:443",
-    "CONNECT www.google.com:443",
     "CONNECT update.googleapis.com:443",
-    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:Nnty7Yxy0W7xSG2989O7iPddVlE_FISvxV5hDvh0YCU&cup2hreq=14b9e061bf2c0887fdd7d23aadc52d33db65c5457be9c97763bdbb23197ca1b9",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
+    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:fzEjTa8R0rPLIiCh1nd4H-_7mBXpjpzD6hQPROeaod4&cup2hreq=8e2da17197d52d7189ca2f3b6e4f98bb4c9eb28d9d7d105c43e87d587bd39dbb",
+    "CONNECT www.google.com:443",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
     "CONNECT www.google.com:443",
     "CONNECT www.google.com:443",
-    "CONNECT update.googleapis.com:443",
     "CONNECT www.google.com:443",
+    "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
-    "CONNECT cdn.jsdelivr.net:443"
+    "CONNECT cdn.jsdelivr.net:443",
+    "CONNECT www.google.com:443",
+    "CONNECT www.google.com:443"
   ]
 }

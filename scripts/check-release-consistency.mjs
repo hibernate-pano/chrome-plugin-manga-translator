@@ -641,9 +641,9 @@ function checkNoRemoteCode() {
  *
  * `checkNoRemoteCode` proves the package does not name a remote script. This
  * proves the local replacement is actually there: the worker, the SIMD-LSTM
- * core pair, and one gzipped traineddata file per language. A missing file
- * would not fail until a user's OCR fallback ran — and the failure would look
- * like a broken page, not like a packaging mistake.
+ * core, and one gzipped traineddata file per language. A missing file would
+ * not fail until a user's OCR fallback ran — and the failure would look like a
+ * broken page, not like a packaging mistake.
  */
 function checkTesseractAssetsLocal() {
   const distDir = join(projectRoot, 'dist');

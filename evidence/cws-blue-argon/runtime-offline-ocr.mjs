@@ -32,6 +32,7 @@ import process from 'node:process';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { Cdp, sleep } from '../../scripts/lib/cdp.mjs';
+import { urlLoadsExtensionAsset } from '../../scripts/lib/tesseract-assets.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(here, '..', '..');
@@ -740,7 +741,6 @@ async function main() {
     const expectedAssets = [
       'tesseract/worker.min.js',
       'tesseract/tesseract-core-simd-lstm.wasm.js',
-      'tesseract/tesseract-core-simd-lstm.wasm',
       'tesseract/lang/chi_sim.traineddata.gz',
       'tesseract/lang/jpn.traineddata.gz',
       'tesseract/lang/eng.traineddata.gz',
@@ -748,7 +748,7 @@ async function main() {
     ];
     const loadedUrls = duringTranslation.map(event => event.url);
     const missingAssets = expectedAssets.filter(
-      asset => !loadedUrls.some(url => url.includes(asset))
+      asset => !loadedUrls.some(url => urlLoadsExtensionAsset(url, asset))
     );
 
     // Network events from a worker can be missed if the worker exits before
@@ -773,7 +773,7 @@ async function main() {
       ...workerResources.flatMap(entry => entry.resources),
     ];
     const stillMissing = missingAssets.filter(
-      asset => !allLoadedUrls.some(url => url.includes(asset))
+      asset => !allLoadedUrls.some(url => urlLoadsExtensionAsset(url, asset))
     );
     check(
       'every Tesseract asset was loaded from the extension, not the network',
