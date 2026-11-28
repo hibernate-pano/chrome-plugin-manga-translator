@@ -20,6 +20,7 @@ import {
   patchWorkerSource,
   trainedDataPackage,
   trainedDataRelativePath,
+  urlLoadsExtensionAsset,
 } from '../lib/tesseract-assets.mjs';
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
@@ -93,10 +94,10 @@ describe('tesseract worker localization', () => {
     ]);
     expect(TESSERACT_DATA_VERSION).toBe('1.0.0');
     expect(TESSERACT_DATA_VARIANT).toBe('4.0.0_best_int');
-    expect(TESSERACT_CORE_FILES).toEqual([
-      'tesseract-core-simd-lstm.wasm.js',
-      'tesseract-core-simd-lstm.wasm',
-    ]);
+    // Only the single-file core ships. It embeds the wasm binary, so the
+    // sibling `.wasm` is never fetched; shipping it was 2.86 MB of dead weight
+    // in dist/ and in the store ZIP.
+    expect(TESSERACT_CORE_FILES).toEqual(['tesseract-core-simd-lstm.wasm.js']);
   });
 
   it('points every package path at the pinned best_int file', () => {
@@ -119,5 +120,44 @@ describe('tesseract worker localization', () => {
       const head = readFileSync(file).subarray(0, 2);
       expect([head[0], head[1]], file).toEqual([0x1f, 0x8b]);
     }
+  });
+});
+
+/**
+ * The runtime acceptance script decides "was this asset loaded?" from URLs
+ * captured over CDP. That comparison used `String.includes`, which made the
+ * `.wasm` requirement pass whenever the `.wasm.js` file was loaded — the exact
+ * false pass that kept a dead 2.86 MB binary in the package.
+ */
+describe('runtime asset matching', () => {
+  const CORE = 'tesseract/tesseract-core-simd-lstm.wasm';
+  const CORE_JS = 'tesseract/tesseract-core-simd-lstm.wasm.js';
+
+  it('matches the packaged url exactly', () => {
+    expect(urlLoadsExtensionAsset(`chrome-extension://abc/${CORE}`, CORE)).toBe(
+      true
+    );
+    expect(
+      urlLoadsExtensionAsset(`chrome-extension://abc/${CORE_JS}`, CORE_JS)
+    ).toBe(true);
+  });
+
+  it('does not let the .wasm.js glue satisfy the .wasm asset', () => {
+    expect(
+      urlLoadsExtensionAsset(`chrome-extension://abc/${CORE_JS}`, CORE)
+    ).toBe(false);
+  });
+
+  it('ignores a query string or fragment', () => {
+    expect(
+      urlLoadsExtensionAsset(`chrome-extension://abc/${CORE}?v=1#x`, CORE)
+    ).toBe(true);
+  });
+
+  it('does not accept a remote url with the same path', () => {
+    expect(
+      urlLoadsExtensionAsset(`https://cdn.example.com/${CORE_JS}`, CORE_JS)
+    ).toBe(false);
+    expect(urlLoadsExtensionAsset(CORE_JS, CORE_JS)).toBe(false);
   });
 });

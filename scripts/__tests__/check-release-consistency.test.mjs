@@ -133,7 +133,9 @@ function makeWorkdir() {
   );
 
   // The local OCR layout the artifact checks require. The worker carries no
-  // remote default; the language files start with the gzip magic bytes.
+  // remote default; the language files start with the gzip magic bytes. Only
+  // the single-file `.wasm.js` core is required — the separate `.wasm` it
+  // used to sit next to was never fetched at runtime.
   mkdirSync(join(workdir, 'dist', 'tesseract', 'lang'), { recursive: true });
   writeFileSync(
     join(workdir, 'dist', 'tesseract', 'worker.min.js'),
@@ -142,10 +144,6 @@ function makeWorkdir() {
   writeFileSync(
     join(workdir, 'dist', 'tesseract', 'tesseract-core-simd-lstm.wasm.js'),
     '/* local core */\n'
-  );
-  writeFileSync(
-    join(workdir, 'dist', 'tesseract', 'tesseract-core-simd-lstm.wasm'),
-    Buffer.from([0x00, 0x61, 0x73, 0x6d])
   );
   for (const lang of ['eng', 'jpn', 'chi_sim', 'kor']) {
     writeFileSync(
@@ -332,7 +330,7 @@ describe('release consistency guard: remote code and local OCR assets', () => {
       const result = runGuard(workdir);
       expect(result.code).toBe(0);
       expect(result.output).toContain('no remote code in');
-      expect(result.output).toContain('local OCR assets 7 file(s)');
+      expect(result.output).toContain('local OCR assets 6 file(s)');
     } finally {
       rmSync(workdir, { recursive: true, force: true });
     }
