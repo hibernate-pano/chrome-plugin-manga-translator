@@ -1,23 +1,19 @@
 # Chrome 商店审核备注（中文，可直接粘贴）
 
-审核备注字段长度有限（约 4000 字符），以下按单一功能与权限理由组织，控制在限额内。
+Chrome Web Store 未在官方文档或 API 参考中公布审核备注（test instructions）字段的字符上限；此前写的「约 4000 字符」是内部假设，不是商店公布值。以下文本按自设的 4,000 字符预算组织，五个代码块合计 3,951 字符（不含本说明与 FAQ）。
 
 ## 单一功能说明
 
 ```
-本扩展的单一功能是：在用户主动请求时，把当前网页上的漫画/条漫图片中的外文翻译为用户选择的语言（默认为简体中文），并把译文叠加显示在原图上。
+本扩展的单一功能是：在用户主动请求时，把当前网页上漫画/条漫图片中的外文翻译成用户选择的语言（默认简体中文），并把译文叠加在原图上。不含广告、用户追踪、社交功能、后台上传、远程代码执行或与翻译无关的页面抓取。
 
-不包含以下功能：广告、用户追踪、社交功能、后台常驻上传、远程代码执行、与翻译无关的页面内容抓取。
+扩展不会自行翻译任何页面。触发方式只有：
+1) 点击工具栏图标；
+2) 右键菜单「翻译当前页面」或「翻译这张图片」；
+3) 快捷键 Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重翻、+E 清除覆盖层、+S 译文面板；
+4) 手动把站点加入自动翻译白名单（默认为空）。
 
-扩展不会自行翻译任何页面。用户必须通过以下方式之一主动触发：
-1) 点击浏览器工具栏图标；
-2) 在页面右键菜单选择「翻译当前页面」或「翻译这张图片」（菜单项文案见 src/background/background.ts）；
-3) 按下键盘快捷键：Ctrl/⌘+Shift+Y 翻译当前页、+X 忽略缓存重翻、+E 清除当前页的译文覆盖层、+S 显示或隐藏译文阅读面板；
-4) 手动把某个站点加入自动翻译白名单（白名单默认为空）。
-
-「忽略缓存重翻」是唯一会绕过缓存、把本页图片重新请求一遍的动作，会产生额外的服务商调用费用。因此无论从弹窗按钮还是快捷键触发，都会先弹出一个确认框，写明本次会重新请求多少张图片；不确认就不会发出任何请求。右键菜单里没有这个动作——它只有「翻译当前页面」和「翻译这张图片」两项。
-
-安装后扩展不会自动上传任何图片内容。
+「忽略缓存重翻」是唯一绕过缓存、重新请求本页图片的动作，会产生额外费用；无论从弹窗按钮还是快捷键触发，都会先弹出一个确认框，写明本次会重新请求多少张图片，不确认不发出请求。右键菜单没有这一项。安装后不会自动上传任何图片。
 ```
 
 ## 权限与理由
@@ -25,86 +21,62 @@
 ```
 权限清单与用途：
 
-storage —— 在浏览器本地保存服务商配置、界面偏好、翻译缓存与用量统计。不使用 storage.sync，API Key 不会随 Google 账号同步到其他设备。
+storage —— 在浏览器本地保存服务商配置、界面偏好、翻译缓存与用量统计。不使用 storage.sync，API Key 不随 Google 账号同步。
 
-contextMenus —— 在页面右键菜单中提供两个入口：「翻译当前页面」（翻译本页全部可翻译图片）与「翻译这张图片」（只翻译右键点中的那一张）。两者都只在 http/https 页面上出现，点击后才产生服务商请求。
+contextMenus —— 在页面右键菜单中提供两个入口：「翻译当前页面」与「翻译这张图片」，仅在 http/https 页面出现，点击后才产生服务商请求。
 
-alarms —— 在翻译开启期间每 30 秒唤醒一次后台 service worker，使被 Chrome 回收后重启的 worker 能重新从 storage 读取配置，而不是靠内存里的旧值继续跑。该定时器不读取也不上传任何页面数据。两点如实说明：(a) 并发数可以在设置页的「画质与并发」中调整（默认 3），所以"重读并发配置"在用户改过设置时并非幂等操作；(b) 该定时器不阻止 Chrome 回收 worker，长章节翻译不中断靠的是内容脚本尚未返回的消息通道。
+alarms —— 翻译开启期间每 30 秒唤醒一次后台 service worker，使其被 Chrome 回收后重启时能从 storage 重读配置，而不是沿用内存旧值。该定时器不读取也不上传页面数据。如实说明：并发数可以在设置页的「画质与并发」中调整（默认 3），所以重读并发配置并非幂等；该定时器不阻止 Chrome 回收 worker。
 
-offscreen —— 创建一个隐藏的扩展页面（offscreen.html），让 OCR 的 Tesseract worker 在扩展自身 origin 上运行，使宿主页面的 CSP（例如 worker-src 'none'）不能阻止本地 OCR。该页面只加载随扩展打包的 OCR 资源（worker、WASM 核心、四种语言包），不读取页面内容、不发起任何网络请求；首次使用 OCR 时创建，之后复用。WORKERS 这个 reason 自 Chrome 113 起提供；扩展的最低版本是 Chrome 110，110–112 上 createDocument 会因 reason 无效被拒绝，OCR 自动改走页内兜底（见「OCR worker 的加载方式与已知限制」）。
+offscreen —— 创建隐藏扩展页 offscreen.html，让 OCR 的 Tesseract worker 在扩展自身 origin 运行，宿主页 CSP（如 worker-src 'none'）不能阻止本地 OCR。该页只加载随包 OCR 资源，不读页面内容、不发网络请求；首次 OCR 时创建并复用。WORKERS reason 自 Chrome 113 起提供；扩展最低 110，110–112 上 createDocument 被拒，OCR 自动走页内兜底（见 OCR 一节）。
 
-host_permissions: <all_urls> —— 有两个原因：
-1) 需要翻译的漫画/条漫站点无法预先枚举，用户访问的是任意网站；
-2) 页面上漫画图片的 <img> 元素常被 CORS 限制、降采样或懒加载，直接在页面内把图片绘制到 canvas 无法可靠取得视觉模型所需的原始字节。后台 service worker 因此需要以 GET 方式直接向该页面自己的图床/CDN 取图。
+host_permissions: <all_urls> —— 目标漫画/条漫站点无法预先枚举；页面 <img> 常被 CORS 限制、降采样或懒加载，页面内 canvas 无法可靠取得视觉模型所需的原始字节，后台需以 GET 直接向该页图床/CDN 取图。
 
-该取图为普通 GET，请求从用户浏览器直接发往页面自身的图床，使用 credentials: 'omit'，不会携带用户在该站点的 Cookie；扩展本身不架设任何代理服务器。取图仅发生在用户已请求翻译的图片上。取图前还有一道地址校验：协议只允许 http/https，localhost、*.localhost、metadata.google.internal 与私有/回环地址一律拒绝（见 src/background/image-fetch-guard.ts）。如实补充一点：图床可以把这次请求重定向到别处，而浏览器会先跟随重定向、再把结果交给我们，我们无法在跟随之前拦下这一步；但重定向后的最终地址同样要过上面这道校验，不合格时该响应会被丢弃，内容不会交给内容脚本。
+该取图为普通 GET，从用户浏览器直连页面自身图床，使用 credentials: 'omit'，不携带该站 Cookie；扩展不架代理。取图仅发生在用户已请求翻译的图片上。取图前校验地址：协议只允许 http/https，localhost、*.localhost、metadata.google.internal 与私有/回环地址一律拒绝。图床可以把请求重定向到别处，浏览器会先跟随、再把结果交给我们，我们无法在跟随前拦下；但重定向后的最终地址同样要过上面这道校验，不合格的响应会被丢弃，内容不交给内容脚本。
 
 content_security_policy: script-src 'self' 'wasm-unsafe-eval'
-'wasm-unsafe-eval' 仅用于实例化随扩展打包的 Tesseract OCR WebAssembly 核心（本地运行，不下载远程代码）。除扩展自身的打包文件外，不允许加载任何其他脚本来源；object-src 锁定为 'self'。扩展不执行任何远程代码。
+'wasm-unsafe-eval' 仅用于实例化随扩展打包的 Tesseract OCR WebAssembly 核心（本地运行，不下载远程代码）。其余脚本来源锁定 'self'，object-src 为 'self'。扩展不执行任何远程代码。
 
-web_accessible_resources 仅声明 tesseract/*：
-- tesseract/*：最后兜底的页内 blob worker 需要它——内容脚本在页面上下文中通过 chrome.runtime.getURL('tesseract/worker.min.js') 拼出 blob 内的 importScripts 地址，而页面上下文只能加载被声明为 web-accessible 的扩展资源。
-- offscreen.html 不在其中：该页面只由扩展自己的 service worker 通过 chrome.offscreen 创建，网页既不需要、也无法嵌入它。
-content script 本身以普通静态文件方式注册（content_scripts 直接指向 content.js），由浏览器直接注入，不经过网页，因此无需声明为 web-accessible。
-其余内部模块（含密钥混淆模块）均未暴露：扩展包中不含任何可供网页读取的密钥混淆代码，构建流程会对此做断言并在违规时使构建失败。
+web_accessible_resources 仅声明 tesseract/*：页内 blob worker 通过它加载打包的 worker.min.js（页面上下文只能加载声明为 web-accessible 的扩展资源）。offscreen.html 不在其中：只由扩展自己的 service worker 通过 chrome.offscreen 创建，网页既不需要、也无法嵌入。content script 本身以普通静态文件方式注册，由浏览器直接注入，不经过网页，因此无需声明为 web-accessible。
 
-密钥只存在于 service worker 与扩展自有页面，明文密钥不进入 content script 的导入闭包。构建流程有两道断言：content script 的导入图一旦能到达持有密钥的模块即失败；产物 dist/content.js 里一旦出现密钥即失败。内容脚本拿不到明文密钥，只拿到端点、模型名以及「是否已配置密钥」这一个布尔值（以及翻译本身要用到的目标语言、风格、画质等设置）。
+密钥只存在于 service worker 与扩展自有页面，明文密钥不进入 content script 的导入闭包。构建有两道断言：content script 导入图一旦能到达持有密钥的模块即失败；dist/content.js 一旦出现密钥即失败。内容脚本拿不到明文密钥，只拿到端点、模型名、「是否已配置密钥」布尔值与翻译设置。
 ```
 
 ## OCR worker 的加载方式与已知限制
 
 ```
-OCR 默认在扩展自身 origin 的 offscreen 文档中运行（Chrome 113 及以上），宿主页的 CSP 不能阻止本地 OCR；Chrome 110–112 退回页内 blob。内容脚本按以下顺序尝试两种传输方式，第一个成功者在本次会话内固定：
+OCR 默认在扩展自身 origin 的 offscreen 文档中运行（Chrome 113 及以上），宿主页的 CSP 不能阻止本地 OCR；Chrome 110–112 退回页内 blob。按序尝试两种传输，首个成功者在本次会话固定：
 
-1) offscreen 文档（默认）：后台 service worker 通过 chrome.offscreen（reason: WORKERS）创建一个隐藏的扩展页面 offscreen.html，并通过 runtime.Port 把识别任务发给它。该页面在扩展自身 origin 上用 chrome.runtime.getURL('tesseract/worker.min.js') 直接创建 Web Worker，宿主页的 CSP（worker-src、script-src）不适用于扩展 origin。
-2) 页内 blob worker（兜底）：offscreen 文档不可用时，退回 2.3.2 的方案——内容脚本创建 blob，blob 内容只有一行 importScripts("chrome-extension://<扩展 ID>/tesseract/worker.min.js")，再用 blob URL 构造 Worker。此路径受宿主页 CSP 约束。
+1) offscreen：service worker 通过 chrome.offscreen（reason: WORKERS）创建 offscreen.html，经 runtime.Port 发送识别任务；该页在扩展 origin 上用 chrome.runtime.getURL('tesseract/worker.min.js') 直接创建 Web Worker，宿主页 CSP（worker-src、script-src）不适用。
+2) 页内 blob（兜底）：offscreen 不可用时退回 2.3.2 方案——内容脚本创建 blob，内容只有一行 importScripts("chrome-extension://<扩展 ID>/tesseract/worker.min.js")，再用 blob URL 构造 Worker；受宿主页 CSP 约束。
 
-没有扩展 origin iframe 通道：把扩展页面嵌进宿主页，等于把扩展 origin 的入口交到页面脚本手里；原先用于限定该通道的每会话令牌放在 iframe 的 URL fragment 里，页面脚本读得到。该通道已删除，offscreen.html 也不再是 web-accessible。
+没有扩展 origin iframe 通道：把扩展页嵌进宿主页等于把扩展 origin 入口交给页面脚本；原每会话令牌在 iframe URL fragment 中，页面脚本可读。该通道已删除，offscreen.html 也不再是 web-accessible。
 
-只有「传输方式本身不可用」（transport/unsupported）才降级；识别本身失败的图片按失败处理、不写入翻译缓存，也不会静默降级为「没有文字」的空结果。Chrome 113 起默认走 offscreen 路径，worker-src 'none' 的站点因此不再导致 OCR 不可用。Chrome 110–112 尚未提供 WORKERS 这个 offscreen reason，createDocument 会被拒绝，这三个版本上 OCR 始终走页内 blob：页面 CSP 依然生效，worker-src 'none' 这类严格 CSP 的站点在这三个版本上仍无法使用 OCR。
+只有传输方式本身不可用（transport/unsupported）才降级；识别失败按失败处理、不进翻译缓存，不静默降级为「没有文字」。Chrome 110–112 未提供 WORKERS reason，createDocument 被拒，这三个版本上 OCR 始终走页内 blob，页面 CSP 依然生效，worker-src 'none' 这类严格 CSP 站点在这三个版本上仍无法使用 OCR。
 
-被加载的 worker.min.js、WASM 核心（单文件 tesseract-core-simd-lstm.wasm.js，内嵌 WebAssembly 二进制）与韩/日/英/简中四种语言包全部随扩展包分发，执行的代码 100% 来自扩展自身，没有任何远程代码。
+OCR 兜底所用的 Tesseract worker、WASM 核心与韩/日/英/简中四种语言包均随扩展打包，运行时从扩展本地目录读取，不产生任何网络请求。worker.min.js、单文件 WASM 核心（tesseract-core-simd-lstm.wasm.js，内嵌 WebAssembly）与四种语言包全部随包，执行的代码 100% 来自扩展自身，没有任何远程代码。
 ```
 
 ## 数据收集声明
 
 ```
-本扩展的开发者不收集、不接收、不存储任何用户数据。
+本扩展的开发者不收集、不接收、不存储任何用户数据。无统计、无遥测、无崩溃上报、无广告 SDK、无第三方分析 SDK，不使用 Cookie，不做用户追踪。开发者不运行任何接收数据的服务器。
 
-无统计、无遥测、无崩溃上报、无广告 SDK、无第三方分析 SDK、不使用 Cookie、不做用户追踪。
+如实说明：翻译时，扩展会把「用户正在阅读的页面上的漫画图片」发送至用户自行配置的视觉模型服务商，属商店数据使用披露中的 Website content 传输；该服务商适用自身隐私政策，开发者不接收、不存储。使用本地服务商（Ollama / LM Studio）时图片完全不出本机。
 
-开发者不运行任何接收数据的服务器：不会收到用户的图片、API Key、浏览记录或翻译结果。
+出站请求仅两类：1) 用户配置的视觉模型服务商（翻译时上传图片）；2) 用户正在阅读的页面自身图床（取图，使用 credentials: 'omit'）。
 
-需要如实说明的一点：翻译时，扩展会把「用户正在阅读的页面上的漫画图片」发送至用户自行配置的视觉模型服务商。这在 Chrome 商店的数据使用披露中属于 Website content 的传输。该服务商如何处理这些数据，适用其自身的隐私政策；开发者既不接收也不存储。若用户配置的是本地服务商（Ollama / LM Studio），图片完全不出本机。
-
-出站请求仅两类：
-1) 用户自行配置的视觉模型服务商（翻译时上传图片）；
-2) 用户正在阅读的页面自身的图床（取图，credentials: 'omit'）。
-
-OCR 兜底所用的 Tesseract worker、WASM 核心与韩/日/英/简中四种语言包均随扩展打包，运行时从扩展本地目录读取，不产生任何网络请求。产物中不含任何远程代码 URL，OCR 语言包也不从 CDN 下载。
-
-API Key 仅保存在本机 chrome.storage.local，以固定盐值 XOR 混淆后写入（这是混淆而非加密，用于避免在存储查看器中一眼可读，不作为安全边界）。
+API Key 仅保存在本机 chrome.storage.local，以固定盐值 XOR 混淆写入（这是混淆而非加密，用于避免在存储查看器中一眼可读，不作为安全边界）。
 ```
 
 ## 供审核参考的测试方式
 
 ```
-仓库根目录的 smoke-test-page.html 是自包含测试页，包含：日英韩三种气泡、4000px 长条漫、应当被跳过的内容（页眉 logo、小于 200px 的图）。前两栏与第四栏的图片全部内联生成，不依赖网络；只有第 3 栏的跨域图例取自 upload.wikimedia.org，需要联网。
+仓库根目录的 smoke-test-page.html 是自包含测试页：日英韩三种气泡、4000px 长条漫、应被跳过的内容（页眉 logo、小于 200px 的图）。除第 3 栏跨域图例取自 upload.wikimedia.org 需联网外，图片均内联生成。请用本地 HTTP 服务打开，不要用 file://（扩展取图只允许 http/https，Chrome 默认也不在 file:// 注入内容脚本）。
 
-请用本地 HTTP 服务打开该页面，不要用 file:// 直接打开。原因是扩展的取图逻辑出于安全考虑拒绝 file: 协议（只允许 http/https），且 Chrome 默认不允许扩展在 file:// 页面上运行内容脚本。
-
-审核者可用如下步骤验证扩展的核心功能：
-1. 安装扩展，点击工具栏图标，在弹窗中点「开始设置」，跟随引导完成配置（引导弹窗在设置页内；设置页也可以随时用「重新查看引导」打开）。
-2. 配置任一 OpenAI 兼容服务商（设置页有 MiniMax / SiliconFlow / OpenRouter / Gemini / OpenAI 的「一键预设」，点一下自动填好接口地址与模型名；也可手填 base URL + model + API Key），点击「测试配置」确认连通性验证生效（错误 Key 会报鉴权失败，错误 base URL 会报无法连接）。
-3. 在仓库根目录执行：python3 -m http.server 8000
-   然后用 http://localhost:8000/smoke-test-page.html 打开该页面，点击工具栏图标。
-4. 预期：第 1 栏三个气泡、第 2 栏条漫四个气泡、跨域图片均被翻译；第 4 栏内容被跳过。
-5. 再次翻译同一页面（启用缓存）预期不再发出任何服务商请求（之前翻译失败的图片没有进缓存，会重新请求）。
-6. 切换服务商或模型后，缓存不被复用。
-7. 打开未加入白名单的普通网站，确认扩展不会自动翻译。
-8. 翻译完成后点图上的「⬇」按钮，可把该页译文合成为 PNG 并下载。合成过程完全在浏览器本地完成：取图用的是与翻译时相同的取图通道（GET、credentials: 'omit'、直连页面自身图床），合成时只会向图片原本所在的那个站点再取一次图，不会把图片发给任何新目的地。
-
-如审核者确实需要测试本地文件：在扩展详情页（chrome://extensions）打开「允许访问文件网址」后，file:// 页面即可被注入内容脚本；但取图仍会因 file: 协议被拒绝，因此页面上内联生成的图片仍可正常翻译，跨域图片则会失败。
+三步验证：
+1. 安装扩展，点击工具栏图标，在弹窗中点「开始设置」，跟随引导完成配置（设置页也可以随时用「重新查看引导」打开）；选任一 OpenAI 兼容服务商（有一键预设，也可手填 base URL + model + API Key），点击「测试配置」确认连通性验证生效。
+2. 在仓库根目录运行 python3 -m http.server 8000，打开 http://localhost:8000/smoke-test-page.html，点击工具栏图标翻译。
+3. 预期：第 1 栏三个气泡、第 2 栏条漫四个气泡与跨域图片均被翻译，第 4 栏被跳过；再翻同一页（启用缓存）不再发出服务商请求；切换服务商或模型后缓存不复用；打开未加入白名单的普通网站不会自动翻译。
 ```
 
 ## 容易被问到的问题

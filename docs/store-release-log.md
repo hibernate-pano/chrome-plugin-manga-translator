@@ -13,6 +13,30 @@
 | 公开页 `Version` 变了 | **已上架** |
 | 公开页抓不到版本号 | **还没上架**，不许说已上架 |
 
+## v2.3.3 — 2026-11-28 合并 / **未提审**（等 2.3.2 审核位）
+
+| 发生了什么 | 证据（commit / CI run） | 审核状态 |
+| --- | --- | --- |
+| OCR worker 迁扩展自身 origin：`chrome.offscreen`（reason `WORKERS`，Chrome 113+）为默认通道，Chrome 110–112 退回页内 blob；删除扩展 origin iframe 通道（每会话令牌在 iframe URL fragment，页面脚本可读）；offscreen 任务串行化、worker 复用；`THIRD-PARTY-NOTICES` 随包（`zip -j`，缺文件拒绝打包）；vite 7.3.8、postcss 8.5.29、vitest 5.1.2、typescript-eslint 8.74.0 升级，NOTICE 版本随 #11 校正 | PR #15 合并 `2c8ea54`（2026-11-28）；PR CI run `46130231552` 5/5；合并后 main push CI run `46132567273` success；依赖 PR #11 `a352aea`、#12 `e79f7d9`、#13 `2431995`、#16 `710b617`、#17 `f934101` | **未提审**；`fetchStatus`（2026-11-28）submitted 仍是 2.3.2 `PENDING_REVIEW`，线上 `PUBLISHED` 2.3.0 |
+
+**结论：代码已在 main，等 2.3.2 审核结束再上传 2.3.3 包。**
+
+## v2.3.2 — 2026-11-27 合并 / **审核中**（线上仍是 2.3.0）
+
+| 发生了什么 | 证据（commit / CI run） | 审核状态 |
+| --- | --- | --- |
+| 修复 2.3.1 的 Blue Argon 驳回：构建期改写 tesseract.js 三处 CDN 默认值（worker / core / 语言包），四种语言包随包（ZIP 2.78 MB → 11.03 MB）；新增 `checkNoRemoteCode`、`checkTesseractAssetsLocal` 与 `symbol==literal` 锚点；隐私政策出站请求由三类改两类 | PR #14 合并 `bf72dd8`（2026-11-27）；PR CI run `45977171277` 5/5；`release/manga-translator-v2.3.2-public.zip` 11,033,783 B，sha256 `9a8803b8…` | **PENDING_REVIEW**（2.3.2）；`fetchStatus`（2026-11-28）：`published=PUBLISHED` 2.3.0、`submitted=PENDING_REVIEW` 2.3.2、`warned=true` |
+
+**结论：已进入审核队列，尚未上架。提审时的 upload / publish 回包没有写进仓库（这一版之前没有台账记录）。**
+
+## v2.3.1 — 2026-11-17 tag / **被驳回**（Blue Argon：远程托管代码）
+
+| 发生了什么 | 证据（commit / CI run） | 审核状态 |
+| --- | --- | --- |
+| 2.3.1 提交商店审核后被以 Blue Argon（远程托管代码）驳回：产物里仍有三处可加载的 CDN 脚本地址——`content.js` 里 tesseract.js 的 worker 默认路径、`worker.min.js` 里的 core 默认 URL 与语言包默认前缀。运行时虽会 override，MV3 审查按**静态产物字符串**判定。处置：2.3.2 在构建期改写三处默认值、语言包随包、新增远程代码门禁 | tag `v2.3.1` = `6b9cfc6` → commit `1974d25`（2026-11-17）；三条向量与修复清单见 PR #14 背景与 `evidence/cws-blue-argon/baseline-static-scan.txt`（41 个远程 URL / 3 个 vector）；修复 PR #14 = `bf72dd8` | **REJECTED**（Blue Argon），从未上架；期间线上为 2.3.0。仓库没有 2.3.1 的 CI run 记录 |
+
+**结论：2.3.1 被驳回是 Blue Argon 违规的起点；2.3.2 是针对它的修复版。**
+
 ## v2.3.0 — 2026-11-15 提审 / 2026-11-15 **已上架**
 
 校正紙 UI 的第一版。相对 2.2.1 只改界面与文案，不动译文管线、缓存键和配置格式。
