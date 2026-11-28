@@ -67,6 +67,175 @@ const manifest = JSON.parse(
 const sourceOnly = process.argv.includes('--source-only');
 
 /**
+ * The offscreen OCR document and the script it loads.
+ *
+ * `public/offscreen.html` is copied into `dist/` by Vite, and `offscreen.js`
+ * is emitted by the `offscreen` entry in `vite.config.ts`. Nothing in the
+ * manifest names either file: the service worker opens the page by path with
+ * `chrome.offscreen.createDocument`, so neither CRXJS's manifest generation
+ * nor any manifest-shaped check would notice if the build stopped emitting
+ * them. The first symptom would be a user whose OCR fallback cannot open its
+ * page — after release, on a machine that was never built here.
+ */
+const OFFSCREEN_DOCUMENT = 'offscreen.html';
+const OFFSCREEN_SCRIPT = 'offscreen.js';
+
+function checkOffscreenArtifacts() {
+  const distDir = join(projectRoot, 'dist');
+  const required = [
+    {
+      file: OFFSCREEN_DOCUMENT,
+      detail: 'the offscreen OCR transport has no page to load',
+    },
+    {
+      file: OFFSCREEN_SCRIPT,
+      detail: 'the offscreen OCR page has no script to run',
+    },
+  ];
+  const missing = required.filter(
+    ({ file }) => !existsSync(join(distDir, file))
+  );
+
+  if (missing.length > 0) {
+    for (const { file, detail } of missing) {
+      console.error(`[release-check] dist/${file} is missing — ${detail}`);
+    }
+    console.error(
+      '[release-check] the worker opens the offscreen document by path and the manifest names neither ' +
+        'file, so a build that drops them still looks complete. Keep public/offscreen.html and the ' +
+        '`offscreen` entry in vite.config.ts.'
+    );
+    process.exit(1);
+  }
+
+  return `offscreen document present (${OFFSCREEN_DOCUMENT}, ${OFFSCREEN_SCRIPT})`;
+}
+
+/**
+ * Does a `web_accessible_resources` pattern cover a dist-relative path?
+ *
+ * Chrome reads these entries as glob patterns: `*` matches any run of
+ * characters, path separators included, so `tesseract/*` covers every file
+ * beneath that directory. Treating an entry as a literal string would let a
+ * declaration like `*.html` pass a check that only compared file names.
+ */
+function warEntryMatches(entry, path) {
+  if (!entry.includes('*')) {
+    return entry === path;
+  }
+  const pattern = entry
+    .split('*')
+    .map(part => part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+    .join('.*');
+  return new RegExp(`^${pattern}$`).test(path);
+}
+
+/**
+ * Every file under `dist/`, as a dist-relative path with `/` separators —
+ * the form `web_accessible_resources` entries are written in.
+ */
+function listDistFiles(dir = join(projectRoot, 'dist'), prefix = '') {
+  const files = [];
+  for (const entry of readdirSync(dir)) {
+    const full = join(dir, entry);
+    const relativePath = prefix ? `${prefix}/${entry}` : entry;
+    if (statSync(full).isDirectory()) {
+      files.push(...listDistFiles(full, relativePath));
+      continue;
+    }
+    files.push(relativePath);
+  }
+  return files;
+}
+
+/**
+ * Refuse a manifest that exposes the offscreen document to web pages.
+ *
+ * The document is opened by the extension itself and reached over a
+ * `runtime.Port`. An extension-origin page that is also web-accessible is a
+ * different thing: every site can embed it and reach into it through
+ * `contentWindow` and `postMessage`. That was the `extension-frame` OCR
+ * transport, and 2.3.3 removed it rather than hardening it — the per-session
+ * token lived in the frame's URL fragment, where the host page could read it.
+ *
+ * The source manifest no longer declares `offscreen.html`, but the built
+ * manifest is produced by CRXJS and then pruned by hand-written Vite plugins.
+ * This check is the regression line: if a future plugin, a manifest edit or a
+ * CRXJS upgrade puts the page back into the list, the build fails here.
+ */
+function checkOffscreenNotWebAccessible() {
+  const builtManifestPath = join(projectRoot, 'dist', 'manifest.json');
+  if (!existsSync(builtManifestPath)) {
+    fail(
+      'dist/manifest.json is missing — the build produced no manifest, so there is nothing to release'
+    );
+  }
+
+  const built = JSON.parse(readFileSync(builtManifestPath, 'utf8'));
+  const exposed = (built.web_accessible_resources ?? []).flatMap(
+    group => group.resources ?? []
+  );
+  const pattern = exposed.find(entry =>
+    warEntryMatches(entry, OFFSCREEN_DOCUMENT)
+  );
+
+  if (pattern) {
+    console.error(
+      `[release-check] web_accessible_resources exposes ${OFFSCREEN_DOCUMENT} (pattern: ${pattern})`
+    );
+    console.error(
+      '[release-check] the offscreen document is opened by chrome.offscreen from the worker and is ' +
+        'never loaded by a page. Exposing it hands every site an embeddable extension-origin context ' +
+        'it can reach through contentWindow/postMessage — the transport 2.3.3 removed. Keep it out of ' +
+        'web_accessible_resources.'
+    );
+    process.exit(1);
+  }
+
+  return `${OFFSCREEN_DOCUMENT} is not web-accessible (${exposed.length} exposed resource pattern(s))`;
+}
+
+/**
+ * Every `web_accessible_resources` entry must resolve to something the build
+ * actually produced.
+ *
+ * A declaration outlives the file it names all the time — a chunk is renamed,
+ * an asset moves, a directory is dropped — and a stale entry is invisible
+ * until the page that fetches it fails. `dir/*` is checked against the files
+ * beneath the directory; an entry with no wildcard must name a file.
+ */
+function checkWebAccessibleEntriesResolve() {
+  const builtManifestPath = join(projectRoot, 'dist', 'manifest.json');
+  if (!existsSync(builtManifestPath)) {
+    fail(
+      'dist/manifest.json is missing — the build produced no manifest, so there is nothing to release'
+    );
+  }
+
+  const built = JSON.parse(readFileSync(builtManifestPath, 'utf8'));
+  const entries = (built.web_accessible_resources ?? []).flatMap(
+    group => group.resources ?? []
+  );
+  const files = listDistFiles();
+  const dangling = entries.filter(
+    entry => !files.some(file => warEntryMatches(entry, file))
+  );
+
+  if (dangling.length > 0) {
+    console.error(
+      `[release-check] web_accessible_resources entries match no built file: ${dangling.join(', ')}`
+    );
+    console.error(
+      '[release-check] the manifest declares a path the package does not contain, and the only ' +
+        'symptom is a fetch that fails in the page. Remove the declaration or restore the file.'
+    );
+    process.exit(1);
+  }
+
+  return `all ${entries.length} web_accessible_resources pattern(s) resolve in dist`;
+}
+
+/**
  * Assert the built manifest still exposes every resource the built output loads
  * at runtime.
  *
@@ -793,12 +962,15 @@ if (sourceOnly) {
 }
 
 const sizeNote = checkContentScriptSize();
+const offscreenNote = checkOffscreenArtifacts();
+const offscreenExposureNote = checkOffscreenNotWebAccessible();
 const resourceNote = checkWebAccessibleIntegrity();
+const entriesNote = checkWebAccessibleEntriesResolve();
 const exposureNote = checkNoSecretsExposed();
 const credentialNote = checkNoCredentialsInContentScript();
 const remoteCodeNote = checkNoRemoteCode();
 const tesseractAssetsNote = checkTesseractAssetsLocal();
 
 console.log(
-  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${resourceNote}; ${exposureNote}; ${boundaryNote}; ${credentialNote}; ${remoteCodeNote}; ${tesseractAssetsNote}; ${fieldNote}`
+  `[release-check] version ${packageJson.version} is consistent; ${sizeNote}; ${offscreenNote}; ${offscreenExposureNote}; ${resourceNote}; ${entriesNote}; ${exposureNote}; ${boundaryNote}; ${credentialNote}; ${remoteCodeNote}; ${tesseractAssetsNote}; ${fieldNote}`
 );
