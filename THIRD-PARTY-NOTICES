@@ -41,7 +41,7 @@ The extension's own source code is licensed under the MIT License (see
 | `@tesseract.js-data/eng` | 1.0.0 | MIT |
 | `@tesseract.js-data/jpn` | 1.0.0 | MIT |
 | `@tesseract.js-data/kor` | 1.0.0 | MIT |
-| `vite` (module preload polyfill, `chunks/modulepreload-polyfill-*.js`) | 7.3.8 | MIT |
+| `vite` (module preload polyfill, `chunks/modulepreload-polyfill-*.js`) | 6.4.3 | MIT |
 
 ## Copyright notices
 
@@ -60,7 +60,7 @@ The extension's own source code is licensed under the MIT License (see
 - `@radix-ui/react-switch` 1.2.6 — Copyright (c) 2022 WorkOS
 - `@radix-ui/react-use-controllable-state` 1.2.2 — Copyright (c) 2022 WorkOS
 - `@radix-ui/react-use-effect-event` 0.0.2 — Copyright (c) 2022 WorkOS
-- `vite` 7.3.8 (module preload polyfill only) — Copyright (c) 2019-present, VoidZero Inc. and Vite contributors
+- `vite` 6.4.3 (module preload polyfill only) — Copyright (c) 2019-present, VoidZero Inc. and Vite contributors
 
 The following packages ship no LICENSE file in their npm tarball and
 declare their license in `package.json` only; the MIT License text below
