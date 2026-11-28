@@ -1,159 +1,1490 @@
 {
-  "capturedAt": "2026-11-28T07:39:38.528Z",
-  "extensionId": "gchpdaphbiohgalmahceenmaegbhjbel",
-  "source": "http://127.0.0.1:53391",
+  "capturedAt": "2026-11-28T09:07:06.981Z",
+  "extensionId": "gcdfcjemobohjngkkgpbfdiiogfdalcn",
+  "source": "http://127.0.0.1:61413",
+  "transport": {
+    "used": "offscreen",
+    "basis": "1 target(s) with url chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html (type=background_page, topLevel=true); 0 blob: worker target(s); 0 bare .wasm request(s)",
+    "offscreen": {
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+      "found": true,
+      "targets": [
+        {
+          "targetId": "CC11F2A684F1A3D5F022F908492DF505",
+          "type": "background_page",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+          "firstSeenAt": 1795856823919,
+          "firstSeenAtIso": "2026-11-28T09:07:03.919Z",
+          "lastSeenAt": 1795856826943,
+          "lastSeenAtIso": "2026-11-28T09:07:06.943Z",
+          "sources": [
+            "attachedToTarget",
+            "targetCreated",
+            "targetInfoChanged",
+            "getTargets:during-translation",
+            "getTargets:overlay-detected",
+            "getTargets:offscreen-probe",
+            "getTargets:end"
+          ]
+        }
+      ],
+      "live": {
+        "href": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+        "isTopLevel": true,
+        "visibility": "visible",
+        "readyState": "complete"
+      },
+      "resources": []
+    },
+    "blobWorkerTargets": [],
+    "allBlobTargets": [],
+    "deadWeightWasmRequests": [],
+    "wasmJsCoreRequests": [
+      "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/tesseract-core-simd-lstm.wasm.js"
+    ]
+  },
+  "targets": [
+    {
+      "targetId": "150C2B160F3C5C1DB879269C58FDAAF2",
+      "type": "browser_ui",
+      "url": "chrome://omnibox-popup.top-chrome/",
+      "attached": true,
+      "firstSeenAt": 1795856820592,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "attachedToTarget",
+        "targetCreated",
+        "getTargets:extension-loaded",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:00.592Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "DF86F82B087A69A9F9E9D25A67679C4C",
+      "type": "page",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html",
+      "attached": true,
+      "firstSeenAt": 1795856820592,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "attachedToTarget",
+        "targetCreated",
+        "getTargets:extension-loaded",
+        "targetInfoChanged",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:00.592Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "7BC4DE7BC65250321C2B211822851B51",
+      "type": "service_worker",
+      "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js",
+      "attached": true,
+      "firstSeenAt": 1795856820605,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "targetCreated",
+        "targetInfoChanged",
+        "attachedToTarget",
+        "getTargets:extension-loaded",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:00.605Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "F7AB9CA69D737704094D5E9AF87C24AB",
+      "type": "service_worker",
+      "url": "chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js",
+      "attached": true,
+      "firstSeenAt": 1795856820620,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "targetCreated",
+        "targetInfoChanged",
+        "attachedToTarget",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:00.620Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "478E7EBA8E302AE6A3AE1424E451AA69",
+      "type": "service_worker",
+      "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js",
+      "attached": true,
+      "firstSeenAt": 1795856820632,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "targetCreated",
+        "targetInfoChanged",
+        "attachedToTarget",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:00.632Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "5FA731500204C1928E90C7EAB4223AEE",
+      "type": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "attached": true,
+      "firstSeenAt": 1795856820639,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "targetCreated",
+        "targetInfoChanged",
+        "attachedToTarget",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:00.639Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "9A73FE1A50553515A18563683C4D9E0F",
+      "type": "page",
+      "url": "http://127.0.0.1:61413/",
+      "attached": true,
+      "firstSeenAt": 1795856822326,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "attachedToTarget",
+        "targetCreated",
+        "targetInfoChanged",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:02.326Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "CC11F2A684F1A3D5F022F908492DF505",
+      "type": "background_page",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+      "attached": true,
+      "firstSeenAt": 1795856823919,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "attachedToTarget",
+        "targetCreated",
+        "targetInfoChanged",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:03.919Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "C1007AADA2FA9D01D687D5B8038E9DFB",
+      "type": "worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
+      "attached": true,
+      "firstSeenAt": 1795856823930,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "targetCreated",
+        "targetInfoChanged",
+        "attachedToTarget",
+        "getTargets:during-translation",
+        "getTargets:overlay-detected",
+        "getTargets:offscreen-probe",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:03.930Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    },
+    {
+      "targetId": "0A322F10149A131A8E24377AEE36E375",
+      "type": "page",
+      "url": "about:blank",
+      "attached": true,
+      "firstSeenAt": 1795856826916,
+      "lastSeenAt": 1795856826943,
+      "sources": [
+        "attachedToTarget",
+        "targetCreated",
+        "targetInfoChanged",
+        "getTargets:end"
+      ],
+      "firstSeenAtIso": "2026-11-28T09:07:06.916Z",
+      "lastSeenAtIso": "2026-11-28T09:07:06.943Z"
+    }
+  ],
+  "targetSnapshots": [
+    {
+      "at": 1795856820617,
+      "atIso": "2026-11-28T09:07:00.617Z",
+      "label": "extension-loaded",
+      "targets": [
+        {
+          "targetId": "150C2B160F3C5C1DB879269C58FDAAF2",
+          "type": "browser_ui",
+          "url": "chrome://omnibox-popup.top-chrome/",
+          "attached": true
+        },
+        {
+          "targetId": "7BC4DE7BC65250321C2B211822851B51",
+          "type": "service_worker",
+          "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js",
+          "attached": true
+        },
+        {
+          "targetId": "DF86F82B087A69A9F9E9D25A67679C4C",
+          "type": "page",
+          "url": "about:blank",
+          "attached": true
+        }
+      ]
+    },
+    {
+      "at": 1795856823856,
+      "atIso": "2026-11-28T09:07:03.856Z",
+      "label": "during-translation",
+      "targets": [
+        {
+          "targetId": "150C2B160F3C5C1DB879269C58FDAAF2",
+          "type": "browser_ui",
+          "url": "chrome://omnibox-popup.top-chrome/",
+          "attached": true
+        },
+        {
+          "targetId": "478E7EBA8E302AE6A3AE1424E451AA69",
+          "type": "service_worker",
+          "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js",
+          "attached": true
+        },
+        {
+          "targetId": "5FA731500204C1928E90C7EAB4223AEE",
+          "type": "service_worker",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+          "attached": true
+        },
+        {
+          "targetId": "7BC4DE7BC65250321C2B211822851B51",
+          "type": "service_worker",
+          "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js",
+          "attached": true
+        },
+        {
+          "targetId": "9A73FE1A50553515A18563683C4D9E0F",
+          "type": "page",
+          "url": "http://127.0.0.1:61413/",
+          "attached": true
+        },
+        {
+          "targetId": "DF86F82B087A69A9F9E9D25A67679C4C",
+          "type": "page",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html",
+          "attached": true
+        },
+        {
+          "targetId": "F7AB9CA69D737704094D5E9AF87C24AB",
+          "type": "service_worker",
+          "url": "chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js",
+          "attached": true
+        }
+      ]
+    },
+    {
+      "at": 1795856824864,
+      "atIso": "2026-11-28T09:07:04.864Z",
+      "label": "during-translation",
+      "targets": [
+        {
+          "targetId": "150C2B160F3C5C1DB879269C58FDAAF2",
+          "type": "browser_ui",
+          "url": "chrome://omnibox-popup.top-chrome/",
+          "attached": true
+        },
+        {
+          "targetId": "478E7EBA8E302AE6A3AE1424E451AA69",
+          "type": "service_worker",
+          "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js",
+          "attached": true
+        },
+        {
+          "targetId": "5FA731500204C1928E90C7EAB4223AEE",
+          "type": "service_worker",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+          "attached": true
+        },
+        {
+          "targetId": "7BC4DE7BC65250321C2B211822851B51",
+          "type": "service_worker",
+          "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js",
+          "attached": true
+        },
+        {
+          "targetId": "9A73FE1A50553515A18563683C4D9E0F",
+          "type": "page",
+          "url": "http://127.0.0.1:61413/",
+          "attached": true
+        },
+        {
+          "targetId": "C1007AADA2FA9D01D687D5B8038E9DFB",
+          "type": "worker",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
+          "attached": true
+        },
+        {
+          "targetId": "CC11F2A684F1A3D5F022F908492DF505",
+          "type": "background_page",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+          "attached": true
+        },
+        {
+          "targetId": "DF86F82B087A69A9F9E9D25A67679C4C",
+          "type": "page",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html",
+          "attached": true
+        },
+        {
+          "targetId": "F7AB9CA69D737704094D5E9AF87C24AB",
+          "type": "service_worker",
+          "url": "chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js",
+          "attached": true
+        }
+      ]
+    },
+    {
+      "at": 1795856826943,
+      "atIso": "2026-11-28T09:07:06.943Z",
+      "label": "end",
+      "targets": [
+        {
+          "targetId": "0A322F10149A131A8E24377AEE36E375",
+          "type": "page",
+          "url": "about:blank",
+          "attached": true
+        },
+        {
+          "targetId": "150C2B160F3C5C1DB879269C58FDAAF2",
+          "type": "browser_ui",
+          "url": "chrome://omnibox-popup.top-chrome/",
+          "attached": true
+        },
+        {
+          "targetId": "478E7EBA8E302AE6A3AE1424E451AA69",
+          "type": "service_worker",
+          "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js",
+          "attached": true
+        },
+        {
+          "targetId": "5FA731500204C1928E90C7EAB4223AEE",
+          "type": "service_worker",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+          "attached": true
+        },
+        {
+          "targetId": "7BC4DE7BC65250321C2B211822851B51",
+          "type": "service_worker",
+          "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js",
+          "attached": true
+        },
+        {
+          "targetId": "9A73FE1A50553515A18563683C4D9E0F",
+          "type": "page",
+          "url": "http://127.0.0.1:61413/",
+          "attached": true
+        },
+        {
+          "targetId": "C1007AADA2FA9D01D687D5B8038E9DFB",
+          "type": "worker",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
+          "attached": true
+        },
+        {
+          "targetId": "CC11F2A684F1A3D5F022F908492DF505",
+          "type": "background_page",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+          "attached": true
+        },
+        {
+          "targetId": "DF86F82B087A69A9F9E9D25A67679C4C",
+          "type": "page",
+          "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html",
+          "attached": true
+        },
+        {
+          "targetId": "F7AB9CA69D737704094D5E9AF87C24AB",
+          "type": "service_worker",
+          "url": "chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js",
+          "attached": true
+        }
+      ]
+    }
+  ],
+  "checks": [
+    {
+      "name": "the extension loads on a clean profile",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the service worker starts",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the extension is configured against the local fake provider",
+      "ok": true,
+      "detail": "{\"enabled\":true,\"provider\":\"openai-compatible\",\"baseUrl\":\"http://127.0.0.1:61413/v1\",\"version\":4}"
+    },
+    {
+      "name": "the fixture page is open in a tab",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the content script is alive on the page",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the OCR fallback draws a translation overlay",
+      "ok": true,
+      "detail": "overlays=12 processed=1 text=等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | "
+    },
+    {
+      "name": "the overlay carries the model translation",
+      "ok": true,
+      "detail": "等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | 等等！待って！ | "
+    },
+    {
+      "name": "the model answered the full image with zero text, then the OCR strip was translated",
+      "ok": true,
+      "detail": "full-image=1 hybrid=1"
+    },
+    {
+      "name": "the provider request carried the configured key",
+      "ok": true,
+      "detail": "Bearer offline-fixture-key-000000000000000000000000, Bearer offline-fixture-key-000000000000000000000000"
+    },
+    {
+      "name": "every Tesseract asset was loaded from the extension, not the network",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "the translation made zero requests outside the local fixture server",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no CDN request reached the blocking proxy",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "external hosts are unreachable in this browser (jsdelivr control)",
+      "ok": true,
+      "detail": "blocked:Failed to fetch"
+    },
+    {
+      "name": "no extension exception was thrown during the run",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no error-level console output during the run",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "name": "no bare tesseract-core-*.wasm binary was requested (.wasm.js is the only core)",
+      "ok": true,
+      "detail": "82 URLs checked; 1 .wasm.js core request(s)"
+    },
+    {
+      "name": "the OCR ran in the extension offscreen document (chrome-extension://…/offscreen.html)",
+      "ok": true,
+      "detail": "type=background_page topLevel=true firstSeen=2026-11-28T09:07:03.919Z via=attachedToTarget+targetCreated+targetInfoChanged+getTargets:during-translation+getTargets:overlay-detected+getTargets:offscreen-probe+getTargets:end"
+    },
+    {
+      "name": "no page-origin blob: worker was created during the run",
+      "ok": true,
+      "detail": "worker targets seen: 5, none blob:"
+    }
+  ],
   "requests": [
     {
-      "sessionId": "54ECDD5252214E16D4AB2458ABC00E1C",
-      "at": 1795851575494,
-      "url": "http://127.0.0.1:53391/v1/chat/completions",
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856823916,
+      "atIso": "2026-11-28T09:07:03.916Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
       "method": "POST",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
-      "at": 1795851575498,
-      "url": "blob:http://127.0.0.1:53391/d26927be-90f4-4f58-824a-02920b476302",
+      "sessionId": "7E90B55F3A2B91662560AB10636E8E7C",
+      "at": 1795856823917,
+      "atIso": "2026-11-28T09:07:03.917Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823924,
+      "atIso": "2026-11-28T09:07:03.924Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+      "method": "GET",
+      "type": "Document",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823927,
+      "atIso": "2026-11-28T09:07:03.927Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823927,
+      "atIso": "2026-11-28T09:07:03.927Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/ocr-protocol-CZw8MbQQ.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823927,
+      "atIso": "2026-11-28T09:07:03.927Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/text-detector-iZIfL-dY.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823930,
+      "atIso": "2026-11-28T09:07:03.930Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
       "method": "GET",
       "type": "Script",
       "initiator": "other"
     },
     {
-      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
-      "at": 1795851575498,
-      "url": "blob:http://127.0.0.1:53391/d26927be-90f4-4f58-824a-02920b476302",
-      "method": "GET",
-      "type": "Script",
-      "initiator": "other"
-    },
-    {
-      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
-      "at": 1795851575501,
-      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/worker.min.js",
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823938,
+      "atIso": "2026-11-28T09:07:03.938Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/tesseract-core-simd-lstm.wasm.js",
       "method": "GET",
       "type": "Other",
       "initiator": "script"
     },
     {
-      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
-      "at": 1795851575507,
-      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/tesseract-core-simd-lstm.wasm.js",
-      "method": "GET",
-      "type": "Other",
-      "initiator": "script"
-    },
-    {
-      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
-      "at": 1795851575555,
-      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/chi_sim.traineddata.gz",
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/chi_sim.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
-      "at": 1795851575555,
-      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/eng.traineddata.gz",
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/eng.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
-      "at": 1795851575555,
-      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/jpn.traineddata.gz",
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/jpn.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "51CDFEE72BFC303540423DA7177654D3",
-      "at": 1795851575555,
-      "url": "chrome-extension://gchpdaphbiohgalmahceenmaegbhjbel/tesseract/lang/kor.traineddata.gz",
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/kor.traineddata.gz",
       "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     },
     {
-      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
-      "at": 1795851575825,
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824214,
+      "atIso": "2026-11-28T09:07:04.214Z",
       "url": "data:image/jpeg;base64,… (11791 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
-      "at": 1795851575825,
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824214,
+      "atIso": "2026-11-28T09:07:04.214Z",
       "url": "data:image/jpeg;base64,… (11791 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
-      "at": 1795851575832,
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824221,
+      "atIso": "2026-11-28T09:07:04.221Z",
       "url": "data:image/png;base64,… (4950 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
-      "at": 1795851575833,
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
       "url": "data:image/png;base64,… (5078 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "56C3935797B2F9750C39D7751BFF6BD3",
-      "at": 1795851575834,
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
       "url": "data:image/png;base64,… (5026 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
-      "at": 1795851575834,
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
       "url": "data:image/png;base64,… (4950 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
-      "at": 1795851575835,
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
       "url": "data:image/png;base64,… (5078 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "470FE9D2E98680F691F67DB66BA53606",
-      "at": 1795851575835,
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824223,
+      "atIso": "2026-11-28T09:07:04.223Z",
       "url": "data:image/png;base64,… (5026 chars)",
       "method": "GET",
       "type": "Image",
       "initiator": "other"
     },
     {
-      "sessionId": "54ECDD5252214E16D4AB2458ABC00E1C",
-      "at": 1795851576185,
-      "url": "http://127.0.0.1:53391/v1/chat/completions",
+      "sessionId": "E2C15EDDEA128681F9FC5668C8A15D1E",
+      "at": 1795856824422,
+      "atIso": "2026-11-28T09:07:04.422Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
       "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856824423,
+      "atIso": "2026-11-28T09:07:04.423Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7E90B55F3A2B91662560AB10636E8E7C",
+      "at": 1795856824423,
+      "atIso": "2026-11-28T09:07:04.423Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    }
+  ],
+  "allRequests": [
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://omnibox-popup.top-chrome/strings.m.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/js/load_time_data.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/lit/v3_0/lit.rollup.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/mojo/mojo/public/js/bindings.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-webui.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/mojo/url/mojom/url.mojom-webui.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/time.mojom-webui.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820625,
+      "atIso": "2026-11-28T09:07:00.625Z",
+      "url": "chrome://resources/cr_components/color_change_listener/color_change_listener.mojom-webui.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820630,
+      "atIso": "2026-11-28T09:07:00.630Z",
+      "url": "chrome://resources/js/assert.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820631,
+      "atIso": "2026-11-28T09:07:00.631Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/big_buffer.mojom-webui.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820631,
+      "atIso": "2026-11-28T09:07:00.631Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/string16.mojom-converters.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820631,
+      "atIso": "2026-11-28T09:07:00.631Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/string16_converter.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820632,
+      "atIso": "2026-11-28T09:07:00.632Z",
+      "url": "chrome://resources/mojo/url/mojom/url.mojom-converters.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820632,
+      "atIso": "2026-11-28T09:07:00.632Z",
+      "url": "chrome://resources/mojo/url/mojom/url_converter.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820635,
+      "atIso": "2026-11-28T09:07:00.635Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/time.mojom-converters.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820635,
+      "atIso": "2026-11-28T09:07:00.635Z",
+      "url": "chrome://resources/mojo/mojo/public/mojom/base/time_converters.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "4502AB2DE87D0361C8CCA31921231B64",
+      "at": 1795856820669,
+      "atIso": "2026-11-28T09:07:00.669Z",
+      "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/tts_extension.js",
+      "method": "GET",
+      "type": "Other",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820678,
+      "atIso": "2026-11-28T09:07:00.678Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/background.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820680,
+      "atIso": "2026-11-28T09:07:00.680Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/local-providers-8xk73gjs.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820680,
+      "atIso": "2026-11-28T09:07:00.680Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/usage-store-D1JBxrGJ.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820681,
+      "atIso": "2026-11-28T09:07:00.681Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/runtime-contracts-CaNKDfmo.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820681,
+      "atIso": "2026-11-28T09:07:00.681Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/ocr-protocol-CZw8MbQQ.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820681,
+      "atIso": "2026-11-28T09:07:00.681Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/index-Cxca7a85.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820681,
+      "atIso": "2026-11-28T09:07:00.681Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/commands-DcgzgVrr.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856820681,
+      "atIso": "2026-11-28T09:07:00.681Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/state-vendor-6LVtU4WP.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820684,
+      "atIso": "2026-11-28T09:07:00.684Z",
+      "url": "chrome://theme/colors.css?sets=ui%2Cchrome&version=1795856820670",
+      "method": "GET",
+      "type": "Stylesheet",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820686,
+      "atIso": "2026-11-28T09:07:00.686Z",
+      "url": "data:image/png;base64,… (30462 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820688,
+      "atIso": "2026-11-28T09:07:00.688Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html",
+      "method": "GET",
+      "type": "Document",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "at": 1795856820691,
+      "atIso": "2026-11-28T09:07:00.691Z",
+      "url": "chrome://theme/colors.css?sets=ui%2Cchrome&version=1795856820688",
+      "method": "GET",
+      "type": "Stylesheet",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/modulepreload-polyfill-YP0FEG5d.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/state-vendor-6LVtU4WP.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/react-dom-vendor-BE9G4YoE.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/local-providers-8xk73gjs.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/usage-store-D1JBxrGJ.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/theme-DUlAYnUH.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/utils-vendor-BeLtu-UY.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/index-CbuPjTo5.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/index-Cxca7a85.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/cache-v2-sjp09VOw.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/options.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "at": 1795856820698,
+      "atIso": "2026-11-28T09:07:00.698Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/assets/index-DOw59cCO.css",
+      "method": "GET",
+      "type": "Stylesheet",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856822340,
+      "atIso": "2026-11-28T09:07:02.340Z",
+      "url": "http://127.0.0.1:61413/",
+      "method": "GET",
+      "type": "Document",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856822340,
+      "atIso": "2026-11-28T09:07:02.340Z",
+      "url": "http://127.0.0.1:61413/",
+      "method": "GET",
+      "type": "Document",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856822347,
+      "atIso": "2026-11-28T09:07:02.347Z",
+      "url": "http://127.0.0.1:61413/page.png",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856822347,
+      "atIso": "2026-11-28T09:07:02.347Z",
+      "url": "http://127.0.0.1:61413/page.png",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856822380,
+      "atIso": "2026-11-28T09:07:02.380Z",
+      "url": "http://127.0.0.1:61413/favicon.ico",
+      "method": "GET",
+      "type": "Other",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856822380,
+      "atIso": "2026-11-28T09:07:02.380Z",
+      "url": "http://127.0.0.1:61413/favicon.ico",
+      "method": "GET",
+      "type": "Other",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856823916,
+      "atIso": "2026-11-28T09:07:03.916Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7E90B55F3A2B91662560AB10636E8E7C",
+      "at": 1795856823917,
+      "atIso": "2026-11-28T09:07:03.917Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823924,
+      "atIso": "2026-11-28T09:07:03.924Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html",
+      "method": "GET",
+      "type": "Document",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823927,
+      "atIso": "2026-11-28T09:07:03.927Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "parser"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823927,
+      "atIso": "2026-11-28T09:07:03.927Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/ocr-protocol-CZw8MbQQ.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823927,
+      "atIso": "2026-11-28T09:07:03.927Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/chunks/text-detector-iZIfL-dY.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "at": 1795856823930,
+      "atIso": "2026-11-28T09:07:03.930Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
+      "method": "GET",
+      "type": "Script",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823938,
+      "atIso": "2026-11-28T09:07:03.938Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/tesseract-core-simd-lstm.wasm.js",
+      "method": "GET",
+      "type": "Other",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/chi_sim.traineddata.gz",
+      "method": "GET",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/eng.traineddata.gz",
+      "method": "GET",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/jpn.traineddata.gz",
+      "method": "GET",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "at": 1795856823969,
+      "atIso": "2026-11-28T09:07:03.969Z",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/lang/kor.traineddata.gz",
+      "method": "GET",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824214,
+      "atIso": "2026-11-28T09:07:04.214Z",
+      "url": "data:image/jpeg;base64,… (11791 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824214,
+      "atIso": "2026-11-28T09:07:04.214Z",
+      "url": "data:image/jpeg;base64,… (11791 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824221,
+      "atIso": "2026-11-28T09:07:04.221Z",
+      "url": "data:image/png;base64,… (4950 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
+      "url": "data:image/png;base64,… (5078 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
+      "url": "data:image/png;base64,… (5026 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
+      "url": "data:image/png;base64,… (4950 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824222,
+      "atIso": "2026-11-28T09:07:04.222Z",
+      "url": "data:image/png;base64,… (5078 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "at": 1795856824223,
+      "atIso": "2026-11-28T09:07:04.223Z",
+      "url": "data:image/png;base64,… (5026 chars)",
+      "method": "GET",
+      "type": "Image",
+      "initiator": "other"
+    },
+    {
+      "sessionId": "E2C15EDDEA128681F9FC5668C8A15D1E",
+      "at": 1795856824422,
+      "atIso": "2026-11-28T09:07:04.422Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "at": 1795856824423,
+      "atIso": "2026-11-28T09:07:04.423Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "7E90B55F3A2B91662560AB10636E8E7C",
+      "at": 1795856824423,
+      "atIso": "2026-11-28T09:07:04.423Z",
+      "url": "http://127.0.0.1:61413/v1/chat/completions",
+      "method": "POST",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "CB2F8B7AEDE414E18A2149C1DCE7572E",
+      "at": 1795856826942,
+      "atIso": "2026-11-28T09:07:06.942Z",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@v7.0.0/dist/worker.min.js",
+      "method": "GET",
+      "type": "Fetch",
+      "initiator": "script"
+    },
+    {
+      "sessionId": "0313F3FBF723643B28D2B1DD1CC084AD",
+      "at": 1795856826942,
+      "atIso": "2026-11-28T09:07:06.942Z",
+      "url": "https://cdn.jsdelivr.net/npm/tesseract.js@v7.0.0/dist/worker.min.js",
+      "method": "GET",
       "type": "Fetch",
       "initiator": "script"
     }
   ],
   "workerResources": [
     {
-      "url": "blob:http://127.0.0.1:53391/d26927be-90f4-4f58-824a-02920b476302",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
       "resources": []
     }
   ],
+  "sessionResources": [
+    {
+      "sessionId": "DB7C80C9B287A758CFD0D603DDA7FDE1",
+      "type": "browser_ui",
+      "url": "chrome://omnibox-popup.top-chrome/",
+      "resources": []
+    },
+    {
+      "sessionId": "AED2910D6680F80BC22AFB979F4D5B84",
+      "type": "page",
+      "url": "about:blank",
+      "resources": []
+    },
+    {
+      "sessionId": "87D7217FC6B1B66D123B77C6A8699E25",
+      "type": "service_worker",
+      "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js",
+      "resources": []
+    },
+    {
+      "sessionId": "36A701B2D49EB0C958B8A470D54259C7",
+      "type": "service_worker",
+      "url": "chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js",
+      "resources": []
+    },
+    {
+      "sessionId": "4502AB2DE87D0361C8CCA31921231B64",
+      "type": "service_worker",
+      "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js",
+      "resources": []
+    },
+    {
+      "sessionId": "E666682EA2AA08837FADBF6719E58EFD",
+      "type": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "resources": [
+        "http://127.0.0.1:61413/v1/chat/completions",
+        "http://127.0.0.1:61413/v1/chat/completions"
+      ]
+    },
+    {
+      "sessionId": "7E90B55F3A2B91662560AB10636E8E7C",
+      "type": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "resources": [
+        "http://127.0.0.1:61413/v1/chat/completions",
+        "http://127.0.0.1:61413/v1/chat/completions"
+      ]
+    },
+    {
+      "sessionId": "F39A39AFFF19327F9E18399DE9AF79D3",
+      "type": "page",
+      "url": "about:blank",
+      "resources": [
+        "http://127.0.0.1:61413/page.png",
+        "http://127.0.0.1:61413/favicon.ico"
+      ]
+    },
+    {
+      "sessionId": "36195D10B826029C8EDDD81227D133F9",
+      "type": "page",
+      "url": "about:blank",
+      "resources": [
+        "http://127.0.0.1:61413/page.png",
+        "http://127.0.0.1:61413/favicon.ico"
+      ]
+    },
+    {
+      "sessionId": "AF3D73B43EFEB9AEA3ACCD261EA0AABE",
+      "type": "other",
+      "url": "",
+      "resources": []
+    },
+    {
+      "sessionId": "E2C15EDDEA128681F9FC5668C8A15D1E",
+      "type": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js",
+      "resources": [
+        "http://127.0.0.1:61413/v1/chat/completions",
+        "http://127.0.0.1:61413/v1/chat/completions"
+      ]
+    },
+    {
+      "sessionId": "7F12C3CB9419D0995D2F0DB85F02CBCC",
+      "type": "worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js",
+      "resources": []
+    }
+  ],
+  "offscreenResources": [],
   "apiRequests": [
     {
       "hybrid": false,
@@ -167,13 +1498,13 @@
     }
   ],
   "proxyAttemptsDuringRun": [
-    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:xb7cdYiZpO_j1hSYqaXGSIOIV9XPFkXRabzNzNa_al0&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:ttX6wAAjA1gqs-X9O_lxvNa86ya5r1Beh5dmcgkL1v0&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "CONNECT www.gstatic.com:443",
     "CONNECT www.google.com:443",
     "CONNECT update.googleapis.com:443",
+    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:tgz3EJGSuJH_3rwl1ZvTd76fuZeIs4WPpg066hWzFd4&cup2hreq=e8878960c5dbf4c84992bc4c43a476fa0aa7f6033686cf6e055998ac7c687085",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
-    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:fzEjTa8R0rPLIiCh1nd4H-_7mBXpjpzD6hQPROeaod4&cup2hreq=8e2da17197d52d7189ca2f3b6e4f98bb4c9eb28d9d7d105c43e87d587bd39dbb",
     "CONNECT www.google.com:443",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
@@ -183,13 +1514,13 @@
     "CONNECT accounts.google.com:443"
   ],
   "proxyAttemptsAll": [
-    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:xb7cdYiZpO_j1hSYqaXGSIOIV9XPFkXRabzNzNa_al0&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "http://clients2.google.com/time/1/current?cup2key=ML-DSA-44-10:ttX6wAAjA1gqs-X9O_lxvNa86ya5r1Beh5dmcgkL1v0&cup2hreq=e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
     "CONNECT www.gstatic.com:443",
     "CONNECT www.google.com:443",
     "CONNECT update.googleapis.com:443",
+    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:tgz3EJGSuJH_3rwl1ZvTd76fuZeIs4WPpg066hWzFd4&cup2hreq=e8878960c5dbf4c84992bc4c43a476fa0aa7f6033686cf6e055998ac7c687085",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",
-    "http://update.googleapis.com/service/update2/json?cup2key=ML-DSA-44-16:fzEjTa8R0rPLIiCh1nd4H-_7mBXpjpzD6hQPROeaod4&cup2hreq=8e2da17197d52d7189ca2f3b6e4f98bb4c9eb28d9d7d105c43e87d587bd39dbb",
     "CONNECT www.google.com:443",
     "CONNECT accounts.google.com:443",
     "CONNECT www.google.com:443",

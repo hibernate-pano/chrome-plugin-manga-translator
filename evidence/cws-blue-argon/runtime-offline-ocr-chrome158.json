@@ -1,0 +1,244 @@
+{
+  "label": "final-head-chrome158",
+  "startedAt": "2026-11-28T09:07:29.584Z",
+  "chrome": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome",
+  "dist": "/Users/panbo/orca/workspaces/chrome-plugin-manga-translator/manga-233-integration/dist",
+  "load": "unpacked",
+  "extensionId": "gcdfcjemobohjngkkgpbfdiiogfdalcn",
+  "createDocumentProbe": null,
+  "serviceWorkerConsole": [],
+  "serviceWorkerWarnings": [],
+  "exceptions": [],
+  "logErrors": [
+    {
+      "sessionId": "FD95FD8A4B6EA91D9506FC8EA7932F31",
+      "url": "about:blank",
+      "text": "Denying load of chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html. Resources must be listed in the web_accessible_resources manifest key in order to be loaded by pages outside the extension."
+    },
+    {
+      "sessionId": "F006C2DF7691F3EE07D260549EC4205F",
+      "url": "about:blank",
+      "text": "Denying load of chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html. Resources must be listed in the web_accessible_resources manifest key in order to be loaded by pages outside the extension."
+    },
+    {
+      "sessionId": "FD95FD8A4B6EA91D9506FC8EA7932F31",
+      "url": "about:blank",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "sessionId": "F006C2DF7691F3EE07D260549EC4205F",
+      "url": "about:blank",
+      "text": "Failed to load resource: net::ERR_FAILED"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: language_model_ngram_on"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: segsearch_max_char_wh_ratio"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: language_model_ngram_space_delimited_language"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: language_model_use_sigmoidal_certainty"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: language_model_ngram_nonmatch_score"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: classify_integer_matcher_multiplier"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: assume_fixed_pitch_char_segment"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Warning: Parameter not found: allow_blob_division"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Estimating resolution as 504"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Estimating resolution as 504"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Estimating resolution as 504"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Estimating resolution as 504"
+    },
+    {
+      "sessionId": "AEB6E7AC76A1145816E0B017E6E9ED3B",
+      "url": "",
+      "text": "Estimating resolution as 504"
+    }
+  ],
+  "pipeline": null,
+  "malicious": {
+    "iframes": [],
+    "extensionIframes": [],
+    "fragment": "",
+    "windowName": "",
+    "fetchExtensionPage": {
+      "resolved": false,
+      "name": "TypeError",
+      "message": "Failed to fetch"
+    },
+    "messages": [
+      {
+        "type": "OCR_FRAME_JOB",
+        "token": "probe",
+        "origin": "http://127.0.0.1:61488"
+      },
+      {
+        "type": "OCR_FRAME_READY",
+        "token": "probe",
+        "origin": "http://127.0.0.1:61488"
+      },
+      {
+        "type": "OCR_FRAME_RESULT",
+        "token": "probe",
+        "origin": "http://127.0.0.1:61488"
+      },
+      {
+        "type": "OCR_RECOGNIZE",
+        "token": null,
+        "origin": "http://127.0.0.1:61488"
+      }
+    ],
+    "extensionOriginMessages": []
+  },
+  "jobs": {
+    "warmup": {
+      "ms": 994,
+      "racedOut": false,
+      "success": true,
+      "regions": 27
+    },
+    "second": {
+      "ms": 700,
+      "racedOut": false,
+      "success": true,
+      "regions": 27
+    },
+    "third": {
+      "ms": 692,
+      "racedOut": false,
+      "success": true,
+      "regions": 27
+    },
+    "workerIds": {
+      "beforeSecond": [
+        "4803350EB8EAA2F33F47F1203434D880"
+      ],
+      "afterSecond": [
+        "4803350EB8EAA2F33F47F1203434D880"
+      ],
+      "afterThird": [
+        "4803350EB8EAA2F33F47F1203434D880"
+      ]
+    },
+    "pair": {
+      "first": {
+        "ms": 693,
+        "racedOut": false,
+        "success": true,
+        "regions": 27
+      },
+      "second": {
+        "ms": 1055,
+        "racedOut": false,
+        "success": true,
+        "regions": 27
+      }
+    },
+    "offscreenTargets": [],
+    "blobWorkers": []
+  },
+  "targets": [
+    {
+      "id": "C02ADE60F9082241E39A3851D18BB510",
+      "type": "service_worker",
+      "url": "chrome-extension://nkeimhogjdpnpccoofpliimaahmaaome/thunk.js"
+    },
+    {
+      "id": "F294BE70A396D820B9B7434CCCAB1149",
+      "type": "service_worker",
+      "url": "chrome-extension://admccjkmockfdflocgggjfgdacdodkdf/background.js"
+    },
+    {
+      "id": "BBA7447E16569E2C62517097B7BE1FE2",
+      "type": "service_worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/service-worker-loader.js"
+    },
+    {
+      "id": "B38406A063FBDF5ACF374740055C97AD",
+      "type": "service_worker",
+      "url": "chrome-extension://fignfifoniblkonapihmkfakmlgkbkcf/service_worker.js"
+    },
+    {
+      "id": "4803350EB8EAA2F33F47F1203434D880",
+      "type": "worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js"
+    },
+    {
+      "id": "EC37BFA8009977FA8C756C0452C30F71",
+      "type": "page",
+      "url": "http://127.0.0.1:61488/"
+    },
+    {
+      "id": "72D52EE6C1FF4264062F323024F45F3B",
+      "type": "page",
+      "url": "about:blank"
+    },
+    {
+      "id": "0C9E925298E2DBF9209CEAFC68D2B8CE",
+      "type": "browser_ui",
+      "url": "chrome://omnibox-popup.top-chrome/"
+    },
+    {
+      "id": "5A4B9EC858FCF5C2C8162D41293057DE",
+      "type": "page",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/src/options.html"
+    },
+    {
+      "id": "240ADCAB2F3BC61D95C97FABBB06B56A",
+      "type": "background_page",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/offscreen.html"
+    }
+  ],
+  "workers": [
+    {
+      "id": "4803350EB8EAA2F33F47F1203434D880",
+      "type": "worker",
+      "url": "chrome-extension://gcdfcjemobohjngkkgpbfdiiogfdalcn/tesseract/worker.min.js"
+    }
+  ],
+  "notes": [
+    "config persisted: {\"baseUrl\":\"http://127.0.0.1:61488/v1\",\"version\":4} (stable=3)"
+  ],
+  "finishedAt": "2026-11-28T09:07:38.733Z"
+}
