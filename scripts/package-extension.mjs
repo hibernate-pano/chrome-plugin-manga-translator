@@ -38,6 +38,26 @@ if (manifest.version !== packageJson.version) {
 }
 
 /**
+ * The store package must carry the third-party notices.
+ *
+ * The bundled OCR data, tesseract.js and the rest of the dependency tree ship
+ * their licences with an obligation to reproduce the notices. Keeping the file
+ * at the repository root — rather than in `dist/`, which every build
+ * regenerates — makes the requirement a property of the repository instead of
+ * a build output that can go missing. Packaging refuses to produce a ZIP
+ * without it; a package that silently drops the notices is a licence
+ * violation, not a smaller download.
+ */
+const noticesName = 'THIRD-PARTY-NOTICES';
+const noticesPath = join(projectRoot, noticesName);
+if (!existsSync(noticesPath)) {
+  console.error(
+    `[package] ${noticesName} is missing from the repository root — refusing to build a store package without the third-party notices`
+  );
+  process.exit(1);
+}
+
+/**
  * Refuse to package a dist/ that does not match the source in front of us.
  *
  * `package:public` runs the build itself, so a stale artifact should be
@@ -70,6 +90,11 @@ execFileSync(
     cwd: distDir,
   }
 );
+
+// `-j` (junk paths) is what lands the notices at the ZIP root. The file sits
+// outside dist/ on purpose, and the store reviews the extracted archive rather
+// than the repository, so its location in the ZIP is the one that matters.
+execFileSync('zip', ['-qj', zipPath, noticesPath]);
 
 const digest = createHash('sha256').update(readFileSync(zipPath)).digest('hex');
 writeFileSync(`${zipPath}.sha256`, `${digest}  ${zipName}\n`);
