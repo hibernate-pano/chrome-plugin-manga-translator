@@ -10,20 +10,35 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **OCR works on sites whose CSP forbids page workers.** Tesseract now runs at
-  the extension's own origin, not in the page. A content script's worker
-  inherits the hosting page's CSP, so a site shipping `worker-src 'none'` (or a
-  `script-src 'self'` with no room for `blob:`) used to take the detector down
-  with it. Text detection now tries three transports in order and keeps the
-  first that runs for the rest of the session: an offscreen document created by
-  the service worker (`chrome.offscreen`, reason `WORKERS`, reached over a
-  `runtime.Port`); the same extension page embedded as an iframe
-  (`postMessage` with a per-session token, available when the page's
-  `frame-src` allows it); and the original in-page blob worker as the last
-  resort. Only transport failures advance the chain — an OCR failure is
+  the extension's own origin instead of in the page (Chrome 113 and later). A
+  content script's worker inherits the hosting page's CSP, so a site shipping
+  `worker-src 'none'` (or a `script-src 'self'` with no room for `blob:`) used
+  to take the detector down with it. Text detection now tries two transports
+  in order and keeps the first that runs for the rest of the session: an
+  offscreen document created by the service worker (`chrome.offscreen`, reason
+  `WORKERS`, reached over a `runtime.Port`), and the original in-page blob
+  worker as the fallback. The `WORKERS` reason exists only since Chrome 113,
+  while the extension's floor is Chrome 110: on 110–112 `createDocument` is
+  rejected as an invalid reason, so OCR runs in the page under the page's CSP
+  and sites with `worker-src 'none'` remain unsupported there. There is no
+  extension-origin iframe transport: embedding an extension page in the host
+  page gave page script a handle into extension-origin code, and the token
+  that scoped the channel lived in the frame's URL fragment, where page script
+  could read it. Only transport failures advance the chain — an OCR failure is
   reported instead of repeated on the next transport. On the extension origin
   the packaged worker loads directly (`workerBlobURL` is used only in the page,
   where the extension CSP does not admit `blob:` and Chrome refuses a direct
   extension-origin worker anyway).
+- **The OCR worker is reused between images.** The cache compared the caller's
+  language array against a sorted key, so the comparison never matched: every
+  recognition terminated the worker and reloaded the four language packs.
+  Both sides now use one canonical key, and worker creation is serialised so
+  two concurrent first calls cannot build two workers and leak one.
+- **Offscreen OCR jobs run one at a time.** Tesseract's worker is stateful: a
+  second job arriving while the first was still recognising — a reader
+  scrolling a chapter — could corrupt both answers, and a language change
+  terminated the worker mid-job. The offscreen document now queues jobs on a
+  single promise chain.
 - **The never-loaded 2.86 MB core binary is gone.** The single-file
   `tesseract-core-simd-lstm.wasm.js` embeds the WebAssembly binary; nothing ever
   fetched the separate `tesseract-core-simd-lstm.wasm` — the acceptance check

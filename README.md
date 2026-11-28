@@ -141,9 +141,10 @@ Open any manga page, click the toolbar icon, then **Translate current page**.
   inside the extension — the worker script, the single-file SIMD-LSTM WASM core
   and the Korean, Japanese, English and Simplified Chinese language data — and
   makes no network request. Since 2.3.3 it runs at the extension's own origin
-  (an offscreen document first, the same extension page embedded as an iframe
-  second, the old in-page worker only as a last resort), so a site whose CSP
-  forbids page workers (`worker-src 'none'`) no longer disables OCR. Every
+  in an offscreen document (Chrome 113 and later), so a site whose CSP forbids
+  page workers (`worker-src 'none'`) no longer disables OCR. Chrome 110–112
+  predate the offscreen reason this needs, so there the detector falls back to
+  the in-page worker and the page's CSP applies again. Every
   bundled third-party package is listed in `THIRD-PARTY-NOTICES` with its exact
   version and licence.
 - **Local-first**: user-entered config and obfuscated API keys live in
